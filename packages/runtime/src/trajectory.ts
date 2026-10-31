@@ -680,8 +680,7 @@ export interface TrajectoryStore extends TrajectorySink {
     ): Promise<Readonly<TrajectoryReadResult>>;
 }
 
-// TODO(trajectory-durable-outbox): 未来可在不改变事实事件契约的前提下增加持久化
-// Outbox、异步重试和原子双写；当前实现不提供这些能力，也不通过 Trajectory replay 恢复 Runtime。
+// Trajectory 不提供 durable Outbox、异步重试或原子双写，也不通过 replay 恢复 Runtime。
 
 /** Trajectory 按 Goal、Run 和序列范围读取的查询条件。 */
 export interface TrajectoryReadQuery {

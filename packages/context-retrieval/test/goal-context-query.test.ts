@@ -36,7 +36,7 @@ function createDummyEvent(
     } as unknown as TrajectoryEvent;
 }
 
-test("TODO 4.1: 目录稳定分页 - directory_browse 支持 limit 与游标顺序翻页", () => {
+test("目录稳定分页 - directory_browse 支持 limit 与游标顺序翻页", () => {
     const goalId = "goal-query-page";
     const runId = "run-1";
     const events: TrajectoryEvent[] = [
@@ -107,7 +107,7 @@ test("TODO 4.1: 目录稳定分页 - directory_browse 支持 limit 与游标顺�
     assert.equal(uniqueRefs.size, 4);
 });
 
-test("TODO 4.2: 来源摘要变化使游标失效 - 来源变更后旧游标明确拒绝", () => {
+test("来源摘要变化使游标失效 - 来源变更后旧游标明确拒绝", () => {
     const goalId = "goal-cursor-invalidation";
     const runId = "run-1";
     const events1: TrajectoryEvent[] = [
@@ -164,7 +164,7 @@ test("TODO 4.2: 来源摘要变化使游标失效 - 来源变更后旧游标明�
     );
 });
 
-test("TODO 4.3: 直接展开无需关键词搜索 - source_expand 直接返回详情", () => {
+test("直接展开无需关键词搜索 - source_expand 直接返回详情", () => {
     const goalId = "goal-direct-expand";
     const runId = "run-1";
     const events: TrajectoryEvent[] = [
@@ -220,7 +220,7 @@ test("TODO 4.3: 直接展开无需关键词搜索 - source_expand 直接返回�
     assert.ok(noteDetails.content.includes("提高并发读取性能"));
 });
 
-test("TODO 4.4: 非法引用与越界访问明确失败，不执行文件与越权操作", () => {
+test("非法引用与越界访问明确失败，不执行文件与越权操作", () => {
     const goalId = "goal-illegal-ref";
     const runId = "run-1";
     const events: TrajectoryEvent[] = [
@@ -273,7 +273,7 @@ test("TODO 4.4: 非法引用与越界访问明确失败，不执行文件与越�
     );
 });
 
-test("TODO 4.5: 大正文截断标记与按 offset 完整继续读取", () => {
+test("大正文截断标记与按 offset 完整继续读取", () => {
     const goalId = "goal-large-content";
     const runId = "run-1";
     // 创建一个包含长文本的事件
@@ -330,7 +330,7 @@ test("TODO 4.5: 大正文截断标记与按 offset 完整继续读取", () => {
     assert.equal(part1.content + part2.content + part3.content, longPayloadText);
 });
 
-test("TODO 4.6: 目录搜索 directory_search 支持按关键词定位阶段与重要信息", () => {
+test("目录搜索 directory_search 支持按关键词定位阶段与重要信息", () => {
     const goalId = "goal-dir-search";
     const runId = "run-1";
     const events: TrajectoryEvent[] = [

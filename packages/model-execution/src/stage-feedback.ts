@@ -97,6 +97,12 @@ function safeIssueMessage(code: string, diagnosticMessage?: string): string {
             return "Remove this field; the current schema does not allow it.";
         }
         case "string_min_length": return "Use a non-blank string at this path.";
+        case "string_max_length": return "Shorten the string at this path to the allowed length.";
+        case "number_minimum": return "Use a number at or above the allowed minimum at this path.";
+        case "number_maximum": return "Use a number at or below the allowed maximum at this path.";
+        case "array_min_items": return "Add items at this path until the array reaches the allowed minimum count.";
+        case "array_max_items": return "Remove items at this path until the array reaches the allowed maximum count.";
+        case "not_json": return "Send JSON data at this path; do not send class instances, functions, or cyclic values.";
         case "invalid_type": {
             switch (diagnosticMessage) {
                 case "Expected an array": return "Use a JSON array at this path, with element types matching the current schema.";

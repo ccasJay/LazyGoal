@@ -1,9 +1,9 @@
 /**
- * 生成 Agent 能力拆包的行为对照基线。
+ * 生成模型执行组件的行为对照基线。
  *
  * @remarks
- * 只在迁移前或明确需要重建对照数据时手动运行：
- * `npx tsx packages/agent/test/component-extraction-baseline.generate.ts`
+ * 只在明确需要重建对照数据时手动运行：
+ * `npx tsx packages/model-execution/test/component-extraction-baseline.generate.ts`
  * 回归测试只读取并比较基线，不会自动覆盖它。
  */
 
@@ -20,4 +20,4 @@ const outputPath = join(
 const baseline = await buildComponentExtractionBaseline();
 await mkdir(dirname(outputPath), { recursive: true });
 await writeFile(outputPath, `${JSON.stringify(baseline, null, 2)}\n`, "utf8");
-process.stdout.write(`组件拆包行为基线已写入 ${outputPath}\n`);
+process.stdout.write(`模型执行组件行为基线已写入 ${outputPath}\n`);

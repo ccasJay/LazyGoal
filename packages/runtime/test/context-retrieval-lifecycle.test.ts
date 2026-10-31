@@ -7,6 +7,8 @@ import {
     createGoal,
     createStepExecutor,
     Runner,
+    IndexedContextLookupService,
+    invokeContextLookup,
     type AgentDecision,
     type AgentProfile,
     type ContextLookupPort,
@@ -228,6 +230,7 @@ test("Runner resumes a committed lookup result after interruption without queryi
                 kind: "context_lookup",
                 need: "historical_execution",
                 question: "之前做过什么？",
+                filters: { actionIds: [], paths: [], stepIndexes: [] },
             };
         }
         controller.abort();
@@ -274,4 +277,33 @@ test("Runner resumes a committed lookup result after interruption without queryi
     assert.equal(resumed.ok, true);
     assert.equal(resumedInputs[0]?.contextLookupResult?.status, "not_found");
     assert.equal(portCalls, 1);
+});
+
+test("Runtime 使用真实检索器处理空过滤数组", async () => {
+    const goal = runningGoal(1);
+    const trajectory = new MemoryTrajectoryStore([seedObservation(goal)]);
+    const store = new InMemoryGoalStore();
+    await store.save(goal);
+    const executor = new RecordingStepExecutor([
+        { kind: "context_lookup", need: "historical_execution", question: "seed", filters: { actionIds: [], paths: [], stepIndexes: [] } },
+        { kind: "complete", summary: "完成", completionEvidence: [] },
+    ]);
+    const result = await new Runner({ store, executor, trajectoryStore: trajectory,
+        contextLookupPort: new IndexedContextLookupService({ trajectoryStore: trajectory, minimumScore: 0 }),
+    }).run({ goalId: goal.id, runId: goal.state.run.id });
+    assert.equal(result.ok, true);
+    assert.equal(executor.inputs[1]?.contextLookupResult?.status, "not_found");
+    assert.equal(trajectory.events.some(event => event.eventType === "context_lookup_failed"), false);
+});
+
+test("空历史中空过滤数组返回未找到", async () => {
+    const goal = runningGoal();
+    const trajectory = new MemoryTrajectoryStore();
+    const invocation = await invokeContextLookup({
+        goal,
+        phase: "executing",
+        request: { kind: "context_lookup", need: "historical_execution", question: "missing", filters: { actionIds: [] } },
+        port: new IndexedContextLookupService({ trajectoryStore: trajectory, minimumScore: 0 }),
+    });
+    assert.equal(invocation.result.status, "not_found");
 });

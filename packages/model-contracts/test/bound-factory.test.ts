@@ -99,7 +99,7 @@ function toolCallEnvelopeBinding(): ContractBinding<ToolCallDecisionEnvelope> {
                     ok: false,
                     contractId,
                     version: 1,
-                    issues: [{ path: "", code: "type" }],
+                    issues: [{ path: "", code: "invalid_type" }],
                     truncated: false,
                 };
             }

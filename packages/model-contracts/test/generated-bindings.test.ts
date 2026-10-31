@@ -110,18 +110,18 @@ test("真实绑定拒绝越界数组与非法整数元素", () => {
         evidenceSequences: [1.5],
     }, "strip");
     assert.equal(completeRun.ok, false);
-    if (!completeRun.ok) assert.ok(completeRun.issues.some((issue) => issue.code === "type" && issue.path === "/evidenceSequences/0"));
+    if (!completeRun.ok) assert.ok(completeRun.issues.some((issue) => issue.code === "invalid_type" && issue.path === "/evidenceSequences/0"));
 
     const negative = modelOutputBindings.systemTools.completeRun.read({
         summary: "done",
         evidenceSequences: [-1],
     }, "strip");
     assert.equal(negative.ok, false);
-    if (!negative.ok) assert.ok(negative.issues.some((issue) => issue.code === "range" && issue.path === "/evidenceSequences/0"));
+    if (!negative.ok) assert.ok(negative.issues.some((issue) => issue.code === "number_minimum" && issue.path === "/evidenceSequences/0"));
 
     const noQuestions = modelOutputBindings.systemTools.askUser.read({ questions: [] }, "strip");
     assert.equal(noQuestions.ok, false);
-    if (!noQuestions.ok) assert.ok(noQuestions.issues.some((issue) => issue.code === "length" && issue.path === "/questions"));
+    if (!noQuestions.ok) assert.ok(noQuestions.issues.some((issue) => issue.code === "array_min_items" && issue.path === "/questions"));
 
     const oneOption = modelOutputBindings.systemTools.askUser.read({
         questions: [{
@@ -132,7 +132,7 @@ test("真实绑定拒绝越界数组与非法整数元素", () => {
         }],
     }, "strip");
     assert.equal(oneOption.ok, false);
-    if (!oneOption.ok) assert.ok(oneOption.issues.some((issue) => issue.code === "length" && issue.path === "/questions/0/options"));
+    if (!oneOption.ok) assert.ok(oneOption.issues.some((issue) => issue.code === "array_min_items" && issue.path === "/questions/0/options"));
 
     const tooManyFilters = modelOutputBindings.systemTools.contextLookup.read({
         request: {
@@ -143,7 +143,7 @@ test("真实绑定拒绝越界数组与非法整数元素", () => {
         },
     }, "strip");
     assert.equal(tooManyFilters.ok, false);
-    if (!tooManyFilters.ok) assert.ok(tooManyFilters.issues.some((issue) => issue.code === "length" && issue.path === "/request/filters/eventTypes"));
+    if (!tooManyFilters.ok) assert.ok(tooManyFilters.issues.some((issue) => issue.code === "array_max_items" && issue.path === "/request/filters/eventTypes"));
 
     const badStepIndex = modelOutputBindings.systemTools.contextLookup.read({
         request: {
@@ -154,7 +154,7 @@ test("真实绑定拒绝越界数组与非法整数元素", () => {
         },
     }, "strip");
     assert.equal(badStepIndex.ok, false);
-    if (!badStepIndex.ok) assert.ok(badStepIndex.issues.some((issue) => issue.code === "range" && issue.path === "/request/filters/stepIndexes/0"));
+    if (!badStepIndex.ok) assert.ok(badStepIndex.issues.some((issue) => issue.code === "number_minimum" && issue.path === "/request/filters/stepIndexes/0"));
 
     const emptyEvidence = modelOutputBindings.systemTools.completeTask.read({
         summary: "done",
@@ -175,7 +175,7 @@ test("真实绑定拒绝越界数组与非法整数元素", () => {
     }, "strip");
     assert.equal(emptyEvidence.ok, false);
     if (!emptyEvidence.ok) {
-        assert.ok(emptyEvidence.issues.some((issue) => issue.code === "length" && issue.path === "/memoryPatch/operations/0/fact/evidenceSequences"));
+        assert.ok(emptyEvidence.issues.some((issue) => issue.code === "array_min_items" && issue.path === "/memoryPatch/operations/0/fact/evidenceSequences"));
     }
 });
 

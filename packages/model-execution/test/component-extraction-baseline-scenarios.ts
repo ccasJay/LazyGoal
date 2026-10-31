@@ -1,12 +1,12 @@
 /**
- * Agent 能力拆包的行为对照数据构造器。
+ * 模型执行组件的行为对照数据构造器。
  *
  * @remarks
  * 该模块只构造确定性场景并返回可比较的规范化 JSON 对象；它不写入文件。
  * `component-extraction-baseline.generate.ts` 用它生成
  * `fixtures/component-extraction-baseline/baseline.json`，
  * `component-extraction-baseline.test.ts` 用它重新计算并与基线比较。
- * 回归测试不覆盖基线文件；基线只能在迁移前由生成脚本显式更新。
+ * 回归测试不覆盖基线文件；基线只能由生成脚本显式更新。
  *
  * 规范化只处理随机调用身份，保留调用身份与 frame 的配对关系；不清理消息内容、
  * 顺序、工具声明、契约、预算数值或错误分类。

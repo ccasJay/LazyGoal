@@ -1,10 +1,10 @@
 /**
- * Agent 能力拆包的行为对照回归。
+ * 模型执行组件的行为对照回归。
  *
  * @remarks
- * 读取 `fixtures/component-extraction-baseline/baseline.json`（迁移前由
+ * 读取 `fixtures/component-extraction-baseline/baseline.json`（由
  * `component-extraction-baseline.generate.ts` 生成）并重新计算当前行为逐项比较。
- * 测试不写入或刷新基线；行为差异必须在迁移任务内修复，而不是重建基线。
+ * 测试不写入或刷新基线；行为差异必须修复实现，而不是重建基线。
  */
 
 import assert from "node:assert/strict";
@@ -25,7 +25,7 @@ const baseline = JSON.parse(
     readonly scenarios: Record<string, unknown>;
 };
 
-test("拆包前保存的消息、契约、预算、frame、模板与调用后果保持一致", async () => {
+test("保存的消息、契约、预算、frame、模板与调用后果保持一致", async () => {
     const current = await buildComponentExtractionBaseline();
 
     assert.deepEqual(current, baseline);

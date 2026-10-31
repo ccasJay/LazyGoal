@@ -60,7 +60,7 @@ function createTestToolRegistry(): ToolRegistry {
     } as unknown as ToolRegistry;
 }
 
-test("2.4 & 3.4: 恢复后不重复创建已提交的 notes，且支持基于原 revision 修订", async () => {
+test("恢复后不重复创建已提交的 notes，且支持基于原 revision 修订", async () => {
     const initial = createGoal({
         ...currentProtocols,
         id: "goal-recovery-notes-1",

@@ -44,7 +44,7 @@ function createDummySnapshot(goalId: string, digest = "digest-abc-123"): GoalCon
     };
 }
 
-test("TODO 3.7: JsonFileGoalContextIndexStore 原子保存与成功读取", async () => {
+test("JsonFileGoalContextIndexStore 原子保存与成功读取", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "goal-index-store-"));
     try {
         const store: GoalContextIndexStore = new JsonFileGoalContextIndexStore(tempDir);
@@ -73,7 +73,7 @@ test("TODO 3.7: JsonFileGoalContextIndexStore 原子保存与成功读取", asyn
     }
 });
 
-test("TODO 3.8: 损坏文件或无效 JSON 自动降级返回 undefined，不抛出崩溃异常", async () => {
+test("损坏文件或无效 JSON 自动降级返回 undefined，不抛出崩溃异常", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "goal-index-store-"));
     try {
         const store = new JsonFileGoalContextIndexStore(tempDir);
@@ -93,7 +93,7 @@ test("TODO 3.8: 损坏文件或无效 JSON 自动降级返回 undefined，不抛
     }
 });
 
-test("TODO 3.9: expectedSourceDigest 或 expectedBoundaries 失配返回 undefined", async () => {
+test("expectedSourceDigest 或 expectedBoundaries 失配返回 undefined", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "goal-index-store-"));
     try {
         const store = new JsonFileGoalContextIndexStore(tempDir);
@@ -131,7 +131,7 @@ test("TODO 3.9: expectedSourceDigest 或 expectedBoundaries 失配返回 undefin
     }
 });
 
-test("TODO 3.10: 删除缓存与幂等性，删除后 restore 返回 undefined", async () => {
+test("删除缓存与幂等性，删除后 restore 返回 undefined", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "goal-index-store-"));
     try {
         const store = new JsonFileGoalContextIndexStore(tempDir);

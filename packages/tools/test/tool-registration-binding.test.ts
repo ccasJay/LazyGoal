@@ -58,6 +58,14 @@ test("注册与 prepare 先拒绝已知字段错误，再剥离未知字段并�
         assert.equal(unknown.inputDiagnostic?.truncated, false);
     }
 
+    const aboveMaximum = readFile.prepare({ path: "README.md", maxChars: 60_000 });
+    assert.equal(aboveMaximum.ok, false);
+    if (!aboveMaximum.ok) {
+        assert.equal(aboveMaximum.error.issues?.[0]?.code, "number_maximum");
+        assert.equal(aboveMaximum.error.issues?.[0]?.message, "Value is above the allowed maximum");
+        assert.deepEqual(aboveMaximum.error.issues?.[0]?.path, ["maxChars"]);
+    }
+
     const semanticFailure = readFile.prepare({ path: "../secret.txt", extra: true });
     assert.equal(semanticFailure.ok, false);
     if (!semanticFailure.ok) {

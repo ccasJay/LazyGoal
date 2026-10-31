@@ -8,12 +8,11 @@ import {
 import type {
     ContractBinding,
     ContractDiagnostic,
-    ContractIssue,
-    ContractReadResult,
     ContractSchemaNode,
     ModelProjection,
 } from "../../../contract-binding/src/index";
 import { validateCompletionReviewResult } from "./semantics";
+import { readFailureToValidationError } from "./binding-issues";
 import type { ModelContractDecodeOptions } from "./decode-options";
 import { ModelOutputContractDefinitionError } from "./errors";
 import { assertPortableModelSchema, buildShapeGuide } from "./provider-schema";
@@ -436,73 +435,6 @@ function validationError(
     message: string,
 ): ContractValidationError {
     return new ContractValidationError([{ code, path, message }], false);
-}
-
-function readFailureToValidationError(
-    failure: Extract<ContractReadResult<unknown>, { readonly ok: false }>,
-    basePath: readonly (string | number)[],
-): ContractValidationError {
-    const issues = failure.issues.map((issue) => ({
-        code: bindingIssueCode(issue),
-        path: [...basePath, ...pointerSegments(issue.path)],
-        message: bindingIssueMessage(issue.code),
-    }));
-    return new ContractValidationError(issues, failure.truncated);
-}
-
-function pointerSegments(pointer: string): (string | number)[] {
-    if (pointer.length === 0) return [];
-    if (!pointer.startsWith("/")) return [pointer];
-    return pointer.slice(1).split("/").map((segment) => {
-        const decoded = segment.replaceAll("~1", "/").replaceAll("~0", "~");
-        return /^(?:0|[1-9][0-9]*)$/.test(decoded) ? Number(decoded) : decoded;
-    });
-}
-
-function bindingIssueCode(issue: ContractIssue): ContractIssueCode {
-    switch (issue.code) {
-        case "required":
-            return "missing_field";
-        case "type":
-        case "json":
-            return "invalid_type";
-        case "enum":
-        case "const":
-            return "invalid_enum_value";
-        case "range":
-            return "number_minimum";
-        case "length":
-            return "string_min_length";
-        case "pattern":
-            return "string_pattern";
-        case "unknown":
-            return "extra_field";
-        default:
-            return "union_no_match";
-    }
-}
-
-function bindingIssueMessage(code: ContractIssue["code"]): string {
-    switch (code) {
-        case "required":
-            return "Required field is missing";
-        case "type":
-        case "json":
-            return "Value does not match the required type";
-        case "enum":
-        case "const":
-            return "Value is not an allowed literal";
-        case "range":
-            return "Value is outside the allowed numeric range";
-        case "length":
-            return "String length is outside the allowed range";
-        case "pattern":
-            return "String does not match the required pattern";
-        case "unknown":
-            return "Unexpected extra field";
-        default:
-            return "Value does not satisfy the contract";
-    }
 }
 
 function isRequestThink(value: unknown): value is RequestThink {

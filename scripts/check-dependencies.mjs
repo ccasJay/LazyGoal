@@ -13,9 +13,9 @@ import { parse } from "@babel/parser";
  *   1. package / app / benchmark 允许的依赖方向与 benchmark 隔离；
  *   2. llm-core 与 config 不得引用供应商 SDK（运行时或类型）；
  *   3. 跨能力包与组件目录消费必须经目标包的 `src/index.ts`，不得穿透内部路径；
- *   4. 已迁移的旧 LLM 路径不得存在或被引用；
+ *   4. 禁止使用的旧 LLM 路径不得存在或被引用；
  *   5. 相对引用不得落入项目构建产物目录（第三方依赖自身产物不在此限）；
- *   6. 组件目录不得反向依赖宿主实现或注册进程信号（既有 Spec 规则）。
+ *   6. 组件目录不得反向依赖宿主实现或注册进程信号。
  *
  * 模块引用由 `@babel/parser` 的 AST 提取：覆盖普通/类型 import/export、侧效导入、
  * import 类型表达式、字面量 dynamic import、字面量 require 与 import = require。
@@ -25,7 +25,8 @@ import { parse } from "@babel/parser";
 /**
  * 每个 package 允许的出站目标（from -> allowed target packages）。
  *
- * contract-binding、contracts、execution-stream 与 execution-control 是无出站依赖的基础包；其它 package 可以单向依赖它们。
+ * contract-binding 是数据边界读取的基础包，只依赖共享诊断词汇所在的 contracts；
+ * contracts、execution-stream 与 execution-control 是无出站依赖的基础包；其它 package 可以单向依赖它们。
  * model-contracts 承载模型输出与对话协议，单向依赖 contracts 与 contract-binding。
  * tool-core 提供通用工具抽象，仅依赖 contracts、execution-control、sandbox。
  * config 是应用配置与 Home 路径包，单向依赖 llm-core 的共享模型契约；
@@ -38,7 +39,7 @@ import { parse } from "@babel/parser";
  * llm 只依赖 llm-core、llm-openai、llm-google 与 llm-pi-ai 提供三个默认工厂，不直接依赖 config、model-catalog 或生成 SDK；
  * storage 依赖 runtime、contracts、model-contracts、permission、context-retrieval 与生成绑定基础包 contract-binding；
  * agent 只装配能力包，自身不保存请求、调用、解码或执行实现；
- * 九个能力包按 Spec 的依赖方向逐包收紧，Roundtrip 依赖由各自的允许列表拒绝；
+ * 九个能力包按依赖方向逐包收紧，Roundtrip 依赖由各自的允许列表拒绝；
  * session-metrics 通过 Runtime 端口读取 Goal 与调用指标；browser 读取 Runtime 契约并依赖通用 HTTP 宿主；
  * http 不依赖 LazyGoal 包；process-runtime 只依赖 runtime 与 sandbox；
  * goal-server 是服务组合根，可导入所需后端实现。
@@ -50,7 +51,7 @@ import { parse } from "@babel/parser";
  */
 const ALLOWED_PACKAGE_DEPENDENCIES = {
     contracts: [],
-    "contract-binding": [],
+    "contract-binding": ["contracts"],
     "context-budget": ["contracts"],
     "model-view": ["context-budget", "model-contracts", "context-retrieval"],
     "model-context": ["context-budget", "model-view", "runtime", "contracts", "model-contracts", "tool-core", "working-memory", "context-retrieval", "execution-control"],
@@ -90,7 +91,7 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
 
 const PACKAGES = Object.keys(ALLOWED_PACKAGE_DEPENDENCIES);
 
-/** 本 Spec 拆出的九个能力包；跨包消费必须经过它们的公共入口。 */
+/** 需要强制公共入口的组件包；跨包消费必须经过其 `src/index.ts`。 */
 const COMPONENT_PACKAGES = [
     "context-budget",
     "model-view",
@@ -125,7 +126,7 @@ const VENDOR_SDK_MODULES = ["openai", "@google/genai", "@earendil-works/pi-ai"];
 /** 跨包消费必须经 `src/index.ts` 的能力包。 */
 const CAPABILITY_PACKAGES = ["llm-core", "llm-openai", "llm-google", "llm-pi-ai", "model-catalog"];
 
-/** 已迁移的旧 LLM 实现路径；不得存在，源码也不得再引用。 */
+/** 禁止存在的旧 LLM 实现路径；源码不得引用。 */
 const REMOVED_LLM_PATHS = [
     "packages/llm/src/adapter.ts",
     "packages/llm/src/factory.ts",
@@ -464,7 +465,7 @@ function stripExtension(relativePath) {
     return relativePath.replace(/\.(d\.ts|ts|tsx|mjs|cjs|js)$/, "");
 }
 
-/** 已迁移旧 LLM 路径的基名集合（无扩展名）。 */
+/** 禁止存在的旧 LLM 路径基名集合（无扩展名）。 */
 const REMOVED_LLM_BASES = REMOVED_LLM_PATHS.map(removed => stripExtension(removed));
 
 /** 将相对 specifier 解析为 import 源文件相对 projectRoot 的 POSIX 路径。 */

@@ -22,6 +22,7 @@ export type {
     ContractBindingDefinition,
     ContractValidator,
 } from "./binding";
+export { ContractSchemaError } from "./errors";
 export {
     ContractProjectionError,
     createModelProjection,

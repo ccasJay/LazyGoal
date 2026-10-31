@@ -104,7 +104,6 @@ export class EditFileTool implements BoundTool<EditFileInput> {
      * @throws workspaceRoot 为空字符串时抛出 Error。
      */
     constructor(workspaceRoot: string) {
-        // TODO(sandbox-extraction): 迁移独立包后替换为 @lazygoal/sandbox
         this.sandbox = createWorkspaceSandbox(workspaceRoot);
     }
 

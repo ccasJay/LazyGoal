@@ -108,14 +108,13 @@ export function normalizeContextLookupRequest(
             );
         }
 
+        const filters = value.filters === undefined ? undefined : normalizeContextLookupFilters(value.filters);
         return {
             kind: "context_lookup",
             ...(op !== undefined ? { operation: op } : {}),
             need: value.need,
             question: value.question.trim(),
-            ...(value.filters === undefined
-                ? {}
-                : { filters: normalizeContextLookupFilters(value.filters) }),
+            ...(filters === undefined ? {} : { filters }),
         };
     }
 
@@ -463,7 +462,7 @@ export function createContextLookupQueryHash(
     return createHash("sha256").update(canonical, "utf8").digest("hex");
 }
 
-function normalizeContextLookupFilters(value: unknown): ContextLookupFilters {
+function normalizeContextLookupFilters(value: unknown): ContextLookupFilters | undefined {
     if (!isRecord(value)) {
         throw new ContextLookupProtocolError("filters must be an object");
     }
@@ -490,7 +489,10 @@ function normalizeContextLookupFilters(value: unknown): ContextLookupFilters {
         ...(value.objectIds === undefined ? {} : { objectIds: normalizeStringList(value.objectIds, "objectIds") }),
         ...(value.sequenceRange === undefined ? {} : { sequenceRange: normalizeSequenceRange(value.sequenceRange) }),
     };
-    return Object.keys(result).length === 0 ? {} : result;
+    const nonEmpty = Object.fromEntries(Object.entries(result).filter(([, item]) =>
+        !Array.isArray(item) || item.length > 0,
+    )) as ContextLookupFilters;
+    return Object.keys(nonEmpty).length === 0 ? undefined : nonEmpty;
 }
 
 function normalizeStringList(value: unknown, field: string): readonly string[] {

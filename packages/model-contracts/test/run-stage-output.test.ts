@@ -7,7 +7,7 @@ import {
     modelOutputBindings,
 } from "../src/index";
 
-test("1.1: RunStageUpdate 绑定解码阶段声明与修订", () => {
+test("RunStageUpdate 绑定解码阶段声明与修订", () => {
     // 声明新阶段
     const validDeclare = {
         kind: "run_stage_update",
@@ -45,7 +45,7 @@ test("1.1: RunStageUpdate 绑定解码阶段声明与修订", () => {
     assert.equal(parsedDecision.kind, "run_stage_update");
 });
 
-test("1.1 & 2.2: RunStageUpdate 绑定拒绝非法字段", () => {
+test("RunStageUpdate 绑定拒绝非法字段", () => {
     // 缺失 target
     assert.equal(modelOutputBindings.executing.runStageUpdate.read({
         kind: "run_stage_update",
@@ -70,7 +70,7 @@ test("1.1 & 2.2: RunStageUpdate 绑定拒绝非法字段", () => {
     }, "reject").ok, false);
 });
 
-test("3.1: RunStageComplete 绑定解码阶段完成候选", () => {
+test("RunStageComplete 绑定解码阶段完成候选", () => {
     const validCandidate = {
         kind: "run_stage_complete",
         stageId: "stage-1",

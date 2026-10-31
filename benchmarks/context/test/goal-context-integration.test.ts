@@ -35,7 +35,7 @@ const sampleScenario = parseScenario({
     ],
 });
 
-test("TODO 6: context benchmark 真实场景 - launch → waiting → resume (同 Run) → continue (新 Run) 与缓存生命周期", async () => {
+test("context benchmark 真实场景 - launch → waiting → resume (同 Run) → continue (新 Run) 与缓存生命周期", async () => {
     const runId1 = "run-context-stage-1";
     const runId2 = "run-context-stage-2";
     const seenStages: string[] = [];

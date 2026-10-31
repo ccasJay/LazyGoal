@@ -191,6 +191,11 @@ export interface ToolExecutionRequest<Input = JsonValue> {
 /**
  * 一项经过界限化且不包含原始输入的校验问题定位。
  *
+ * @remarks
+ * 来自绑定读取的问题直接使用 `@lazygoal/contracts` 的共享 issue 分类，本包不再翻译
+ * 词汇；由 Tool 自身拥有的语义校验可以沿用自身的稳定码（如 `invalid_semantics`）。
+ * `message` 不含字段值。
+ *
  * @example
  * ```ts
  * const issue: ToolValidationIssue = {

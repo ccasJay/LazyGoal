@@ -91,7 +91,7 @@ test("createModelExecutionBinding: 成功构造字符兜底模式绑定", () => 
     assert.equal(binding.modelContextPolicy.estimator.unit, "character");
 });
 
-test("需求 5.3: createModelExecutionBinding 允许不同历史模式或省略模式平滑构造，自适应兼容", () => {
+test("createModelExecutionBinding 允许不同历史模式或省略模式平滑构造，自适应兼容", () => {
     const trajectoryStore = createInMemoryTrajectoryStore();
     const adapter = new PromptOnlyAdapter(); // prompt_only
     const selection: GoalModelSelection = {

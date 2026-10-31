@@ -243,6 +243,6 @@ test("生成的工具输入绑定在 reject 策略下拒绝未知字段", () => 
 
     assert.equal(result.ok, false);
     if (!result.ok) {
-        assert.ok(result.issues.some(issue => issue.code === "unknown" && issue.path === "/*"));
+        assert.ok(result.issues.some(issue => issue.code === "extra_field" && issue.path === "/*"));
     }
 });

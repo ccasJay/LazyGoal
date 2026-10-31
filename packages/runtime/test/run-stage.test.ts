@@ -11,7 +11,7 @@ import {
     type ReviseRunStageInput,
 } from "../src/run-stage";
 
-test("1.1 & 2.1: Runtime allocates stage identity, revision starts at 1, requires non-empty target and criteria", () => {
+test("Runtime allocates stage identity, revision starts at 1, requires non-empty target and criteria", () => {
     const input: DeclareRunStageInput = {
         target: "梳理模块职责",
         acceptanceCriteria: ["列出所有导出符号", "说明所有权"],
@@ -41,7 +41,7 @@ test("1.1 & 2.1: Runtime allocates stage identity, revision starts at 1, require
     );
 });
 
-test("1.3: Creating new stage requires previous stage to be accepted", () => {
+test("Creating new stage requires previous stage to be accepted", () => {
     const previousUnaccepted: RunStageState = {
         stageId: "stage-1",
         revision: 1,
@@ -80,7 +80,7 @@ test("1.3: Creating new stage requires previous stage to be accepted", () => {
     });
 });
 
-test("2.2: Stage revision requires valid reason and exact baseRevision match, atomically rejects stale revision", () => {
+test("Stage revision requires valid reason and exact baseRevision match, atomically rejects stale revision", () => {
     const stage: RunStageState = {
         stageId: "stage-1",
         revision: 2,
@@ -125,7 +125,7 @@ test("2.2: Stage revision requires valid reason and exact baseRevision match, at
     assert.equal(revised.status, "executing");
 });
 
-test("3.2 & 4.1: Review rejection updates latestReviewRejection and keeps executing; review accept marks accepted", () => {
+test("Review rejection updates latestReviewRejection and keeps executing; review accept marks accepted", () => {
     const stage: RunStageState = {
         stageId: "stage-1",
         revision: 1,

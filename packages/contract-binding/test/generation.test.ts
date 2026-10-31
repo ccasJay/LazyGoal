@@ -181,7 +181,7 @@ test("Catalog generates isolated tool, model, web and strict-config bindings", a
     assert.equal(invalidConfigProjection.ok, false);
     if (!invalidConfigProjection.ok) {
         assert.ok(invalidConfigProjection.issues.some(issue =>
-            issue.path === "/nested/token" && issue.code === "length"));
+            issue.path === "/nested/token" && issue.code === "string_min_length"));
     }
 
     const webResult = webBinding.webSampleBinding.read({
@@ -202,8 +202,8 @@ test("Catalog generates isolated tool, model, web and strict-config bindings", a
     const configResult = configBinding.configSampleBinding.read(configInput, "reject");
     assert.equal(configResult.ok, false);
     if (configResult.ok) return;
-    assert.ok(configResult.issues.some(issue => issue.code === "unknown" && issue.path === "/*"));
-    assert.ok(configResult.issues.some(issue => issue.code === "unknown" && issue.path === "/nested/*"));
+    assert.ok(configResult.issues.some(issue => issue.code === "extra_field" && issue.path === "/*"));
+    assert.ok(configResult.issues.some(issue => issue.code === "extra_field" && issue.path === "/nested/*"));
     assert.equal(JSON.stringify(configResult).includes("config-secret"), false);
 
     const invalidTool = toolBinding.toolSampleBinding.read({
@@ -214,8 +214,8 @@ test("Catalog generates isolated tool, model, web and strict-config bindings", a
     }, "strip");
     assert.equal(invalidTool.ok, false);
     if (invalidTool.ok) return;
-    assert.ok(invalidTool.issues.some(issue => issue.path === "/count" && issue.code === "range"));
-    assert.ok(invalidTool.issues.some(issue => issue.path === "/kind" && issue.code === "enum"));
+    assert.ok(invalidTool.issues.some(issue => issue.path === "/count" && issue.code === "number_maximum"));
+    assert.ok(invalidTool.issues.some(issue => issue.path === "/kind" && issue.code === "invalid_enum_value"));
 });
 
 test("Catalog binding artifacts retain identity, constraints and deterministic drift checks", async t => {

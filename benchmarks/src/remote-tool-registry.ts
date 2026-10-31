@@ -76,7 +76,7 @@ export function createRemoteToolRegistration(
                     ok: false,
                     error: {
                         code: "INVALID_TOOL_INPUT",
-                        message: `${options.definition.id} 输入 Contract 校验失败：${issue?.code ?? "constraint"} at ${path}`,
+                        message: `${options.definition.id} input contract validation failed: ${issue === undefined ? "unknown" : issue.code} at ${path}`,
                     },
                 };
             }

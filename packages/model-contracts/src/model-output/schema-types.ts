@@ -326,6 +326,9 @@ export interface ContextLookupSequenceRange {
  * ```ts
  * const filters: ContextLookupFilters = { toolIds: ["read_file"] };
  * ```
+ *
+ * @remarks
+ * 数组过滤字段为空时等同于省略；非空字段按对应值过滤。
  */
 export interface ContextLookupFilters {
     /**

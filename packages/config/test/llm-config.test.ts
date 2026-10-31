@@ -29,7 +29,7 @@ test("configuration requires explicit provider, model and key (structuredOutputM
     assert.throws(() => readLLMConfig({ ...base, LLM_PROVIDER: "unknown" }), /Unsupported LLM_PROVIDER/);
     assert.throws(() => readLLMConfig({ ...base, LLM_STRUCTURED_OUTPUT_MODE: "auto" }), /Invalid LLM_STRUCTURED_OUTPUT_MODE/);
 
-    // 需求 5.2: 省略 LLM_STRUCTURED_OUTPUT_MODE 时平滑加载，默认为 prompt_only
+    // 省略 LLM_STRUCTURED_OUTPUT_MODE 时平滑加载，默认为 prompt_only
     const { LLM_STRUCTURED_OUTPUT_MODE: _omitted, ...withoutMode } = base;
     const config = readLLMConfig(withoutMode);
     assert.equal(config.structuredOutputMode, "prompt_only");

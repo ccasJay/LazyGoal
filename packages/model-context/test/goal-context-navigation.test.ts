@@ -74,7 +74,7 @@ function createRunningGoal(options: {
     };
 }
 
-test("TODO 5.1: 默认注册表中包含稳定身份 goal_context_navigation 动态 Section", () => {
+test("默认注册表中包含稳定身份 goal_context_navigation 动态 Section", () => {
     const registry = createDefaultDynamicSectionRegistry();
     const identities = registry.identities();
     const navIdentity = identities.find((item) => item.sectionId === "goal_context_navigation");
@@ -86,7 +86,7 @@ test("TODO 5.1: 默认注册表中包含稳定身份 goal_context_navigation 动
     assert.ok(navIdentity.order > 0);
 });
 
-test("TODO 5.1: 没有历史阶段和重要信息时不制造历史占位事实", () => {
+test("没有历史阶段和重要信息时不制造历史占位事实", () => {
     const goal = createRunningGoal();
     const view = new ModelInferenceProjector().project(
         goal,
@@ -103,7 +103,7 @@ test("TODO 5.1: 没有历史阶段和重要信息时不制造历史占位事实"
     assert.equal(navSection, undefined, "无阶段事实时不应生成 goal_context_navigation");
 });
 
-test("TODO 5.1: 阶段切换、新 Run 与恢复时提供最新导航（包含当前阶段、缺口与前序结果引用）", async () => {
+test("阶段切换、新 Run 与恢复时提供最新导航（包含当前阶段、缺口与前序结果引用）", async () => {
     const currentStage: RunStageState = {
         stageId: "stage-1",
         revision: 2,
@@ -141,7 +141,7 @@ test("TODO 5.1: 阶段切换、新 Run 与恢复时提供最新导航（包含�
     assert.match(navSection.content, /stage-0/);
 });
 
-test("TODO 5.2: 保留原始用户意图、有效 Profile、当前 Run 已应用用户输入与阶段缺口，不因导航失效", async () => {
+test("保留原始用户意图、有效 Profile、当前 Run 已应用用户输入与阶段缺口，不因导航失效", async () => {
     const currentStage: RunStageState = {
         stageId: "stage-2",
         revision: 1,
@@ -182,7 +182,7 @@ test("TODO 5.2: 保留原始用户意图、有效 Profile、当前 Run 已应用
     assert.ok(hasStageGap, "必须保留当前阶段审查缺口");
 });
 
-test("TODO 5.3: 长目录按相关性与稳定身份裁剪历史项，保留必要当前工作入口与继续查询指引", () => {
+test("长目录按相关性与稳定身份裁剪历史项，保留必要当前工作入口与继续查询指引", () => {
     const currentStage: RunStageState = {
         stageId: "stage-current",
         revision: 1,
@@ -227,7 +227,7 @@ test("TODO 5.3: 长目录按相关性与稳定身份裁剪历史项，保留必�
     assert.ok((nav.historicalStages?.length ?? 0) <= 4, "历史阶段数量受预算限制");
 });
 
-test("TODO 5.3: 必要固定内容超预算时在调用前抛出 ModelContextHardOverflowError", async () => {
+test("必要固定内容超预算时在调用前抛出 ModelContextHardOverflowError", async () => {
     const currentStage: RunStageState = {
         stageId: "stage-overflow",
         revision: 1,
@@ -262,7 +262,7 @@ test("TODO 5.3: 必要固定内容超预算时在调用前抛出 ModelContextHar
     );
 });
 
-test("TODO 5.4: 去重保护 - 当重要信息引用已应用用户消息时，导航只暴露引用标识与简要片段而不重复全文", () => {
+test("去重保护 - 当重要信息引用已应用用户消息时，导航只暴露引用标识与简要片段而不重复全文", () => {
     const currentStage: RunStageState = {
         stageId: "stage-dedup",
         revision: 1,
@@ -300,7 +300,7 @@ test("TODO 5.4: 去重保护 - 当重要信息引用已应用用户消息时，�
     assert.ok(noteEntry.content.length < longMessageContent.length);
 });
 
-test("TODO 5.4 & 6.4: runtime_feedback 仍在末尾，历史数据不升级为系统指令", async () => {
+test("runtime_feedback 仍在末尾，历史数据不升级为系统指令", async () => {
     const currentStage: RunStageState = {
         stageId: "stage-feedback",
         revision: 1,

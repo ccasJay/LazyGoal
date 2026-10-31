@@ -32,12 +32,12 @@ test("generated binding accepts empty arrays and isolates the input", () => {
 test("generated binding rejects empty strings, empty elements, unknown fields and wrong versions", () => {
     const { toolIds: _toolIds, ...missingToolIds } = validFile();
     const cases: readonly [string, unknown, string, string][] = [
-        ["empty scalar", { ...validFile(), id: "" }, "/id", "length"],
-        ["empty array element", { ...validFile(), instructions: [""] }, "/instructions/0", "length"],
-        ["unknown field", { ...validFile(), extra: true }, "/*", "unknown"],
-        ["wrong version", { ...validFile(), schemaVersion: 2 }, "/schemaVersion", "const"],
-        ["missing field", missingToolIds, "/toolIds", "required"],
-        ["wrong type", { ...validFile(), toolIds: "read_file" }, "/toolIds", "type"],
+        ["empty scalar", { ...validFile(), id: "" }, "/id", "string_min_length"],
+        ["empty array element", { ...validFile(), instructions: [""] }, "/instructions/0", "string_min_length"],
+        ["unknown field", { ...validFile(), extra: true }, "/*", "extra_field"],
+        ["wrong version", { ...validFile(), schemaVersion: 2 }, "/schemaVersion", "invalid_literal"],
+        ["missing field", missingToolIds, "/toolIds", "missing_field"],
+        ["wrong type", { ...validFile(), toolIds: "read_file" }, "/toolIds", "invalid_type"],
     ];
 
     for (const [name, value, path, code] of cases) {

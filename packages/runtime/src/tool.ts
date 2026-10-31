@@ -38,7 +38,7 @@ export function createProgramToolRegistration<Input>(
                     ok: false,
                     error: {
                         code: "INVALID_TOOL_INPUT",
-                        message: `${definition.id} 输入 Contract 校验失败：${first?.code ?? "constraint"} at ${location}`,
+                        message: `${definition.id} input contract validation failed: ${first === undefined ? "unknown" : first.code} at ${location}`,
                     },
                 };
             }

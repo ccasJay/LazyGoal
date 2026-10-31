@@ -73,16 +73,16 @@ test("provider models binding accepts empty results and names but preserves stri
 
 test("provider models binding rejects invalid known fields without returning partial data", () => {
     const invalidValues: Array<{ readonly value: unknown; readonly code: ContractIssueCode }> = [
-        { value: { models: [] }, code: "required" },
-        { value: { ok: false, models: [] }, code: "const" },
-        { value: { ok: true }, code: "required" },
-        { value: { ok: true, models: {} }, code: "type" },
-        { value: { ok: true, models: [null] }, code: "type" },
-        { value: { ok: true, models: [{ name: "missing id" }] }, code: "required" },
-        { value: { ok: true, models: [{ id: 42, name: "wrong id type" }] }, code: "type" },
-        { value: { ok: true, models: [{ id: " \t\n", name: "blank id" }] }, code: "pattern" },
-        { value: { ok: true, models: [{ id: "m-1", name: 42 }] }, code: "type" },
-        { value: { ok: true, models: [{ id: "m-1" }, { id: "m-2", name: "ok" }] }, code: "required" },
+        { value: { models: [] }, code: "missing_field" },
+        { value: { ok: false, models: [] }, code: "invalid_literal" },
+        { value: { ok: true }, code: "missing_field" },
+        { value: { ok: true, models: {} }, code: "invalid_type" },
+        { value: { ok: true, models: [null] }, code: "invalid_type" },
+        { value: { ok: true, models: [{ name: "missing id" }] }, code: "missing_field" },
+        { value: { ok: true, models: [{ id: 42, name: "wrong id type" }] }, code: "invalid_type" },
+        { value: { ok: true, models: [{ id: " \t\n", name: "blank id" }] }, code: "string_pattern" },
+        { value: { ok: true, models: [{ id: "m-1", name: 42 }] }, code: "invalid_type" },
+        { value: { ok: true, models: [{ id: "m-1" }, { id: "m-2", name: "ok" }] }, code: "missing_field" },
     ];
 
     for (const { value, code } of invalidValues) {
@@ -128,7 +128,7 @@ test("provider models binding accepts only JSON-shaped input and handles prototy
         const result = readProviderModels(value);
         assert.equal(result.ok, false);
         if (result.ok) continue;
-        assert.deepEqual(result.issues, [{ path: "", code: "json" }]);
+        assert.deepEqual(result.issues, [{ path: "", code: "not_json" }]);
         assert.equal(result.truncated, false);
     }
 

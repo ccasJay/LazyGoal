@@ -119,72 +119,56 @@ function toToolInputFailure(
     result: Extract<ContractReadResult<unknown>, { readonly ok: false }>,
 ): Extract<ToolValidationResult, { readonly ok: false }> {
     const issues = result.issues.map(issue => ({
-        code: legacyIssueCode(issue.code),
+        code: issue.code,
         path: pointerPath(issue),
         message: issueMessage(schema, issue),
     }));
     const first = result.issues[0];
     const location = first === undefined || first.path === "" ? "$" : first.path;
-    const truncated = result.truncated ? "；诊断已截断" : "";
+    const truncated = result.truncated ? "; diagnostics truncated" : "";
 
     return {
         ok: false,
         error: {
             code: "INVALID_TOOL_INPUT",
-            message: `${toolId} 输入 Contract 校验失败：${first?.code ?? "constraint"} at ${location}${truncated}`,
+            message: `${toolId} input contract validation failed: ${first === undefined ? "unknown" : first.code} at ${location}${truncated}`,
             ...(issues.length === 0 ? {} : { issues }),
         },
     };
 }
 
-function legacyIssueCode(code: ContractIssue["code"]): string {
-    switch (code) {
-        case "required":
-            return "missing_field";
-        case "type":
-        case "json":
-            return "invalid_type";
-        case "enum":
-            return "invalid_enum_value";
-        case "const":
-            return "invalid_literal";
-        case "unknown":
-            return "extra_field";
-        case "range":
-            return "number_minimum";
-        case "length":
-            return "string_min_length";
-        case "pattern":
-            return "string_pattern";
-        case "constraint":
-        default:
-            return "invalid_type";
-    }
-}
-
 function issueMessage(schema: ContractSchemaNode, issue: ContractIssue): string {
     switch (issue.code) {
-        case "required":
+        case "missing_field":
             return "Required field is missing";
-        case "type": {
+        case "invalid_type": {
             const expected = expectedTypeName(resolveIssueSchema(schema, schema, issue.path));
             return expected === undefined ? "Expected a valid value" : `Expected a ${expected}`;
         }
-        case "unknown":
-            return "Unexpected field";
-        case "enum":
-            return "Expected one of the allowed values";
-        case "const":
-            return "Expected a literal value";
-        case "range":
-            return "Value is outside the allowed range";
-        case "length":
-            return "String length is outside the allowed range";
-        case "pattern":
-            return "String does not match the required pattern";
-        case "json":
+        case "not_json":
             return "Expected a JSON value";
-        case "constraint":
+        case "extra_field":
+            return "Unexpected field";
+        case "invalid_enum_value":
+            return "Expected one of the allowed values";
+        case "invalid_literal":
+            return "Expected the declared literal value";
+        case "number_minimum":
+            return "Value is below the allowed minimum";
+        case "number_maximum":
+            return "Value is above the allowed maximum";
+        case "string_min_length":
+            return "String is shorter than the allowed minimum length";
+        case "string_max_length":
+            return "String is longer than the allowed maximum length";
+        case "array_min_items":
+            return "Array has fewer items than the allowed minimum";
+        case "array_max_items":
+            return "Array has more items than the allowed maximum";
+        case "string_pattern":
+            return "String does not match the required pattern";
+        case "union_no_match":
+            return "Value does not match any allowed shape";
         default:
             return "Value violates a contract constraint";
     }

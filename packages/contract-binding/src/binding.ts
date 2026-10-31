@@ -1,3 +1,4 @@
+import { ContractSchemaError } from "./errors";
 import { cloneJsonValue, hasJsonPropertyShape, isJsonValue } from "./json";
 import { createModelProjection, type ModelProjection } from "./projection";
 import {
@@ -60,8 +61,9 @@ export interface ContractBindingDefinition<T> {
  *
  * @remarks
  * `read` 总是返回与输入隔离的结果；未知字段策略由调用边界显式选择。联合在未清理
- * 输入上先确定唯一合法分支，再按该分支处理未知字段；无法唯一确定时失败。绑定不
- * 承载权限、审批、状态转换或持久化规则。
+ * 输入上先确定唯一合法分支，再按该分支处理未知字段；无法唯一确定时失败。失败问题使用
+ * `@lazygoal/contracts` 的共享 issue 分类，路径仍为 JSON Pointer。绑定不承载权限、
+ * 审批、状态转换或持久化规则。
  *
  * @example
  * ```ts
@@ -77,6 +79,8 @@ export interface ContractBinding<T> {
      * @param value - 尚未信任的 JSON 值。
      * @param policy - `strip` 删除未知字段并返回诊断；`reject` 将其作为失败问题。
      * @returns 隔离后的类型化数据，或不含部分数据的失败问题。
+     * @throws {@link ContractSchemaError} 契约 Schema 或生成校验器无法被绑定安全解释时抛出；
+     * 调用方输入不会触发该错误。
      */
     read(value: unknown, policy: UnknownFieldPolicy): ContractReadResult<T>;
     /**
@@ -122,7 +126,7 @@ function readContractValue<T>(
     policy: UnknownFieldPolicy,
 ): ContractReadResult<T> {
     if (!hasJsonPropertyShape(value) || !isJsonValue(value)) {
-        return failure(definition, [{ path: "", code: "json" }], false);
+        return failure(definition, [{ path: "", code: "not_json" }], false);
     }
 
     const copied = cloneJsonValue(value);
@@ -131,13 +135,13 @@ function readContractValue<T>(
         return failure(definition, unknown.issues, unknown.truncated);
     }
     if (policy === "strip" && !stripUnknownFields(copied, definition.schema)) {
-        return failure(definition, [{ path: "", code: "union" }], false);
+        return failure(definition, [{ path: "", code: "union_no_match" }], false);
     }
 
     if (!definition.validate(copied)) {
         const issues = mapValidationErrors(readValidatorErrors(definition.validate), definition.schema);
         const merged = policy === "reject"
-            ? mergeIssues(issues, unknown.paths.map(path => ({ path, code: "unknown" as const })))
+            ? mergeIssues(issues, unknown.paths.map(path => ({ path, code: "extra_field" as const })))
             : issues;
         return failure(definition, merged, unknown.truncated);
     }
@@ -187,7 +191,7 @@ function mapValidationErrors(
         const path = property === undefined
             ? basePath
             : `${basePath}/${escapePointerSegment(property)}`;
-        issues.push({ path: boundPath(path), code: issueCode(keyword) });
+        issues.push({ path: boundPath(path), code: issueCode(keyword, path) });
     }
     return boundIssues(issues);
 }
@@ -277,35 +281,36 @@ function readPropertyName(params: Readonly<Record<string, unknown>> | undefined,
     return typeof value === "string" ? value : undefined;
 }
 
-function issueCode(keyword: string): ContractIssueCode {
+function issueCode(keyword: string, path: string): ContractIssueCode {
     switch (keyword) {
         case "required":
-            return "required";
-        case "additionalProperties":
-            return "unknown";
+            return "missing_field";
         case "type":
-            return "type";
+            return "invalid_type";
         case "enum":
-            return "enum";
+            return "invalid_enum_value";
         case "const":
-            return "const";
+            return "invalid_literal";
         case "minimum":
-        case "maximum":
         case "exclusiveMinimum":
+            return "number_minimum";
+        case "maximum":
         case "exclusiveMaximum":
-        case "multipleOf":
-            return "range";
+            return "number_maximum";
         case "minLength":
+            return "string_min_length";
         case "maxLength":
+            return "string_max_length";
         case "minItems":
+            return "array_min_items";
         case "maxItems":
-            return "length";
+            return "array_max_items";
         case "pattern":
-            return "pattern";
+            return "string_pattern";
         case "anyOf":
-            return "union";
+            return "union_no_match";
         default:
-            return "constraint";
+            throw new ContractSchemaError(boundPath(path), `generated validator reported unclassified keyword "${keyword}"`);
     }
 }
 
@@ -318,7 +323,7 @@ function boundIssues(issues: readonly ContractIssue[]): readonly ContractIssue[]
     const result: ContractIssue[] = [];
     for (const issue of issues) {
         const key = `${issue.code}:${issue.path}`;
-        if (issue.code !== "unknown" && seen.has(key)) continue;
+        if (issue.code !== "extra_field" && seen.has(key)) continue;
         seen.add(key);
         result.push({ path: boundPath(issue.path), code: issue.code });
         if (result.length >= MAX_ISSUES) break;
@@ -336,11 +341,14 @@ function failure<T>(
     truncated: boolean,
 ): ContractReadResult<T> {
     const bounded = boundIssues(issues);
+    if (bounded.length === 0) {
+        throw new ContractSchemaError("", `${definition.contractId} validator reported a failure without a classified issue`);
+    }
     return {
         ok: false,
         contractId: definition.contractId,
         version: definition.version,
-        issues: bounded.length === 0 ? [{ path: "", code: "constraint" }] : bounded,
+        issues: bounded,
         truncated: truncated || bounded.length >= MAX_ISSUES,
     };
 }

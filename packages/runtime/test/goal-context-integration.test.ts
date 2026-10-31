@@ -44,7 +44,7 @@ function createInitialGoal(id: string): Goal {
     };
 }
 
-test("TODO 6: 真实组合根生命周期 - launch → 多阶段 → waiting → 新 Worker resume → 用户 continue 新 Run", async () => {
+test("真实组合根生命周期 - launch → 多阶段 → waiting → 新 Worker resume → 用户 continue 新 Run", async () => {
     const initial = createInitialGoal("goal-lifecycle-1");
     const store = new InMemoryGoalStore();
     const trajectory = new InMemoryTrajectoryStore();

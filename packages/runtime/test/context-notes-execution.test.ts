@@ -57,7 +57,7 @@ function createTestToolRegistry(onExecute?: () => void): ToolRegistry {
     } as unknown as ToolRegistry;
 }
 
-test("2.1 & 2.4: 非法 contextNotes 提议在业务副作用发生前被拦截拒绝", async () => {
+test("非法 contextNotes 提议在业务副作用发生前被拦截拒绝", async () => {
     const store = new InMemoryGoalStore();
     const trajectory = trajectoryStoreFor(store);
     const initial = createGoal({
@@ -150,7 +150,7 @@ test("2.1 & 2.4: 非法 contextNotes 提议在业务副作用发生前被拦截�
     assert.equal(noteEvents.length, 0);
 });
 
-test("2.1 & 3.1: 合法 contextNotes 随 tool_call 提交到 Trajectory，不增加额外 Step", async () => {
+test("合法 contextNotes 随 tool_call 提交到 Trajectory，不增加额外 Step", async () => {
     const store = new InMemoryGoalStore();
     const trajectory = trajectoryStoreFor(store);
     const initial = createGoal({
@@ -265,7 +265,7 @@ test("2.1 & 3.1: 合法 contextNotes 随 tool_call 提交到 Trajectory，不增
     assert.equal(note2.content, "数据表命名采用小写复数形式");
 });
 
-test("2.1 & 2.4: 覆盖阶段操作与 complete 路径中的 contextNotes 提交", async () => {
+test("覆盖阶段操作与 complete 路径中的 contextNotes 提交", async () => {
     const store = new InMemoryGoalStore();
     const trajectory = trajectoryStoreFor(store);
     const initial = createGoal({

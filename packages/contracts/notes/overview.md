@@ -22,7 +22,7 @@
 
 [`types.ts`](../src/types.ts) 定义 `JsonScalar`、`JsonValue`、`JsonSchemaValue` 与 `JsonSchema202012`，供工具、模型、Runtime、Storage、Web 与 benchmark 的 JSON 边界共享静态形状；这些类型不承诺运行时已经完成有限数字、普通对象原型、无循环引用或具体 Schema 方言校验。
 
-[`errors.ts`](../src/errors.ts) 定义 `ContractIssueCode`、`ContractIssue` 与 `ContractValidationError`。模型输出生成绑定解码、语义校验与 system tool 参数校验使用该错误携带有序、可截断诊断；`code`、`path`、`message`、`issues` 与 `truncated` 是调用方可依赖的形状。本包不执行结构校验，接受范围由产生错误的边界拥有。
+[`errors.ts`](../src/errors.ts) 定义 `ContractIssueCode`、`ContractIssue` 与 `ContractValidationError`。`ContractIssueCode` 是唯一诊断词汇：生成绑定的读取结果与模型输出解码直接产生其中的分类，各消费边界只补消息和路径，不再做分类翻译；`code`、`path`、`message`、`issues` 与 `truncated` 是调用方可依赖的形状。本包不执行结构校验，具体接受范围由产生错误的边界拥有。
 
 ## 相关入口
 

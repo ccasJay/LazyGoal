@@ -4,6 +4,7 @@ import { test } from "node:test";
 import Ajv from "ajv";
 
 import {
+    ContractSchemaError,
     createContractBinding,
     type ContractBinding,
     type ContractSchemaNode,
@@ -103,8 +104,8 @@ test("binding rejects unknown fields under the strict policy without partial dat
     assert.equal(result.ok, false);
     if (result.ok) return;
     assert.equal("data" in result, false);
-    assert.ok(result.issues.some(issue => issue.code === "unknown" && issue.path === "/*"));
-    assert.ok(result.issues.some(issue => issue.code === "unknown" && issue.path === "/nested/*"));
+    assert.ok(result.issues.some(issue => issue.code === "extra_field" && issue.path === "/*"));
+    assert.ok(result.issues.some(issue => issue.code === "extra_field" && issue.path === "/nested/*"));
     assert.equal(JSON.stringify(result).includes("must-not-leak"), false);
 });
 
@@ -113,62 +114,62 @@ test("binding rejects invalid known fields with locatable issues", () => {
         {
             value: { kind: "alpha", nested: { label: "ok" } },
             path: "/count",
-            code: "required",
+            code: "missing_field",
         },
         {
             value: { count: 3, kind: "gamma", nested: { label: "ok" } },
             path: "/kind",
-            code: "enum",
+            code: "invalid_enum_value",
         },
         {
             value: { count: 0, kind: "alpha", nested: { label: "ok" } },
             path: "/count",
-            code: "range",
+            code: "number_minimum",
         },
         {
             value: { count: 20, kind: "alpha", nested: { label: "ok" } },
             path: "/count",
-            code: "range",
+            code: "number_maximum",
         },
         {
             value: { count: 1.5, kind: "alpha", nested: { label: "ok" } },
             path: "/count",
-            code: "type",
+            code: "invalid_type",
         },
         {
             value: { count: 3, kind: "alpha", nested: { label: "" } },
             path: "/nested/label",
-            code: "length",
+            code: "string_min_length",
         },
         {
             value: { count: 3, kind: "alpha", nested: { label: "toolong" } },
             path: "/nested/label",
-            code: "length",
+            code: "string_max_length",
         },
         {
             value: { count: "3", kind: "alpha", nested: { label: "ok" } },
             path: "/count",
-            code: "type",
+            code: "invalid_type",
         },
         {
             value: { count: 3, kind: "alpha" },
             path: "/nested",
-            code: "required",
+            code: "missing_field",
         },
         {
             value: { count: 3, kind: "alpha", nested: { label: "ok" }, tags: ["a", 1] },
             path: "/tags/1",
-            code: "type",
+            code: "invalid_type",
         },
         {
             value: { count: 3, kind: "alpha", nested: { label: "ok" }, tags: [] },
             path: "/tags",
-            code: "length",
+            code: "array_min_items",
         },
         {
             value: { count: 3, kind: "alpha", nested: { label: "ok" }, tags: ["a", "b", "c", "d"] },
             path: "/tags",
-            code: "length",
+            code: "array_max_items",
         },
     ];
 
@@ -219,8 +220,57 @@ test("binding rejects non-JSON shapes without executing accessors", () => {
         const result = binding.read(value, "strip");
         assert.equal(result.ok, false);
         if (result.ok) continue;
-        assert.deepEqual(result.issues, [{ path: "", code: "json" }]);
+        assert.deepEqual(result.issues, [{ path: "", code: "not_json" }]);
         assert.equal(result.truncated, false);
+    }
+});
+
+test("binding raises ContractSchemaError instead of reporting input issues for unusable schemas", () => {
+    const unusable: Array<{ readonly name: string; readonly schema: ContractSchemaNode; readonly validate: ContractValidator; readonly value: unknown }> = [
+        {
+            name: "unclassified validator keyword",
+            schema: { type: "object" },
+            validate: Object.assign(() => false, {
+                errors: [{ instancePath: "", keyword: "oneOf" }],
+            }),
+            value: {},
+        },
+        {
+            name: "$ref alias loop",
+            schema: { $ref: "#/definitions/Loop", definitions: { Loop: { $ref: "#/definitions/Loop" } } },
+            validate: () => true,
+            value: {},
+        },
+        {
+            name: "invalid pattern inside a union branch",
+            schema: {
+                anyOf: [
+                    {
+                        type: "object",
+                        properties: { label: { type: "string", pattern: "[" } },
+                        required: ["label"],
+                        additionalProperties: false,
+                    },
+                    { type: "object" },
+                ],
+            },
+            validate: () => true,
+            value: { label: "ok" },
+        },
+    ];
+
+    for (const current of unusable) {
+        const local = createContractBinding<unknown>({
+            contractId: `sample.unusable.${current.name}`,
+            version: 1,
+            schema: current.schema,
+            validate: current.validate,
+        });
+        assert.throws(
+            () => local.read(current.value, "strip"),
+            (error: unknown) => error instanceof ContractSchemaError && error.code === "CONTRACT_SCHEMA_INVALID",
+            current.name,
+        );
     }
 });
 
@@ -256,7 +306,7 @@ test("binding bounds unknown-field diagnostics and still removes all unknown fie
     if (longResult.ok) return;
     assert.ok(longResult.issues.every(issue => issue.path.length <= 160));
     assert.ok(longResult.issues.every(issue => !issue.path.includes(longKey)));
-    assert.deepEqual(longResult.issues, [{ path: "/*", code: "unknown" }]);
+    assert.deepEqual(longResult.issues, [{ path: "/*", code: "extra_field" }]);
 });
 
 test("binding redacts external key names from unknown-field diagnostics", () => {
@@ -323,7 +373,7 @@ test("binding redacts open dictionary keys from validation paths", () => {
 
     assert.equal(result.ok, false);
     if (result.ok) return;
-    assert.deepEqual(result.issues, [{ path: "/records/*/label", code: "type" }]);
+    assert.deepEqual(result.issues, [{ path: "/records/*/label", code: "invalid_type" }]);
     assert.equal(JSON.stringify(result).includes("secret-example-token"), false);
 });
 
@@ -397,7 +447,7 @@ test("binding reads nullable type arrays and rejects other type unions at the kn
     const invalid = nullableBinding.read({ value: 3 }, "strip");
     assert.equal(invalid.ok, false);
     if (invalid.ok) return;
-    assert.deepEqual(invalid.issues, [{ path: "/value", code: "type" }]);
+    assert.deepEqual(invalid.issues, [{ path: "/value", code: "invalid_type" }]);
 });
 
 const entryUnion: ContractSchemaNode = {
@@ -472,9 +522,9 @@ test("binding selects a union branch before stripping cross-branch fields", () =
     const rejected = discriminatedBinding.read(input, "reject");
     assert.equal(rejected.ok, false);
     if (rejected.ok) return;
-    assert.ok(rejected.issues.some(issue => issue.code === "unknown" && issue.path === "/entry/nested/*"));
+    assert.ok(rejected.issues.some(issue => issue.code === "extra_field" && issue.path === "/entry/nested/*"));
     assert.equal(
-        rejected.issues.filter(issue => issue.code === "unknown" && issue.path === "/entry/*").length,
+        rejected.issues.filter(issue => issue.code === "extra_field" && issue.path === "/entry/*").length,
         2,
     );
     assert.equal("data" in rejected, false);
@@ -513,7 +563,7 @@ test("binding rejects union branches that cannot be uniquely determined", () => 
         const result = ambiguousBinding.read(value, "strip");
         assert.equal(result.ok, false, JSON.stringify(value));
         if (result.ok) continue;
-        assert.deepEqual(result.issues, [{ path: "", code: "union" }]);
+        assert.deepEqual(result.issues, [{ path: "", code: "union_no_match" }]);
     }
 });
 
@@ -529,7 +579,7 @@ test("binding reports known-field failures from the best union branch", () => {
     assert.equal(invalidNested.ok, false);
     if (invalidNested.ok) return;
     assert.ok(
-        invalidNested.issues.some(issue => issue.path === "/entry/nested/label" && issue.code === "length"),
+        invalidNested.issues.some(issue => issue.path === "/entry/nested/label" && issue.code === "string_min_length"),
         JSON.stringify(invalidNested.issues),
     );
 
@@ -538,7 +588,7 @@ test("binding reports known-field failures from the best union branch", () => {
     }, "strip");
     assert.equal(invalidKind.ok, false);
     if (invalidKind.ok) return;
-    assert.ok(invalidKind.issues.some(issue => issue.path === "/entry/kind" && issue.code === "const"));
+    assert.ok(invalidKind.issues.some(issue => issue.path === "/entry/kind" && issue.code === "invalid_literal"));
 });
 
 test("binding resolves nested union and recursive values per item", () => {
@@ -663,7 +713,7 @@ test("binding reads open JSON without unknown diagnostics and still strips neste
     const rejected = openBinding.read(input, "reject");
     assert.equal(rejected.ok, false);
     if (rejected.ok) return;
-    assert.deepEqual(rejected.issues, [{ path: "/records/*/*", code: "unknown" }]);
+    assert.deepEqual(rejected.issues, [{ path: "/records/*/*", code: "extra_field" }]);
 });
 
 function compileBinding<T>(schema: ContractSchemaNode): ContractBinding<T> {

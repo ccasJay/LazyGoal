@@ -415,7 +415,7 @@ function decodeModelValue<T>(value: unknown, binding: ContractBinding<T>): Contr
             ok: false,
             contractId: binding.contractId,
             version: binding.version,
-            issues: [{ path: "", code: "json" }],
+            issues: [{ path: "", code: "not_json" }],
             truncated: false,
         };
     }
@@ -451,7 +451,7 @@ function decodeNode(
         for (const [name, property] of Object.entries(resolved.properties ?? {})) {
             const propertyPath = `${path}/${escapePointerSegment(name)}`;
             if (!Object.hasOwn(record, name)) {
-                issues.push({ path: boundPath(propertyPath), code: "required" });
+                issues.push({ path: boundPath(propertyPath), code: "missing_field" });
                 continue;
             }
             if (!required.has(name) && record[name] === null) {

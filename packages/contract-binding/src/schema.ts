@@ -1,3 +1,4 @@
+import { ContractSchemaError } from "./errors";
 import type {
     ContractIssue,
     ContractSchemaNode,
@@ -31,6 +32,7 @@ export interface SchemaValueOptions {
  *
  * @remarks
  * 成功时返回可继续遍历的具体 Schema 节点；失败只包含有界问题，不返回部分值。
+ * Schema 自身无法解释时（例如不消费值的引用环）抛出 `ContractSchemaError`。
  *
  * @example
  * ```ts
@@ -110,7 +112,7 @@ export function resolveSchemaForValue(
     if (!resolved.ok) return resolved;
     const node = resolved.schema;
     if (seen.has(node)) {
-        return { ok: false, issues: [{ path: boundPath(path), code: "constraint" }] };
+        throw new ContractSchemaError(boundPath(path), "schema recursion does not consume a value");
     }
     const nextSeen = new Set(seen);
     nextSeen.add(node);
@@ -124,7 +126,7 @@ export function resolveSchemaForValue(
     if (Array.isArray(node.type)) {
         const matching = node.type.filter(type => matchesJsonType(value, type));
         if (matching.length === 0) {
-            return { ok: false, issues: [{ path: boundPath(path), code: "type" }] };
+            return { ok: false, issues: [{ path: boundPath(path), code: "invalid_type" }] };
         }
         return { ok: true, schema: { ...node, type: matching[0] } };
     }
@@ -162,7 +164,7 @@ export function checkValueAgainstSchema(
     const resolved = resolveReferenceChain(schemaNode, rootSchema, path);
     if (!resolved.ok) return resolved.issues;
     const node = resolved.schema;
-    if (seen.has(node)) return [{ path: boundPath(path), code: "constraint" }];
+    if (seen.has(node)) throw new ContractSchemaError(boundPath(path), "schema recursion does not consume a value");
     const nextSeen = new Set(seen);
     nextSeen.add(node);
 
@@ -172,15 +174,15 @@ export function checkValueAgainstSchema(
     }
 
     if (!matchesSchemaType(value, node.type)) {
-        return [{ path: boundPath(path), code: "type" }];
+        return [{ path: boundPath(path), code: "invalid_type" }];
     }
 
     const issues: ContractIssue[] = [];
     if (node.const !== undefined && !jsonScalarEqual(value, node.const)) {
-        issues.push({ path: boundPath(path), code: "const" });
+        issues.push({ path: boundPath(path), code: "invalid_literal" });
     }
     if (node.enum !== undefined && !node.enum.some(item => jsonScalarEqual(value, item))) {
-        issues.push({ path: boundPath(path), code: "enum" });
+        issues.push({ path: boundPath(path), code: "invalid_enum_value" });
     }
 
     if (node.properties === undefined
@@ -195,7 +197,7 @@ export function checkValueAgainstSchema(
         const required = new Set(node.required ?? []);
         for (const name of required) {
             if (!Object.hasOwn(record, name)) {
-                issues.push({ path: boundPath(joinPath(path, name)), code: "required" });
+                issues.push({ path: boundPath(joinPath(path, name)), code: "missing_field" });
             }
         }
         for (const [name, property] of Object.entries(node.properties ?? {})) {
@@ -229,10 +231,10 @@ export function checkValueAgainstSchema(
 
     if (Array.isArray(value) && isArraySchema(node)) {
         if (node.minItems !== undefined && value.length < node.minItems) {
-            issues.push({ path: boundPath(path), code: "length" });
+            issues.push({ path: boundPath(path), code: "array_min_items" });
         }
         if (node.maxItems !== undefined && value.length > node.maxItems) {
-            issues.push({ path: boundPath(path), code: "length" });
+            issues.push({ path: boundPath(path), code: "array_max_items" });
         }
         if (node.items !== undefined) {
             for (let index = 0; index < value.length; index += 1) {
@@ -252,27 +254,27 @@ export function checkValueAgainstSchema(
         if (node.pattern !== undefined) {
             try {
                 if (!new RegExp(node.pattern).test(value)) {
-                    issues.push({ path: boundPath(path), code: "pattern" });
+                    issues.push({ path: boundPath(path), code: "string_pattern" });
                 }
             } catch {
-                issues.push({ path: boundPath(path), code: "constraint" });
+                throw new ContractSchemaError(boundPath(path), `pattern ${JSON.stringify(node.pattern)} is not a valid regular expression`);
             }
         }
         if (node.minLength !== undefined && value.length < node.minLength) {
-            issues.push({ path: boundPath(path), code: "length" });
+            issues.push({ path: boundPath(path), code: "string_min_length" });
         }
         if (node.maxLength !== undefined && value.length > node.maxLength) {
-            issues.push({ path: boundPath(path), code: "length" });
+            issues.push({ path: boundPath(path), code: "string_max_length" });
         }
         return issues;
     }
 
     if (typeof value === "number" && (hasSchemaType(node, "number") || hasSchemaType(node, "integer"))) {
         if (node.minimum !== undefined && value < node.minimum) {
-            issues.push({ path: boundPath(path), code: "range" });
+            issues.push({ path: boundPath(path), code: "number_minimum" });
         }
         if (node.maximum !== undefined && value > node.maximum) {
-            issues.push({ path: boundPath(path), code: "range" });
+            issues.push({ path: boundPath(path), code: "number_maximum" });
         }
     }
 
@@ -441,7 +443,7 @@ function selectUnionBranch(
     seen: ReadonlySet<ContractSchemaNode>,
 ): SchemaValueResolution {
     if (branches.length === 0) {
-        return { ok: false, issues: [{ path: boundPath(path), code: "union" }] };
+        return { ok: false, issues: [{ path: boundPath(path), code: "union_no_match" }] };
     }
 
     const candidates: ContractSchemaNode[] = [];
@@ -456,7 +458,7 @@ function selectUnionBranch(
         return { ok: true, schema: candidates[0]! };
     }
     if (candidates.length > 1) {
-        return { ok: false, issues: [{ path: boundPath(path), code: "union" }] };
+        return { ok: false, issues: [{ path: boundPath(path), code: "union_no_match" }] };
     }
 
     const best = failures.reduce<readonly ContractIssue[]>(
@@ -465,7 +467,7 @@ function selectUnionBranch(
     );
     return {
         ok: false,
-        issues: best.length === 0 ? [{ path: boundPath(path), code: "union" }] : best,
+        issues: best.length === 0 ? [{ path: boundPath(path), code: "union_no_match" }] : best,
     };
 }
 
@@ -478,7 +480,7 @@ function resolveReferenceChain(
     const seen = new Set<string>();
     while (current.$ref !== undefined) {
         if (seen.has(current.$ref)) {
-            return { ok: false, issues: [{ path: boundPath(path), code: "constraint" }] };
+            throw new ContractSchemaError(boundPath(path), `local reference ${JSON.stringify(current.$ref)} does not resolve to a value-consuming schema`);
         }
         seen.add(current.$ref);
         current = resolveSchema(current, rootSchema);

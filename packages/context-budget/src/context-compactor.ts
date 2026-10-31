@@ -30,7 +30,7 @@ export interface ContextCompactor<T> {
     ): Promise<readonly ContextUnit<T>[]>;
 }
 
-// TODO(model-context-summary): 未来可注入生成摘要的新 Compactor，但默认策略不得生成或持久化摘要。
+// 默认裁剪策略只丢弃单元，不生成或持久化摘要。
 
 /**
  * 从最旧单元开始丢弃、只保留连续最新后缀的默认裁剪器。

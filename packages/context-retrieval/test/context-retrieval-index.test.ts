@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { test } from "node:test";
+import { canonicalJson } from "../../contracts/src/index";
 
 import {
     CONTEXT_RETRIEVAL_INDEX_VERSION,
@@ -64,6 +66,21 @@ test("查询键包含规范化过滤器、boundary 和 index version", () => {
         createContextRetrievalQueryKey(query("src/index.ts", 4, first.filters)),
     );
     assert.match(createContextRetrievalQueryKey(first), /^[0-9a-f]{64}$/);
+});
+
+test("旧空过滤缓存键不匹配时丢弃缓存并保留可重建索引", () => {
+    const input = { ...currentConversation, goalId, runId, committedThroughSequence: 0, events: [] };
+    const sidecar = buildContextRetrievalIndexSidecar(input);
+    const cache = new ContextRetrievalQueryCache();
+    cache.set(query("find"), notFound("lookup"));
+    const filters = { actionIds: [] };
+    const key = createHash("sha256").update(canonicalJson({ need: "historical_execution", question: "find", filters,
+        committedThroughSequence: 0, indexVersion: CONTEXT_RETRIEVAL_INDEX_VERSION }), "utf8").digest("hex");
+    const entry = { ...cache.snapshot()[0]!, key, filters };
+    const restored = openContextRetrievalIndexSession({ ...input, sidecar: { ...sidecar, queryCache: [entry] } });
+    assert.equal(restored.queryCache.size, 0);
+    assert.deepEqual(restored.sidecar.documents, sidecar.documents);
+    assert.equal(restored.queryCache.get(query("find")), undefined);
 });
 
 test("查询 LRU 固定 64 项，命中提升到 MRU 且淘汰最旧项", () => {

@@ -225,7 +225,7 @@ test(`accepted stage: Business tool call without an active run stage is rejected
 
 }
 
-test("1.1 & 2.2: Stage update with invalid target or stale revision is rejected with feedback", async () => {
+test("Stage update with invalid target or stale revision is rejected with feedback", async () => {
     const store = new InMemoryGoalStore();
     const trajectory = trajectoryStoreFor(store);
     const initial = createGoal({
@@ -310,7 +310,7 @@ test("1.1 & 2.2: Stage update with invalid target or stale revision is rejected 
     assert.equal(saved.state.run.currentStage?.target, "有效阶段 1");
 });
 
-test("1.2, 1.3 & 1.4: Stage declarations advance Step, keep Goal/Run identity and do not call continue", async () => {
+test("Stage declarations advance Step, keep Goal/Run identity and do not call continue", async () => {
     const store = new InMemoryGoalStore();
     const trajectory = trajectoryStoreFor(store);
     const initial = createGoal({
@@ -388,7 +388,7 @@ test("1.2, 1.3 & 1.4: Stage declarations advance Step, keep Goal/Run identity an
     assert.equal((stageEvents[1]?.payload as any).reason, "补充条件 B");
 });
 
-test("1.2 & 2.4: Steer inputs are durably accepted and applied during stage updates without loss", async () => {
+test("Steer inputs are durably accepted and applied during stage updates without loss", async () => {
     const store = new InMemoryGoalStore();
     const trajectory = trajectoryStoreFor(store);
     const initial = createGoal({
@@ -459,7 +459,7 @@ test("1.2 & 2.4: Steer inputs are durably accepted and applied during stage upda
     assert.equal(saved.state.run.steerInputs[0]?.status, "applied");
 });
 
-test("Item 5: Business tool call without declared stage (currentStage === undefined) is rejected with STAGE_DECLARATION_REQUIRED and executes zero side effects", async () => {
+test("Business tool call without declared stage (currentStage === undefined) is rejected with STAGE_DECLARATION_REQUIRED and executes zero side effects", async () => {
     const store = new InMemoryGoalStore();
     const trajectory = trajectoryStoreFor(store);
     const initial = createGoal({
@@ -564,7 +564,7 @@ test("Item 5: Business tool call without declared stage (currentStage === undefi
     assert.equal(saved.state.run.currentStage.status, "executing");
 });
 
-test("Item 1: 阶段完成与 notes 提交后，历史阶段与 notes 真实接入后续 Step 的模型请求与导航投影", async () => {
+test("阶段完成与 notes 提交后，历史阶段与 notes 真实接入后续 Step 的模型请求与导航投影", async () => {
     const store = new InMemoryGoalStore();
     const trajectory = trajectoryStoreFor(store);
     const initial = createGoal({
@@ -695,7 +695,7 @@ test("Item 1: 阶段完成与 notes 提交后，历史阶段与 notes 真实接�
     assert.equal(saved.state.run.status, "failed");
 });
 
-test("Item 2: 跨 Run 场景下，新 Run 自动恢复前序 Run 的历史阶段与 notes，且新分配的 noteId 单调递增不发生冲突", async () => {
+test("跨 Run 场景下，新 Run 自动恢复前序 Run 的历史阶段与 notes，且新分配的 noteId 单调递增不发生冲突", async () => {
     const store = new InMemoryGoalStore();
     const trajectory = trajectoryStoreFor(store);
 

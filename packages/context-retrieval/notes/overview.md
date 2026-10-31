@@ -7,6 +7,8 @@
 
 `@lazygoal/context-retrieval` 是历史上下文检索的独立算法与索引核心。它仅依赖 `@lazygoal/contracts`（共享 JSON 原语与类型）和 `@lazygoal/model-contracts`（请求与过滤类型），不反向依赖 `packages/runtime` 或 `packages/storage`，不执行文件 I/O、不感知 Goal/Run 状态机，亦不直接访问持久化存储。
 
+历史查询的数组过滤字段为空时等同于省略；非空过滤字段及有效的 sequence 区间继续生效。检索协议在生成查询身份前规范化这些字段，排序器直接调用也遵循相同语义；Runtime 负责提交请求与结果事实。
+
 ## 核心组件与两层接口
 
 1. **分词器（FieldTokenizer）**：基于 `Intl.Segmenter` 和精确正则切分 path、camelCase、snake_case、数字与自然语言，保留原词与小写形态，提供确定性分词输出。

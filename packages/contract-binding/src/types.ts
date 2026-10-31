@@ -3,14 +3,13 @@
  *
  * @remarks
  * 本模块只描述数据边界的身份、Schema、读取结果与问题定位；不承载权限、审批、
- * 状态转换或持久化规则。
+ * 状态转换或持久化规则。JSON 值与 issue 分类的权威定义在 `@lazygoal/contracts`，
+ * 本包只按读取边界重新导出，不另立词汇。
  */
 
-/** JSON 标量。 */
-export type JsonScalar = null | boolean | number | string;
+import type { ContractIssueCode, JsonScalar, JsonValue } from "../../contracts/src/index";
 
-/** JSON 值。 */
-export type JsonValue = JsonScalar | readonly JsonValue[] | { readonly [key: string]: JsonValue };
+export type { ContractIssueCode, JsonScalar, JsonValue } from "../../contracts/src/index";
 
 /** JSON Schema 基础类型。 */
 export type ContractSchemaType = "object" | "array" | "string" | "number" | "integer" | "boolean" | "null";
@@ -71,31 +70,15 @@ export interface ContractSchemaNode {
 }
 
 /**
- * 读取失败或未知字段问题的稳定分类。
- *
- * @remarks
- * 分类不包含字段值；路径指向 JSON Pointer 位置。已声明属性名可以出现在路径中，
- * 未声明属性名与开放对象键名统一使用 `*` 片段，避免外部键名进入日志。
- */
-export type ContractIssueCode =
-    | "json"
-    | "required"
-    | "type"
-    | "enum"
-    | "const"
-    | "range"
-    | "length"
-    | "pattern"
-    | "union"
-    | "constraint"
-    | "unknown";
-
-/**
  * 单条读取问题。
+ *
+ * 与 `@lazygoal/contracts` 的 `ContractIssue` 同名但形状不同：绑定用 JSON Pointer
+ * 字符串定位、不带消息；共享诊断用路径段数组并携带面向展示的消息。跨边界时必须
+ * 转换路径，不得只改类型标注。
  *
  * @example
  * ```ts
- * const issue: ContractIssue = { path: "/nested/count", code: "type" };
+ * const issue: ContractIssue = { path: "/nested/count", code: "number_minimum" };
  * ```
  */
 export interface ContractIssue {

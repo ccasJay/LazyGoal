@@ -373,7 +373,7 @@ interface ObservedGoal {
     handle: unknown;
 }
 
-/** 默认的最大核对间隔：Spec 约定不超过一秒。 */
+/** 默认的最大核对间隔不超过一秒。 */
 export const DEFAULT_RESYNC_INTERVAL_MS = 1000;
 
 export class GoalRevisionMonitor {

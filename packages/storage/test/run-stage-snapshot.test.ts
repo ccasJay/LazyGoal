@@ -13,7 +13,7 @@ const currentProtocols = {
     contextRetrievalProtocol: { kind: "bm25-lite" as const, version: 1 as const },
 };
 
-test("6.1: RunStageState roundtrip in Snapshot preserves stage identity, revision, rejection, and previous refs", () => {
+test("RunStageState roundtrip in Snapshot preserves stage identity, revision, rejection, and previous refs", () => {
     const goal = createGoal({
         ...currentProtocols,
         id: "goal-stage-test",
@@ -67,7 +67,7 @@ test("6.1: RunStageState roundtrip in Snapshot preserves stage identity, revisio
     });
 });
 
-test("6.1: Snapshot without currentStage roundtrips safely as undefined", () => {
+test("Snapshot without currentStage roundtrips safely as undefined", () => {
     const goal = createGoal({
         ...currentProtocols,
         id: "goal-no-stage",

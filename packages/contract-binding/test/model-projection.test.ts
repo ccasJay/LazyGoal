@@ -120,18 +120,18 @@ test("model projection rejects missing wire-required properties and invalid cano
     });
     assert.equal(missingOptional.ok, false);
     if (!missingOptional.ok) {
-        assert.ok(missingOptional.issues.some(issue => issue.path === "/note" && issue.code === "required"));
-        assert.ok(missingOptional.issues.some(issue => issue.path === "/tags" && issue.code === "required"));
+        assert.ok(missingOptional.issues.some(issue => issue.path === "/note" && issue.code === "missing_field"));
+        assert.ok(missingOptional.issues.some(issue => issue.path === "/tags" && issue.code === "missing_field"));
         assert.equal("data" in missingOptional, false);
     }
 
     const invalidCases: Array<{ value: unknown; path: string; code: string }> = [
-        { value: { count: 0, kind: "alpha", nested: { label: "ok", optionalLabel: null }, note: null, tags: null }, path: "/count", code: "range" },
-        { value: { count: 1.5, kind: "alpha", nested: { label: "ok", optionalLabel: null }, note: null, tags: null }, path: "/count", code: "type" },
-        { value: { count: 3, kind: "gamma", nested: { label: "ok", optionalLabel: null }, note: null, tags: null }, path: "/kind", code: "enum" },
-        { value: { count: 3, kind: "alpha", nested: { optionalLabel: null }, note: null, tags: null }, path: "/nested/label", code: "required" },
-        { value: { count: "3", kind: "alpha", nested: { label: "ok", optionalLabel: null }, note: null, tags: null }, path: "/count", code: "type" },
-        { value: { count: 3, kind: "alpha", nested: { label: "ok", optionalLabel: null }, note: null, tags: [1] }, path: "/tags/0", code: "type" },
+        { value: { count: 0, kind: "alpha", nested: { label: "ok", optionalLabel: null }, note: null, tags: null }, path: "/count", code: "number_minimum" },
+        { value: { count: 1.5, kind: "alpha", nested: { label: "ok", optionalLabel: null }, note: null, tags: null }, path: "/count", code: "invalid_type" },
+        { value: { count: 3, kind: "gamma", nested: { label: "ok", optionalLabel: null }, note: null, tags: null }, path: "/kind", code: "invalid_enum_value" },
+        { value: { count: 3, kind: "alpha", nested: { optionalLabel: null }, note: null, tags: null }, path: "/nested/label", code: "missing_field" },
+        { value: { count: "3", kind: "alpha", nested: { label: "ok", optionalLabel: null }, note: null, tags: null }, path: "/count", code: "invalid_type" },
+        { value: { count: 3, kind: "alpha", nested: { label: "ok", optionalLabel: null }, note: null, tags: [1] }, path: "/tags/0", code: "invalid_type" },
     ];
     for (const current of invalidCases) {
         const result = projection.decode(current.value);
@@ -188,11 +188,11 @@ test("model projection preserves array lengths and integer item constraints", ()
     if (valid.ok) assert.deepEqual(valid.data, { stepIndexes: [0, 2] });
 
     const invalidCases: Array<{ value: unknown; path: string; code: string }> = [
-        { value: { stepIndexes: [], optionalTags: null }, path: "/stepIndexes", code: "length" },
-        { value: { stepIndexes: [0, 1], optionalTags: ["a"] }, path: "/optionalTags", code: "length" },
-        { value: { stepIndexes: [0, 1], optionalTags: ["a", "b", "c", "d"] }, path: "/optionalTags", code: "length" },
-        { value: { stepIndexes: [1.5], optionalTags: null }, path: "/stepIndexes/0", code: "type" },
-        { value: { stepIndexes: [-1], optionalTags: null }, path: "/stepIndexes/0", code: "range" },
+        { value: { stepIndexes: [], optionalTags: null }, path: "/stepIndexes", code: "array_min_items" },
+        { value: { stepIndexes: [0, 1], optionalTags: ["a"] }, path: "/optionalTags", code: "array_min_items" },
+        { value: { stepIndexes: [0, 1], optionalTags: ["a", "b", "c", "d"] }, path: "/optionalTags", code: "array_max_items" },
+        { value: { stepIndexes: [1.5], optionalTags: null }, path: "/stepIndexes/0", code: "invalid_type" },
+        { value: { stepIndexes: [-1], optionalTags: null }, path: "/stepIndexes/0", code: "number_minimum" },
     ];
     for (const current of invalidCases) {
         const result = projection.decode(current.value);
@@ -235,9 +235,9 @@ test("model projection widens local string constraints and records decode enforc
     assert.equal(valid.ok, true);
 
     const invalidCases: Array<{ value: unknown; path: string; code: string }> = [
-        { value: { label: "ABC" }, path: "/label", code: "pattern" },
-        { value: { label: "a" }, path: "/label", code: "length" },
-        { value: { label: "abcde" }, path: "/label", code: "length" },
+        { value: { label: "ABC" }, path: "/label", code: "string_pattern" },
+        { value: { label: "a" }, path: "/label", code: "string_min_length" },
+        { value: { label: "abcde" }, path: "/label", code: "string_max_length" },
     ];
     for (const current of invalidCases) {
         const result = projection.decode(current.value);
@@ -330,7 +330,7 @@ test("model projection maps optional, null and discriminated union fields", () =
     });
     assert.equal(missingOptional.ok, false);
     if (missingOptional.ok) return;
-    assert.ok(missingOptional.issues.some(issue => issue.path === "/optional" && issue.code === "required"));
+    assert.ok(missingOptional.issues.some(issue => issue.path === "/optional" && issue.code === "missing_field"));
 
     const invalidBranch = projection.decode({
         requiredNullable: null,
@@ -339,7 +339,7 @@ test("model projection maps optional, null and discriminated union fields", () =
     });
     assert.equal(invalidBranch.ok, false);
     if (invalidBranch.ok) return;
-    assert.ok(invalidBranch.issues.some(issue => issue.path === "/union/beta" && issue.code === "range"));
+    assert.ok(invalidBranch.issues.some(issue => issue.path === "/union/beta" && issue.code === "number_minimum"));
 });
 
 test("model projection rejects ambiguous optional nullable fields", () => {

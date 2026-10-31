@@ -243,60 +243,60 @@ test("generated binding reads union, recursive and open JSON values end to end",
     const rejected = binding.read(input, "reject");
     assert.equal(rejected.ok, false);
     if (rejected.ok) return;
-    assert.ok(rejected.issues?.some(issue => issue.path === "/union/*" && issue.code === "unknown"));
+    assert.ok(rejected.issues?.some(issue => issue.path === "/union/*" && issue.code === "extra_field"));
 
     const invalidName = binding.read({ ...input, name: "A" }, "strip");
     assert.equal(invalidName.ok, false);
     if (!invalidName.ok) {
-        assert.ok(invalidName.issues?.some(issue => issue.path === "/name" && issue.code === "pattern"));
+        assert.ok(invalidName.issues?.some(issue => issue.path === "/name" && issue.code === "string_pattern"));
     }
 
     const invalidCount = binding.read({ ...input, count: 0 }, "strip");
     assert.equal(invalidCount.ok, false);
     if (!invalidCount.ok) {
-        assert.ok(invalidCount.issues?.some(issue => issue.path === "/count" && issue.code === "range"));
+        assert.ok(invalidCount.issues?.some(issue => issue.path === "/count" && issue.code === "number_minimum"));
     }
 
     const fractionalInteger = binding.read({ ...input, integerCount: 1.5 }, "strip");
     assert.equal(fractionalInteger.ok, false);
     if (!fractionalInteger.ok) {
         assert.ok(fractionalInteger.issues?.some(issue =>
-            issue.path === "/integerCount" && issue.code === "type"));
+            issue.path === "/integerCount" && issue.code === "invalid_type"));
     }
 
     const fractionalOptionalInteger = binding.read({ ...input, optionalInteger: 2.5 }, "strip");
     assert.equal(fractionalOptionalInteger.ok, false);
     if (!fractionalOptionalInteger.ok) {
         assert.ok(fractionalOptionalInteger.issues?.some(issue =>
-            issue.path === "/optionalInteger" && issue.code === "type"));
+            issue.path === "/optionalInteger" && issue.code === "invalid_type"));
     }
 
     const outOfRangeInteger = binding.read({ ...input, integerCount: 0 }, "strip");
     assert.equal(outOfRangeInteger.ok, false);
     if (!outOfRangeInteger.ok) {
         assert.ok(outOfRangeInteger.issues?.some(issue =>
-            issue.path === "/integerCount" && issue.code === "range"));
+            issue.path === "/integerCount" && issue.code === "number_minimum"));
     }
 
     const missingRequiredItem = binding.read({ ...input, requiredItems: [] }, "strip");
     assert.equal(missingRequiredItem.ok, false);
     if (!missingRequiredItem.ok) {
         assert.ok(missingRequiredItem.issues?.some(issue =>
-            issue.path === "/requiredItems" && issue.code === "length"));
+            issue.path === "/requiredItems" && issue.code === "array_min_items"));
     }
 
     const tooFewBoundedItems = binding.read({ ...input, boundedItems: ["a"] }, "strip");
     assert.equal(tooFewBoundedItems.ok, false);
     if (!tooFewBoundedItems.ok) {
         assert.ok(tooFewBoundedItems.issues?.some(issue =>
-            issue.path === "/boundedItems" && issue.code === "length"));
+            issue.path === "/boundedItems" && issue.code === "array_min_items"));
     }
 
     const tooManyBoundedItems = binding.read({ ...input, boundedItems: ["a", "b", "c", "d"] }, "strip");
     assert.equal(tooManyBoundedItems.ok, false);
     if (!tooManyBoundedItems.ok) {
         assert.ok(tooManyBoundedItems.issues?.some(issue =>
-            issue.path === "/boundedItems" && issue.code === "length"));
+            issue.path === "/boundedItems" && issue.code === "array_max_items"));
     }
 
     const tooManyCappedItems = binding.read({
@@ -306,21 +306,21 @@ test("generated binding reads union, recursive and open JSON values end to end",
     assert.equal(tooManyCappedItems.ok, false);
     if (!tooManyCappedItems.ok) {
         assert.ok(tooManyCappedItems.issues?.some(issue =>
-            issue.path === "/cappedItems" && issue.code === "length"));
+            issue.path === "/cappedItems" && issue.code === "array_max_items"));
     }
 
     const negativeStepIndex = binding.read({ ...input, stepIndexes: [-1] }, "strip");
     assert.equal(negativeStepIndex.ok, false);
     if (!negativeStepIndex.ok) {
         assert.ok(negativeStepIndex.issues?.some(issue =>
-            issue.path === "/stepIndexes/0" && issue.code === "range"));
+            issue.path === "/stepIndexes/0" && issue.code === "number_minimum"));
     }
 
     const fractionalStepIndex = binding.read({ ...input, stepIndexes: [1.5] }, "strip");
     assert.equal(fractionalStepIndex.ok, false);
     if (!fractionalStepIndex.ok) {
         assert.ok(fractionalStepIndex.issues?.some(issue =>
-            issue.path === "/stepIndexes/0" && issue.code === "type"));
+            issue.path === "/stepIndexes/0" && issue.code === "invalid_type"));
     }
 
     const withoutOptionalArrays = structuredClone(input) as Record<string, unknown>;

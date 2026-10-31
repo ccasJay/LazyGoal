@@ -6,7 +6,7 @@ export const contextLookupRequestMetadata = {
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
     "path": "packages/model-contracts/src/model-output/schema-types.ts#ContextLookupRequest,ContextLookupFilters,ContextLookupNeed,ContextLookupOperation,ContextLookupPageSize,ContextLookupSequenceRange,JsonInteger,NonNegativeInteger",
-    "sha256": "8785737f37016dfa57404b961da95fec49c9a811a21638dc4cba2a5debf0bf11"
+    "sha256": "2609283cdf1553994d35b29948cfca550e402d1373668e1962d70fcb8a6c3d1c"
   },
   "generator": {
     "name": "ts-json-schema-generator",

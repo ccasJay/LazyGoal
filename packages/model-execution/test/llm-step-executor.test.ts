@@ -1247,7 +1247,7 @@ test("Runner 按模型返回顺序执行多调用批次，各计一次 Step 且 
     const result = await runner.run({ goalId, runId: "run-batch-order" });
     assert.equal(result.ok, true);
     if (!result.ok) return;
-    // 本用例只验证批次执行；桩在批次后只返回文本，因此按不推进类预算终态失败（该行为由 TODO1/TODO2 用例覆盖）。
+    // 只验证批次执行；桩在批次后只返回文本，因此按不推进类预算终态失败。
     assert.equal(result.state.status, "failed");
     assert.deepEqual(executed, ["a.md", "b.md", "c.md"], "必须按模型返回顺序执行");
     assert.equal(result.state.stepCount, 3, "每个 Action 的成功结果各计一次 Step");

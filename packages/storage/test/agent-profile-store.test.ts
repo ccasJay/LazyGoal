@@ -140,11 +140,11 @@ test("invalid Profile errors expose stable identity and safe field issues", asyn
             assert.equal(error.profileId, "default");
             assert.equal(error.filePath, join(directory, "default.json"));
             assert.equal(
-                error.issues?.some(issue => issue.path === "/instructions/0" && issue.code === "length"),
+                error.issues?.some(issue => issue.path === "/instructions/0" && issue.code === "string_min_length"),
                 true,
             );
             assert.equal(
-                error.issues?.some(issue => issue.path === "/*" && issue.code === "unknown"),
+                error.issues?.some(issue => issue.path === "/*" && issue.code === "extra_field"),
                 true,
             );
             assert.equal(JSON.stringify(error.issues).includes(secret), false);

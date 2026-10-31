@@ -520,9 +520,10 @@ function normalizeFilters(filters: ContextLookupFilters | undefined): ContextLoo
     }
     const normalizeStrings = (value: unknown, name: string): readonly string[] | undefined => {
         if (value === undefined) return undefined;
-        if (!Array.isArray(value) || value.length === 0 || value.length > 16) {
-            throw new ContextRankingError(`${name} must contain 1..16 items`);
+        if (!Array.isArray(value) || value.length > 16) {
+            throw new ContextRankingError(`${name} must contain at most 16 items`);
         }
+        if (value.length === 0) return undefined;
         const result = value.map((item) => {
             if (typeof item !== "string" || item.trim().length === 0) {
                 throw new ContextRankingError(`${name} must contain non-empty strings`);
@@ -533,9 +534,10 @@ function normalizeFilters(filters: ContextLookupFilters | undefined): ContextLoo
     };
     const normalizeNumbers = (value: unknown, name: string): readonly number[] | undefined => {
         if (value === undefined) return undefined;
-        if (!Array.isArray(value) || value.length === 0 || value.length > 16) {
-            throw new ContextRankingError(`${name} must contain 1..16 items`);
+        if (!Array.isArray(value) || value.length > 16) {
+            throw new ContextRankingError(`${name} must contain at most 16 items`);
         }
+        if (value.length === 0) return undefined;
         const result = value.map((item) => {
             if (!Number.isSafeInteger(item) || (item as number) < 0) {
                 throw new ContextRankingError(`${name} must contain non-negative integers`);

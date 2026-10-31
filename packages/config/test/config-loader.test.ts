@@ -72,7 +72,7 @@ test("loadRuntimeConfig 缺少必填项时快速失败并提示配置路径", as
     }
 });
 
-test("需求 5.1: 用户配置 config.toml 时无需指定 structured_output_mode 即可成功加载运行", async () => {
+test("用户配置 config.toml 时无需指定 structured_output_mode 即可成功加载运行", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "lazygoal-loader-no-mode-"));
     try {
         const homePaths = resolveLazyGoalHomePaths({ LAZYGOAL_HOME: tempDir });

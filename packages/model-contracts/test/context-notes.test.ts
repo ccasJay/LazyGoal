@@ -13,7 +13,7 @@ function readNotes(notes: readonly ContextNoteProposal[]) {
     }, "reject");
 }
 
-test("2.1: 生成决策绑定接受合法 decision 与 user_emphasis ContextNote", () => {
+test("生成决策绑定接受合法 decision 与 user_emphasis ContextNote", () => {
     // 1. 合法用户强调信息
     const validEmphasis: ContextNoteProposal = {
         category: "user_emphasis",
@@ -61,7 +61,7 @@ test("2.1: 生成决策绑定接受合法 decision 与 user_emphasis ContextNote
     assert.equal(parsed.data.contextNotes?.[2]?.supersedesNoteId, "note-old-1");
 });
 
-test("2.2 & 2.3: 生成绑定拒绝非法分类、缺失来源或非法修订号", () => {
+test("生成绑定拒绝非法分类、缺失来源或非法修订号", () => {
     // 1. 非法分类
     assert.equal(readNotes([{
         category: "unknown_category",

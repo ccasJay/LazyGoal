@@ -77,6 +77,7 @@ project-memory/  Durable summaries of completed and verified feature specificati
 * Prefer the smallest implementation that satisfies the current requirement and preserves existing architectural boundaries.
 * **UI Components:** Use shadcn/ui as the default component library. Before implementing custom components, check whether suitable shadcn/ui or existing reusable UI components are available; reuse or customize them whenever possible. Follow the existing project styling conventions. Create custom components only when those options cannot meet the requirement.
 * Do not introduce abstractions, compatibility layers, fallback paths, or configuration options without a demonstrated current requirement.
+* Do not leave agent workflow artifacts in code. Code comments, test titles, and diagnostics must describe the current contract, observable behavior, or durable rationale; do not reference a Spec, plan, task or requirement number (for example `TODO 3.1`, `需求 5.2`, `Item 1`), migration phase, review round, worktree, or other process state. Track unfinished work in the owning Spec or issue tracker instead of in code.
 * All user-facing output must be in English, except for GitHub pull request titles and descriptions, commit messages, and Chinese TSDoc explicitly required by this document.
 * Write GitHub pull request titles and descriptions in Chinese by default unless the user explicitly requests another language. Keep code identifiers, commands, and paths unchanged.
 * Commit messages must be concise and written in Chinese. Use the format:

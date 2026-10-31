@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
     IndexedContextLookupService,
+    invokeContextLookup,
     allocateImmutableEvent,
     assertContextLookupResultOwnership,
     buildCommittedEvidenceIndex,
@@ -182,19 +183,18 @@ test("Trajectory reader uses archived Run boundary and rejects unknown Run", asy
 
 test("Indexed Lookup keeps equal local sequences separated by Run identity", async () => {
     const goal = createMultiRunGoal();
-    const result = await new IndexedContextLookupService({
-        trajectoryStore: storeFor(goal),
-        minimumScore: 0,
-    }).lookup({
+    const invocation = await invokeContextLookup({
         goal,
+        phase: "executing",
+        port: new IndexedContextLookupService({ trajectoryStore: storeFor(goal), minimumScore: 0 }),
         request: {
             kind: "context_lookup",
             need: "historical_execution",
             question: "archive",
+            filters: { actionIds: [], paths: [], stepIndexes: [] },
         },
-        lookupId: "lookup-multi-run",
-        committedThroughSequence: 2,
     });
+    const result = invocation.result;
 
     assert.equal(result.status, "found");
     if (result.status !== "found") return;

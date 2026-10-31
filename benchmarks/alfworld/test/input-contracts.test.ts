@@ -17,8 +17,8 @@ test("ALFWorld Reset 与 Step 使用生成输入绑定校验结构 fixtures", ()
             binding: alfworldResetInputBinding,
             valid: {},
             invalid: [
-                { value: null, code: "type", path: "" },
-                { value: { extra: true }, code: "unknown", path: "/*" },
+                { value: null, code: "invalid_type", path: "" },
+                { value: { extra: true }, code: "extra_field", path: "/*" },
             ],
         },
         {
@@ -26,9 +26,9 @@ test("ALFWorld Reset 与 Step 使用生成输入绑定校验结构 fixtures", ()
             binding: alfworldStepInputBinding,
             valid: { command: "  look  " },
             invalid: [
-                { value: {}, code: "required", path: "/command" },
-                { value: { command: 42 }, code: "type", path: "/command" },
-                { value: { command: "look", extra: true }, code: "unknown", path: "/*" },
+                { value: {}, code: "missing_field", path: "/command" },
+                { value: { command: 42 }, code: "invalid_type", path: "/command" },
+                { value: { command: "look", extra: true }, code: "extra_field", path: "/*" },
             ],
         },
     ] as const;

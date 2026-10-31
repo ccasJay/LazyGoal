@@ -26,7 +26,7 @@ function createDummyEvent(
     } as unknown as TrajectoryEvent;
 }
 
-test("TODO 3.1: 重名阶段与多 Run 隔离，同名 stageId 在不同 Run 中独立存在", () => {
+test("重名阶段与多 Run 隔离，同名 stageId 在不同 Run 中独立存在", () => {
     const goalId = "goal-stage-isolation-1";
     const run1Id = "run-1";
     const run2Id = "run-2";
@@ -93,7 +93,7 @@ test("TODO 3.1: 重名阶段与多 Run 隔离，同名 stageId 在不同 Run 中
     assert.equal(stageRun2.summary, undefined);
 });
 
-test("TODO 3.2: 相同 sequence 跨 Run 独立区分，来源按 (runId, sequence) 隔离", () => {
+test("相同 sequence 跨 Run 独立区分，来源按 (runId, sequence) 隔离", () => {
     const goalId = "goal-seq-collision-1";
     const run1Id = "run-1";
     const run2Id = "run-2";
@@ -154,7 +154,7 @@ test("TODO 3.2: 相同 sequence 跨 Run 独立区分，来源按 (runId, sequenc
     assert.equal(note2.category, "user_emphasis");
 });
 
-test("TODO 3.3: 阶段拒绝后 Run 失败，阶段状态准确保留 rejected 与反馈，不制造虚假成功", () => {
+test("阶段拒绝后 Run 失败，阶段状态准确保留 rejected 与反馈，不制造虚假成功", () => {
     const goalId = "goal-stage-reject-1";
     const runId = "run-1";
 
@@ -197,7 +197,7 @@ test("TODO 3.3: 阶段拒绝后 Run 失败，阶段状态准确保留 rejected �
     assert.equal(stage.summary, undefined, "拒绝的阶段不应有接受 summary");
 });
 
-test("TODO 3.4: 重要信息显式替代与修订跟踪，保留最新生效项与替代链", () => {
+test("重要信息显式替代与修订跟踪，保留最新生效项与替代链", () => {
     const goalId = "goal-note-supersede-1";
     const runId = "run-1";
 
@@ -240,7 +240,7 @@ test("TODO 3.4: 重要信息显式替代与修订跟踪，保留最新生效项�
     assert.equal(activeNote.supersedesNoteId, "note-arch-1");
 });
 
-test("TODO 3.5: 未提交 tail 严格隔离，sequence > committedThroughSequence 的事实绝不入索引", () => {
+test("未提交 tail 严格隔离，sequence > committedThroughSequence 的事实绝不入索引", () => {
     const goalId = "goal-uncommitted-tail-1";
     const runId = "run-1";
 
@@ -277,7 +277,7 @@ test("TODO 3.5: 未提交 tail 严格隔离，sequence > committedThroughSequenc
     assert.ok(index.stages.every((s) => s.stageId !== "stage-2"), "未提交 tail 绝对不能进入阶段索引");
 });
 
-test("TODO 3.6: 确定性 sourceDigest 计算，来源变化必引发摘要改变，相同来源摘要完全一致", () => {
+test("确定性 sourceDigest 计算，来源变化必引发摘要改变，相同来源摘要完全一致", () => {
     const goalId = "goal-digest-1";
     const envelope1: GoalSourceEnvelope = {
         goalId,

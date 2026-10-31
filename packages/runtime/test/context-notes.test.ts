@@ -5,7 +5,7 @@ import {
     type RuntimeContextNote,
 } from "../src/context-notes";
 
-test("2.1 & 2.2: validateAndReduceContextNotes assigns stable noteId and validates user verbatimSnippet", () => {
+test("validateAndReduceContextNotes assigns stable noteId and validates user verbatimSnippet", () => {
     const committedMessages = [
         { messageId: "msg-1", role: "user" as const, content: "请务必保持向后兼容，不要破坏现有接口。" },
     ];
@@ -38,7 +38,7 @@ test("2.1 & 2.2: validateAndReduceContextNotes assigns stable noteId and validat
     assert.equal(event.source.kind, "user_message");
 });
 
-test("2.2: 拒绝用户原文片段不符、未应用消息与跨 Goal 引用", () => {
+test("拒绝用户原文片段不符、未应用消息与跨 Goal 引用", () => {
     const committedMessages = [
         { messageId: "msg-1", role: "user" as const, content: "只支持 Node 22 环境。" },
     ];
@@ -84,7 +84,7 @@ test("2.2: 拒绝用户原文片段不符、未应用消息与跨 Goal 引用", 
     }, /message not found/i);
 });
 
-test("2.3 & 2.4: 区分用户决定与 Agent 方案，禁止 Agent 方案替代用户明确要求，拒绝过期修订", () => {
+test("区分用户决定与 Agent 方案，禁止 Agent 方案替代用户明确要求，拒绝过期修订", () => {
     const existingNotes: RuntimeContextNote[] = [
         {
             noteId: "note-user-req",

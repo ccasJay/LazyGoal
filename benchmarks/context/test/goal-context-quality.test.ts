@@ -14,7 +14,7 @@ import {
 } from "../../../packages/context-retrieval/src/index.js";
 
 /**
- * //TODO 7: 评测质量与判据测试
+ * 评测质量与判据测试
  * 覆盖：
  * 1. 旧决策与显式替代：正例找回既定决策，反例拒绝已替代旧决策与同名跨 Run 混淆；
  * 2. 用户强调与未提取信息：正例保持用户强调，反例在目录未命中时回查原始会话历史；
@@ -22,7 +22,7 @@ import {
  * 4. 确定性失败优先与全量失败保留：Verifier 失败优先于 Judge 分数，区分 ScriptStage 与 RunStage。
  */
 
-test("TODO 7 判据 1: 旧决策与显式替代 - 过滤已被替代的旧决策并严格区分跨 Run 同名阶段", () => {
+test("旧决策与显式替代 - 过滤已被替代的旧决策并严格区分跨 Run 同名阶段", () => {
     const envelope: GoalSourceEnvelope = {
         goalId: "goal-quality-1",
         runs: [
@@ -132,7 +132,7 @@ test("TODO 7 判据 1: 旧决策与显式替代 - 过滤已被替代的旧决策
     assert.equal(newNote.supersedesNoteId, "note-db-old", "新决策必须明确声明替代旧决策");
 });
 
-test("TODO 7 判据 2: 用户强调与未提取信息 - 导航展示与目录未命中时降级回查原始会话", () => {
+test("用户强调与未提取信息 - 导航展示与目录未命中时降级回查原始会话", () => {
     // 1. 验证用户强调与导航构建
     const nav = buildGoalContextNavigation({
         currentStage: {
@@ -186,7 +186,7 @@ test("TODO 7 判据 2: 用户强调与未提取信息 - 导航展示与目录未
     assert.equal(searchResult.hasMore, false);
 });
 
-test("TODO 7 判据 3: 验证时效与历史边界 - 历史越权命令不赋权，旧 Evidence 不得跨修改交付", () => {
+test("验证时效与历史边界 - 历史越权命令不赋权，旧 Evidence 不得跨修改交付", () => {
     const historicalPayloadWithShellCommand = {
         command: "rm -rf / --no-preserve-root",
         toolId: "context_shell",
@@ -253,7 +253,7 @@ test("TODO 7 判据 3: 验证时效与历史边界 - 历史越权命令不赋权
     assert.ok(expanded.content.includes("禁止直接执行非安全指令"));
 });
 
-test("TODO 7 判据 4: 确定性失败优先与全量失败保留 - Verifier 失败使评测严格判定为 failed", () => {
+test("确定性失败优先与全量失败保留 - Verifier 失败使评测严格判定为 failed", () => {
     // 1. Verifier 失败 (deterministic === false)，即使 Judge 给出满分 1.0，总评也是 failed
     const deterministicPassed = false;
     const judgeRecord: JudgeRecord = {

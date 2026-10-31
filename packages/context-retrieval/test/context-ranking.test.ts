@@ -84,6 +84,22 @@ test("过滤先于评分，平分时只使用 sequence 和文档 ID tie-break", 
     assert.equal(result.matches.every((match) => match.adjacent === false), true);
 });
 
+test("空过滤数组等同省略，非空过滤和区间仍生效", () => {
+    const index = buildContextInvertedIndex([
+        document("first", 1, "src/first.ts", "common"),
+        document("second", 2, "src/second.ts", "common", "bash"),
+    ]);
+    const ranker = new FieldedBm25LiteRanker(index, { minimumScore: 0, adjacentCount: 0 });
+    const baseline = ranker.rank({ question: "common" });
+    for (const field of ["eventTypes", "toolIds", "actionIds", "stepIndexes", "paths", "errorCodes", "objectIds"]) {
+        assert.deepEqual(ranker.rank({ question: "common", filters: { [field]: [] } }), baseline, field);
+        assert.throws(() => ranker.rank({ question: "common", filters: { [field]: Array(17).fill(field === "stepIndexes" ? 1 : "x") } }), ContextRankingError);
+        assert.throws(() => ranker.rank({ question: "common", filters: { [field]: [field === "stepIndexes" ? -1 : " "] } }), ContextRankingError);
+    }
+    const mixed = ranker.rank({ question: "common", filters: { actionIds: [], toolIds: ["read_file"], sequenceRange: { from: 1, to: 2 } } });
+    assert.deepEqual(mixed.matches.map(item => item.documentId), ["first"]);
+});
+
 test("Top-K 主命中不包含相邻扩展，扩展项保持完整文档并去重", () => {
     const index = buildContextInvertedIndex([
         document("doc-before", 1, "src/before.ts", "before"),
