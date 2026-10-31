@@ -54,3 +54,7 @@ Provider 小 Spec 的字段、错误枚举、HTTP 状态和凭据规则不因本
 - Provider 测试 `modelCount` 的安全整数语义由 `@asType integer` 与 `@maximum Number.MAX_SAFE_INTEGER` 表达。
 
 鉴权、请求体字节上限、UTF-16 长度、Provider 凭据禁用键、HTTP 错误映射与取消语义继续由现有路由、`hasUtf16LengthAtMost`、`hasNoProviderCredentialKey` 和 `AbortSignal` 路径承担；迁移不引入旧 AST 回退或双重读取。
+
+## 当前实现
+
+TODO 2 将上表全部 HTTP、SSE 与浏览器 DTO 迁至 [`wire.ts`](../../packages/web-contracts/src/wire.ts) 原生 TS 单源，删除 157 个 Web Contract AST 声明，并登记 55 个生成绑定根与 1 个 Provider 模型 Reader。真实路由在 JSON 请求体边界读取生成的命令绑定，Goal Board API 与 SSE 消费生成的响应绑定；未知字段剥离并产生有界诊断，已知字段、鉴权、大小、UTF-16、凭据、HTTP 错误与取消语义由既有边界保留。

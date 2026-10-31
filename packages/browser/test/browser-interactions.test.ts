@@ -503,7 +503,7 @@ test("审批预检路由只接受严格 wire 请求并返回可审阅内容", as
     const invalidInput = await routes.request("http://localhost/api/goals/goal-1/action-reviews", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ runId: "run-1", actionId: "act-1", toolId: "write_file" }),
+        body: JSON.stringify({ runId: "run-1", actionId: "" }),
     });
     assert.equal(invalidInput.status, 400);
 

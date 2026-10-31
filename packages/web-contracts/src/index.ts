@@ -68,6 +68,7 @@ export {
     type BrowserToolGrantSummary,
     type BrowserActionDetailsResult,
     type BrowserToolGrantResult,
+    type BrowserToolGrantRevokeBody,
     type BrowserToolGrantRevokeCommand,
     type BrowserPermissionMode,
     type BrowserPermissionModeCommand,
@@ -78,23 +79,25 @@ export {
     type BrowserGoalDeleteResult,
 } from "./command";
 
-export {
-    type BrowserCreateSessionCommand,
-    type BrowserCreateSessionResult,
-    type BrowserSessionInputCommand,
-    type BrowserSessionInputErrorCode,
-    type BrowserSessionInputKind,
-    type BrowserSessionInputOutcome,
-    type BrowserSessionInputQueryResult,
-    type BrowserSessionInputReceipt,
-    type BrowserSessionInputResult,
-    type BrowserSessionInputStatus,
-    type BrowserSessionInteractionResponse,
-    type BrowserJsonValue,
-    type BrowserSessionMessageEntry,
-    type BrowserSessionMessageListResult,
-    type BrowserSessionMessageResult,
-    type BrowserSessionState,
+export type {
+    BrowserCreateSessionCommand,
+    BrowserCreateSessionResult,
+    BrowserGoalSessionEnvelope,
+    BrowserGoalSessionStateEnvelope,
+    BrowserSessionInputCommand,
+    BrowserSessionInputErrorCode,
+    BrowserSessionInputKind,
+    BrowserSessionInputOutcome,
+    BrowserSessionInputQueryResult,
+    BrowserSessionInputReceipt,
+    BrowserSessionInputResult,
+    BrowserSessionInputStatus,
+    BrowserSessionInteractionResponse,
+    BrowserJsonValue,
+    BrowserSessionMessageEntry,
+    BrowserSessionMessageListResult,
+    BrowserSessionMessageResult,
+    BrowserSessionState,
 } from "./session-input";
 
 export {
@@ -126,12 +129,14 @@ export {
     type BrowserModelInputRecordWire,
     type BrowserModelInputSummary,
     type BrowserModelInputDetail,
+    type BrowserModelInputs,
 } from "./model-input";
 
 export {
     type BrowserTrajectoryRun,
     type BrowserTrajectoryEntry,
     type BrowserTrajectoryPage,
+    type BrowserTrajectoryRuns,
     type BrowserTrajectoryIssueWire,
     type BrowserTrajectoryFeedbackWire,
     type BrowserModelRepairFeedbackRecordedPayload,
@@ -152,6 +157,14 @@ export {
     type RunSessionMetrics,
     type SessionMetricsSnapshot,
 } from "./metrics";
+
+export * from "./bindings";
+
+export type {
+    ContractBinding,
+    ContractDiagnostic,
+    ContractReadResult,
+} from "../../contract-binding/src/index";
 
 export {
     isRecord,

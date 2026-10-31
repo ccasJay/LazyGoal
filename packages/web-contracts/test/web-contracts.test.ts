@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+    browserGoalSessionBinding,
+    browserGoalSessionStateBinding,
     isAcceptedCommand,
     isActionDetailsResult,
     isBrowserActionReviewResult,
@@ -51,8 +53,6 @@ import {
     type BrowserActivityPage,
     type SessionMetricsSnapshot,
 } from "../src/index";
-import { safeParse } from "../../contracts/src/index";
-import { browserGoalSessionContract } from "../src/contracts/session";
 
 test("isRunStatus classifies valid and invalid run statuses", () => {
     assert.equal(isRunStatus("created"), true);
@@ -185,7 +185,7 @@ test("Activity 与窄状态 wire guards 接受有界安全 DTO 并拒绝原始�
         ...page,
         items: [{ ...page.items[0]!, previewId: "x".repeat(201) }],
     }), false);
-    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...page.items[0], payload: { secret: "raw" } }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...page.items[0], payload: { secret: "raw" } }] }), true);
     assert.equal(isBrowserActivityPage({ ...page, items: [{ ...page.items[0], content: "x".repeat(4_001), contentLength: 4_001 }] }), false);
     assert.equal(isBrowserActivityPage({ ...page, items: [{ ...page.items[0], purpose: undefined }] }), false);
     assert.equal(isBrowserActivityPage({ ...page, items: [{ ...page.items[0], role: "user", purpose: "answer" }] }), false);
@@ -245,7 +245,7 @@ test("Activity 与窄状态 wire guards 接受有界安全 DTO 并拒绝原始�
     assert.equal(isBrowserActivityPage({ ...page, items: [lifecycleFact] }), true);
     assert.equal(isBrowserActivityPage({ ...page, items: [{ ...lifecycleFact,
         tool: { ...lifecycleFact.tool, lifecycle: [{ kind: "approval", title: "Permission requested", raw: "PRIVATE" }] },
-    }] }), false);
+    }] }), true);
     assert.equal(isBrowserActivityPage({ ...page, items: [{ ...lifecycleFact,
         tool: { ...lifecycleFact.tool, lifecycle: [{ kind: "other", title: "Permission requested" }] },
     }] }), false);
@@ -264,10 +264,10 @@ test("Activity 与窄状态 wire guards 接受有界安全 DTO 并拒绝原始�
     assert.equal(isBrowserActivityPage({ ...page, items: [thinkItem] }), true);
     assert.equal(isBrowserActivityPage({ ...page, items: [{ ...thinkItem, executionUnitId: "" }] }), false);
     assert.equal(isBrowserActivityPage({ ...page, items: [{ ...thinkItem, executionUnitId: "x".repeat(201) }] }), false);
-    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...thinkItem, payload: { secret: "raw" } }] }), false);
-    // 未知字段必须被拒绝：白名单守卫在 Think 项上曾经反向取值，导致合法项被误拒。
-    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...thinkItem, reviewNotes: "private" }] }), false);
-    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...thinkItem, think: { ...thinkItem.think, privateReasoning: "x" } }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...thinkItem, payload: { secret: "raw" } }] }), true);
+    // 未知字段按 Web 宽容策略剥离；非 JSON 额外值仍由共享读取器拒绝。
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...thinkItem, reviewNotes: "private" }] }), true);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...thinkItem, think: { ...thinkItem.think, privateReasoning: "x" } }] }), true);
 
     const state: BrowserGoalSessionState = {
         goalId: "goal-1", intent: "inspect", currentRunId: "run-1", runStatus: "running",
@@ -283,8 +283,8 @@ test("Activity 与窄状态 wire guards 接受有界安全 DTO 并拒绝原始�
     assert.equal(isBrowserGoalSessionState(failure), true);
     assert.equal(isBrowserGoalSessionState({ ...failure, runStatus: "running" }), false);
     assert.equal(isBrowserGoalSessionState({ ...failure, currentRunTerminalDetail: { message: 403 } }), false);
-    assert.equal(isBrowserGoalSessionState({ ...failure, currentRunTerminalDetail: { ...failure.currentRunTerminalDetail, rawResponse: "private" } }), false);
-    assert.equal(isBrowserGoalSessionState({ ...state, messages: [] }), false);
+    assert.equal(isBrowserGoalSessionState({ ...failure, currentRunTerminalDetail: { ...failure.currentRunTerminalDetail, rawResponse: "private" } }), true);
+    assert.equal(isBrowserGoalSessionState({ ...state, messages: [] }), true);
     assert.equal(isBrowserGoalSessionState({ ...state, history: { ...state.history, messages: { included: true, source: "activity" } } }), false);
 });
 
@@ -729,7 +729,7 @@ test("Provider 写入、删除、激活与测试守卫区分成功与失败形�
     assert.equal(isProviderProfileTestResult({ ok: false, error: "model_catalog_authentication" }), true);
 });
 
-test("session contracts preserve open layers and reject unlisted strict fields", () => {
+test("session bindings strip undeclared fields and keep declared relationships", () => {
     const session = {
         goalId: "goal-1",
         intent: "Test goal",
@@ -740,16 +740,14 @@ test("session contracts preserve open layers and reject unlisted strict fields",
         runs: [],
         historyTruncated: false,
     };
-    const parsed = safeParse(browserGoalSessionContract, {
+    const parsed = browserGoalSessionBinding.read({
         ...session,
         futureServerField: { nested: [1, 2] },
-    });
-    assert.equal(parsed.success, true);
-    if (parsed.success) {
-        assert.deepEqual(
-            (parsed.data as Record<string, unknown>).futureServerField,
-            { nested: [1, 2] },
-        );
+    }, "strip");
+    assert.equal(parsed.ok, true);
+    if (parsed.ok) {
+        assert.equal("futureServerField" in parsed.data, false);
+        assert.deepEqual(parsed.diagnostic?.paths, ["/futureServerField"]);
     }
 
     const state = {
@@ -765,13 +763,14 @@ test("session contracts preserve open layers and reject unlisted strict fields",
             stages: { included: false, source: "activity" },
         },
     };
-    assert.equal(isBrowserGoalSessionState(state), true);
-    assert.equal(isBrowserGoalSessionState({ ...state, futureServerField: true }), false);
+    const stateResult = browserGoalSessionStateBinding.read({ ...state, futureServerField: true }, "strip");
+    assert.equal(stateResult.ok, true);
+    assert.equal(isBrowserGoalSessionState({ ...state, futureServerField: true }), true);
     assert.equal(isBrowserGoalSessionState({
         ...state,
         runStatus: "failed",
         currentRunTerminalDetail: { message: "failed", futureField: true },
-    }), false);
+    }), true);
     assert.equal(isBrowserGoalSessionState({
         ...state,
         runStatus: "running",
@@ -967,8 +966,8 @@ test("Activity contracts keep strict layers, open layers and UTF-16 limits", () 
         actionGroups: [],
     };
     assert.equal(isBrowserActivityPage(page), true);
-    assert.equal(isBrowserActivityPage({ ...page, futureField: true }), false);
-    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...message, futureField: true }] }), false);
+    assert.equal(isBrowserActivityPage({ ...page, futureField: true }), true);
+    assert.equal(isBrowserActivityPage({ ...page, items: [{ ...message, futureField: true }] }), true);
     assert.equal(isBrowserActivityPage({ ...page, items: [{ ...message, content: "a".repeat(4_001), contentLength: 4_001 }] }), false);
     assert.equal(isBrowserActivityPage({ ...page, items: [{ ...message, content: "😀".repeat(2_000), contentLength: 4_000 }] }), true);
     assert.equal(isBrowserActivityPage({ ...page, items: [{ ...message, content: "😀".repeat(2_001), contentLength: 4_002 }] }), false);
@@ -1014,7 +1013,7 @@ test("Activity contracts keep strict layers, open layers and UTF-16 limits", () 
     assert.equal(isBrowserActivityPage({
         ...page,
         runs: [{ ...page.runs[0], terminalDetail: { message: "failed", extra: true } }],
-    }), false);
+    }), true);
 
     const live = { type: "activity", goalId: "goal-1", runId: "run-1", activity: {
         kind: "assistant_text_delta", text: "😀".repeat(1_000), truncated: false,

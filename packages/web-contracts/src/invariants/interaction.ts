@@ -27,6 +27,7 @@ const DECISIONS_BY_KIND: Readonly<Record<BrowserInteractionKind, readonly Browse
  * ```
  */
 export function isInteractionView(view: BrowserInteractionView): boolean {
+    if (view.decisions.length === 0) return false;
     if (view.kind === "question" || view.kind === "task_approval") {
         if (view.requestId === undefined || view.actionId !== undefined) return false;
     } else if (view.actionId === undefined || view.requestId !== undefined) {

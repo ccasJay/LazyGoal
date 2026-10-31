@@ -110,7 +110,7 @@ test("读取失败映射为稳定错误码", async () => {
     });
 });
 
-test("创建与更新拒绝非白名单或非法输入，且不触达端口", async () => {
+test("创建与更新剥离未知字段并拒绝非法已知输入", async () => {
     const calls: unknown[] = [];
     await withRoutes(unusedPort({
         create: async (input) => {
@@ -129,17 +129,18 @@ test("创建与更新拒绝非白名单或非法输入，且不触达端口", as
         });
 
         assert.equal((await post({ label: "x", kind: "openai", defaultModel: "m", unexpected: 1 })).status, 400);
+        assert.deepEqual(calls[0], { label: "x", kind: "openai", defaultModel: "m" }, "未知字段在进入端口前被剥离");
         assert.equal((await post({ kind: "openai", defaultModel: "m" })).status, 400);
         assert.equal((await post({ label: "x", kind: "openai", defaultModel: "m", contextWindowTokens: 0 })).status, 400);
         assert.equal((await post({ label: "x", kind: "openai", defaultModel: "m", maxOutputTokens: -1 })).status, 400);
         assert.equal((await post({ label: "x", kind: "openai", defaultModel: "m", structuredOutputMode: "nope" })).status, 400);
         assert.equal((await post({ label: " ", kind: "openai", defaultModel: "m" })).status, 400);
-        assert.deepEqual(calls, [], "非法输入不得触达端口");
+        assert.equal(calls.length, 1, "非法已知字段不得触达端口");
 
         const created = await post({ label: "x", kind: "openai", defaultModel: "m", apiKey: CANARY });
         assert.equal(created.status, 400);
         assert.deepEqual(await created.json(), { error: "provider_profile_invalid", fields: ["base_url"] });
-        assert.deepEqual(calls[0], { label: "x", kind: "openai", defaultModel: "m", apiKey: CANARY });
+        assert.deepEqual(calls[1], { label: "x", kind: "openai", defaultModel: "m", apiKey: CANARY });
 
         const patched = await fetch(`${base}/api/providers/profile-1`, {
             method: "PATCH",
@@ -148,7 +149,7 @@ test("创建与更新拒绝非白名单或非法输入，且不触达端口", as
         });
         assert.equal(patched.status, 200);
         assert.deepEqual(await patched.json(), { ok: true, profile: maskedProfile() });
-        assert.deepEqual(calls[1], ["profile-1", {
+        assert.deepEqual(calls[2], ["profile-1", {
             label: "x", kind: "openai", defaultModel: "m", structuredOutputMode: null,
         }]);
 
@@ -158,7 +159,7 @@ test("创建与更新拒绝非白名单或非法输入，且不触达端口", as
             body: JSON.stringify({ label: "x", kind: "openai", defaultModel: "m" }),
         });
         assert.equal(invalidId.status, 400);
-        assert.equal(calls.length, 2);
+        assert.equal(calls.length, 3);
     });
 });
 

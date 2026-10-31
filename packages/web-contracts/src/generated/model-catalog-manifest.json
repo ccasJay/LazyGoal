@@ -1,0 +1,23 @@
+{
+  "contractId": "web.models.catalog",
+  "version": 1,
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "source": {
+    "path": "packages/web-contracts/src/wire.ts#BrowserModelCatalog,BrowserModelSourceRef,BrowserModelCatalogNotice,BrowserModelOption,BrowserModelAvailabilitySource,BrowserModelMetadataSource",
+    "sha256": "cac5a0e5af7402bcbf56494924f51e312f13014f9dbe2fec7c01d2d29402bd27"
+  },
+  "generator": {
+    "name": "ts-json-schema-generator",
+    "version": "2.9.0",
+    "typescriptVersion": "5.9.3"
+  },
+  "validator": {
+    "name": "Ajv standalone",
+    "version": "8.20.0"
+  },
+  "bundler": {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "format": "esm"
+  }
+}

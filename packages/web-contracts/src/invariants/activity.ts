@@ -105,6 +105,7 @@ function isActivityItem(item: BrowserActivityItem): boolean {
  */
 export function isActivityPage(page: BrowserActivityPage): boolean {
     if (page.items.length > page.limit) return false;
+    if (page.gaps.length > 2) return false;
     if (!page.items.every(isActivityItem)) return false;
 
     if (new Set(page.gaps.map((gap) => gap.direction)).size !== page.gaps.length) return false;

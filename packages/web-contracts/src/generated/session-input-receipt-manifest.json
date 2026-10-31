@@ -1,0 +1,23 @@
+{
+  "contractId": "web.sessions.input.receipt",
+  "version": 1,
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "source": {
+    "path": "packages/web-contracts/src/wire.ts#BrowserSessionInputReceipt,BrowserSessionInputKind,BrowserSessionInputStatus",
+    "sha256": "81d011324b626593f019671257e982f6918a7d63e0ddb4d31566f3b6543b3903"
+  },
+  "generator": {
+    "name": "ts-json-schema-generator",
+    "version": "2.9.0",
+    "typescriptVersion": "5.9.3"
+  },
+  "validator": {
+    "name": "Ajv standalone",
+    "version": "8.20.0"
+  },
+  "bundler": {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "format": "esm"
+  }
+}

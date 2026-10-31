@@ -1,44 +1,51 @@
-import type {
-    BrowserActionDetailsResult,
-    BrowserActionReviewResult,
-    BrowserGoalListItem,
-    BrowserGoalList,
-    BrowserInteractionDetailResult,
-    BrowserInteractionView,
-    BrowserGoalPlan,
-    BrowserGoalSession,
-    BrowserGoalSessionState,
-    BrowserActivityPage,
-    BrowserActivityPosition,
-    BrowserActivityGap,
-    BrowserPendingAction,
-    BrowserPermissionModeResult,
-    BrowserRunStatus,
-    BrowserSessionRun,
-    BrowserToolGrantResult,
-    BrowserWorkspaceContext,
-    BrowserModelCatalog,
-    BrowserTrajectoryDetail,
-    BrowserTrajectoryEntry,
-    BrowserTrajectoryPage,
-    BrowserTrajectoryRun,
-    BrowserModelInputDetail,
-    BrowserModelInputSummary,
-    BrowserGoalLiveEvent,
-    BrowserCreateSessionResult,
-    BrowserSessionInputQueryResult,
-    BrowserSessionInputReceipt,
-    BrowserSessionInputResult,
-    BrowserSessionState,
-    SessionMetricsSnapshot,
-    BrowserProviderProfile,
-    BrowserProviderSettings,
-    BrowserProviderProfileWriteResult,
-    BrowserProviderProfileDeleteResult,
-    BrowserProviderProfileActivationResult,
-    BrowserProviderProfileTestResult,
-} from "./index";
-import { safeParse } from "../../contracts/src/index";
+import type { ContractBinding, ContractReadResult } from "../../contract-binding/src/index";
+
+import {
+    acceptedCommandBinding,
+    browserActionDetailsResultBinding,
+    browserActionReviewResultBinding,
+    browserActivityPageBinding,
+    browserCreateSessionResultBinding,
+    browserGoalListBinding,
+    browserGoalListItemBinding,
+    browserGoalLiveEventBinding,
+    browserGoalPlanBinding,
+    browserGoalSessionBinding,
+    browserGoalSessionEnvelopeBinding,
+    browserGoalSessionStateBinding,
+    browserGoalSessionStateEnvelopeBinding,
+    browserInteractionDetailResultBinding,
+    browserInteractionViewBinding,
+    browserModelCatalogBinding,
+    browserModelInputDetailBinding,
+    browserModelInputsBinding,
+    browserModelPreferenceResultBinding,
+    browserModelSelectionResultBinding,
+    browserPermissionModeResultBinding,
+    browserPendingActionBinding,
+    browserProviderProfileActivationResultBinding,
+    browserProviderProfileBinding,
+    browserProviderProfileDeleteResultBinding,
+    browserProviderProfileTestResultBinding,
+    browserProviderProfileWriteResultBinding,
+    browserProviderSettingsBinding,
+    browserSessionInputQueryResultBinding,
+    browserSessionInputReceiptBinding,
+    browserSessionInputResultBinding,
+    browserSessionMessageListBinding,
+    browserSessionMessageBinding,
+    browserSessionRunBinding,
+    browserSessionStateBinding,
+    browserToolGrantResultBinding,
+    browserTrajectoryDetailBinding,
+    browserTrajectoryEntryBinding,
+    browserTrajectoryPageBinding,
+    browserTrajectoryRunBinding,
+    browserTrajectoryRunsBinding,
+    browserWorkspaceContextBinding,
+    sessionMetricsSnapshotBinding,
+    sessionMetricsValuesBinding,
+} from "./bindings";
 import {
     hasConsistentTerminalDetail,
     hasNoProviderCredentialKey,
@@ -52,74 +59,51 @@ import {
     isRecord,
     isTrajectoryDetail as hasValidTrajectoryDetail,
 } from "./invariants";
-import {
-    browserActivityPageContract,
-} from "./contracts/activity";
-import {
-    acceptedCommandContract,
-    browserActionDetailsResultContract,
-    browserModelPreferenceResultContract,
-    browserModelSelectionResultContract,
-    browserPermissionModeResultContract,
-    browserToolGrantResultContract,
-    browserWorkspaceContextContract,
-} from "./contracts/command";
-import { browserGoalLiveEventContract } from "./contracts/events";
-import {
-    browserModelCatalogContract,
-    browserModelCatalogReadResultContract,
-} from "./contracts/model";
-import {
-    browserProviderProfileActivationResultContract,
-    browserProviderProfileContract,
-    browserProviderProfileDeleteResultContract,
-    browserProviderProfileTestResultContract,
-    browserProviderProfileWriteResultContract,
-    browserProviderSettingsContract,
-    browserProviderSettingsReadResultContract,
-} from "./contracts/provider";
-import {
-    sessionMetricsSnapshotContract,
-    sessionMetricsValuesContract,
-} from "./contracts/metrics";
-import {
-    browserModelInputDetailContract,
-    browserModelInputsContract,
-} from "./contracts/model-input";
-import {
-    browserTrajectoryDetailContract,
-    browserTrajectoryEntryContract,
-    browserTrajectoryPageContract,
-    browserTrajectoryRunContract,
-    browserTrajectoryRunsContract,
-} from "./contracts/trajectory";
-import {
-    browserInteractionViewContract,
-    browserMessagePositionContract,
-    browserRunStatusContract,
-    browserSessionInputReceiptContract,
-} from "./contracts/common";
-import {
-    browserActionReviewResultContract,
-    browserInteractionDetailResultContract,
-} from "./contracts/interaction";
-import {
-    browserCreateSessionResultContract,
-    browserGoalSessionEnvelopeContract,
-    browserGoalSessionStateEnvelopeContract,
-    browserSessionInputQueryResultContract,
-    browserSessionInputResultContract,
-    browserSessionStateContract,
-} from "./contracts/input";
-import {
-    browserGoalListItemContract,
-    browserGoalListContract,
-    browserGoalPlanContract,
-    browserGoalSessionContract,
-    browserGoalSessionStateContract,
-    browserPendingActionContract,
-    browserSessionRunContract,
-} from "./contracts/session";
+import type {
+    AcceptedCommand,
+    BrowserActionDetailsResult,
+    BrowserActionReviewResult,
+    BrowserActivityPage,
+    BrowserCreateSessionResult,
+    BrowserGoalList,
+    BrowserGoalListItem,
+    BrowserGoalLiveEvent,
+    BrowserGoalPlan,
+    BrowserGoalSession,
+    BrowserGoalSessionState,
+    BrowserInteractionDetailResult,
+    BrowserInteractionView,
+    BrowserModelCatalog,
+    BrowserModelInputDetail,
+    BrowserModelInputs,
+    BrowserModelPreferenceResult,
+    BrowserModelSelectionResult,
+    BrowserPermissionModeResult,
+    BrowserPendingAction,
+    BrowserProviderProfile,
+    BrowserProviderProfileActivationResult,
+    BrowserProviderProfileDeleteResult,
+    BrowserProviderProfileTestResult,
+    BrowserProviderProfileWriteResult,
+    BrowserProviderSettings,
+    BrowserRunStatus,
+    BrowserSessionInputQueryResult,
+    BrowserSessionInputReceipt,
+    BrowserSessionInputResult,
+    BrowserSessionMessageListResult,
+    BrowserSessionMessageResult,
+    BrowserSessionRun,
+    BrowserSessionState,
+    BrowserToolGrantResult,
+    BrowserTrajectoryDetail,
+    BrowserTrajectoryEntry,
+    BrowserTrajectoryPage,
+    BrowserTrajectoryRun,
+    BrowserTrajectoryRuns,
+    BrowserWorkspaceContext,
+    SessionMetricsSnapshot,
+    SessionMetricsValues,
+} from "./wire";
 
 /**
  * 通用对象类型守卫。
@@ -166,7 +150,12 @@ export { isJsonValue };
  * ```
  */
 export function isRunStatus(value: unknown): value is BrowserRunStatus {
-    return safeParse(browserRunStatusContract, value).success;
+    return value === "created"
+        || value === "running"
+        || value === "waiting"
+        || value === "completed"
+        || value === "failed"
+        || value === "cancelled";
 }
 
 /**
@@ -195,10 +184,9 @@ export function isOkResponse(value: unknown): value is { readonly ok: true } {
  * if (isAcceptedCommand(res)) console.log(res.goalId);
  * ```
  */
-export function isAcceptedCommand(value: unknown): value is { readonly goalId: string; readonly runId: string; readonly existing: boolean } {
-    return safeParse(acceptedCommandContract, value).success;
+export function isAcceptedCommand(value: unknown): value is AcceptedCommand {
+    return accepts(acceptedCommandBinding, value);
 }
-
 
 /**
  * 验证 inputs 路由返回的持久化受理或既有收据结果。
@@ -211,9 +199,8 @@ export function isAcceptedCommand(value: unknown): value is { readonly goalId: s
  * ```
  */
 export function isBrowserSessionInputResult(value: unknown): value is BrowserSessionInputResult {
-    return safeParse(browserSessionInputResultContract, value).success;
+    return accepts(browserSessionInputResultBinding, value);
 }
-
 
 /**
  * 输入收据类型守卫。
@@ -226,9 +213,8 @@ export function isBrowserSessionInputResult(value: unknown): value is BrowserSes
  * ```
  */
 export function isBrowserSessionInputReceipt(value: unknown): value is BrowserSessionInputReceipt {
-    return safeParse(browserSessionInputReceiptContract, value).success;
+    return accepts(browserSessionInputReceiptBinding, value);
 }
-
 
 /**
  * 按身份查询收据的类型守卫。
@@ -241,9 +227,8 @@ export function isBrowserSessionInputReceipt(value: unknown): value is BrowserSe
  * ```
  */
 export function isBrowserSessionInputQueryResult(value: unknown): value is BrowserSessionInputQueryResult {
-    return safeParse(browserSessionInputQueryResultContract, value).success;
+    return accepts(browserSessionInputQueryResultBinding, value);
 }
-
 
 /**
  * 安全会话状态投影类型守卫。
@@ -256,9 +241,8 @@ export function isBrowserSessionInputQueryResult(value: unknown): value is Brows
  * ```
  */
 export function isBrowserSessionState(value: unknown): value is BrowserSessionState {
-    return safeParse(browserSessionStateContract, value).success;
+    return accepts(browserSessionStateBinding, value);
 }
-
 
 /**
  * 创建 Session 的 wire 结果守卫。
@@ -271,10 +255,8 @@ export function isBrowserSessionState(value: unknown): value is BrowserSessionSt
  * ```
  */
 export function isBrowserCreateSessionResult(value: unknown): value is BrowserCreateSessionResult {
-    return safeParse(browserCreateSessionResultContract, value).success;
+    return accepts(browserCreateSessionResultBinding, value);
 }
-
-
 
 /**
  * Goal 列表项类型守卫。
@@ -288,7 +270,7 @@ export function isBrowserCreateSessionResult(value: unknown): value is BrowserCr
  * ```
  */
 export function isGoalListItem(value: unknown): value is BrowserGoalListItem {
-    return safeParse(browserGoalListItemContract, value).success;
+    return accepts(browserGoalListItemBinding, value);
 }
 
 /**
@@ -303,7 +285,7 @@ export function isGoalListItem(value: unknown): value is BrowserGoalListItem {
  * ```
  */
 export function isGoalList(value: unknown): value is BrowserGoalList {
-    return safeParse(browserGoalListContract, value).success;
+    return accepts(browserGoalListBinding, value);
 }
 
 /**
@@ -318,9 +300,9 @@ export function isGoalList(value: unknown): value is BrowserGoalList {
  * ```
  */
 export function isBrowserRun(value: unknown): value is BrowserSessionRun {
-    const parsed = safeParse(browserSessionRunContract, value);
-    if (!parsed.success) return false;
-    return parsed.data.planRoute === undefined || isPlanRoute(parsed.data.planRoute);
+    const result = browserSessionRunBinding.read(value, "strip");
+    return result.ok
+        && (result.data.planRoute === undefined || isPlanRoute(result.data.planRoute));
 }
 
 /**
@@ -335,9 +317,8 @@ export function isBrowserRun(value: unknown): value is BrowserSessionRun {
  * ```
  */
 export function isGoalPlan(value: unknown): value is BrowserGoalPlan {
-    return safeParse(browserGoalPlanContract, value).success;
+    return accepts(browserGoalPlanBinding, value);
 }
-
 
 /**
  * 待审 Action 类型守卫。
@@ -351,7 +332,7 @@ export function isGoalPlan(value: unknown): value is BrowserGoalPlan {
  * ```
  */
 export function isPendingAction(value: unknown): value is BrowserPendingAction {
-    return safeParse(browserPendingActionContract, value).success;
+    return accepts(browserPendingActionBinding, value);
 }
 
 /**
@@ -366,10 +347,9 @@ export function isPendingAction(value: unknown): value is BrowserPendingAction {
  * ```
  */
 export function isBrowserInteractionView(value: unknown): value is BrowserInteractionView {
-    const parsed = safeParse(browserInteractionViewContract, value);
-    return parsed.success && isInteractionView(parsed.data);
+    const result = browserInteractionViewBinding.read(value, "strip");
+    return result.ok && isInteractionView(result.data);
 }
-
 
 /**
  * 交互详情读取结果类型守卫。
@@ -383,9 +363,8 @@ export function isBrowserInteractionView(value: unknown): value is BrowserIntera
  * ```
  */
 export function isBrowserInteractionDetailResult(value: unknown): value is BrowserInteractionDetailResult {
-    return safeParse(browserInteractionDetailResultContract, value).success;
+    return accepts(browserInteractionDetailResultBinding, value);
 }
-
 
 /**
  * 只读审批预检结果类型守卫。
@@ -399,9 +378,8 @@ export function isBrowserInteractionDetailResult(value: unknown): value is Brows
  * ```
  */
 export function isBrowserActionReviewResult(value: unknown): value is BrowserActionReviewResult {
-    return safeParse(browserActionReviewResultContract, value).success;
+    return accepts(browserActionReviewResultBinding, value);
 }
-
 
 /**
  * 完整 Goal 会话详情类型守卫。
@@ -415,12 +393,12 @@ export function isBrowserActionReviewResult(value: unknown): value is BrowserAct
  * ```
  */
 export function isBrowserGoalSession(value: unknown): value is BrowserGoalSession {
-    const parsed = safeParse(browserGoalSessionContract, value);
-    if (!parsed.success) return false;
-    return parsed.data.runs.every((run) =>
+    const result = browserGoalSessionBinding.read(value, "strip");
+    if (!result.ok) return false;
+    return result.data.runs.every((run) =>
         run.planRoute === undefined || isPlanRoute(run.planRoute))
-        && (parsed.data.interaction === undefined
-            || isBrowserInteractionView(parsed.data.interaction));
+        && (result.data.interaction === undefined
+            || isInteractionView(result.data.interaction));
 }
 
 /**
@@ -434,15 +412,14 @@ export function isBrowserGoalSession(value: unknown): value is BrowserGoalSessio
  * ```
  */
 export function isBrowserGoalSessionState(value: unknown): value is BrowserGoalSessionState {
-    const parsed = safeParse(browserGoalSessionStateContract, value);
-    if (!parsed.success) return false;
-    return hasConsistentTerminalDetail(parsed.data)
-        && (parsed.data.currentPlanRoute === undefined
-            || isPlanRoute(parsed.data.currentPlanRoute))
-        && (parsed.data.interaction === undefined
-            || isBrowserInteractionView(parsed.data.interaction));
+    const result = browserGoalSessionStateBinding.read(value, "strip");
+    if (!result.ok) return false;
+    return hasConsistentTerminalDetail(result.data)
+        && (result.data.currentPlanRoute === undefined
+            || isPlanRoute(result.data.currentPlanRoute))
+        && (result.data.interaction === undefined
+            || isInteractionView(result.data.interaction));
 }
-
 
 /**
  * 有界 Activity 页类型守卫。
@@ -455,11 +432,9 @@ export function isBrowserGoalSessionState(value: unknown): value is BrowserGoalS
  * ```
  */
 export function isBrowserActivityPage(value: unknown): value is BrowserActivityPage {
-    const parsed = safeParse(browserActivityPageContract, value);
-    return parsed.success && isActivityPage(parsed.data);
+    const result = browserActivityPageBinding.read(value, "strip");
+    return result.ok && isActivityPage(result.data);
 }
-
-
 
 /**
  * 会话响应信封守卫。
@@ -473,9 +448,11 @@ export function isBrowserActivityPage(value: unknown): value is BrowserActivityP
  * ```
  */
 export function isGoalSessionEnvelope(value: unknown): value is { readonly goal: BrowserGoalSession; readonly session?: BrowserSessionState } {
-    return safeParse(browserGoalSessionEnvelopeContract, value).success;
+    const result = browserGoalSessionEnvelopeBinding.read(value, "strip");
+    if (!result.ok) return false;
+    return isBrowserGoalSession(result.data.goal)
+        && (result.data.session === undefined || isBrowserSessionState(result.data.session));
 }
-
 
 /**
  * 窄状态响应信封类型守卫。
@@ -488,9 +465,11 @@ export function isGoalSessionEnvelope(value: unknown): value is { readonly goal:
  * ```
  */
 export function isGoalSessionStateEnvelope(value: unknown): value is { readonly goal: BrowserGoalSessionState; readonly session?: BrowserSessionState } {
-    return safeParse(browserGoalSessionStateEnvelopeContract, value).success;
+    const result = browserGoalSessionStateEnvelopeBinding.read(value, "strip");
+    if (!result.ok) return false;
+    return isBrowserGoalSessionState(result.data.goal)
+        && (result.data.session === undefined || isBrowserSessionState(result.data.session));
 }
-
 
 /**
  * 模型目录类型守卫。
@@ -504,9 +483,8 @@ export function isGoalSessionStateEnvelope(value: unknown): value is { readonly 
  * ```
  */
 export function isModelCatalog(value: unknown): value is BrowserModelCatalog {
-    return safeParse(browserModelCatalogContract, value).success;
+    return accepts(browserModelCatalogBinding, value);
 }
-
 
 /**
  * 模型选择受理结果类型守卫。
@@ -520,10 +498,9 @@ export function isModelCatalog(value: unknown): value is BrowserModelCatalog {
  * ```
  */
 export function isModelSelectionAccepted(value: unknown): value is { readonly ok: true; readonly goalId: string; readonly runId: string; readonly modelId: string; readonly defaultModelSaved: boolean } {
-    const parsed = safeParse(browserModelSelectionResultContract, value);
-    return parsed.success && parsed.data.ok;
+    const result = browserModelSelectionResultBinding.read(value, "strip");
+    return result.ok && result.data.ok;
 }
-
 
 /**
  * 偏好模型设定受理守卫。
@@ -537,10 +514,9 @@ export function isModelSelectionAccepted(value: unknown): value is { readonly ok
  * ```
  */
 export function isModelPreferenceAccepted(value: unknown): value is { readonly ok: true; readonly modelId: string } {
-    const parsed = safeParse(browserModelPreferenceResultContract, value);
-    return parsed.success && parsed.data.ok;
+    const result = browserModelPreferenceResultBinding.read(value, "strip");
+    return result.ok && result.data.ok;
 }
-
 
 /**
  * 受管 Provider 档案投影守卫。
@@ -554,10 +530,9 @@ export function isModelPreferenceAccepted(value: unknown): value is { readonly o
  * ```
  */
 export function isProviderProfile(value: unknown): value is BrowserProviderProfile {
-    const parsed = safeParse(browserProviderProfileContract, value);
-    return parsed.success && hasNoProviderCredentialKey(parsed.data);
+    if (hasProviderCredentialKey(value)) return false;
+    return accepts(browserProviderProfileBinding, value);
 }
-
 
 /**
  * 设置页读取守卫。
@@ -575,11 +550,11 @@ export function isProviderProfile(value: unknown): value is BrowserProviderProfi
  * ```
  */
 export function isProviderSettings(value: unknown): value is BrowserProviderSettings {
-    const parsed = safeParse(browserProviderSettingsContract, value);
-    return parsed.success
-        && parsed.data.profiles.every(hasNoProviderCredentialKey);
+    if (isRecord(value) && Array.isArray(value.profiles) && value.profiles.some(hasProviderCredentialKey)) {
+        return false;
+    }
+    return accepts(browserProviderSettingsBinding, value);
 }
-
 
 /**
  * 档案写入结果守卫。
@@ -593,11 +568,9 @@ export function isProviderSettings(value: unknown): value is BrowserProviderSett
  * ```
  */
 export function isProviderProfileWriteResult(value: unknown): value is BrowserProviderProfileWriteResult {
-    const parsed = safeParse(browserProviderProfileWriteResultContract, value);
-    return parsed.success
-        && (!parsed.data.ok || hasNoProviderCredentialKey(parsed.data.profile));
+    if (isRecord(value) && hasProviderCredentialKey(value.profile)) return false;
+    return accepts(browserProviderProfileWriteResultBinding, value);
 }
-
 
 /**
  * 档案删除结果守卫。
@@ -611,11 +584,9 @@ export function isProviderProfileWriteResult(value: unknown): value is BrowserPr
  * ```
  */
 export function isProviderProfileDeleteResult(value: unknown): value is BrowserProviderProfileDeleteResult {
-    const parsed = safeParse(browserProviderProfileDeleteResultContract, value);
-    return parsed.success
-        && (!parsed.data.ok || hasNoProviderCredentialKey(parsed.data.profile));
+    if (isRecord(value) && hasProviderCredentialKey(value.profile)) return false;
+    return accepts(browserProviderProfileDeleteResultBinding, value);
 }
-
 
 /**
  * 档案激活结果守卫。
@@ -629,9 +600,8 @@ export function isProviderProfileDeleteResult(value: unknown): value is BrowserP
  * ```
  */
 export function isProviderProfileActivationResult(value: unknown): value is BrowserProviderProfileActivationResult {
-    return safeParse(browserProviderProfileActivationResultContract, value).success;
+    return accepts(browserProviderProfileActivationResultBinding, value);
 }
-
 
 /**
  * 连接测试结果守卫。
@@ -645,9 +615,8 @@ export function isProviderProfileActivationResult(value: unknown): value is Brow
  * ```
  */
 export function isProviderProfileTestResult(value: unknown): value is BrowserProviderProfileTestResult {
-    return safeParse(browserProviderProfileTestResultContract, value).success;
+    return accepts(browserProviderProfileTestResultBinding, value);
 }
-
 
 /**
  * Action 完整输入结果守卫。
@@ -661,9 +630,8 @@ export function isProviderProfileTestResult(value: unknown): value is BrowserPro
  * ```
  */
 export function isActionDetailsResult(value: unknown): value is BrowserActionDetailsResult {
-    return safeParse(browserActionDetailsResultContract, value).success;
+    return accepts(browserActionDetailsResultBinding, value);
 }
-
 
 /**
  * 工具授权结果守卫。
@@ -677,9 +645,8 @@ export function isActionDetailsResult(value: unknown): value is BrowserActionDet
  * ```
  */
 export function isToolGrantResult(value: unknown): value is BrowserToolGrantResult {
-    return safeParse(browserToolGrantResultContract, value).success;
+    return accepts(browserToolGrantResultBinding, value);
 }
-
 
 /**
  * 权限模式查询/设置结果守卫。
@@ -693,9 +660,8 @@ export function isToolGrantResult(value: unknown): value is BrowserToolGrantResu
  * ```
  */
 export function isPermissionModeResult(value: unknown): value is BrowserPermissionModeResult {
-    return safeParse(browserPermissionModeResultContract, value).success;
+    return accepts(browserPermissionModeResultBinding, value);
 }
-
 
 /**
  * 工作区上下文类型守卫。
@@ -709,9 +675,8 @@ export function isPermissionModeResult(value: unknown): value is BrowserPermissi
  * ```
  */
 export function isWorkspaceContext(value: unknown): value is BrowserWorkspaceContext {
-    return safeParse(browserWorkspaceContextContract, value).success;
+    return accepts(browserWorkspaceContextBinding, value);
 }
-
 
 /**
  * 实时事件类型守卫。
@@ -725,12 +690,9 @@ export function isWorkspaceContext(value: unknown): value is BrowserWorkspaceCon
  * ```
  */
 export function isLiveEvent(value: unknown): value is BrowserGoalLiveEvent {
-    const parsed = safeParse(browserGoalLiveEventContract, value);
-    return parsed.success && isLiveEventStructure(parsed.data);
+    const result = browserGoalLiveEventBinding.read(value, "strip");
+    return result.ok && isLiveEventStructure(result.data);
 }
-
-
-
 
 /**
  * 轨迹 Run 投影类型守卫。
@@ -744,9 +706,8 @@ export function isLiveEvent(value: unknown): value is BrowserGoalLiveEvent {
  * ```
  */
 export function isTrajectoryRun(value: unknown): value is BrowserTrajectoryRun {
-    return safeParse(browserTrajectoryRunContract, value).success;
+    return accepts(browserTrajectoryRunBinding, value);
 }
-
 
 /**
  * 轨迹 Run 列表响应类型守卫。
@@ -759,10 +720,9 @@ export function isTrajectoryRun(value: unknown): value is BrowserTrajectoryRun {
  * if (isTrajectoryRuns(res)) console.log(res.runs.length);
  * ```
  */
-export function isTrajectoryRuns(value: unknown): value is { runs: BrowserTrajectoryRun[]; nextOffset: number | null } {
-    return safeParse(browserTrajectoryRunsContract, value).success;
+export function isTrajectoryRuns(value: unknown): value is BrowserTrajectoryRuns {
+    return accepts(browserTrajectoryRunsBinding, value);
 }
-
 
 /**
  * 轨迹事件条目类型守卫。
@@ -776,9 +736,8 @@ export function isTrajectoryRuns(value: unknown): value is { runs: BrowserTrajec
  * ```
  */
 export function isTrajectoryEntry(value: unknown): value is BrowserTrajectoryEntry {
-    return safeParse(browserTrajectoryEntryContract, value).success;
+    return accepts(browserTrajectoryEntryBinding, value);
 }
-
 
 /**
  * 轨迹查询页响应守卫。
@@ -792,9 +751,8 @@ export function isTrajectoryEntry(value: unknown): value is BrowserTrajectoryEnt
  * ```
  */
 export function isTrajectoryPage(value: unknown): value is BrowserTrajectoryPage {
-    return safeParse(browserTrajectoryPageContract, value).success;
+    return accepts(browserTrajectoryPageBinding, value);
 }
-
 
 /**
  * 轨迹事件详情响应守卫。
@@ -808,14 +766,39 @@ export function isTrajectoryPage(value: unknown): value is BrowserTrajectoryPage
  * ```
  */
 export function isTrajectoryDetail(value: unknown): value is BrowserTrajectoryDetail {
-    const parsed = safeParse(browserTrajectoryDetailContract, value);
-    return parsed.success && hasValidTrajectoryDetail(parsed.data);
+    const result = browserTrajectoryDetailBinding.read(value, "strip");
+    return result.ok && hasValidTrajectoryDetail(result.data);
 }
 
+/**
+ * 会话消息列表响应守卫。
+ *
+ * @param value - 待检测值。
+ * @returns 是否为 BrowserSessionMessageListResult。
+ *
+ * @example
+ * ```ts
+ * if (isSessionMessageList(res)) console.log(res.ok);
+ * ```
+ */
+export function isSessionMessageList(value: unknown): value is BrowserSessionMessageListResult {
+    return accepts(browserSessionMessageListBinding, value);
+}
 
-
-
-
+/**
+ * 单条消息正文响应守卫。
+ *
+ * @param value - 待检测值。
+ * @returns 是否为 BrowserSessionMessageResult。
+ *
+ * @example
+ * ```ts
+ * if (isSessionMessage(res)) console.log(res.ok);
+ * ```
+ */
+export function isSessionMessage(value: unknown): value is BrowserSessionMessageResult {
+    return accepts(browserSessionMessageBinding, value);
+}
 
 /**
  * 模型输入列表响应类型守卫。
@@ -828,10 +811,9 @@ export function isTrajectoryDetail(value: unknown): value is BrowserTrajectoryDe
  * if (isModelInputs(inputs)) console.log(inputs.calls.length);
  * ```
  */
-export function isModelInputs(value: unknown): value is { calls: BrowserModelInputSummary[]; total: number; nextOffset: number | null } {
-    return safeParse(browserModelInputsContract, value).success;
+export function isModelInputs(value: unknown): value is BrowserModelInputs {
+    return accepts(browserModelInputsBinding, value);
 }
-
 
 /**
  * 模型输入详情响应类型守卫。
@@ -845,9 +827,8 @@ export function isModelInputs(value: unknown): value is { calls: BrowserModelInp
  * ```
  */
 export function isModelInputDetail(value: unknown): value is BrowserModelInputDetail {
-    return safeParse(browserModelInputDetailContract, value).success;
+    return accepts(browserModelInputDetailBinding, value);
 }
-
 
 /**
  * 会话指标数值项类型守卫。
@@ -861,10 +842,9 @@ export function isModelInputDetail(value: unknown): value is BrowserModelInputDe
  * ```
  */
 export function isMetricValues(value: Record<string, unknown>): boolean {
-    const parsed = safeParse(sessionMetricsValuesContract, value);
-    return parsed.success && hasValidMetricValues(parsed.data);
+    const result = sessionMetricsValuesBinding.read(value, "strip");
+    return result.ok && hasValidMetricValues(result.data);
 }
-
 
 /**
  * 会话指标聚合快照类型守卫。
@@ -878,22 +858,17 @@ export function isMetricValues(value: Record<string, unknown>): boolean {
  * ```
  */
 export function isMetricsSnapshot(value: unknown): value is SessionMetricsSnapshot {
-    const parsed = safeParse(sessionMetricsSnapshotContract, value);
-    if (!parsed.success) return false;
-    return hasValidMetricValues(parsed.data)
-        && hasValidContextRemainingPercent(parsed.data)
-        && parsed.data.runs.every((run) => hasValidMetricValues(run));
+    const result = sessionMetricsSnapshotBinding.read(value, "strip");
+    if (!result.ok) return false;
+    return hasValidMetricValues(result.data)
+        && hasValidContextRemainingPercent(result.data)
+        && result.data.runs.every((run) => hasValidMetricValues(run));
 }
 
+function accepts<T>(binding: ContractBinding<T>, value: unknown): value is T {
+    return binding.read(value, "strip").ok;
+}
 
-/**
- * 显式恢复命令类型守卫。
- *
- * @param value - 待检测值。
- * @returns 是否为 BrowserResumeGoalCommand。
- *
- * @example
- * ```ts
- * if (isResumeGoalCommand(cmd)) console.log(cmd.runId);
- * ```
- */
+function hasProviderCredentialKey(value: unknown): boolean {
+    return isRecord(value) && "apiKey" in value;
+}

@@ -1,0 +1,23 @@
+{
+  "contractId": "web.activity.page",
+  "version": 1,
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "source": {
+    "path": "packages/web-contracts/src/wire.ts#BrowserActivityPage,BrowserActivityItem,BrowserActivityMessageItem,BrowserActivityPosition,BrowserActivityFactItem,BrowserActivityEventType,BrowserActivityToolState,BrowserActivityToolLifecycleEntry,BrowserActivityThinkItem,BrowserSessionStepThink,BrowserActivityRunContext,BrowserRunStatus,BrowserActivityRunTerminalDetail,BrowserActivityRunWindow,BrowserActivityGap,BrowserActivityRange,BrowserActivityStageContext,BrowserActivityActionContext",
+    "sha256": "4d5d1cd328efde7ed1c1957f87c8ce00dbe665d15b679b28b0ca5946062ecd53"
+  },
+  "generator": {
+    "name": "ts-json-schema-generator",
+    "version": "2.9.0",
+    "typescriptVersion": "5.9.3"
+  },
+  "validator": {
+    "name": "Ajv standalone",
+    "version": "8.20.0"
+  },
+  "bundler": {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "format": "esm"
+  }
+}

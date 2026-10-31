@@ -20,11 +20,13 @@ import type {
  * ```
  */
 export function isPlanRoute(route: BrowserPlanRoute): boolean {
+    if (route.stages.length === 0) return false;
     if (route.revision > 1 && route.revisionReason === undefined) return false;
     if (route.nextStageIndex > route.stages.length) return false;
 
     const ids = new Set<string>();
     return route.stages.every((stage, index) => {
+        if (stage.acceptanceCriteria.length === 0) return false;
         if (ids.has(stage.stageId)) return false;
         ids.add(stage.stageId);
         const expectedStatus = index < route.nextStageIndex

@@ -1,0 +1,23 @@
+{
+  "contractId": "web.trajectory.entry",
+  "version": 1,
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "source": {
+    "path": "packages/web-contracts/src/wire.ts#BrowserTrajectoryEntry",
+    "sha256": "2ae69a3d7d74ca48aa42aa19c6be17d096e1b0175ef3ee0a3b62f914b4e19ac6"
+  },
+  "generator": {
+    "name": "ts-json-schema-generator",
+    "version": "2.9.0",
+    "typescriptVersion": "5.9.3"
+  },
+  "validator": {
+    "name": "Ajv standalone",
+    "version": "8.20.0"
+  },
+  "bundler": {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "format": "esm"
+  }
+}
