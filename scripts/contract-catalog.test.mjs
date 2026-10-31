@@ -22,15 +22,16 @@ test("catalog covers the inventory baseline and keeps one enabled contract", asy
         "web.md": 286,
         "model-tools.md": 308,
         "durable-cross-process.md": 288,
+        "model-contracts-migration-additions": 90,
     });
-    assert.equal(catalog.entries.length, 882);
+    assert.equal(catalog.entries.length, 972);
     assert.equal(catalog.entries.length, Object.values(counts).reduce((sum, value) => sum + value, 0));
     assert.equal(collectEnabledContractEntries(catalog).length, 1);
     assert.equal(catalog.entries.filter(entry => entry.status === "moved").length, 2);
     assert.equal(catalog.reconciliation.moved.length, 2);
     assert.equal(catalog.entries.filter(entry => entry.status === "deleted").length, 0);
     assert.equal(catalog.boundaries.length, 18);
-    assert.equal(catalog.dynamicCompositions.length, 2);
+    assert.equal(catalog.dynamicCompositions.length, 4);
 });
 
 test("catalog query locates web, model, tools, snapshot and dynamic composition entries", async () => {
