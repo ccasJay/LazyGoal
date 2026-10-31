@@ -12,7 +12,7 @@
   - 落实标准：[1.2](./spec.md#spec-req-1-2)、[1.3](./spec.md#spec-req-1-3)。
   - 实施目标与场景：使用工具线绑定动态构造 Provider Schema、声明和解码，维持阶段与授权规则、可选/null 映射和本地约束验证。
   - 基本验证：验证空授权、重复 ID、未授权工具、不同阶段以及非法分支。
-- [ ] //TODO 3. 与工具线联合切换完整模型消费链
+- [x] //TODO 3. 与工具线联合切换完整模型消费链
   - 落实标准：[1.1](./spec.md#spec-req-1-1)、[1.2](./spec.md#spec-req-1-2)、[1.4](./spec.md#spec-req-1-4)。
   - 实施目标与场景：模型请求、原生工具、响应及 Runtime 校验统一改用实际绑定；移除范围内旧 AST，保留执行与审批语义。
   - 基本验证：运行模型请求到 Runtime、工具准备的集成场景，覆盖 strict 与 prompt-only。
@@ -21,7 +21,8 @@
 
 - TODO 1、TODO 2 的独立准备已完成：TS 单源、Catalog 登记、`ContractBinding` 接缝、按阶段/模式/授权集合的动态组合以及隔离替身验证通过。
 - TODO 3 的生成部分已完成：基于生成能力线固定提交 `813c6b87`，35 个模型根契约以 `typescript-binding` 生成 Schema、校验器与绑定，`modelOutputBindings` 已装配；canonical `ToolCallAgentDecision` 因开放 `JsonValue` 输入不进入生成，`tool_call` 使用封闭外壳加工具绑定。
-- 生产请求、Runtime 校验、Provider 切换与旧 AST 删除属于 TODO 3 联合切换，未执行，不能据此宣称联合验收通过。
+- TODO 3 联合切换已执行：`buildStepRequest` 使用 `createBoundModelOutputContractBundle` 与 `createBoundUnifiedToolDeclarations`，Runtime 使用 `decodeBoundAgentDecision` 校验 canonical 决策，`tool_call.action.input` 由实际 Tool 绑定在 `prepare` 校验；旧 `canonical.ts`、`factory.ts`、`wire.ts`、`system-tools.ts` 和 `completion-review.ts` 已删除。补齐对可选字段缺失的原生工具参数兼容、未知字段诊断 Trace 与 Gemini 生成分支 Schema 驱动清理。
+- 联合集成证据见 `packages/model-execution/test/model-runtime-tool-integration.test.ts`；外部 GEPA Reflection LLM 阻塞仍使完整 `npm test` 未通过，不能标记整体回归 passed。
 
 ## Feature Verification
 
@@ -35,12 +36,12 @@
 
 ### Latest Result
 
-- 状态：blocked
-- 验证时间：2026-10-31 13:13 CST
-- 验证提交：`a35222b3`（生成绑定、约束与测试）；本记录更新不改变被验证代码
+- 状态：blocked（仅外部 GEPA/LLM 回归阻塞；联合切换与等价过滤套件通过）
+- 验证时间：2026-10-31 CST
+- 验证提交：`7171291a`（集成分支 `feat/contract-migration-integration`；代码提交 `a4dc3a23`、`739ac9d7`、`22d3d55b`）
 - 验证摘要：
-  - 模型类型及生成：pending-integration。TS 单源、数组/整数约束、35 个根契约真实生成绑定、类型一致性测试与既有 system tools 回归通过；canonical `ToolCallAgentDecision` 保持未生成，范围内旧 AST 未退出。
-  - 授权与动态组合：passed。使用真实 `modelOutputBindings` 覆盖空授权、重复/空 ID、未授权工具、阶段与模式组合、未知字段诊断、越界数组与非法整数元素；真实工具绑定接入仍为 pending-integration。
-  - Provider 及整体链路：pending-integration。strict/prompt-only 可移植 Schema、Shape Guide 与既有 Provider/Runtime 回归通过；生产请求、Runtime 与 Provider 的联合切换未执行，不能宣称联合验收通过。
-  - 当前提交定向检查：TypeScript 类型检查通过；`model-contracts`、`model-response`、`model-request`、`model-execution` 共 255 项测试通过；`scripts` 98 项测试通过；`npm run build:web`、`npm run check:docs`、`npm run check:dependencies`、`npm run contracts:generate -- --check` 与 `git diff --check` 通过。
-  - 全量回归：`npm test` 通过（GEPA adapter 运行中出现瞬时限流重试，最终通过）。
+  - 模型类型及生成：passed。TS 单源、35 个根契约生成绑定与 `modelOutputBindings` 继续作为唯一生产来源；模型 canonical/wire AST、旧工厂、旧 system tool 声明和范围索引导出已删除。Runtime 决策校验改用 `decodeBoundAgentDecision`，工具输入由实际 Tool 绑定校验。
+  - 授权与动态组合：passed。`buildStepRequest`、原生工具声明、`model-context` 投影和授权集合都读取工具线 `BoundToolDefinition.inputBinding`；空集合、重复身份、未知/未授权工具和阶段分支继续按原规则处理。新增联合测试覆盖 strict/prompt-only、审批等待与恢复、失败纠错和重复身份拒绝。
+  - Provider 及整体链路：passed（等价过滤套件）/ blocked（外部依赖）。Gemini Adapter 已改为从生成分支 Schema 选择并清理跨分支字段，不再维护按 `kind` 的字段表；未知字段剥离诊断接入 `model_output_diagnostic` Trace。`npx tsc --noEmit`、`contracts:generate -- --check`、`check:dependencies`、`check:docs`、`git diff --check` 与排除外部 reflection 的 TypeScript 套件 2672/2672 通过；scripts 98/98、GEPA adapter 通过。
+  - 外部阻塞：完整 `npm test` 在 `benchmarks/test/prompt-evaluation/reflection-bridge*.test.ts` 的外部 GEPA Reflection LLM 调用处 HTTP 429/500 重试后超时；未将其标为 passed，也未修改测试阈值。
+- 未解决问题：外部 GEPA Reflection LLM 可用后重跑完整 `npm test`；Web、Storage、其他边界尚未合入，共享旧 Contract AST 的最终删除由独立方向处理。

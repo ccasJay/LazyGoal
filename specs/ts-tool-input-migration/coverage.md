@@ -52,6 +52,6 @@
 ## 边界与剩余工作
 
 - 生成能力线已支持 `@asType integer`，全部 30 个工具输入均已启用 `typescript-binding` 并生成 Schema、校验器与 `ContractBinding`；`createTransitionalToolInputBinding` 不再存在于生产入口，只保留为测试夹具辅助。
-- 旧工具输入 AST 仍供模型线消费。模型线需要把 `AuthorizedToolContract`、`model-context` 工具投影、`model-request` 声明与动态组合切到 `BoundToolDefinition.inputBinding.schema` / `modelProjection()`，并删除对 `ToolDefinition.inputContract` 的读取。
-- 联合切换阶段需要删除工具输入 AST 导出、`ToolDefinition.inputContract`、`ToolInputContract` 和测试夹具的过渡绑定，随后运行真实模型声明到 `prepare` 的集成测试、Worker 跨进程测试和完整回归；这些检查在本方向为 pending-integration，不由替身结果代替。
-- Tool RPC describe 清单已改为读取绑定 Schema，不再编译旧 AST；真实 Worker 跨进程联合验证仍由集成阶段执行。
+- 工具输入 AST 导出、`ToolDefinition.inputContract`、`ToolInputContract` 和测试夹具过渡绑定已在集成分支 `739ac9d7` 删除；模型请求、`model-context` 投影、原生工具声明和 Runtime 授权集合统一读取 `BoundToolDefinition.inputBinding` / `modelProjection()`。
+- 联合集成提交 `7171291a` 新增 Model → Runtime → Tool 测试，覆盖 strict/prompt-only、授权/重复身份、审批等待与恢复、失败纠错；`tool-rpc` 与远程 Tool Registry 测试验证 Worker describe 从绑定 Schema 派生清单。
+- 外部 GEPA Reflection LLM 的 429/500 使完整 `npm test` 阻塞；等价 TypeScript 套件（排除 reflection 测试）2672/2672、scripts 98/98 与 GEPA adapter 通过。该外部阻塞不代表工具输入迁移失败，完整回归需在外部服务恢复后重跑。

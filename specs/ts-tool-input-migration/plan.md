@@ -12,7 +12,7 @@
   - 落实标准：[1.1](./spec.md#spec-req-1-1)、[1.2](./spec.md#spec-req-1-2)、[1.3](./spec.md#spec-req-1-3)。
   - 实施目标与场景：注册、`prepare`、工具发现和 Worker 消费同源绑定；已知字段非法拒绝，未知字段剥离并诊断，隔离输入进入原语义校验与执行。
   - 基本验证：对真实注册的代表工具验证合法、非法和附加字段输入，以及授权拒绝。
-- [ ] //TODO 3. 与模型线统一切换并清除旧工具 AST
+- [x] //TODO 3. 与模型线统一切换并清除旧工具 AST
   - 落实标准：[1.1](./spec.md#spec-req-1-1)、[1.3](./spec.md#spec-req-1-3)、[1.4](./spec.md#spec-req-1-4)。
   - 实施目标与场景：以双方已验证提交和真实生成能力在集成环境同时切换全部工具及模型消费，删除工具输入旧 AST 和推导，保留权限、审批、沙箱及恢复流程。
   - 基本验证：执行真实模型工具声明到 `prepare` 的集成测试与 AST 引用扫描。
@@ -29,10 +29,12 @@
 
 ### Latest Result
 
-- 状态：blocked
-- 验证时间：2026-10-31
-- 测试提交：8c864433（工作树干净；本地 node_modules 安装未纳入版本控制）
+- 状态：blocked（仅外部 GEPA/LLM 回归阻塞；联合切换与等价过滤套件通过）
+- 验证时间：2026-10-31 CST
+- 测试提交：`7171291a`（集成分支 `feat/contract-migration-integration`；集成分支提交 `a4dc3a23`、`739ac9d7`、`22d3d55b`、`7171291a`）
 - 验证摘要：
-  - 完整工具清单与生成：blocked（仅剩联合切换部分）。30 个工具输入全部启用 `typescript-binding`，`contracts:generate -- --check` 通过并提交 155 份生成制品；`createTransitionalToolInputBinding` 已移出生产入口，只保留为测试夹具辅助。旧输入 AST 仍供模型线消费，因此 [1.1](./spec.md#spec-req-1-1) 与 [1.3](./spec.md#spec-req-1-3) 中“旧 AST 不再参与/模型同源声明”的联合条件尚未完成。
-  - 准备、权限及进程：passed（本方向独立范围）。工具注册与 `prepare` 使用同一生成绑定；已知字段错误、未知字段剥离及有界诊断、语义校验、授权/审批/沙箱/取消/恢复和远程 Worker describe 均有测试覆盖。`packages/tools` 157、runtime 598、storage 174、goal-server 61、model-context/model-execution 496、benchmark 180、model-contracts/model-request/llm 149、scripts 98 项测试通过。
-  - 联合集成及回归：pending-integration / blocked。排除依赖外部 GEPA reflection 的 `benchmarks/test/prompt-evaluation/` 后，等价完整 TypeScript 套件 2573/2573 通过；完整 `npm test` 在 GEPA reflection 外部 LLM 429 重试处以退出码 1 结束、未产出通过结果，未作为通过证据。`tsc --noEmit`、`contracts:generate --check`、`check:docs`、`check:dependencies`、`build:web` 与 `git diff --check` 通过；模型线尚未切换到绑定 Schema，旧 AST 未删除，联合验收仍由集成阶段执行。
+  - 完整工具清单与生成：passed。30 个工具输入全部消费 Catalog 生成的 `typescript-binding`；`ToolDefinition.inputContract`、`ToolInputContract`、工具输入 AST 常量、`createTransitionalToolInputBinding` 和测试夹具过渡绑定均已删除。对 `packages/`、`benchmarks/`、`apps/` 的 `inputContract|ToolInputContract|transitional-binding` 扫描无匹配；`contracts:generate -- --check` 通过并重新生成固定制品。
+  - 准备、权限及进程：passed。注册与 `prepare` 只读取 `BoundToolDefinition.inputBinding`；未知字段剥离诊断、语义校验、授权/审批/沙箱/取消/恢复和 Worker describe 保持原语义。`tool-core`、`tools`、`runtime`、`storage`、`goal-server` 与 benchmark 测试通过；Tool RPC 与远程 Tool Registry 测试验证 Worker 声明使用绑定 Schema。
+  - 联合集成及回归：passed（等价过滤套件）/ blocked（外部依赖）。新增 `packages/model-execution/test/model-runtime-tool-integration.test.ts`，覆盖 strict 与 prompt-only 的 Model → Runtime → Tool、授权声明、重复身份拒绝、审批等待与跨 Runner 恢复、无效输入纠错。`npx tsc --noEmit`、`contracts:generate -- --check`、`check:dependencies`、`check:docs`、`git diff --check` 通过；排除 `benchmarks/test/prompt-evaluation/reflection-bridge*.test.ts` 后等价 TypeScript 套件 2672/2672 通过，scripts 98/98、GEPA adapter 通过。
+  - 外部阻塞：完整 `npm test` 在 `benchmarks/test/prompt-evaluation/reflection-bridge*.test.ts` 的外部 GEPA Reflection LLM 调用处以 HTTP 429 重试后转为 HTTP 500；单独重跑 180 秒仍未结束并终止。未将该结果标为 passed，也未修改外部服务或测试阈值。
+- 未解决问题：外部 GEPA Reflection LLM 可用后需重跑完整 `npm test` 刷新证据；Web、Storage、其他边界尚未合入集成候选，旧共享 Contract AST 的最终删除仍由独立方向负责。
