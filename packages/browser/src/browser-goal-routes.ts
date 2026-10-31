@@ -1095,10 +1095,8 @@ async function parseSessionInputCommand(
  */
 function isValidInteractionResponse(response: BrowserSessionInteractionResponse): boolean {
     if (response.kind === "answer_ask_user") {
-        if (response.answers.length < 1 || response.answers.length > 3) return false;
         return response.answers.every((answer) =>
-            answer.optionIds.length <= 3
-            && hasUtf16LengthAtMost(answer.questionId, 256)
+            hasUtf16LengthAtMost(answer.questionId, 256)
             && (answer.otherText === undefined
                 || hasUtf16LengthAtMost(answer.otherText, MAX_COMMAND_TEXT_LENGTH))
             && answer.optionIds.every((id) => hasUtf16LengthAtMost(id, 256)));

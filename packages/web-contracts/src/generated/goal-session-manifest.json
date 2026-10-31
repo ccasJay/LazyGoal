@@ -4,7 +4,7 @@
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
     "path": "packages/web-contracts/src/wire.ts#BrowserGoalSession,BrowserRunStatus,BrowserGoalExecution,BrowserExecutionState,BrowserSessionMessage,BrowserMessagePosition,BrowserPendingSteer,BrowserPendingMessage,BrowserQueueState,BrowserInterruption,BrowserSessionRun,BrowserSessionStep,BrowserSessionStepThink,BrowserBashExecutionDetail,BrowserRunStageGroup,BrowserRunStageStatus,BrowserRunStageRejection,BrowserRunStageResultRef,BrowserRunStageRevision,BrowserPlanRoute,BrowserPlanRouteStageState,BrowserSessionRunTerminalDetail,BrowserGoalPlan,BrowserGoalPlanItem,BrowserInteractionView,BrowserInteractionKind,BrowserInteractionDecision,BrowserPendingAction,BrowserSandboxReview,BrowserToolGrantExtraFile,BrowserParentProgram",
-    "sha256": "fb71e8fcd8f94860784bffae96cfbbd4480545039548d2626b1cc7556bec50f6"
+    "sha256": "28333c8a98c3a1528a205108839916c9b7b8fbd6ec4c84ac64920d09a799973c"
   },
   "generator": {
     "name": "ts-json-schema-generator",

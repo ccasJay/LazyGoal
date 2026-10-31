@@ -4,7 +4,7 @@
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
     "path": "packages/web-contracts/src/wire.ts#BrowserSessionRun,BrowserRunStatus,BrowserSessionStep,BrowserSessionStepThink,BrowserBashExecutionDetail,BrowserRunStageGroup,BrowserRunStageStatus,BrowserRunStageRejection,BrowserRunStageResultRef,BrowserRunStageRevision,BrowserPlanRoute,BrowserPlanRouteStageState,BrowserSessionRunTerminalDetail",
-    "sha256": "9e04237d7e9c3d3ae176f75f95f2276ef80c5ac509a7b8c9133c4c954d1f63d7"
+    "sha256": "40807ff08e4cdc7f5e34cd107dc18084d7e648871c607e620154431967485f39"
   },
   "generator": {
     "name": "ts-json-schema-generator",

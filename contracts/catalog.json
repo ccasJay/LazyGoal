@@ -9901,7 +9901,7 @@
       "declaration": "BrowserProviderModels",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1510
+        "line": 1519
       },
       "status": "present",
       "disposition": null,
@@ -38923,7 +38923,7 @@
       "declaration": "BrowserGoalList",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 408
+        "line": 411
       },
       "status": "present",
       "disposition": null,
@@ -38988,7 +38988,7 @@
       "declaration": "BrowserGoalListItem",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 394
+        "line": 397
       },
       "status": "present",
       "disposition": null,
@@ -39052,7 +39052,7 @@
       "declaration": "BrowserGoalSession",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 449
+        "line": 452
       },
       "status": "present",
       "disposition": null,
@@ -39143,7 +39143,7 @@
       "declaration": "BrowserGoalSessionState",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 478
+        "line": 481
       },
       "status": "present",
       "disposition": null,
@@ -39224,7 +39224,7 @@
       "declaration": "BrowserGoalSessionEnvelope",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1215
+        "line": 1224
       },
       "status": "present",
       "disposition": null,
@@ -39320,7 +39320,7 @@
       "declaration": "BrowserGoalSessionStateEnvelope",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1221
+        "line": 1230
       },
       "status": "present",
       "disposition": null,
@@ -39407,7 +39407,7 @@
       "declaration": "BrowserSessionState",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1135
+        "line": 1144
       },
       "status": "present",
       "disposition": null,
@@ -39474,7 +39474,7 @@
       "declaration": "BrowserSessionMessageListResult",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 528
+        "line": 531
       },
       "status": "present",
       "disposition": null,
@@ -39537,7 +39537,7 @@
       "declaration": "BrowserSessionMessageResult",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 547
+        "line": 550
       },
       "status": "present",
       "disposition": null,
@@ -39600,7 +39600,7 @@
       "declaration": "BrowserCreateSessionCommand",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1177
+        "line": 1186
       },
       "status": "present",
       "disposition": null,
@@ -39661,7 +39661,7 @@
       "declaration": "BrowserCreateSessionResult",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1190
+        "line": 1199
       },
       "status": "present",
       "disposition": null,
@@ -39725,7 +39725,7 @@
       "declaration": "BrowserSessionInputCommand",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 999
+        "line": 1008
       },
       "status": "present",
       "disposition": null,
@@ -39789,7 +39789,7 @@
       "declaration": "BrowserSessionInputResult",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1074
+        "line": 1083
       },
       "status": "present",
       "disposition": null,
@@ -39854,7 +39854,7 @@
       "declaration": "BrowserSessionInputQueryResult",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1086
+        "line": 1095
       },
       "status": "present",
       "disposition": null,
@@ -39981,7 +39981,7 @@
       "declaration": "BrowserActivityPage",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 855
+        "line": 858
       },
       "status": "present",
       "disposition": null,
@@ -40059,7 +40059,7 @@
       "declaration": "BrowserGoalPlan",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 360
+        "line": 363
       },
       "status": "present",
       "disposition": null,
@@ -40121,7 +40121,7 @@
       "declaration": "BrowserSessionRun",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 291
+        "line": 294
       },
       "status": "present",
       "disposition": null,
@@ -40194,7 +40194,7 @@
       "declaration": "BrowserPendingAction",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 378
+        "line": 381
       },
       "status": "present",
       "disposition": null,
@@ -40258,7 +40258,7 @@
       "declaration": "AcceptedCommand",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1516
+        "line": 1525
       },
       "status": "present",
       "disposition": null,
@@ -40319,7 +40319,7 @@
       "declaration": "BrowserGoalPlanModeCommand",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1525
+        "line": 1534
       },
       "status": "present",
       "disposition": null,
@@ -40380,7 +40380,7 @@
       "declaration": "BrowserModelSelectionCommand",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1552
+        "line": 1561
       },
       "status": "present",
       "disposition": null,
@@ -40441,7 +40441,7 @@
       "declaration": "BrowserModelSelectionResult",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1562
+        "line": 1571
       },
       "status": "present",
       "disposition": null,
@@ -40502,7 +40502,7 @@
       "declaration": "BrowserModelPreferenceCommand",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1587
+        "line": 1596
       },
       "status": "present",
       "disposition": null,
@@ -40563,7 +40563,7 @@
       "declaration": "BrowserModelPreferenceResult",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1595
+        "line": 1604
       },
       "status": "present",
       "disposition": null,
@@ -40624,7 +40624,7 @@
       "declaration": "BrowserPermissionModeCommand",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1683
+        "line": 1692
       },
       "status": "present",
       "disposition": null,
@@ -40686,7 +40686,7 @@
       "declaration": "BrowserPermissionModeResult",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1692
+        "line": 1701
       },
       "status": "present",
       "disposition": null,
@@ -40748,7 +40748,7 @@
       "declaration": "BrowserToolGrantRevokeBody",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1662
+        "line": 1671
       },
       "status": "present",
       "disposition": null,
@@ -40809,7 +40809,7 @@
       "declaration": "BrowserToolGrantResult",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1642
+        "line": 1651
       },
       "status": "present",
       "disposition": null,
@@ -40872,7 +40872,7 @@
       "declaration": "BrowserActionDetailsResult",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1619
+        "line": 1628
       },
       "status": "present",
       "disposition": null,
@@ -40933,7 +40933,7 @@
       "declaration": "BrowserGoalArchiveCommand",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1721
+        "line": 1730
       },
       "status": "present",
       "disposition": null,
@@ -40994,7 +40994,7 @@
       "declaration": "BrowserWorkspaceContext",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1711
+        "line": 1720
       },
       "status": "present",
       "disposition": null,
@@ -41055,7 +41055,7 @@
       "declaration": "BrowserActionReviewCommand",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1230
+        "line": 1239
       },
       "status": "present",
       "disposition": null,
@@ -41117,7 +41117,7 @@
       "declaration": "BrowserActionReviewResult",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1270
+        "line": 1279
       },
       "status": "present",
       "disposition": null,
@@ -41246,7 +41246,7 @@
       "declaration": "BrowserInteractionDetailResult",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1349
+        "line": 1358
       },
       "status": "present",
       "disposition": null,
@@ -41313,7 +41313,7 @@
       "declaration": "BrowserProviderProfile",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1374
+        "line": 1383
       },
       "status": "present",
       "disposition": null,
@@ -41375,7 +41375,7 @@
       "declaration": "BrowserProviderSettings",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1399
+        "line": 1408
       },
       "status": "present",
       "disposition": null,
@@ -41439,7 +41439,7 @@
       "declaration": "BrowserProviderProfileWriteResult",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1445
+        "line": 1454
       },
       "status": "present",
       "disposition": null,
@@ -41503,7 +41503,7 @@
       "declaration": "BrowserProviderProfileDeleteResult",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1454
+        "line": 1463
       },
       "status": "present",
       "disposition": null,
@@ -41567,7 +41567,7 @@
       "declaration": "BrowserProviderProfileActivationResult",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1463
+        "line": 1472
       },
       "status": "present",
       "disposition": null,
@@ -41629,7 +41629,7 @@
       "declaration": "BrowserProviderProfileTestResult",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1480
+        "line": 1489
       },
       "status": "present",
       "disposition": null,
@@ -41691,7 +41691,7 @@
       "declaration": "BrowserProviderProfileInput",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1420
+        "line": 1429
       },
       "status": "present",
       "disposition": null,
@@ -41753,7 +41753,7 @@
       "declaration": "BrowserProviderModelQuery",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1491
+        "line": 1500
       },
       "status": "present",
       "disposition": null,
@@ -41814,7 +41814,7 @@
       "declaration": "BrowserModelCatalog",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 2047
+        "line": 2056
       },
       "status": "present",
       "disposition": null,
@@ -41880,7 +41880,7 @@
       "declaration": "BrowserModelInputs",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 2176
+        "line": 2185
       },
       "status": "present",
       "disposition": null,
@@ -41943,7 +41943,7 @@
       "declaration": "BrowserModelInputDetail",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 2167
+        "line": 2176
       },
       "status": "present",
       "disposition": null,
@@ -42007,7 +42007,7 @@
       "declaration": "SessionMetricsSnapshot",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1987
+        "line": 1996
       },
       "status": "present",
       "disposition": null,
@@ -42070,7 +42070,7 @@
       "declaration": "SessionMetricsValues",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1944
+        "line": 1953
       },
       "status": "present",
       "disposition": null,
@@ -42132,7 +42132,7 @@
       "declaration": "BrowserTrajectoryRun",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 2190
+        "line": 2199
       },
       "status": "present",
       "disposition": null,
@@ -42194,7 +42194,7 @@
       "declaration": "BrowserTrajectoryEntry",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 2202
+        "line": 2211
       },
       "status": "present",
       "disposition": null,
@@ -42255,7 +42255,7 @@
       "declaration": "BrowserTrajectoryRuns",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 2368
+        "line": 2377
       },
       "status": "present",
       "disposition": null,
@@ -42318,7 +42318,7 @@
       "declaration": "BrowserTrajectoryPage",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 2245
+        "line": 2254
       },
       "status": "present",
       "disposition": null,
@@ -42382,7 +42382,7 @@
       "declaration": "BrowserTrajectoryDetail",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 2381
+        "line": 2390
       },
       "status": "present",
       "disposition": null,
@@ -42448,7 +42448,7 @@
       "declaration": "BrowserGoalLiveEvent",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 1888
+        "line": 1897
       },
       "status": "present",
       "disposition": null,

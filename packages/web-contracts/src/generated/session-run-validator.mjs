@@ -1033,7 +1033,7 @@ var require_BrowserSessionRun_validator = __commonJS({
       validate14.errors = vErrors;
       return errors === 0;
     }
-    var schema23 = { "type": "object", "properties": { "stageId": { "type": "string", "pattern": "\\S" }, "revision": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "status": { "type": "string", "enum": ["pending", "executing", "accepted"] }, "target": { "type": "string", "pattern": "\\S" }, "acceptanceCriteria": { "type": "array", "items": { "type": "string" } }, "acceptedSequence": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 } }, "required": ["stageId", "revision", "status", "target", "acceptanceCriteria"], "additionalProperties": false, "description": "\u5DF2\u6279\u51C6 Plan Run \u4E2D\u5E26 Runtime \u8EAB\u4EFD\u7684\u9636\u6BB5\u72B6\u6001\u3002" };
+    var schema23 = { "type": "object", "properties": { "stageId": { "type": "string", "pattern": "\\S" }, "revision": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "status": { "type": "string", "enum": ["pending", "executing", "accepted"] }, "target": { "type": "string", "pattern": "\\S" }, "acceptanceCriteria": { "type": "array", "items": { "type": "string" }, "minItems": 1 }, "acceptedSequence": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 } }, "required": ["stageId", "revision", "status", "target", "acceptanceCriteria"], "additionalProperties": false, "description": "\u5DF2\u6279\u51C6 Plan Run \u4E2D\u5E26 Runtime \u8EAB\u4EFD\u7684\u9636\u6BB5\u72B6\u6001\u3002" };
     function validate17(data, { instancePath = "", parentData, parentDataProperty, rootData = data } = {}) {
       let vErrors = null;
       let errors = 0;
@@ -1165,21 +1165,21 @@ var require_BrowserSessionRun_validator = __commonJS({
         if (data.stages !== void 0) {
           let data3 = data.stages;
           if (Array.isArray(data3)) {
+            if (data3.length < 1) {
+              const err12 = { instancePath: instancePath + "/stages", schemaPath: "#/properties/stages/minItems", keyword: "minItems", params: { limit: 1 }, message: "must NOT have fewer than 1 items" };
+              if (vErrors === null) {
+                vErrors = [err12];
+              } else {
+                vErrors.push(err12);
+              }
+              errors++;
+            }
             const len0 = data3.length;
             for (let i0 = 0; i0 < len0; i0++) {
               let data4 = data3[i0];
               if (data4 && typeof data4 == "object" && !Array.isArray(data4)) {
                 if (data4.stageId === void 0) {
-                  const err12 = { instancePath: instancePath + "/stages/" + i0, schemaPath: "#/definitions/BrowserPlanRouteStageState/required", keyword: "required", params: { missingProperty: "stageId" }, message: "must have required property 'stageId'" };
-                  if (vErrors === null) {
-                    vErrors = [err12];
-                  } else {
-                    vErrors.push(err12);
-                  }
-                  errors++;
-                }
-                if (data4.revision === void 0) {
-                  const err13 = { instancePath: instancePath + "/stages/" + i0, schemaPath: "#/definitions/BrowserPlanRouteStageState/required", keyword: "required", params: { missingProperty: "revision" }, message: "must have required property 'revision'" };
+                  const err13 = { instancePath: instancePath + "/stages/" + i0, schemaPath: "#/definitions/BrowserPlanRouteStageState/required", keyword: "required", params: { missingProperty: "stageId" }, message: "must have required property 'stageId'" };
                   if (vErrors === null) {
                     vErrors = [err13];
                   } else {
@@ -1187,8 +1187,8 @@ var require_BrowserSessionRun_validator = __commonJS({
                   }
                   errors++;
                 }
-                if (data4.status === void 0) {
-                  const err14 = { instancePath: instancePath + "/stages/" + i0, schemaPath: "#/definitions/BrowserPlanRouteStageState/required", keyword: "required", params: { missingProperty: "status" }, message: "must have required property 'status'" };
+                if (data4.revision === void 0) {
+                  const err14 = { instancePath: instancePath + "/stages/" + i0, schemaPath: "#/definitions/BrowserPlanRouteStageState/required", keyword: "required", params: { missingProperty: "revision" }, message: "must have required property 'revision'" };
                   if (vErrors === null) {
                     vErrors = [err14];
                   } else {
@@ -1196,8 +1196,8 @@ var require_BrowserSessionRun_validator = __commonJS({
                   }
                   errors++;
                 }
-                if (data4.target === void 0) {
-                  const err15 = { instancePath: instancePath + "/stages/" + i0, schemaPath: "#/definitions/BrowserPlanRouteStageState/required", keyword: "required", params: { missingProperty: "target" }, message: "must have required property 'target'" };
+                if (data4.status === void 0) {
+                  const err15 = { instancePath: instancePath + "/stages/" + i0, schemaPath: "#/definitions/BrowserPlanRouteStageState/required", keyword: "required", params: { missingProperty: "status" }, message: "must have required property 'status'" };
                   if (vErrors === null) {
                     vErrors = [err15];
                   } else {
@@ -1205,8 +1205,8 @@ var require_BrowserSessionRun_validator = __commonJS({
                   }
                   errors++;
                 }
-                if (data4.acceptanceCriteria === void 0) {
-                  const err16 = { instancePath: instancePath + "/stages/" + i0, schemaPath: "#/definitions/BrowserPlanRouteStageState/required", keyword: "required", params: { missingProperty: "acceptanceCriteria" }, message: "must have required property 'acceptanceCriteria'" };
+                if (data4.target === void 0) {
+                  const err16 = { instancePath: instancePath + "/stages/" + i0, schemaPath: "#/definitions/BrowserPlanRouteStageState/required", keyword: "required", params: { missingProperty: "target" }, message: "must have required property 'target'" };
                   if (vErrors === null) {
                     vErrors = [err16];
                   } else {
@@ -1214,13 +1214,22 @@ var require_BrowserSessionRun_validator = __commonJS({
                   }
                   errors++;
                 }
+                if (data4.acceptanceCriteria === void 0) {
+                  const err17 = { instancePath: instancePath + "/stages/" + i0, schemaPath: "#/definitions/BrowserPlanRouteStageState/required", keyword: "required", params: { missingProperty: "acceptanceCriteria" }, message: "must have required property 'acceptanceCriteria'" };
+                  if (vErrors === null) {
+                    vErrors = [err17];
+                  } else {
+                    vErrors.push(err17);
+                  }
+                  errors++;
+                }
                 for (const key1 in data4) {
                   if (!(key1 === "stageId" || key1 === "revision" || key1 === "status" || key1 === "target" || key1 === "acceptanceCriteria" || key1 === "acceptedSequence")) {
-                    const err17 = { instancePath: instancePath + "/stages/" + i0, schemaPath: "#/definitions/BrowserPlanRouteStageState/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key1 }, message: "must NOT have additional properties" };
+                    const err18 = { instancePath: instancePath + "/stages/" + i0, schemaPath: "#/definitions/BrowserPlanRouteStageState/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key1 }, message: "must NOT have additional properties" };
                     if (vErrors === null) {
-                      vErrors = [err17];
+                      vErrors = [err18];
                     } else {
-                      vErrors.push(err17);
+                      vErrors.push(err18);
                     }
                     errors++;
                   }
@@ -1229,28 +1238,16 @@ var require_BrowserSessionRun_validator = __commonJS({
                   let data5 = data4.stageId;
                   if (typeof data5 === "string") {
                     if (!pattern0.test(data5)) {
-                      const err18 = { instancePath: instancePath + "/stages/" + i0 + "/stageId", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/stageId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                      const err19 = { instancePath: instancePath + "/stages/" + i0 + "/stageId", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/stageId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                       if (vErrors === null) {
-                        vErrors = [err18];
+                        vErrors = [err19];
                       } else {
-                        vErrors.push(err18);
+                        vErrors.push(err19);
                       }
                       errors++;
                     }
                   } else {
-                    const err19 = { instancePath: instancePath + "/stages/" + i0 + "/stageId", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/stageId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                    if (vErrors === null) {
-                      vErrors = [err19];
-                    } else {
-                      vErrors.push(err19);
-                    }
-                    errors++;
-                  }
-                }
-                if (data4.revision !== void 0) {
-                  let data6 = data4.revision;
-                  if (!(typeof data6 == "number" && (!(data6 % 1) && !isNaN(data6)) && isFinite(data6))) {
-                    const err20 = { instancePath: instancePath + "/stages/" + i0 + "/revision", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/revision/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
+                    const err20 = { instancePath: instancePath + "/stages/" + i0 + "/stageId", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/stageId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                     if (vErrors === null) {
                       vErrors = [err20];
                     } else {
@@ -1258,22 +1255,34 @@ var require_BrowserSessionRun_validator = __commonJS({
                     }
                     errors++;
                   }
+                }
+                if (data4.revision !== void 0) {
+                  let data6 = data4.revision;
+                  if (!(typeof data6 == "number" && (!(data6 % 1) && !isNaN(data6)) && isFinite(data6))) {
+                    const err21 = { instancePath: instancePath + "/stages/" + i0 + "/revision", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/revision/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
+                    if (vErrors === null) {
+                      vErrors = [err21];
+                    } else {
+                      vErrors.push(err21);
+                    }
+                    errors++;
+                  }
                   if (typeof data6 == "number" && isFinite(data6)) {
                     if (data6 > 9007199254740991 || isNaN(data6)) {
-                      const err21 = { instancePath: instancePath + "/stages/" + i0 + "/revision", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/revision/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
-                      if (vErrors === null) {
-                        vErrors = [err21];
-                      } else {
-                        vErrors.push(err21);
-                      }
-                      errors++;
-                    }
-                    if (data6 < 1 || isNaN(data6)) {
-                      const err22 = { instancePath: instancePath + "/stages/" + i0 + "/revision", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/revision/minimum", keyword: "minimum", params: { comparison: ">=", limit: 1 }, message: "must be >= 1" };
+                      const err22 = { instancePath: instancePath + "/stages/" + i0 + "/revision", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/revision/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
                       if (vErrors === null) {
                         vErrors = [err22];
                       } else {
                         vErrors.push(err22);
+                      }
+                      errors++;
+                    }
+                    if (data6 < 1 || isNaN(data6)) {
+                      const err23 = { instancePath: instancePath + "/stages/" + i0 + "/revision", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/revision/minimum", keyword: "minimum", params: { comparison: ">=", limit: 1 }, message: "must be >= 1" };
+                      if (vErrors === null) {
+                        vErrors = [err23];
+                      } else {
+                        vErrors.push(err23);
                       }
                       errors++;
                     }
@@ -1282,20 +1291,20 @@ var require_BrowserSessionRun_validator = __commonJS({
                 if (data4.status !== void 0) {
                   let data7 = data4.status;
                   if (typeof data7 !== "string") {
-                    const err23 = { instancePath: instancePath + "/stages/" + i0 + "/status", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/status/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                    if (vErrors === null) {
-                      vErrors = [err23];
-                    } else {
-                      vErrors.push(err23);
-                    }
-                    errors++;
-                  }
-                  if (!(data7 === "pending" || data7 === "executing" || data7 === "accepted")) {
-                    const err24 = { instancePath: instancePath + "/stages/" + i0 + "/status", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/status/enum", keyword: "enum", params: { allowedValues: schema23.properties.status.enum }, message: "must be equal to one of the allowed values" };
+                    const err24 = { instancePath: instancePath + "/stages/" + i0 + "/status", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/status/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                     if (vErrors === null) {
                       vErrors = [err24];
                     } else {
                       vErrors.push(err24);
+                    }
+                    errors++;
+                  }
+                  if (!(data7 === "pending" || data7 === "executing" || data7 === "accepted")) {
+                    const err25 = { instancePath: instancePath + "/stages/" + i0 + "/status", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/status/enum", keyword: "enum", params: { allowedValues: schema23.properties.status.enum }, message: "must be equal to one of the allowed values" };
+                    if (vErrors === null) {
+                      vErrors = [err25];
+                    } else {
+                      vErrors.push(err25);
                     }
                     errors++;
                   }
@@ -1304,20 +1313,20 @@ var require_BrowserSessionRun_validator = __commonJS({
                   let data8 = data4.target;
                   if (typeof data8 === "string") {
                     if (!pattern0.test(data8)) {
-                      const err25 = { instancePath: instancePath + "/stages/" + i0 + "/target", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/target/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                      const err26 = { instancePath: instancePath + "/stages/" + i0 + "/target", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/target/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                       if (vErrors === null) {
-                        vErrors = [err25];
+                        vErrors = [err26];
                       } else {
-                        vErrors.push(err25);
+                        vErrors.push(err26);
                       }
                       errors++;
                     }
                   } else {
-                    const err26 = { instancePath: instancePath + "/stages/" + i0 + "/target", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/target/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    const err27 = { instancePath: instancePath + "/stages/" + i0 + "/target", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/target/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                     if (vErrors === null) {
-                      vErrors = [err26];
+                      vErrors = [err27];
                     } else {
-                      vErrors.push(err26);
+                      vErrors.push(err27);
                     }
                     errors++;
                   }
@@ -1325,24 +1334,33 @@ var require_BrowserSessionRun_validator = __commonJS({
                 if (data4.acceptanceCriteria !== void 0) {
                   let data9 = data4.acceptanceCriteria;
                   if (Array.isArray(data9)) {
+                    if (data9.length < 1) {
+                      const err28 = { instancePath: instancePath + "/stages/" + i0 + "/acceptanceCriteria", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/acceptanceCriteria/minItems", keyword: "minItems", params: { limit: 1 }, message: "must NOT have fewer than 1 items" };
+                      if (vErrors === null) {
+                        vErrors = [err28];
+                      } else {
+                        vErrors.push(err28);
+                      }
+                      errors++;
+                    }
                     const len1 = data9.length;
                     for (let i1 = 0; i1 < len1; i1++) {
                       if (typeof data9[i1] !== "string") {
-                        const err27 = { instancePath: instancePath + "/stages/" + i0 + "/acceptanceCriteria/" + i1, schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/acceptanceCriteria/items/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                        const err29 = { instancePath: instancePath + "/stages/" + i0 + "/acceptanceCriteria/" + i1, schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/acceptanceCriteria/items/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                         if (vErrors === null) {
-                          vErrors = [err27];
+                          vErrors = [err29];
                         } else {
-                          vErrors.push(err27);
+                          vErrors.push(err29);
                         }
                         errors++;
                       }
                     }
                   } else {
-                    const err28 = { instancePath: instancePath + "/stages/" + i0 + "/acceptanceCriteria", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/acceptanceCriteria/type", keyword: "type", params: { type: "array" }, message: "must be array" };
+                    const err30 = { instancePath: instancePath + "/stages/" + i0 + "/acceptanceCriteria", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/acceptanceCriteria/type", keyword: "type", params: { type: "array" }, message: "must be array" };
                     if (vErrors === null) {
-                      vErrors = [err28];
+                      vErrors = [err30];
                     } else {
-                      vErrors.push(err28);
+                      vErrors.push(err30);
                     }
                     errors++;
                   }
@@ -1350,61 +1368,61 @@ var require_BrowserSessionRun_validator = __commonJS({
                 if (data4.acceptedSequence !== void 0) {
                   let data11 = data4.acceptedSequence;
                   if (!(typeof data11 == "number" && (!(data11 % 1) && !isNaN(data11)) && isFinite(data11))) {
-                    const err29 = { instancePath: instancePath + "/stages/" + i0 + "/acceptedSequence", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/acceptedSequence/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
+                    const err31 = { instancePath: instancePath + "/stages/" + i0 + "/acceptedSequence", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/acceptedSequence/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
                     if (vErrors === null) {
-                      vErrors = [err29];
+                      vErrors = [err31];
                     } else {
-                      vErrors.push(err29);
+                      vErrors.push(err31);
                     }
                     errors++;
                   }
                   if (typeof data11 == "number" && isFinite(data11)) {
                     if (data11 > 9007199254740991 || isNaN(data11)) {
-                      const err30 = { instancePath: instancePath + "/stages/" + i0 + "/acceptedSequence", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/acceptedSequence/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
+                      const err32 = { instancePath: instancePath + "/stages/" + i0 + "/acceptedSequence", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/acceptedSequence/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
                       if (vErrors === null) {
-                        vErrors = [err30];
+                        vErrors = [err32];
                       } else {
-                        vErrors.push(err30);
+                        vErrors.push(err32);
                       }
                       errors++;
                     }
                     if (data11 < 0 || isNaN(data11)) {
-                      const err31 = { instancePath: instancePath + "/stages/" + i0 + "/acceptedSequence", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/acceptedSequence/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
+                      const err33 = { instancePath: instancePath + "/stages/" + i0 + "/acceptedSequence", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/acceptedSequence/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
                       if (vErrors === null) {
-                        vErrors = [err31];
+                        vErrors = [err33];
                       } else {
-                        vErrors.push(err31);
+                        vErrors.push(err33);
                       }
                       errors++;
                     }
                   }
                 }
               } else {
-                const err32 = { instancePath: instancePath + "/stages/" + i0, schemaPath: "#/definitions/BrowserPlanRouteStageState/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                const err34 = { instancePath: instancePath + "/stages/" + i0, schemaPath: "#/definitions/BrowserPlanRouteStageState/type", keyword: "type", params: { type: "object" }, message: "must be object" };
                 if (vErrors === null) {
-                  vErrors = [err32];
+                  vErrors = [err34];
                 } else {
-                  vErrors.push(err32);
+                  vErrors.push(err34);
                 }
                 errors++;
               }
             }
           } else {
-            const err33 = { instancePath: instancePath + "/stages", schemaPath: "#/properties/stages/type", keyword: "type", params: { type: "array" }, message: "must be array" };
+            const err35 = { instancePath: instancePath + "/stages", schemaPath: "#/properties/stages/type", keyword: "type", params: { type: "array" }, message: "must be array" };
             if (vErrors === null) {
-              vErrors = [err33];
+              vErrors = [err35];
             } else {
-              vErrors.push(err33);
+              vErrors.push(err35);
             }
             errors++;
           }
         }
       } else {
-        const err34 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+        const err36 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
         if (vErrors === null) {
-          vErrors = [err34];
+          vErrors = [err36];
         } else {
-          vErrors.push(err34);
+          vErrors.push(err36);
         }
         errors++;
       }

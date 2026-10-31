@@ -12,7 +12,7 @@ var require_BrowserActivityPage_validator = __commonJS({
   "BrowserActivityPage-validator.cjs"(exports, module) {
     module.exports = validate10;
     module.exports.default = validate10;
-    var schema12 = { "type": "object", "properties": { "goalId": { "type": "string", "pattern": "\\S" }, "runFilter": { "type": "string", "pattern": "\\S" }, "limit": { "type": "integer", "minimum": 1, "maximum": 100 }, "items": { "type": "array", "items": { "$ref": "#/definitions/BrowserActivityItem" } }, "runs": { "type": "array", "items": { "$ref": "#/definitions/BrowserActivityRunContext" } }, "window": { "type": "array", "items": { "$ref": "#/definitions/BrowserActivityRunWindow" } }, "gaps": { "type": "array", "items": { "$ref": "#/definitions/BrowserActivityGap" } }, "range": { "$ref": "#/definitions/BrowserActivityRange" }, "stages": { "type": "array", "items": { "$ref": "#/definitions/BrowserActivityStageContext" } }, "actionGroups": { "type": "array", "items": { "$ref": "#/definitions/BrowserActivityActionContext" } }, "beforeCursor": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" }, "afterCursor": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" } }, "required": ["goalId", "limit", "items", "runs", "window", "gaps", "range", "stages", "actionGroups"], "additionalProperties": false, "description": "\u56FA\u5B9A\u6C34\u4F4D\u7684\u4E00\u9875 Activity \u67E5\u8BE2\u7ED3\u679C\u3002" };
+    var schema12 = { "type": "object", "properties": { "goalId": { "type": "string", "pattern": "\\S" }, "runFilter": { "type": "string", "pattern": "\\S" }, "limit": { "type": "integer", "minimum": 1, "maximum": 100 }, "items": { "type": "array", "items": { "$ref": "#/definitions/BrowserActivityItem" } }, "runs": { "type": "array", "items": { "$ref": "#/definitions/BrowserActivityRunContext" } }, "window": { "type": "array", "items": { "$ref": "#/definitions/BrowserActivityRunWindow" } }, "gaps": { "type": "array", "items": { "$ref": "#/definitions/BrowserActivityGap" }, "maxItems": 2 }, "range": { "$ref": "#/definitions/BrowserActivityRange" }, "stages": { "type": "array", "items": { "$ref": "#/definitions/BrowserActivityStageContext" } }, "actionGroups": { "type": "array", "items": { "$ref": "#/definitions/BrowserActivityActionContext" } }, "beforeCursor": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" }, "afterCursor": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" } }, "required": ["goalId", "limit", "items", "runs", "window", "gaps", "range", "stages", "actionGroups"], "additionalProperties": false, "description": "\u56FA\u5B9A\u6C34\u4F4D\u7684\u4E00\u9875 Activity \u67E5\u8BE2\u7ED3\u679C\u3002" };
     var schema34 = { "type": "object", "properties": { "runId": { "type": "string", "pattern": "\\S" }, "stageId": { "type": "string", "pattern": "\\S" }, "revision": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "status": { "type": "string", "enum": ["executing", "accepted", "rejected"] }, "target": { "type": "string" }, "firstSequence": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "lastSequence": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "completeWithinPage": { "type": "boolean" } }, "required": ["runId", "stageId", "revision", "status", "firstSequence", "completeWithinPage"], "additionalProperties": false, "description": "Activity \u9875\u4E2D\u8DE8\u9875\u9636\u6BB5\u7684\u5B89\u5168\u4E0A\u4E0B\u6587\u3002" };
     var func2 = Object.prototype.hasOwnProperty;
     var pattern0 = new RegExp("\\S", "u");
@@ -3649,6 +3649,15 @@ var require_BrowserActivityPage_validator = __commonJS({
         if (data.gaps !== void 0) {
           let data13 = data.gaps;
           if (Array.isArray(data13)) {
+            if (data13.length > 2) {
+              const err35 = { instancePath: instancePath + "/gaps", schemaPath: "#/properties/gaps/maxItems", keyword: "maxItems", params: { limit: 2 }, message: "must NOT have more than 2 items" };
+              if (vErrors === null) {
+                vErrors = [err35];
+              } else {
+                vErrors.push(err35);
+              }
+              errors++;
+            }
             const len3 = data13.length;
             for (let i3 = 0; i3 < len3; i3++) {
               if (!validate24(data13[i3], { instancePath: instancePath + "/gaps/" + i3, parentData: data13, parentDataProperty: i3, rootData })) {
@@ -3657,11 +3666,11 @@ var require_BrowserActivityPage_validator = __commonJS({
               }
             }
           } else {
-            const err35 = { instancePath: instancePath + "/gaps", schemaPath: "#/properties/gaps/type", keyword: "type", params: { type: "array" }, message: "must be array" };
+            const err36 = { instancePath: instancePath + "/gaps", schemaPath: "#/properties/gaps/type", keyword: "type", params: { type: "array" }, message: "must be array" };
             if (vErrors === null) {
-              vErrors = [err35];
+              vErrors = [err36];
             } else {
-              vErrors.push(err35);
+              vErrors.push(err36);
             }
             errors++;
           }
@@ -3680,16 +3689,7 @@ var require_BrowserActivityPage_validator = __commonJS({
               let data17 = data16[i4];
               if (data17 && typeof data17 == "object" && !Array.isArray(data17)) {
                 if (data17.runId === void 0) {
-                  const err36 = { instancePath: instancePath + "/stages/" + i4, schemaPath: "#/definitions/BrowserActivityStageContext/required", keyword: "required", params: { missingProperty: "runId" }, message: "must have required property 'runId'" };
-                  if (vErrors === null) {
-                    vErrors = [err36];
-                  } else {
-                    vErrors.push(err36);
-                  }
-                  errors++;
-                }
-                if (data17.stageId === void 0) {
-                  const err37 = { instancePath: instancePath + "/stages/" + i4, schemaPath: "#/definitions/BrowserActivityStageContext/required", keyword: "required", params: { missingProperty: "stageId" }, message: "must have required property 'stageId'" };
+                  const err37 = { instancePath: instancePath + "/stages/" + i4, schemaPath: "#/definitions/BrowserActivityStageContext/required", keyword: "required", params: { missingProperty: "runId" }, message: "must have required property 'runId'" };
                   if (vErrors === null) {
                     vErrors = [err37];
                   } else {
@@ -3697,8 +3697,8 @@ var require_BrowserActivityPage_validator = __commonJS({
                   }
                   errors++;
                 }
-                if (data17.revision === void 0) {
-                  const err38 = { instancePath: instancePath + "/stages/" + i4, schemaPath: "#/definitions/BrowserActivityStageContext/required", keyword: "required", params: { missingProperty: "revision" }, message: "must have required property 'revision'" };
+                if (data17.stageId === void 0) {
+                  const err38 = { instancePath: instancePath + "/stages/" + i4, schemaPath: "#/definitions/BrowserActivityStageContext/required", keyword: "required", params: { missingProperty: "stageId" }, message: "must have required property 'stageId'" };
                   if (vErrors === null) {
                     vErrors = [err38];
                   } else {
@@ -3706,8 +3706,8 @@ var require_BrowserActivityPage_validator = __commonJS({
                   }
                   errors++;
                 }
-                if (data17.status === void 0) {
-                  const err39 = { instancePath: instancePath + "/stages/" + i4, schemaPath: "#/definitions/BrowserActivityStageContext/required", keyword: "required", params: { missingProperty: "status" }, message: "must have required property 'status'" };
+                if (data17.revision === void 0) {
+                  const err39 = { instancePath: instancePath + "/stages/" + i4, schemaPath: "#/definitions/BrowserActivityStageContext/required", keyword: "required", params: { missingProperty: "revision" }, message: "must have required property 'revision'" };
                   if (vErrors === null) {
                     vErrors = [err39];
                   } else {
@@ -3715,8 +3715,8 @@ var require_BrowserActivityPage_validator = __commonJS({
                   }
                   errors++;
                 }
-                if (data17.firstSequence === void 0) {
-                  const err40 = { instancePath: instancePath + "/stages/" + i4, schemaPath: "#/definitions/BrowserActivityStageContext/required", keyword: "required", params: { missingProperty: "firstSequence" }, message: "must have required property 'firstSequence'" };
+                if (data17.status === void 0) {
+                  const err40 = { instancePath: instancePath + "/stages/" + i4, schemaPath: "#/definitions/BrowserActivityStageContext/required", keyword: "required", params: { missingProperty: "status" }, message: "must have required property 'status'" };
                   if (vErrors === null) {
                     vErrors = [err40];
                   } else {
@@ -3724,8 +3724,8 @@ var require_BrowserActivityPage_validator = __commonJS({
                   }
                   errors++;
                 }
-                if (data17.completeWithinPage === void 0) {
-                  const err41 = { instancePath: instancePath + "/stages/" + i4, schemaPath: "#/definitions/BrowserActivityStageContext/required", keyword: "required", params: { missingProperty: "completeWithinPage" }, message: "must have required property 'completeWithinPage'" };
+                if (data17.firstSequence === void 0) {
+                  const err41 = { instancePath: instancePath + "/stages/" + i4, schemaPath: "#/definitions/BrowserActivityStageContext/required", keyword: "required", params: { missingProperty: "firstSequence" }, message: "must have required property 'firstSequence'" };
                   if (vErrors === null) {
                     vErrors = [err41];
                   } else {
@@ -3733,13 +3733,22 @@ var require_BrowserActivityPage_validator = __commonJS({
                   }
                   errors++;
                 }
+                if (data17.completeWithinPage === void 0) {
+                  const err42 = { instancePath: instancePath + "/stages/" + i4, schemaPath: "#/definitions/BrowserActivityStageContext/required", keyword: "required", params: { missingProperty: "completeWithinPage" }, message: "must have required property 'completeWithinPage'" };
+                  if (vErrors === null) {
+                    vErrors = [err42];
+                  } else {
+                    vErrors.push(err42);
+                  }
+                  errors++;
+                }
                 for (const key2 in data17) {
                   if (!(key2 === "runId" || key2 === "stageId" || key2 === "revision" || key2 === "status" || key2 === "target" || key2 === "firstSequence" || key2 === "lastSequence" || key2 === "completeWithinPage")) {
-                    const err42 = { instancePath: instancePath + "/stages/" + i4, schemaPath: "#/definitions/BrowserActivityStageContext/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key2 }, message: "must NOT have additional properties" };
+                    const err43 = { instancePath: instancePath + "/stages/" + i4, schemaPath: "#/definitions/BrowserActivityStageContext/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key2 }, message: "must NOT have additional properties" };
                     if (vErrors === null) {
-                      vErrors = [err42];
+                      vErrors = [err43];
                     } else {
-                      vErrors.push(err42);
+                      vErrors.push(err43);
                     }
                     errors++;
                   }
@@ -3748,20 +3757,20 @@ var require_BrowserActivityPage_validator = __commonJS({
                   let data18 = data17.runId;
                   if (typeof data18 === "string") {
                     if (!pattern0.test(data18)) {
-                      const err43 = { instancePath: instancePath + "/stages/" + i4 + "/runId", schemaPath: "#/definitions/BrowserActivityStageContext/properties/runId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                      const err44 = { instancePath: instancePath + "/stages/" + i4 + "/runId", schemaPath: "#/definitions/BrowserActivityStageContext/properties/runId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                       if (vErrors === null) {
-                        vErrors = [err43];
+                        vErrors = [err44];
                       } else {
-                        vErrors.push(err43);
+                        vErrors.push(err44);
                       }
                       errors++;
                     }
                   } else {
-                    const err44 = { instancePath: instancePath + "/stages/" + i4 + "/runId", schemaPath: "#/definitions/BrowserActivityStageContext/properties/runId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    const err45 = { instancePath: instancePath + "/stages/" + i4 + "/runId", schemaPath: "#/definitions/BrowserActivityStageContext/properties/runId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                     if (vErrors === null) {
-                      vErrors = [err44];
+                      vErrors = [err45];
                     } else {
-                      vErrors.push(err44);
+                      vErrors.push(err45);
                     }
                     errors++;
                   }
@@ -3770,28 +3779,16 @@ var require_BrowserActivityPage_validator = __commonJS({
                   let data19 = data17.stageId;
                   if (typeof data19 === "string") {
                     if (!pattern0.test(data19)) {
-                      const err45 = { instancePath: instancePath + "/stages/" + i4 + "/stageId", schemaPath: "#/definitions/BrowserActivityStageContext/properties/stageId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                      const err46 = { instancePath: instancePath + "/stages/" + i4 + "/stageId", schemaPath: "#/definitions/BrowserActivityStageContext/properties/stageId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                       if (vErrors === null) {
-                        vErrors = [err45];
+                        vErrors = [err46];
                       } else {
-                        vErrors.push(err45);
+                        vErrors.push(err46);
                       }
                       errors++;
                     }
                   } else {
-                    const err46 = { instancePath: instancePath + "/stages/" + i4 + "/stageId", schemaPath: "#/definitions/BrowserActivityStageContext/properties/stageId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                    if (vErrors === null) {
-                      vErrors = [err46];
-                    } else {
-                      vErrors.push(err46);
-                    }
-                    errors++;
-                  }
-                }
-                if (data17.revision !== void 0) {
-                  let data20 = data17.revision;
-                  if (!(typeof data20 == "number" && (!(data20 % 1) && !isNaN(data20)) && isFinite(data20))) {
-                    const err47 = { instancePath: instancePath + "/stages/" + i4 + "/revision", schemaPath: "#/definitions/BrowserActivityStageContext/properties/revision/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
+                    const err47 = { instancePath: instancePath + "/stages/" + i4 + "/stageId", schemaPath: "#/definitions/BrowserActivityStageContext/properties/stageId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                     if (vErrors === null) {
                       vErrors = [err47];
                     } else {
@@ -3799,22 +3796,34 @@ var require_BrowserActivityPage_validator = __commonJS({
                     }
                     errors++;
                   }
+                }
+                if (data17.revision !== void 0) {
+                  let data20 = data17.revision;
+                  if (!(typeof data20 == "number" && (!(data20 % 1) && !isNaN(data20)) && isFinite(data20))) {
+                    const err48 = { instancePath: instancePath + "/stages/" + i4 + "/revision", schemaPath: "#/definitions/BrowserActivityStageContext/properties/revision/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
+                    if (vErrors === null) {
+                      vErrors = [err48];
+                    } else {
+                      vErrors.push(err48);
+                    }
+                    errors++;
+                  }
                   if (typeof data20 == "number" && isFinite(data20)) {
                     if (data20 > 9007199254740991 || isNaN(data20)) {
-                      const err48 = { instancePath: instancePath + "/stages/" + i4 + "/revision", schemaPath: "#/definitions/BrowserActivityStageContext/properties/revision/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
-                      if (vErrors === null) {
-                        vErrors = [err48];
-                      } else {
-                        vErrors.push(err48);
-                      }
-                      errors++;
-                    }
-                    if (data20 < 1 || isNaN(data20)) {
-                      const err49 = { instancePath: instancePath + "/stages/" + i4 + "/revision", schemaPath: "#/definitions/BrowserActivityStageContext/properties/revision/minimum", keyword: "minimum", params: { comparison: ">=", limit: 1 }, message: "must be >= 1" };
+                      const err49 = { instancePath: instancePath + "/stages/" + i4 + "/revision", schemaPath: "#/definitions/BrowserActivityStageContext/properties/revision/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
                       if (vErrors === null) {
                         vErrors = [err49];
                       } else {
                         vErrors.push(err49);
+                      }
+                      errors++;
+                    }
+                    if (data20 < 1 || isNaN(data20)) {
+                      const err50 = { instancePath: instancePath + "/stages/" + i4 + "/revision", schemaPath: "#/definitions/BrowserActivityStageContext/properties/revision/minimum", keyword: "minimum", params: { comparison: ">=", limit: 1 }, message: "must be >= 1" };
+                      if (vErrors === null) {
+                        vErrors = [err50];
+                      } else {
+                        vErrors.push(err50);
                       }
                       errors++;
                     }
@@ -3823,16 +3832,7 @@ var require_BrowserActivityPage_validator = __commonJS({
                 if (data17.status !== void 0) {
                   let data21 = data17.status;
                   if (typeof data21 !== "string") {
-                    const err50 = { instancePath: instancePath + "/stages/" + i4 + "/status", schemaPath: "#/definitions/BrowserActivityStageContext/properties/status/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                    if (vErrors === null) {
-                      vErrors = [err50];
-                    } else {
-                      vErrors.push(err50);
-                    }
-                    errors++;
-                  }
-                  if (!(data21 === "executing" || data21 === "accepted" || data21 === "rejected")) {
-                    const err51 = { instancePath: instancePath + "/stages/" + i4 + "/status", schemaPath: "#/definitions/BrowserActivityStageContext/properties/status/enum", keyword: "enum", params: { allowedValues: schema34.properties.status.enum }, message: "must be equal to one of the allowed values" };
+                    const err51 = { instancePath: instancePath + "/stages/" + i4 + "/status", schemaPath: "#/definitions/BrowserActivityStageContext/properties/status/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                     if (vErrors === null) {
                       vErrors = [err51];
                     } else {
@@ -3840,10 +3840,8 @@ var require_BrowserActivityPage_validator = __commonJS({
                     }
                     errors++;
                   }
-                }
-                if (data17.target !== void 0) {
-                  if (typeof data17.target !== "string") {
-                    const err52 = { instancePath: instancePath + "/stages/" + i4 + "/target", schemaPath: "#/definitions/BrowserActivityStageContext/properties/target/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                  if (!(data21 === "executing" || data21 === "accepted" || data21 === "rejected")) {
+                    const err52 = { instancePath: instancePath + "/stages/" + i4 + "/status", schemaPath: "#/definitions/BrowserActivityStageContext/properties/status/enum", keyword: "enum", params: { allowedValues: schema34.properties.status.enum }, message: "must be equal to one of the allowed values" };
                     if (vErrors === null) {
                       vErrors = [err52];
                     } else {
@@ -3852,10 +3850,9 @@ var require_BrowserActivityPage_validator = __commonJS({
                     errors++;
                   }
                 }
-                if (data17.firstSequence !== void 0) {
-                  let data23 = data17.firstSequence;
-                  if (!(typeof data23 == "number" && (!(data23 % 1) && !isNaN(data23)) && isFinite(data23))) {
-                    const err53 = { instancePath: instancePath + "/stages/" + i4 + "/firstSequence", schemaPath: "#/definitions/BrowserActivityStageContext/properties/firstSequence/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
+                if (data17.target !== void 0) {
+                  if (typeof data17.target !== "string") {
+                    const err53 = { instancePath: instancePath + "/stages/" + i4 + "/target", schemaPath: "#/definitions/BrowserActivityStageContext/properties/target/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                     if (vErrors === null) {
                       vErrors = [err53];
                     } else {
@@ -3863,22 +3860,34 @@ var require_BrowserActivityPage_validator = __commonJS({
                     }
                     errors++;
                   }
+                }
+                if (data17.firstSequence !== void 0) {
+                  let data23 = data17.firstSequence;
+                  if (!(typeof data23 == "number" && (!(data23 % 1) && !isNaN(data23)) && isFinite(data23))) {
+                    const err54 = { instancePath: instancePath + "/stages/" + i4 + "/firstSequence", schemaPath: "#/definitions/BrowserActivityStageContext/properties/firstSequence/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
+                    if (vErrors === null) {
+                      vErrors = [err54];
+                    } else {
+                      vErrors.push(err54);
+                    }
+                    errors++;
+                  }
                   if (typeof data23 == "number" && isFinite(data23)) {
                     if (data23 > 9007199254740991 || isNaN(data23)) {
-                      const err54 = { instancePath: instancePath + "/stages/" + i4 + "/firstSequence", schemaPath: "#/definitions/BrowserActivityStageContext/properties/firstSequence/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
-                      if (vErrors === null) {
-                        vErrors = [err54];
-                      } else {
-                        vErrors.push(err54);
-                      }
-                      errors++;
-                    }
-                    if (data23 < 0 || isNaN(data23)) {
-                      const err55 = { instancePath: instancePath + "/stages/" + i4 + "/firstSequence", schemaPath: "#/definitions/BrowserActivityStageContext/properties/firstSequence/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
+                      const err55 = { instancePath: instancePath + "/stages/" + i4 + "/firstSequence", schemaPath: "#/definitions/BrowserActivityStageContext/properties/firstSequence/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
                       if (vErrors === null) {
                         vErrors = [err55];
                       } else {
                         vErrors.push(err55);
+                      }
+                      errors++;
+                    }
+                    if (data23 < 0 || isNaN(data23)) {
+                      const err56 = { instancePath: instancePath + "/stages/" + i4 + "/firstSequence", schemaPath: "#/definitions/BrowserActivityStageContext/properties/firstSequence/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
+                      if (vErrors === null) {
+                        vErrors = [err56];
+                      } else {
+                        vErrors.push(err56);
                       }
                       errors++;
                     }
@@ -3887,26 +3896,17 @@ var require_BrowserActivityPage_validator = __commonJS({
                 if (data17.lastSequence !== void 0) {
                   let data24 = data17.lastSequence;
                   if (!(typeof data24 == "number" && (!(data24 % 1) && !isNaN(data24)) && isFinite(data24))) {
-                    const err56 = { instancePath: instancePath + "/stages/" + i4 + "/lastSequence", schemaPath: "#/definitions/BrowserActivityStageContext/properties/lastSequence/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
+                    const err57 = { instancePath: instancePath + "/stages/" + i4 + "/lastSequence", schemaPath: "#/definitions/BrowserActivityStageContext/properties/lastSequence/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
                     if (vErrors === null) {
-                      vErrors = [err56];
+                      vErrors = [err57];
                     } else {
-                      vErrors.push(err56);
+                      vErrors.push(err57);
                     }
                     errors++;
                   }
                   if (typeof data24 == "number" && isFinite(data24)) {
                     if (data24 > 9007199254740991 || isNaN(data24)) {
-                      const err57 = { instancePath: instancePath + "/stages/" + i4 + "/lastSequence", schemaPath: "#/definitions/BrowserActivityStageContext/properties/lastSequence/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
-                      if (vErrors === null) {
-                        vErrors = [err57];
-                      } else {
-                        vErrors.push(err57);
-                      }
-                      errors++;
-                    }
-                    if (data24 < 0 || isNaN(data24)) {
-                      const err58 = { instancePath: instancePath + "/stages/" + i4 + "/lastSequence", schemaPath: "#/definitions/BrowserActivityStageContext/properties/lastSequence/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
+                      const err58 = { instancePath: instancePath + "/stages/" + i4 + "/lastSequence", schemaPath: "#/definitions/BrowserActivityStageContext/properties/lastSequence/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
                       if (vErrors === null) {
                         vErrors = [err58];
                       } else {
@@ -3914,35 +3914,44 @@ var require_BrowserActivityPage_validator = __commonJS({
                       }
                       errors++;
                     }
+                    if (data24 < 0 || isNaN(data24)) {
+                      const err59 = { instancePath: instancePath + "/stages/" + i4 + "/lastSequence", schemaPath: "#/definitions/BrowserActivityStageContext/properties/lastSequence/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
+                      if (vErrors === null) {
+                        vErrors = [err59];
+                      } else {
+                        vErrors.push(err59);
+                      }
+                      errors++;
+                    }
                   }
                 }
                 if (data17.completeWithinPage !== void 0) {
                   if (typeof data17.completeWithinPage !== "boolean") {
-                    const err59 = { instancePath: instancePath + "/stages/" + i4 + "/completeWithinPage", schemaPath: "#/definitions/BrowserActivityStageContext/properties/completeWithinPage/type", keyword: "type", params: { type: "boolean" }, message: "must be boolean" };
+                    const err60 = { instancePath: instancePath + "/stages/" + i4 + "/completeWithinPage", schemaPath: "#/definitions/BrowserActivityStageContext/properties/completeWithinPage/type", keyword: "type", params: { type: "boolean" }, message: "must be boolean" };
                     if (vErrors === null) {
-                      vErrors = [err59];
+                      vErrors = [err60];
                     } else {
-                      vErrors.push(err59);
+                      vErrors.push(err60);
                     }
                     errors++;
                   }
                 }
               } else {
-                const err60 = { instancePath: instancePath + "/stages/" + i4, schemaPath: "#/definitions/BrowserActivityStageContext/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                const err61 = { instancePath: instancePath + "/stages/" + i4, schemaPath: "#/definitions/BrowserActivityStageContext/type", keyword: "type", params: { type: "object" }, message: "must be object" };
                 if (vErrors === null) {
-                  vErrors = [err60];
+                  vErrors = [err61];
                 } else {
-                  vErrors.push(err60);
+                  vErrors.push(err61);
                 }
                 errors++;
               }
             }
           } else {
-            const err61 = { instancePath: instancePath + "/stages", schemaPath: "#/properties/stages/type", keyword: "type", params: { type: "array" }, message: "must be array" };
+            const err62 = { instancePath: instancePath + "/stages", schemaPath: "#/properties/stages/type", keyword: "type", params: { type: "array" }, message: "must be array" };
             if (vErrors === null) {
-              vErrors = [err61];
+              vErrors = [err62];
             } else {
-              vErrors.push(err61);
+              vErrors.push(err62);
             }
             errors++;
           }
@@ -3955,16 +3964,7 @@ var require_BrowserActivityPage_validator = __commonJS({
               let data27 = data26[i5];
               if (data27 && typeof data27 == "object" && !Array.isArray(data27)) {
                 if (data27.runId === void 0) {
-                  const err62 = { instancePath: instancePath + "/actionGroups/" + i5, schemaPath: "#/definitions/BrowserActivityActionContext/required", keyword: "required", params: { missingProperty: "runId" }, message: "must have required property 'runId'" };
-                  if (vErrors === null) {
-                    vErrors = [err62];
-                  } else {
-                    vErrors.push(err62);
-                  }
-                  errors++;
-                }
-                if (data27.actionId === void 0) {
-                  const err63 = { instancePath: instancePath + "/actionGroups/" + i5, schemaPath: "#/definitions/BrowserActivityActionContext/required", keyword: "required", params: { missingProperty: "actionId" }, message: "must have required property 'actionId'" };
+                  const err63 = { instancePath: instancePath + "/actionGroups/" + i5, schemaPath: "#/definitions/BrowserActivityActionContext/required", keyword: "required", params: { missingProperty: "runId" }, message: "must have required property 'runId'" };
                   if (vErrors === null) {
                     vErrors = [err63];
                   } else {
@@ -3972,8 +3972,8 @@ var require_BrowserActivityPage_validator = __commonJS({
                   }
                   errors++;
                 }
-                if (data27.firstSequence === void 0) {
-                  const err64 = { instancePath: instancePath + "/actionGroups/" + i5, schemaPath: "#/definitions/BrowserActivityActionContext/required", keyword: "required", params: { missingProperty: "firstSequence" }, message: "must have required property 'firstSequence'" };
+                if (data27.actionId === void 0) {
+                  const err64 = { instancePath: instancePath + "/actionGroups/" + i5, schemaPath: "#/definitions/BrowserActivityActionContext/required", keyword: "required", params: { missingProperty: "actionId" }, message: "must have required property 'actionId'" };
                   if (vErrors === null) {
                     vErrors = [err64];
                   } else {
@@ -3981,8 +3981,8 @@ var require_BrowserActivityPage_validator = __commonJS({
                   }
                   errors++;
                 }
-                if (data27.lastSequence === void 0) {
-                  const err65 = { instancePath: instancePath + "/actionGroups/" + i5, schemaPath: "#/definitions/BrowserActivityActionContext/required", keyword: "required", params: { missingProperty: "lastSequence" }, message: "must have required property 'lastSequence'" };
+                if (data27.firstSequence === void 0) {
+                  const err65 = { instancePath: instancePath + "/actionGroups/" + i5, schemaPath: "#/definitions/BrowserActivityActionContext/required", keyword: "required", params: { missingProperty: "firstSequence" }, message: "must have required property 'firstSequence'" };
                   if (vErrors === null) {
                     vErrors = [err65];
                   } else {
@@ -3990,8 +3990,8 @@ var require_BrowserActivityPage_validator = __commonJS({
                   }
                   errors++;
                 }
-                if (data27.completeWithinPage === void 0) {
-                  const err66 = { instancePath: instancePath + "/actionGroups/" + i5, schemaPath: "#/definitions/BrowserActivityActionContext/required", keyword: "required", params: { missingProperty: "completeWithinPage" }, message: "must have required property 'completeWithinPage'" };
+                if (data27.lastSequence === void 0) {
+                  const err66 = { instancePath: instancePath + "/actionGroups/" + i5, schemaPath: "#/definitions/BrowserActivityActionContext/required", keyword: "required", params: { missingProperty: "lastSequence" }, message: "must have required property 'lastSequence'" };
                   if (vErrors === null) {
                     vErrors = [err66];
                   } else {
@@ -3999,13 +3999,22 @@ var require_BrowserActivityPage_validator = __commonJS({
                   }
                   errors++;
                 }
+                if (data27.completeWithinPage === void 0) {
+                  const err67 = { instancePath: instancePath + "/actionGroups/" + i5, schemaPath: "#/definitions/BrowserActivityActionContext/required", keyword: "required", params: { missingProperty: "completeWithinPage" }, message: "must have required property 'completeWithinPage'" };
+                  if (vErrors === null) {
+                    vErrors = [err67];
+                  } else {
+                    vErrors.push(err67);
+                  }
+                  errors++;
+                }
                 for (const key3 in data27) {
                   if (!(key3 === "runId" || key3 === "actionId" || key3 === "firstSequence" || key3 === "lastSequence" || key3 === "completeWithinPage")) {
-                    const err67 = { instancePath: instancePath + "/actionGroups/" + i5, schemaPath: "#/definitions/BrowserActivityActionContext/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key3 }, message: "must NOT have additional properties" };
+                    const err68 = { instancePath: instancePath + "/actionGroups/" + i5, schemaPath: "#/definitions/BrowserActivityActionContext/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key3 }, message: "must NOT have additional properties" };
                     if (vErrors === null) {
-                      vErrors = [err67];
+                      vErrors = [err68];
                     } else {
-                      vErrors.push(err67);
+                      vErrors.push(err68);
                     }
                     errors++;
                   }
@@ -4014,20 +4023,20 @@ var require_BrowserActivityPage_validator = __commonJS({
                   let data28 = data27.runId;
                   if (typeof data28 === "string") {
                     if (!pattern0.test(data28)) {
-                      const err68 = { instancePath: instancePath + "/actionGroups/" + i5 + "/runId", schemaPath: "#/definitions/BrowserActivityActionContext/properties/runId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                      const err69 = { instancePath: instancePath + "/actionGroups/" + i5 + "/runId", schemaPath: "#/definitions/BrowserActivityActionContext/properties/runId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                       if (vErrors === null) {
-                        vErrors = [err68];
+                        vErrors = [err69];
                       } else {
-                        vErrors.push(err68);
+                        vErrors.push(err69);
                       }
                       errors++;
                     }
                   } else {
-                    const err69 = { instancePath: instancePath + "/actionGroups/" + i5 + "/runId", schemaPath: "#/definitions/BrowserActivityActionContext/properties/runId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    const err70 = { instancePath: instancePath + "/actionGroups/" + i5 + "/runId", schemaPath: "#/definitions/BrowserActivityActionContext/properties/runId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                     if (vErrors === null) {
-                      vErrors = [err69];
+                      vErrors = [err70];
                     } else {
-                      vErrors.push(err69);
+                      vErrors.push(err70);
                     }
                     errors++;
                   }
@@ -4036,28 +4045,16 @@ var require_BrowserActivityPage_validator = __commonJS({
                   let data29 = data27.actionId;
                   if (typeof data29 === "string") {
                     if (!pattern0.test(data29)) {
-                      const err70 = { instancePath: instancePath + "/actionGroups/" + i5 + "/actionId", schemaPath: "#/definitions/BrowserActivityActionContext/properties/actionId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                      const err71 = { instancePath: instancePath + "/actionGroups/" + i5 + "/actionId", schemaPath: "#/definitions/BrowserActivityActionContext/properties/actionId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                       if (vErrors === null) {
-                        vErrors = [err70];
+                        vErrors = [err71];
                       } else {
-                        vErrors.push(err70);
+                        vErrors.push(err71);
                       }
                       errors++;
                     }
                   } else {
-                    const err71 = { instancePath: instancePath + "/actionGroups/" + i5 + "/actionId", schemaPath: "#/definitions/BrowserActivityActionContext/properties/actionId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                    if (vErrors === null) {
-                      vErrors = [err71];
-                    } else {
-                      vErrors.push(err71);
-                    }
-                    errors++;
-                  }
-                }
-                if (data27.firstSequence !== void 0) {
-                  let data30 = data27.firstSequence;
-                  if (!(typeof data30 == "number" && (!(data30 % 1) && !isNaN(data30)) && isFinite(data30))) {
-                    const err72 = { instancePath: instancePath + "/actionGroups/" + i5 + "/firstSequence", schemaPath: "#/definitions/BrowserActivityActionContext/properties/firstSequence/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
+                    const err72 = { instancePath: instancePath + "/actionGroups/" + i5 + "/actionId", schemaPath: "#/definitions/BrowserActivityActionContext/properties/actionId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                     if (vErrors === null) {
                       vErrors = [err72];
                     } else {
@@ -4065,22 +4062,34 @@ var require_BrowserActivityPage_validator = __commonJS({
                     }
                     errors++;
                   }
+                }
+                if (data27.firstSequence !== void 0) {
+                  let data30 = data27.firstSequence;
+                  if (!(typeof data30 == "number" && (!(data30 % 1) && !isNaN(data30)) && isFinite(data30))) {
+                    const err73 = { instancePath: instancePath + "/actionGroups/" + i5 + "/firstSequence", schemaPath: "#/definitions/BrowserActivityActionContext/properties/firstSequence/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
+                    if (vErrors === null) {
+                      vErrors = [err73];
+                    } else {
+                      vErrors.push(err73);
+                    }
+                    errors++;
+                  }
                   if (typeof data30 == "number" && isFinite(data30)) {
                     if (data30 > 9007199254740991 || isNaN(data30)) {
-                      const err73 = { instancePath: instancePath + "/actionGroups/" + i5 + "/firstSequence", schemaPath: "#/definitions/BrowserActivityActionContext/properties/firstSequence/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
-                      if (vErrors === null) {
-                        vErrors = [err73];
-                      } else {
-                        vErrors.push(err73);
-                      }
-                      errors++;
-                    }
-                    if (data30 < 0 || isNaN(data30)) {
-                      const err74 = { instancePath: instancePath + "/actionGroups/" + i5 + "/firstSequence", schemaPath: "#/definitions/BrowserActivityActionContext/properties/firstSequence/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
+                      const err74 = { instancePath: instancePath + "/actionGroups/" + i5 + "/firstSequence", schemaPath: "#/definitions/BrowserActivityActionContext/properties/firstSequence/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
                       if (vErrors === null) {
                         vErrors = [err74];
                       } else {
                         vErrors.push(err74);
+                      }
+                      errors++;
+                    }
+                    if (data30 < 0 || isNaN(data30)) {
+                      const err75 = { instancePath: instancePath + "/actionGroups/" + i5 + "/firstSequence", schemaPath: "#/definitions/BrowserActivityActionContext/properties/firstSequence/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
+                      if (vErrors === null) {
+                        vErrors = [err75];
+                      } else {
+                        vErrors.push(err75);
                       }
                       errors++;
                     }
@@ -4089,26 +4098,17 @@ var require_BrowserActivityPage_validator = __commonJS({
                 if (data27.lastSequence !== void 0) {
                   let data31 = data27.lastSequence;
                   if (!(typeof data31 == "number" && (!(data31 % 1) && !isNaN(data31)) && isFinite(data31))) {
-                    const err75 = { instancePath: instancePath + "/actionGroups/" + i5 + "/lastSequence", schemaPath: "#/definitions/BrowserActivityActionContext/properties/lastSequence/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
+                    const err76 = { instancePath: instancePath + "/actionGroups/" + i5 + "/lastSequence", schemaPath: "#/definitions/BrowserActivityActionContext/properties/lastSequence/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
                     if (vErrors === null) {
-                      vErrors = [err75];
+                      vErrors = [err76];
                     } else {
-                      vErrors.push(err75);
+                      vErrors.push(err76);
                     }
                     errors++;
                   }
                   if (typeof data31 == "number" && isFinite(data31)) {
                     if (data31 > 9007199254740991 || isNaN(data31)) {
-                      const err76 = { instancePath: instancePath + "/actionGroups/" + i5 + "/lastSequence", schemaPath: "#/definitions/BrowserActivityActionContext/properties/lastSequence/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
-                      if (vErrors === null) {
-                        vErrors = [err76];
-                      } else {
-                        vErrors.push(err76);
-                      }
-                      errors++;
-                    }
-                    if (data31 < 0 || isNaN(data31)) {
-                      const err77 = { instancePath: instancePath + "/actionGroups/" + i5 + "/lastSequence", schemaPath: "#/definitions/BrowserActivityActionContext/properties/lastSequence/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
+                      const err77 = { instancePath: instancePath + "/actionGroups/" + i5 + "/lastSequence", schemaPath: "#/definitions/BrowserActivityActionContext/properties/lastSequence/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
                       if (vErrors === null) {
                         vErrors = [err77];
                       } else {
@@ -4116,35 +4116,44 @@ var require_BrowserActivityPage_validator = __commonJS({
                       }
                       errors++;
                     }
+                    if (data31 < 0 || isNaN(data31)) {
+                      const err78 = { instancePath: instancePath + "/actionGroups/" + i5 + "/lastSequence", schemaPath: "#/definitions/BrowserActivityActionContext/properties/lastSequence/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
+                      if (vErrors === null) {
+                        vErrors = [err78];
+                      } else {
+                        vErrors.push(err78);
+                      }
+                      errors++;
+                    }
                   }
                 }
                 if (data27.completeWithinPage !== void 0) {
                   if (typeof data27.completeWithinPage !== "boolean") {
-                    const err78 = { instancePath: instancePath + "/actionGroups/" + i5 + "/completeWithinPage", schemaPath: "#/definitions/BrowserActivityActionContext/properties/completeWithinPage/type", keyword: "type", params: { type: "boolean" }, message: "must be boolean" };
+                    const err79 = { instancePath: instancePath + "/actionGroups/" + i5 + "/completeWithinPage", schemaPath: "#/definitions/BrowserActivityActionContext/properties/completeWithinPage/type", keyword: "type", params: { type: "boolean" }, message: "must be boolean" };
                     if (vErrors === null) {
-                      vErrors = [err78];
+                      vErrors = [err79];
                     } else {
-                      vErrors.push(err78);
+                      vErrors.push(err79);
                     }
                     errors++;
                   }
                 }
               } else {
-                const err79 = { instancePath: instancePath + "/actionGroups/" + i5, schemaPath: "#/definitions/BrowserActivityActionContext/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                const err80 = { instancePath: instancePath + "/actionGroups/" + i5, schemaPath: "#/definitions/BrowserActivityActionContext/type", keyword: "type", params: { type: "object" }, message: "must be object" };
                 if (vErrors === null) {
-                  vErrors = [err79];
+                  vErrors = [err80];
                 } else {
-                  vErrors.push(err79);
+                  vErrors.push(err80);
                 }
                 errors++;
               }
             }
           } else {
-            const err80 = { instancePath: instancePath + "/actionGroups", schemaPath: "#/properties/actionGroups/type", keyword: "type", params: { type: "array" }, message: "must be array" };
+            const err81 = { instancePath: instancePath + "/actionGroups", schemaPath: "#/properties/actionGroups/type", keyword: "type", params: { type: "array" }, message: "must be array" };
             if (vErrors === null) {
-              vErrors = [err80];
+              vErrors = [err81];
             } else {
-              vErrors.push(err80);
+              vErrors.push(err81);
             }
             errors++;
           }
@@ -4153,20 +4162,20 @@ var require_BrowserActivityPage_validator = __commonJS({
           let data33 = data.beforeCursor;
           if (typeof data33 === "string") {
             if (!pattern36.test(data33)) {
-              const err81 = { instancePath: instancePath + "/beforeCursor", schemaPath: "#/properties/beforeCursor/pattern", keyword: "pattern", params: { pattern: "^[A-Za-z0-9_-]+$" }, message: 'must match pattern "^[A-Za-z0-9_-]+$"' };
+              const err82 = { instancePath: instancePath + "/beforeCursor", schemaPath: "#/properties/beforeCursor/pattern", keyword: "pattern", params: { pattern: "^[A-Za-z0-9_-]+$" }, message: 'must match pattern "^[A-Za-z0-9_-]+$"' };
               if (vErrors === null) {
-                vErrors = [err81];
+                vErrors = [err82];
               } else {
-                vErrors.push(err81);
+                vErrors.push(err82);
               }
               errors++;
             }
           } else {
-            const err82 = { instancePath: instancePath + "/beforeCursor", schemaPath: "#/properties/beforeCursor/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            const err83 = { instancePath: instancePath + "/beforeCursor", schemaPath: "#/properties/beforeCursor/type", keyword: "type", params: { type: "string" }, message: "must be string" };
             if (vErrors === null) {
-              vErrors = [err82];
+              vErrors = [err83];
             } else {
-              vErrors.push(err82);
+              vErrors.push(err83);
             }
             errors++;
           }
@@ -4175,30 +4184,30 @@ var require_BrowserActivityPage_validator = __commonJS({
           let data34 = data.afterCursor;
           if (typeof data34 === "string") {
             if (!pattern36.test(data34)) {
-              const err83 = { instancePath: instancePath + "/afterCursor", schemaPath: "#/properties/afterCursor/pattern", keyword: "pattern", params: { pattern: "^[A-Za-z0-9_-]+$" }, message: 'must match pattern "^[A-Za-z0-9_-]+$"' };
+              const err84 = { instancePath: instancePath + "/afterCursor", schemaPath: "#/properties/afterCursor/pattern", keyword: "pattern", params: { pattern: "^[A-Za-z0-9_-]+$" }, message: 'must match pattern "^[A-Za-z0-9_-]+$"' };
               if (vErrors === null) {
-                vErrors = [err83];
+                vErrors = [err84];
               } else {
-                vErrors.push(err83);
+                vErrors.push(err84);
               }
               errors++;
             }
           } else {
-            const err84 = { instancePath: instancePath + "/afterCursor", schemaPath: "#/properties/afterCursor/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            const err85 = { instancePath: instancePath + "/afterCursor", schemaPath: "#/properties/afterCursor/type", keyword: "type", params: { type: "string" }, message: "must be string" };
             if (vErrors === null) {
-              vErrors = [err84];
+              vErrors = [err85];
             } else {
-              vErrors.push(err84);
+              vErrors.push(err85);
             }
             errors++;
           }
         }
       } else {
-        const err85 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+        const err86 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
         if (vErrors === null) {
-          vErrors = [err85];
+          vErrors = [err86];
         } else {
-          vErrors.push(err85);
+          vErrors.push(err86);
         }
         errors++;
       }

@@ -43,11 +43,11 @@ Provider 小 Spec 的字段、错误枚举、HTTP 状态和凭据规则不因本
 
 ## 生成能力与保留约束
 
-生成能力线 `c1a6b1b5` 已提供原生 TS 到 Schema、Ajv standalone、`contract-binding`、联合/判别联合、递归、开放 JSON、数组元素、数值/字符串约束与 `@asType integer`。本线不修改共享生成器或绑定语义。
+生成能力线已验证提交 `813c6b87` 提供原生 TS 到 Schema、Ajv standalone、`contract-binding`、联合/判别联合、递归、开放 JSON、数组元素、`@minItems`/`@maxItems`、具名整数元素、数值/字符串约束与 `@asType integer`。本线不修改共享生成器或绑定语义。
 
-当前生成器不表达数组 `minItems`/`maxItems`，且不支持 JSDoc `@multipleOf`。相关既有约束按 Web 不变量保留：
+数组长度约束继续由生成 Schema 表达；`@multipleOf` 仍不支持，整数语义由 `@asType integer`（必要时配合 Web 可空安全整数不变量）表达：
 
-- 交互回答最多 3 题、每题最多 3 个选项、至少 1 题；
+- 交互回答 1..3 题、每题最多 3 个选项；
 - 交互视图 `decisions` 至少 1 项；
 - Activity `gaps` 最多 2 项；
 - Plan 路线至少 1 个阶段，已批准阶段至少 1 条验收条件；

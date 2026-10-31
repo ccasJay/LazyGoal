@@ -12,7 +12,7 @@ var require_BrowserInteractionView_validator = __commonJS({
   "BrowserInteractionView-validator.cjs"(exports, module) {
     module.exports = validate10;
     module.exports.default = validate10;
-    var schema12 = { "type": "object", "properties": { "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "kind": { "$ref": "#/definitions/BrowserInteractionKind" }, "interactionId": { "type": "string", "pattern": "\\S" }, "requestId": { "type": "string", "pattern": "\\S" }, "actionId": { "type": "string", "pattern": "\\S" }, "recoveryRef": { "type": "string", "pattern": "\\S" }, "decisions": { "type": "array", "items": { "$ref": "#/definitions/BrowserInteractionDecision" } }, "truncated": { "type": "boolean" } }, "required": ["goalId", "runId", "kind", "interactionId", "decisions", "truncated"], "additionalProperties": false, "description": "\u5F53\u524D\u5DF2\u63D0\u4EA4\u7B49\u5F85\u7684\u7C7B\u578B\u5316\u4EA4\u4E92\u89C6\u56FE\u6458\u8981\u3002" };
+    var schema12 = { "type": "object", "properties": { "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "kind": { "$ref": "#/definitions/BrowserInteractionKind" }, "interactionId": { "type": "string", "pattern": "\\S" }, "requestId": { "type": "string", "pattern": "\\S" }, "actionId": { "type": "string", "pattern": "\\S" }, "recoveryRef": { "type": "string", "pattern": "\\S" }, "decisions": { "type": "array", "items": { "$ref": "#/definitions/BrowserInteractionDecision" }, "minItems": 1 }, "truncated": { "type": "boolean" } }, "required": ["goalId", "runId", "kind", "interactionId", "decisions", "truncated"], "additionalProperties": false, "description": "\u5F53\u524D\u5DF2\u63D0\u4EA4\u7B49\u5F85\u7684\u7C7B\u578B\u5316\u4EA4\u4E92\u89C6\u56FE\u6458\u8981\u3002" };
     var schema13 = { "type": "string", "enum": ["question", "task_approval", "action_approval", "action_recovery"], "description": "\u5F53\u524D\u4EA4\u4E92\u89C6\u56FE\u7684\u79CD\u7C7B\u3002" };
     var schema14 = { "type": "string", "enum": ["answer_questions", "reply_to_question", "skip_question", "approve_task", "send_task_feedback", "approve_action", "approve_action_revision", "reject_action", "retry_unknown_action", "decline_unknown_action_retry"], "description": "\u5F53\u524D\u4EA4\u4E92\u5141\u8BB8\u7684\u51B3\u5B9A\u3002" };
     var func2 = Object.prototype.hasOwnProperty;
@@ -242,20 +242,20 @@ var require_BrowserInteractionView_validator = __commonJS({
         if (data.decisions !== void 0) {
           let data7 = data.decisions;
           if (Array.isArray(data7)) {
+            if (data7.length < 1) {
+              const err21 = { instancePath: instancePath + "/decisions", schemaPath: "#/properties/decisions/minItems", keyword: "minItems", params: { limit: 1 }, message: "must NOT have fewer than 1 items" };
+              if (vErrors === null) {
+                vErrors = [err21];
+              } else {
+                vErrors.push(err21);
+              }
+              errors++;
+            }
             const len0 = data7.length;
             for (let i0 = 0; i0 < len0; i0++) {
               let data8 = data7[i0];
               if (typeof data8 !== "string") {
-                const err21 = { instancePath: instancePath + "/decisions/" + i0, schemaPath: "#/definitions/BrowserInteractionDecision/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                if (vErrors === null) {
-                  vErrors = [err21];
-                } else {
-                  vErrors.push(err21);
-                }
-                errors++;
-              }
-              if (!(data8 === "answer_questions" || data8 === "reply_to_question" || data8 === "skip_question" || data8 === "approve_task" || data8 === "send_task_feedback" || data8 === "approve_action" || data8 === "approve_action_revision" || data8 === "reject_action" || data8 === "retry_unknown_action" || data8 === "decline_unknown_action_retry")) {
-                const err22 = { instancePath: instancePath + "/decisions/" + i0, schemaPath: "#/definitions/BrowserInteractionDecision/enum", keyword: "enum", params: { allowedValues: schema14.enum }, message: "must be equal to one of the allowed values" };
+                const err22 = { instancePath: instancePath + "/decisions/" + i0, schemaPath: "#/definitions/BrowserInteractionDecision/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                 if (vErrors === null) {
                   vErrors = [err22];
                 } else {
@@ -263,20 +263,18 @@ var require_BrowserInteractionView_validator = __commonJS({
                 }
                 errors++;
               }
+              if (!(data8 === "answer_questions" || data8 === "reply_to_question" || data8 === "skip_question" || data8 === "approve_task" || data8 === "send_task_feedback" || data8 === "approve_action" || data8 === "approve_action_revision" || data8 === "reject_action" || data8 === "retry_unknown_action" || data8 === "decline_unknown_action_retry")) {
+                const err23 = { instancePath: instancePath + "/decisions/" + i0, schemaPath: "#/definitions/BrowserInteractionDecision/enum", keyword: "enum", params: { allowedValues: schema14.enum }, message: "must be equal to one of the allowed values" };
+                if (vErrors === null) {
+                  vErrors = [err23];
+                } else {
+                  vErrors.push(err23);
+                }
+                errors++;
+              }
             }
           } else {
-            const err23 = { instancePath: instancePath + "/decisions", schemaPath: "#/properties/decisions/type", keyword: "type", params: { type: "array" }, message: "must be array" };
-            if (vErrors === null) {
-              vErrors = [err23];
-            } else {
-              vErrors.push(err23);
-            }
-            errors++;
-          }
-        }
-        if (data.truncated !== void 0) {
-          if (typeof data.truncated !== "boolean") {
-            const err24 = { instancePath: instancePath + "/truncated", schemaPath: "#/properties/truncated/type", keyword: "type", params: { type: "boolean" }, message: "must be boolean" };
+            const err24 = { instancePath: instancePath + "/decisions", schemaPath: "#/properties/decisions/type", keyword: "type", params: { type: "array" }, message: "must be array" };
             if (vErrors === null) {
               vErrors = [err24];
             } else {
@@ -285,12 +283,23 @@ var require_BrowserInteractionView_validator = __commonJS({
             errors++;
           }
         }
+        if (data.truncated !== void 0) {
+          if (typeof data.truncated !== "boolean") {
+            const err25 = { instancePath: instancePath + "/truncated", schemaPath: "#/properties/truncated/type", keyword: "type", params: { type: "boolean" }, message: "must be boolean" };
+            if (vErrors === null) {
+              vErrors = [err25];
+            } else {
+              vErrors.push(err25);
+            }
+            errors++;
+          }
+        }
       } else {
-        const err25 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+        const err26 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
         if (vErrors === null) {
-          vErrors = [err25];
+          vErrors = [err26];
         } else {
-          vErrors.push(err25);
+          vErrors.push(err26);
         }
         errors++;
       }

@@ -138,6 +138,7 @@ export interface BrowserInteractionView {
     readonly actionId?: string;
     /** @pattern \S */
     readonly recoveryRef?: string;
+    /** @minItems 1 */
     readonly decisions: readonly BrowserInteractionDecision[];
     readonly truncated: boolean;
 }
@@ -259,6 +260,7 @@ export interface BrowserPlanRouteStageState {
     readonly status: "pending" | "executing" | "accepted";
     /** @pattern \S */
     readonly target: string;
+    /** @minItems 1 */
     readonly acceptanceCriteria: readonly string[];
     /** @asType integer
      * @maximum 9007199254740991
@@ -278,6 +280,7 @@ export interface BrowserPlanRoute {
      * @maximum 9007199254740991
      * @minimum 0 */
     readonly nextStageIndex: number;
+    /** @minItems 1 */
     readonly stages: readonly BrowserPlanRouteStageState[];
 }
 
@@ -864,6 +867,7 @@ export interface BrowserActivityPage {
     readonly items: readonly BrowserActivityItem[];
     readonly runs: readonly BrowserActivityRunContext[];
     readonly window: readonly BrowserActivityRunWindow[];
+    /** @maxItems 2 */
     readonly gaps: readonly BrowserActivityGap[];
     readonly range: BrowserActivityRange;
     readonly stages: readonly BrowserActivityStageContext[];
@@ -926,9 +930,14 @@ export type BrowserSessionInputErrorCode =
 export type BrowserSessionInteractionResponse =
     | {
         readonly kind: "answer_ask_user";
+        /**
+         * @minItems 1
+         * @maxItems 3
+         */
         readonly answers: readonly {
             /** @pattern \S */
             readonly questionId: string;
+            /** @maxItems 3 */
             readonly optionIds: readonly string[];
             /** @pattern \S */
             readonly otherText?: string;
