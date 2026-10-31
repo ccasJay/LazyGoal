@@ -95,7 +95,7 @@ test("catalog generation rejects misspelled, misplaced and invalid JSDoc constra
     await writeFile(fixture.contractFile, source.replace("@pattern \\S", "@minimum 1"));
     await assert.rejects(
         generateContractArtifacts(fixture.options),
-        /Unsupported JSDoc tag @minimum/,
+        /JSDoc @minimum is supported only on number fields/,
     );
 
     await writeFile(fixture.contractFile, source.replace("@pattern \\S", "@pattern ["));
