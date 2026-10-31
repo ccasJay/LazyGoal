@@ -19,6 +19,7 @@ import {
 import {
     createToolRegistration,
     InMemoryToolRegistry,
+    type BoundToolDefinition,
     type Tool,
     type ToolDefinition,
 } from "../../tool-core/src/index";
@@ -41,6 +42,8 @@ import type {
     StepExecutor,
     ToolGrantStore,
 } from "../src/index";
+import { createTransitionalToolInputBinding } from "../../tool-core/src/index";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 function createGoal(input: Parameters<typeof createUnexposedGoal>[0]) {
     return withDiscoveredProfileTools(createUnexposedGoal(input));
@@ -55,7 +58,7 @@ const profile: AgentProfile = {
 
 const TEST_INPUT_CONTRACT = contract.record(contract.string());
 
-function createTool(definition: ToolDefinition<typeof TEST_INPUT_CONTRACT>): Tool<typeof TEST_INPUT_CONTRACT> {
+function createTool(definition: BoundToolDefinition<any>): Tool<any> {
     return {
         definition,
         replayPolicy: "safe",
@@ -599,9 +602,10 @@ test("persists a goal Grant before approving and activates it before scheduling"
         await store.seed(waiting);
         const grants = new JsonFileToolGrantStore(directory);
         const matcher = await createToolGrantMatcher("read_file", { path: "README.md" });
-        const registration = createToolRegistration(createTool({
+        const registration = createTestToolRegistration(createTool({
             id: "read_file",
             description: "Read a file",
+            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: TEST_INPUT_CONTRACT }),
             inputContract: TEST_INPUT_CONTRACT,
             isReadOnly: false,
         }));
@@ -742,9 +746,10 @@ test("recovers a committed approval by activating its pending Grant before retry
                 return ledger.activate(grantId, source);
             },
         };
-        const registration = createToolRegistration(createTool({
+        const registration = createTestToolRegistration(createTool({
             id: "read_file",
             description: "Read a file",
+            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: TEST_INPUT_CONTRACT }),
             inputContract: TEST_INPUT_CONTRACT,
             isReadOnly: false,
         }));
@@ -919,10 +924,11 @@ test("Coordinator 与 Runner 协作恢复 manual Action 后等待重新批准", 
     const store = new InMemoryGoalStore();
     await store.save(interrupted);
     let executedActionId: string | undefined;
-    const manualTool: Tool<typeof TEST_INPUT_CONTRACT> = {
+    const manualTool: Tool<any> = {
         definition: {
             id: "read_file",
             description: "需要人工确认的读取 Tool",
+            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: TEST_INPUT_CONTRACT }),
             inputContract: TEST_INPUT_CONTRACT,
             isReadOnly: true,
         },
@@ -951,7 +957,7 @@ test("Coordinator 与 Runner 协作恢复 manual Action 后等待重新批准", 
         trajectoryStore: trajectoryStoreFor(store),
             store,
             executor,
-            toolRegistry: { get: () => createToolRegistration(manualTool) },
+            toolRegistry: { get: () => createTestToolRegistration(manualTool) },
         })),
     });
     const ref = { goalId: interrupted.id, runId: interrupted.state.run.id };

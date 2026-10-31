@@ -1,6 +1,7 @@
 import type {
+    BoundTool,
     Tool,
-    ToolDefinition,
+    BoundToolDefinition,
     ToolExecutionRequest,
     ToolObservation,
     ToolValidationResult,
@@ -12,6 +13,8 @@ import {
     throwIfAborted,
     type ExecutionControl,
 } from "../../execution-control/src/index";
+import { editFileInputBinding } from "./generated/edit-file/binding";
+export { editFileInputBinding };
 import { invalidInput } from "./internal/invalid-input";
 import { getWorkspaceVersion, markWorkspaceModified } from "./internal/workspace-version";
 import {
@@ -91,10 +94,11 @@ export interface EditFileInput {
  * });
  * ```
  */
-export class EditFileTool implements Tool<typeof EDIT_FILE_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof EDIT_FILE_INPUT_CONTRACT> = {
+export class EditFileTool implements BoundTool<EditFileInput> {
+    readonly definition: BoundToolDefinition<EditFileInput> = {
         id: EDIT_FILE_TOOL_ID,
         description: "对 workspaceRoot 内的 UTF-8 文本文件执行唯一匹配的字符串替换",
+        inputBinding: editFileInputBinding,
         inputContract: EDIT_FILE_INPUT_CONTRACT,
         isReadOnly: false,
     };

@@ -9,7 +9,6 @@ import {
     throwIfAborted,
     type ExecutionControl,
 } from "../../packages/execution-control/src/index.js";
-import { compileJsonSchema } from "../../packages/contracts/src/index.js";
 import type { MuxChannelStream } from "./multiplex.js";
 
 /** 工具清单中单个工具的导出元数据。 */
@@ -532,20 +531,12 @@ export class ToolRpcServer {
 
         switch (msg.type) {
             case "describe": {
-                const manifests: ToolManifestEntry[] = this.tools.map((t) => {
-                    let inputSchema: Record<string, unknown> = {};
-                    if ("inputContract" in t.definition && t.definition.inputContract !== undefined) {
-                        inputSchema = compileJsonSchema(t.definition.inputContract) as Record<string, unknown>;
-                    } else if ("inputSchema" in t.definition && (t.definition as Record<string, unknown>).inputSchema !== undefined) {
-                        inputSchema = (t.definition as Record<string, unknown>).inputSchema as Record<string, unknown>;
-                    }
-                    return {
-                        id: t.definition.id,
-                        description: t.definition.description,
-                        inputSchema,
-                        replayPolicy: t.replayPolicy,
-                    };
-                });
+                const manifests: ToolManifestEntry[] = this.tools.map((t) => ({
+                    id: t.definition.id,
+                    description: t.definition.description,
+                    inputSchema: t.definition.inputBinding.schema as unknown as Record<string, unknown>,
+                    replayPolicy: t.replayPolicy,
+                }));
                 await this.send({ type: "describe_result", id: msg.id, tools: manifests });
                 break;
             }

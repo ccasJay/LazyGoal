@@ -1,12 +1,14 @@
 import { readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
-import type {
-    Tool,
-    ToolDefinition,
-    ToolExecutionRequest,
-    ToolObservation,
-    ToolValidationResult,
+import {
+    createTransitionalToolInputBinding,
+    type BoundTool,
+    type Tool,
+    type BoundToolDefinition,
+    type ToolExecutionRequest,
+    type ToolObservation,
+    type ToolValidationResult,
 } from "../../tool-core/src/index";
 import { contract } from "../../contracts/src/index";
 import {
@@ -85,6 +87,13 @@ export interface ListDirectoryInput {
     readonly cursor?: string;
 }
 
+/** `ListDirectory` 的过渡期输入绑定；生成能力支持整数注解后替换为生成绑定。 */
+export const listDirectoryInputBinding = createTransitionalToolInputBinding<ListDirectoryInput>({
+    contractId: "tool.list_directory.input",
+    version: 1,
+    contract: LIST_DIRECTORY_INPUT_CONTRACT,
+});
+
 /** 目录直接子项类型。 */
 export type DirectoryEntryType = "file" | "directory" | "symlink";
 
@@ -130,10 +139,11 @@ interface ListDirectoryCursorPayload {
  * });
  * ```
  */
-export class ListDirectoryTool implements Tool<typeof LIST_DIRECTORY_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof LIST_DIRECTORY_INPUT_CONTRACT> = {
+export class ListDirectoryTool implements BoundTool<ListDirectoryInput> {
+    readonly definition: BoundToolDefinition<ListDirectoryInput> = {
         id: LIST_DIRECTORY_TOOL_ID,
         description: "List immediate entries in a workspace directory with pagination support.",
+        inputBinding: listDirectoryInputBinding,
         inputContract: LIST_DIRECTORY_INPUT_CONTRACT,
         isReadOnly: true,
     };

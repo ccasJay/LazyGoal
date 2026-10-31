@@ -35,14 +35,17 @@ import type {
 } from "../src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { currentProtocols, InMemoryTrajectoryStore } from "./current-fixtures";
+import { createTransitionalToolInputBinding } from "../../tool-core/src/index";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const renderer = await createDefaultPromptBundleRenderer();
 const contextCompactor = new DropOldestContextCompactor();
 const fileInput = contract.object({ path: contract.string() });
-const fileTool: Tool<typeof fileInput> = {
+const fileTool: Tool<any> = {
     definition: {
         id: "inspect_file",
         description: "读取文件并返回当前工作区 Observation",
+        inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: fileInput }),
         inputContract: fileInput,
         isReadOnly: true,
     },
@@ -299,14 +302,14 @@ test("未批准 Plan 保留先提案 Prompt，已有工具审批规则仍允许�
     const trajectory = new InMemoryTrajectoryStore();
     await store.save(goal);
     let toolCalls = 0;
-    const tool: Tool<typeof fileInput> = {
+    const tool: Tool<any> = {
         ...fileTool,
-        async execute(input) {
+        async execute(input: any) {
             toolCalls += 1;
             return fileTool.execute(input);
         },
     };
-    const registry = new InMemoryToolRegistry([createToolRegistration(tool)]);
+    const registry = new InMemoryToolRegistry([createTestToolRegistration(tool)]);
     const decideAdapter = new ScriptedAdapter("strict", [
         response({
             kind: "tool_call",
@@ -434,7 +437,7 @@ test("授权 Tool Observation 支持 GoalPlan 完成和符合条件的 Run 完�
         store,
         trajectoryStore: trajectory,
         executor: createExecutor(trajectory, selected, decideAdapter),
-        toolRegistry: new InMemoryToolRegistry([createToolRegistration(fileTool)]),
+        toolRegistry: new InMemoryToolRegistry([createTestToolRegistration(fileTool)]),
     });
 
     const result = await runner.run({ goalId: goal.id, runId: goal.state.run.id });
@@ -481,9 +484,9 @@ test("越权 Tool 输出被拒绝，已提交未知 section 也在 Adapter 调�
             store,
             trajectoryStore: trajectory,
             executor: createExecutor(trajectory, selected, decideAdapter),
-            toolRegistry: new InMemoryToolRegistry([createToolRegistration({
+            toolRegistry: new InMemoryToolRegistry([createTestToolRegistration({
                 ...fileTool,
-                async execute(input) {
+                async execute(input: any) {
                     toolCalls += 1;
                     return fileTool.execute(input);
                 },

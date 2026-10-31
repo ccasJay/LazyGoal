@@ -69,7 +69,7 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
     acp: [],
     sandbox: [],
     permission: ["contracts", "sandbox"],
-    "tool-core": ["contracts", "execution-control", "sandbox"],
+    "tool-core": ["contracts", "contract-binding", "execution-control", "sandbox"],
     "working-memory": ["contracts", "model-contracts"],
     "llm-core": ["contracts", "model-contracts", "execution-control"],
     "llm-openai": ["llm-core", "model-contracts", "execution-control"],

@@ -17,6 +17,7 @@ import {
     createToolRegistration,
     TransientToolExecutionFailure,
     type Tool,
+    type BoundToolDefinition,
     type ToolDefinition,
     type ToolRegistration,
     type ToolRegistry,
@@ -45,6 +46,8 @@ import type {
     ToolPolicy,
     ToolGrant,
 } from "../src/index";
+import { createTransitionalToolInputBinding } from "../../tool-core/src/index";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const goalDefinition: GoalTask = {
     objective: "完成最小同步 Goal Loop",
@@ -62,7 +65,7 @@ const toolProfile: AgentProfile = { ...profile, toolIds: ["read_file"] };
 const TEST_INPUT_CONTRACT = contract.record(contract.string());
 const PATH_INPUT_CONTRACT = contract.object({ path: contract.string() });
 
-type TestTool = Tool<typeof TEST_INPUT_CONTRACT>;
+type TestTool = Tool<any>;
 type PathInput = InferContract<typeof PATH_INPUT_CONTRACT>;
 
 type ExecuteAction = (
@@ -167,6 +170,7 @@ function createRunnerTool(
         definition: {
             id: "read_file",
             description: "读取文件",
+            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: TEST_INPUT_CONTRACT }),
             inputContract: TEST_INPUT_CONTRACT,
             isReadOnly: true,
         },
@@ -177,7 +181,7 @@ function createRunnerTool(
 }
 
 function registerTool(tool: TestTool) {
-    return createToolRegistration(tool);
+    return createTestToolRegistration(tool);
 }
 
 function countPrepareCalls(registration: ToolRegistration): {
@@ -1504,6 +1508,7 @@ test("Runner 在 Profile 授权校验前不访问 Registry 或 Tool", async () =
         definition: {
             id: "read_file",
             description: "读取文件",
+            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: TEST_INPUT_CONTRACT }),
             inputContract: TEST_INPUT_CONTRACT,
             isReadOnly: true,
         },
@@ -1602,6 +1607,7 @@ test("Runner 在 Tool 外部作用前拒绝非法输入", async () => {
         definition: {
             id: "read_file",
             description: "读取文件",
+            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: TEST_INPUT_CONTRACT }),
             inputContract: TEST_INPUT_CONTRACT,
             isReadOnly: true,
         },
@@ -1660,10 +1666,11 @@ test("Runner 在 Contract 结构失败前不调用语义校验或 Policy，也�
     let validateCalls = 0;
     let policyCalls = 0;
     let executeCalls = 0;
-    const tool: Tool<typeof PATH_INPUT_CONTRACT> = {
+    const tool: Tool<any> = {
         definition: {
             id: "read_file",
             description: "读取文件",
+            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: PATH_INPUT_CONTRACT }),
             inputContract: PATH_INPUT_CONTRACT,
             isReadOnly: true,
         },
@@ -1690,7 +1697,7 @@ test("Runner 在 Contract 结构失败前不调用语义校验或 Policy，也�
         store,
         executor,
         trajectoryStore: trajectory,
-        toolRegistry: { get: () => createToolRegistration(tool) },
+        toolRegistry: { get: () => createTestToolRegistration(tool) },
         toolPolicy: {
             evaluate: () => {
                 policyCalls += 1;
@@ -1731,10 +1738,11 @@ test("Runner 将非法 sandboxAccess 的字段诊断送回模型并接受修正�
     await store.save(initial);
     const receivedFeedback: (RuntimeFeedback | undefined)[] = [];
     let executeCalls = 0;
-    const tool: Tool<typeof BASH_INPUT_CONTRACT> = {
+    const tool: Tool<any> = {
         definition: {
             id: "bash",
             description: "执行本地命令",
+            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: BASH_INPUT_CONTRACT }),
             inputContract: BASH_INPUT_CONTRACT,
             isReadOnly: false,
         },
@@ -1763,7 +1771,7 @@ test("Runner 将非法 sandboxAccess 的字段诊断送回模型并接受修正�
         store,
         executor,
         trajectoryStore: trajectoryStoreFor(store),
-        toolRegistry: { get: () => createToolRegistration(tool) },
+        toolRegistry: { get: () => createTestToolRegistration(tool) },
     }).run(createRef(initial, "run-sandbox-input-repair"));
 
     assert.equal(requireSuccessfulState(result).stepCount, 1);
@@ -1810,10 +1818,11 @@ test("Runner 在一次准备中隔离原始输入，并让 Policy、Action 事�
     let validatedInput: PathInput | undefined;
     let policyInput: unknown;
     let executedInput: PathInput | undefined;
-    const tool: Tool<typeof PATH_INPUT_CONTRACT> = {
+    const tool: Tool<any> = {
         definition: {
             id: "read_file",
             description: "读取文件",
+            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: PATH_INPUT_CONTRACT }),
             inputContract: PATH_INPUT_CONTRACT,
             isReadOnly: true,
         },
@@ -1846,7 +1855,7 @@ test("Runner 在一次准备中隔离原始输入，并让 Policy、Action 事�
         store,
         executor,
         trajectoryStore: trajectory,
-        toolRegistry: { get: () => createToolRegistration(tool) },
+        toolRegistry: { get: () => createTestToolRegistration(tool) },
         toolPolicy: policy,
     }).run(createRef(initial, "run-canonical-input"));
 
@@ -1894,6 +1903,7 @@ test("Runner 将 Tool Registry/校验基础设施异常保存为 TOOL_EXECUTION_
         definition: {
             id: "read_file",
             description: "读取文件",
+            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: TEST_INPUT_CONTRACT }),
             inputContract: TEST_INPUT_CONTRACT,
             isReadOnly: true,
         },
@@ -1943,6 +1953,7 @@ test("Runner 按 Registry、输入校验与 Policy 顺序处理 Action", async (
         definition: {
             id: "read_file",
             description: "读取文件",
+            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: TEST_INPUT_CONTRACT }),
             inputContract: TEST_INPUT_CONTRACT,
             isReadOnly: true,
         },
@@ -2055,7 +2066,7 @@ test("Runner 在 Policy 要求审批时允许匹配的 workspace Grant 放行同
         }, async () => ({ kind: "accept" })),
         toolRegistry: {
             get() {
-                return createToolRegistration({
+                return createTestToolRegistration({
                     definition: {
                         id: "bash",
                         description: "执行命令",
@@ -2201,6 +2212,7 @@ test("Runner 保留 Agent 选择的 Bash 命令，不按命令文本改写", asy
         definition: {
             id: "bash",
             description: "执行 Bash 命令",
+            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: TEST_INPUT_CONTRACT }),
             inputContract: TEST_INPUT_CONTRACT,
             isReadOnly: false,
         },
@@ -2567,6 +2579,7 @@ test("Runner 恢复 manual pending Action 时进入 outcome_unknown waiting 而�
         definition: {
             id: "manual_tool",
             description: "需要人工确认的 Tool",
+            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: TEST_INPUT_CONTRACT }),
             inputContract: TEST_INPUT_CONTRACT,
             isReadOnly: false,
         },

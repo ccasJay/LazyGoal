@@ -156,7 +156,6 @@ test("EditFileTool 拒绝非法输入且不访问文件系统", async () => {
             { path: "a.txt", oldString: "x" },
             { path: "a.txt", newString: "y" },
             { oldString: "x", newString: "y" },
-            { path: "a.txt", oldString: "x", newString: "y", extra: true },
             { path: "", oldString: "x", newString: "y" },
             { path: 42, oldString: "x", newString: "y" },
             { path: "a.txt", oldString: 42, newString: "y" },
@@ -178,6 +177,13 @@ test("EditFileTool 拒绝非法输入且不访问文件系统", async () => {
             if (!result.ok) {
                 assert.equal(result.error.code, "INVALID_TOOL_INPUT");
             }
+        }
+
+        const stripped = registration.prepare(asJsonValue({ path: "a.txt", oldString: "x", newString: "y", extra: true }));
+        assert.equal(stripped.ok, true);
+        if (stripped.ok) {
+            assert.deepEqual(stripped.input, { path: "a.txt", oldString: "x", newString: "y" });
+            assert.deepEqual(stripped.inputDiagnostic?.paths, ["/extra"]);
         }
 
         const result = registration.prepare({

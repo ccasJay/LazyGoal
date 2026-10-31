@@ -23,6 +23,8 @@ import {
     type StepExecutor,
 } from "../src/index";
 import { currentProtocols, InMemoryTrajectoryStore } from "./current-fixtures";
+import { createTransitionalToolInputBinding } from "../../tool-core/src/index";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const WRITE_INPUT = contract.object({ path: contract.string(), content: contract.string() });
 
@@ -32,6 +34,7 @@ function createRecordingWriteTool(inputs: { path: string; content: string }[]) {
         definition: {
             id: "write_file",
             description: "受控写入 Tool",
+            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: WRITE_INPUT }),
             inputContract: WRITE_INPUT,
             isReadOnly: false,
         },
@@ -61,7 +64,7 @@ test("PTC 子调用按修订后的最终参数执行，并把修订说明返回�
     const inputs: { path: string; content: string }[] = [];
     const registry = new InMemoryToolRegistry([
         createExecuteProgramRegistration(),
-        createToolRegistration(createRecordingWriteTool(inputs)),
+        createTestToolRegistration(createRecordingWriteTool(inputs)),
     ]);
 
     const code = [

@@ -2,8 +2,9 @@ import { resolve } from "node:path";
 import { realpath } from "node:fs/promises";
 
 import type {
+    BoundTool,
     Tool,
-    ToolDefinition,
+    BoundToolDefinition,
     ToolExecutionRequest,
     ToolObservation,
     ToolValidationResult,
@@ -14,6 +15,11 @@ import {
     throwIfAborted,
     type ExecutionControl,
 } from "../../execution-control/src/index";
+import { createTransitionalToolInputBinding } from "../../tool-core/src/index";
+import { processStartInputBinding } from "./generated/process-start/binding";
+export { processStartInputBinding };
+import { processStopInputBinding } from "./generated/process-stop/binding";
+export { processStopInputBinding };
 import { invalidInput } from "./internal/invalid-input";
 import {
     buildSeatbeltPolicy,
@@ -115,10 +121,11 @@ export interface ProcessStartOutput {
  * });
  * ```
  */
-export class ProcessStartTool implements Tool<typeof PROCESS_START_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof PROCESS_START_INPUT_CONTRACT> = {
+export class ProcessStartTool implements BoundTool<ProcessStartInput> {
+    readonly definition: BoundToolDefinition<ProcessStartInput> = {
         id: PROCESS_START_TOOL_ID,
         description: "Start a background managed process within workspaceRoot without waiting for its completion.",
+        inputBinding: processStartInputBinding,
         inputContract: PROCESS_START_INPUT_CONTRACT,
         isReadOnly: false,
     };
@@ -312,6 +319,13 @@ export interface ProcessReadInput {
     readonly maxChars?: number;
 }
 
+/** `process_read` 的过渡期输入绑定；生成能力支持整数注解后替换为生成绑定。 */
+export const processReadInputBinding = createTransitionalToolInputBinding<ProcessReadInput>({
+    contractId: "tool.process_read.input",
+    version: 1,
+    contract: PROCESS_READ_INPUT_CONTRACT,
+});
+
 /**
  * process_read Tool 输出结构。
  */
@@ -352,10 +366,11 @@ export interface ProcessReadOutput {
  * });
  * ```
  */
-export class ProcessReadTool implements Tool<typeof PROCESS_READ_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof PROCESS_READ_INPUT_CONTRACT> = {
+export class ProcessReadTool implements BoundTool<ProcessReadInput> {
+    readonly definition: BoundToolDefinition<ProcessReadInput> = {
         id: PROCESS_READ_TOOL_ID,
         description: "Read stdout/stderr output from a managed background process with cursor pagination.",
+        inputBinding: processReadInputBinding,
         inputContract: PROCESS_READ_INPUT_CONTRACT,
         isReadOnly: true,
     };
@@ -504,10 +519,11 @@ export interface ProcessStopInput {
  * });
  * ```
  */
-export class ProcessStopTool implements Tool<typeof PROCESS_STOP_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof PROCESS_STOP_INPUT_CONTRACT> = {
+export class ProcessStopTool implements BoundTool<ProcessStopInput> {
+    readonly definition: BoundToolDefinition<ProcessStopInput> = {
         id: PROCESS_STOP_TOOL_ID,
         description: "Stop a managed background process belonging to current Goal.",
+        inputBinding: processStopInputBinding,
         inputContract: PROCESS_STOP_INPUT_CONTRACT,
         isReadOnly: false,
     };

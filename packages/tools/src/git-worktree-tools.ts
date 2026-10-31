@@ -3,13 +3,18 @@ import { realpath, stat } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { contract } from "../../contracts/src/index";
 import type {
+    BoundTool,
     Tool,
-    ToolDefinition,
+    BoundToolDefinition,
     ToolExecutionRequest,
     ToolObservation,
     ToolValidationResult,
 } from "../../tool-core/src/index";
 import { throwIfAborted, type ExecutionControl } from "../../execution-control/src/index";
+import { gitWorktreeAddInputBinding } from "./generated/git-worktree-add/binding";
+export { gitWorktreeAddInputBinding };
+import { gitWorktreeRemoveInputBinding } from "./generated/git-worktree-remove/binding";
+export { gitWorktreeRemoveInputBinding };
 import { invalidInput } from "./internal/invalid-input";
 import {
     createWorkspaceSandbox,
@@ -174,10 +179,11 @@ async function resolveRepoDirectory(
  * const res = await tool.execute({ actionId: "act-wt-add", input: { path: "trees/feat-x", branch: "feat-x" } });
  * ```
  */
-export class GitWorktreeAddTool implements Tool<typeof GIT_WORKTREE_ADD_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof GIT_WORKTREE_ADD_INPUT_CONTRACT> = {
+export class GitWorktreeAddTool implements BoundTool<GitWorktreeAddInput> {
+    readonly definition: BoundToolDefinition<GitWorktreeAddInput> = {
         id: GIT_WORKTREE_ADD_TOOL_ID,
         description: "Create a new linked Git worktree at authorized target directory without using force.",
+        inputBinding: gitWorktreeAddInputBinding,
         inputContract: GIT_WORKTREE_ADD_INPUT_CONTRACT,
         isReadOnly: false,
     };
@@ -422,10 +428,11 @@ export class GitWorktreeAddTool implements Tool<typeof GIT_WORKTREE_ADD_INPUT_CO
  * const res = await tool.execute({ actionId: "act-wt-rm", input: { path: "trees/feat-x" } });
  * ```
  */
-export class GitWorktreeRemoveTool implements Tool<typeof GIT_WORKTREE_REMOVE_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof GIT_WORKTREE_REMOVE_INPUT_CONTRACT> = {
+export class GitWorktreeRemoveTool implements BoundTool<GitWorktreeRemoveInput> {
+    readonly definition: BoundToolDefinition<GitWorktreeRemoveInput> = {
         id: GIT_WORKTREE_REMOVE_TOOL_ID,
         description: "Safely remove an authorized linked Git worktree without force and protecting user files.",
+        inputBinding: gitWorktreeRemoveInputBinding,
         inputContract: GIT_WORKTREE_REMOVE_INPUT_CONTRACT,
         isReadOnly: false,
     };

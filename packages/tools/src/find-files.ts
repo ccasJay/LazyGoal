@@ -2,12 +2,14 @@ import { lstat, readdir, stat } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import picomatch from "picomatch";
 
-import type {
-    Tool,
-    ToolDefinition,
-    ToolExecutionRequest,
-    ToolObservation,
-    ToolValidationResult,
+import {
+    createTransitionalToolInputBinding,
+    type BoundTool,
+    type Tool,
+    type BoundToolDefinition,
+    type ToolExecutionRequest,
+    type ToolObservation,
+    type ToolValidationResult,
 } from "../../tool-core/src/index";
 import { contract } from "../../contracts/src/index";
 import {
@@ -99,12 +101,19 @@ export interface FindFilesInput {
      * 单页最多返回的结果数。
      * @asType integer
      * @minimum 1
-     * @maximum 500
+     * @maximum 1000
      */
     readonly maxResults?: number;
     /** 上一页返回的分页游标。 */
     readonly cursor?: string;
 }
+
+/** `FindFiles` 的过渡期输入绑定；生成能力支持整数注解后替换为生成绑定。 */
+export const findFilesInputBinding = createTransitionalToolInputBinding<FindFilesInput>({
+    contractId: "tool.find_files.input",
+    version: 1,
+    contract: FIND_FILES_INPUT_CONTRACT,
+});
 
 /** FindFiles 成功输出结构。 */
 export interface FindFilesOutput {
@@ -145,10 +154,11 @@ interface FindFilesCursorPayload {
  * });
  * ```
  */
-export class FindFilesTool implements Tool<typeof FIND_FILES_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof FIND_FILES_INPUT_CONTRACT> = {
+export class FindFilesTool implements BoundTool<FindFilesInput> {
+    readonly definition: BoundToolDefinition<FindFilesInput> = {
         id: FIND_FILES_TOOL_ID,
         description: "Find files in workspace matching a glob pattern with pagination support.",
+        inputBinding: findFilesInputBinding,
         inputContract: FIND_FILES_INPUT_CONTRACT,
         isReadOnly: true,
     };

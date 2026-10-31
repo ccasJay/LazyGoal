@@ -1,9 +1,11 @@
-import type {
-    Tool,
-    ToolDefinition,
-    ToolExecutionRequest,
-    ToolObservation,
-    ToolValidationResult,
+import {
+    createTransitionalToolInputBinding,
+    type BoundTool,
+    type Tool,
+    type BoundToolDefinition,
+    type ToolExecutionRequest,
+    type ToolObservation,
+    type ToolValidationResult,
 } from "../../tool-core/src/index";
 import { contract } from "../../contracts/src/index";
 import {
@@ -110,6 +112,13 @@ export interface WebSearchInput {
     readonly maxResults?: number;
 }
 
+/** `WebSearch` 的过渡期输入绑定；生成能力支持整数注解后替换为生成绑定。 */
+export const webSearchInputBinding = createTransitionalToolInputBinding<WebSearchInput>({
+    contractId: "tool.web_search.input",
+    version: 1,
+    contract: WEB_SEARCH_INPUT_CONTRACT,
+});
+
 /**
  * 宿主代理网页搜索 Tool。
  *
@@ -133,10 +142,11 @@ export interface WebSearchInput {
  * });
  * ```
  */
-export class WebSearchTool implements Tool<typeof WEB_SEARCH_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof WEB_SEARCH_INPUT_CONTRACT> = {
+export class WebSearchTool implements BoundTool<WebSearchInput> {
+    readonly definition: BoundToolDefinition<WebSearchInput> = {
         id: WEB_SEARCH_TOOL_ID,
         description: "Search information online and return bounded title, URL, and snippet lists.",
+        inputBinding: webSearchInputBinding,
         inputContract: WEB_SEARCH_INPUT_CONTRACT,
         isReadOnly: true,
     };

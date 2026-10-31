@@ -1,13 +1,22 @@
 import { resolve } from "node:path";
 import { contract } from "../../contracts/src/index";
 import type {
+    BoundTool,
     Tool,
-    ToolDefinition,
+    BoundToolDefinition,
     ToolExecutionRequest,
     ToolObservation,
     ToolValidationResult,
 } from "../../tool-core/src/index";
 import type { ExecutionControl } from "../../execution-control/src/index";
+import { gitAddInputBinding } from "./generated/git-add/binding";
+export { gitAddInputBinding };
+import { gitBranchCreateInputBinding } from "./generated/git-branch-create/binding";
+export { gitBranchCreateInputBinding };
+import { gitBranchSwitchInputBinding } from "./generated/git-branch-switch/binding";
+export { gitBranchSwitchInputBinding };
+import { gitCommitInputBinding } from "./generated/git-commit/binding";
+export { gitCommitInputBinding };
 import { invalidInput } from "./internal/invalid-input";
 import {
     createGitSandboxAuthorization,
@@ -251,10 +260,11 @@ async function resolveRepoDirectory(
  * const res = await tool.execute({ actionId: "act-add", input: { paths: ["src/index.ts"] } });
  * ```
  */
-export class GitAddTool implements Tool<typeof GIT_ADD_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof GIT_ADD_INPUT_CONTRACT> = {
+export class GitAddTool implements BoundTool<GitAddInput> {
+    readonly definition: BoundToolDefinition<GitAddInput> = {
         id: GIT_ADD_TOOL_ID,
         description: "Stage specified workspace files into the Git index using literal paths.",
+        inputBinding: gitAddInputBinding,
         inputContract: GIT_ADD_INPUT_CONTRACT,
         isReadOnly: false,
     };
@@ -394,10 +404,11 @@ export class GitAddTool implements Tool<typeof GIT_ADD_INPUT_CONTRACT> {
  * const res = await tool.execute({ actionId: "act-commit", input: { message: "feat: add feature" } });
  * ```
  */
-export class GitCommitTool implements Tool<typeof GIT_COMMIT_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof GIT_COMMIT_INPUT_CONTRACT> = {
+export class GitCommitTool implements BoundTool<GitCommitInput> {
+    readonly definition: BoundToolDefinition<GitCommitInput> = {
         id: GIT_COMMIT_TOOL_ID,
         description: "Commit staged changes to current branch with required message and optional author.",
+        inputBinding: gitCommitInputBinding,
         inputContract: GIT_COMMIT_INPUT_CONTRACT,
         isReadOnly: false,
     };
@@ -580,10 +591,11 @@ export class GitCommitTool implements Tool<typeof GIT_COMMIT_INPUT_CONTRACT> {
  * const res = await tool.execute({ actionId: "act-branch-new", input: { branch: "feat-x" } });
  * ```
  */
-export class GitBranchCreateTool implements Tool<typeof GIT_BRANCH_CREATE_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof GIT_BRANCH_CREATE_INPUT_CONTRACT> = {
+export class GitBranchCreateTool implements BoundTool<GitBranchCreateInput> {
+    readonly definition: BoundToolDefinition<GitBranchCreateInput> = {
         id: GIT_BRANCH_CREATE_TOOL_ID,
         description: "Create a new local Git branch without switching to it.",
+        inputBinding: gitBranchCreateInputBinding,
         inputContract: GIT_BRANCH_CREATE_INPUT_CONTRACT,
         isReadOnly: false,
     };
@@ -750,10 +762,11 @@ export class GitBranchCreateTool implements Tool<typeof GIT_BRANCH_CREATE_INPUT_
  * const res = await tool.execute({ actionId: "act-branch-sw", input: { branch: "main" } });
  * ```
  */
-export class GitBranchSwitchTool implements Tool<typeof GIT_BRANCH_SWITCH_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof GIT_BRANCH_SWITCH_INPUT_CONTRACT> = {
+export class GitBranchSwitchTool implements BoundTool<GitBranchSwitchInput> {
+    readonly definition: BoundToolDefinition<GitBranchSwitchInput> = {
         id: GIT_BRANCH_SWITCH_TOOL_ID,
         description: "Switch current working tree branch safely without overwriting uncommitted changes.",
+        inputBinding: gitBranchSwitchInputBinding,
         inputContract: GIT_BRANCH_SWITCH_INPUT_CONTRACT,
         isReadOnly: false,
     };

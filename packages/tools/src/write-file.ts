@@ -1,8 +1,9 @@
 import { basename, dirname, join } from "node:path";
 
 import type {
+    BoundTool,
     Tool,
-    ToolDefinition,
+    BoundToolDefinition,
     ToolExecutionRequest,
     ToolObservation,
     ToolValidationResult,
@@ -14,6 +15,8 @@ import {
     throwIfAborted,
     type ExecutionControl,
 } from "../../execution-control/src/index";
+import { writeFileInputBinding } from "./generated/write-file/binding";
+export { writeFileInputBinding };
 import { invalidInput } from "./internal/invalid-input";
 import { markWorkspaceModified } from "./internal/workspace-version";
 import {
@@ -88,10 +91,11 @@ export interface WriteFileInput {
  * });
  * ```
  */
-export class WriteFileTool implements Tool<typeof WRITE_FILE_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof WRITE_FILE_INPUT_CONTRACT> = {
+export class WriteFileTool implements BoundTool<WriteFileInput> {
+    readonly definition: BoundToolDefinition<WriteFileInput> = {
         id: WRITE_FILE_TOOL_ID,
         description: "写入 workspaceRoot 内的 UTF-8 文本文件（覆盖已有内容）",
+        inputBinding: writeFileInputBinding,
         inputContract: WRITE_FILE_INPUT_CONTRACT,
         isReadOnly: false,
     };

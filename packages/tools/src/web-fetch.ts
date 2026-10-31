@@ -1,9 +1,11 @@
-import type {
-    Tool,
-    ToolDefinition,
-    ToolExecutionRequest,
-    ToolObservation,
-    ToolValidationResult,
+import {
+    createTransitionalToolInputBinding,
+    type BoundTool,
+    type Tool,
+    type BoundToolDefinition,
+    type ToolExecutionRequest,
+    type ToolObservation,
+    type ToolValidationResult,
 } from "../../tool-core/src/index";
 import { contract } from "../../contracts/src/index";
 import {
@@ -131,6 +133,13 @@ export interface WebFetchInput {
     readonly offset?: number;
 }
 
+/** `WebFetch` 的过渡期输入绑定；生成能力支持整数注解后替换为生成绑定。 */
+export const webFetchInputBinding = createTransitionalToolInputBinding<WebFetchInput>({
+    contractId: "tool.web_fetch.input",
+    version: 1,
+    contract: WEB_FETCH_INPUT_CONTRACT,
+});
+
 /**
  * 将 HTML 文本转换为单行可见文本。
  *
@@ -171,10 +180,11 @@ export function htmlToPlainText(html: string): string {
  * });
  * ```
  */
-export class WebFetchTool implements Tool<typeof WEB_FETCH_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof WEB_FETCH_INPUT_CONTRACT> = {
+export class WebFetchTool implements BoundTool<WebFetchInput> {
+    readonly definition: BoundToolDefinition<WebFetchInput> = {
         id: WEB_FETCH_TOOL_ID,
         description: "Fetch web page content and return structured plain text with pagination support.",
+        inputBinding: webFetchInputBinding,
         inputContract: WEB_FETCH_INPUT_CONTRACT,
         isReadOnly: true,
     };

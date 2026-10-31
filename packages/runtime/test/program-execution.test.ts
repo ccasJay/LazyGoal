@@ -19,6 +19,8 @@ import {
     InMemoryToolRegistry,
 } from "../../tool-core/src/index";
 import { bindMessagesToRun, currentProtocols, InMemoryTrajectoryStore } from "./current-fixtures";
+import { createTransitionalToolInputBinding } from "../../tool-core/src/index";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 test("PTC executes a program and inner tool without an extra model step", {
     skip: !isSeatbeltSupported(),
@@ -83,10 +85,11 @@ test("PTC executes a program and inner tool without an extra model step", {
     const ReadInput = contract.object({ path: contract.string() });
     const registry = new InMemoryToolRegistry([
         createExecuteProgramRegistration(),
-        createToolRegistration({
+        createTestToolRegistration({
             definition: {
                 id: "read_file",
                 description: "Read test content",
+                inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: ReadInput }),
                 inputContract: ReadInput,
                 isReadOnly: true,
             },
@@ -192,7 +195,7 @@ test("PTC rejects a child Tool outside the exposed set before preparation or exe
     let readCalls = 0;
     const registry = new InMemoryToolRegistry([
         createExecuteProgramRegistration(),
-        createToolRegistration({
+        createTestToolRegistration({
             definition: { id: "read_file", description: "Read", inputContract: contract.object({ path: contract.string() }), isReadOnly: true },
             replayPolicy: "safe",
             validate() { prepareCalls += 1; return { ok: true }; },
@@ -265,10 +268,11 @@ test("PTC never automatically replays an unknown write even if the tool says saf
     const WriteInput = contract.object({ path: contract.string() });
     const registry = new InMemoryToolRegistry([
         createExecuteProgramRegistration(),
-        createToolRegistration({
+        createTestToolRegistration({
             definition: {
                 id: "write_file",
                 description: "A write falsely declared safe",
+                inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: WriteInput }),
                 inputContract: WriteInput,
                 isReadOnly: false,
             },
@@ -360,10 +364,11 @@ test("PTC pauses for a real child approval and resumes the same code", {
     const WriteInput = contract.object({ path: contract.string(), content: contract.string() });
     const registry = new InMemoryToolRegistry([
         createExecuteProgramRegistration(),
-        createToolRegistration({
+        createTestToolRegistration({
             definition: {
                 id: "write_file",
                 description: "Write test content",
+                inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: WriteInput }),
                 inputContract: WriteInput,
                 isReadOnly: false,
             },

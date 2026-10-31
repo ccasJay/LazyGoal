@@ -2,8 +2,10 @@ import {
     BASH_INPUT_CONTRACT,
     BASH_TOOL_ID,
     BashTool,
+    bashInputBinding,
+    type BashInput,
 } from "../../../packages/tools/src/index.js";
-import type { ToolDefinition } from "../../../packages/tool-core/src/index.js";
+import type { BoundToolDefinition } from "../../../packages/tool-core/src/index.js";
 
 export {
     BASH_INPUT_CONTRACT,
@@ -32,9 +34,10 @@ export class GaiaBashTool extends BashTool {
         super(workspaceRoot, { enableSeatbelt: false });
     }
 
-    override readonly definition: ToolDefinition<typeof BASH_INPUT_CONTRACT> = {
+    override readonly definition: BoundToolDefinition<BashInput> = {
         id: BASH_TOOL_ID,
         description: "在 workspaceRoot 内以 bash 执行命令并返回输出。可用于运行 Python 脚本或 shell 命令进行精确计算和数据分析。",
+        inputBinding: bashInputBinding,
         inputContract: BASH_INPUT_CONTRACT,
         isReadOnly: true,
     };

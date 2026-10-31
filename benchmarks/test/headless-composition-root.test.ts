@@ -35,6 +35,7 @@ import {
     type BenchmarkTaskDescriptor,
     type HeadlessCompositionRootDependencies,
 } from "../src/headless-composition-root.js";
+import { createTestToolRegistration } from "../../packages/tool-core/test/helpers";
 
 const profile: AgentProfile = {
     id: "fake-profile",
@@ -59,7 +60,7 @@ const evidenceTool: Tool = {
         summary: "benchmark evidence recorded",
     }),
 };
-const evidenceRegistration = createToolRegistration(evidenceTool);
+const evidenceRegistration = createTestToolRegistration(evidenceTool);
 
 class InMemoryTrajectoryStore implements TrajectoryStore {
     readonly events: TrajectoryEvent[] = [];

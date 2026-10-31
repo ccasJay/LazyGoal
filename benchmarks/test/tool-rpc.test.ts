@@ -22,6 +22,7 @@ import {
     type ToolManifestEntry,
 } from "../src/tool-rpc.js";
 import { ReadFileTool } from "../../packages/tools/src/index.js";
+import { createTestToolRegistration } from "../../packages/tool-core/test/helpers";
 
 function createMemoryPipe(): {
     hostStream: MuxChannelStream<ToolRpcMessage>;
@@ -53,7 +54,7 @@ function createMemoryPipe(): {
 test("ToolRpcClient 和 ToolRpcServer 握手 describe 返回完整清单", async () => {
     const pipe = createMemoryPipe();
     const readFileTool = new ReadFileTool("/tmp");
-    const registration = createToolRegistration(readFileTool);
+    const registration = createTestToolRegistration(readFileTool);
 
     const server = new ToolRpcServer({
         stream: pipe.workerStream,
@@ -65,7 +66,7 @@ test("ToolRpcClient 和 ToolRpcServer 握手 describe 返回完整清单", async
     assert.equal(tools.length, 1);
     assert.equal(tools[0]?.id, readFileTool.definition.id);
     assert.equal(tools[0]?.replayPolicy, "safe");
-    assert.ok(tools[0]?.inputSchema !== undefined);
+    assert.deepEqual(tools[0]?.inputSchema, readFileTool.definition.inputBinding.schema);
 
     await client.close();
     server.close();

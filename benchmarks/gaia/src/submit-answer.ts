@@ -1,7 +1,8 @@
 import { writeFile } from "node:fs/promises";
 import type {
+    BoundTool,
     Tool,
-    ToolDefinition,
+    BoundToolDefinition,
     ToolExecutionRequest,
     ToolObservation,
     ToolValidationResult,
@@ -12,6 +13,8 @@ import {
     type ExecutionControl,
 } from "../../../packages/execution-control/src/index.js";
 import { invalidInput } from "../../../packages/tools/src/internal/invalid-input.js";
+import { submitAnswerInputBinding } from "./generated/submit-answer/binding.js";
+export { submitAnswerInputBinding };
 
 /** `SubmitAnswerTool` 在 Profile 中使用的稳定标识。 */
 export const SUBMIT_ANSWER_TOOL_ID = "submit_answer";
@@ -56,10 +59,11 @@ export interface SubmitAnswerToolOptions {
  * });
  * ```
  */
-export class SubmitAnswerTool implements Tool<typeof SUBMIT_ANSWER_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof SUBMIT_ANSWER_INPUT_CONTRACT> = {
+export class SubmitAnswerTool implements BoundTool<SubmitAnswerInput> {
+    readonly definition: BoundToolDefinition<SubmitAnswerInput> = {
         id: SUBMIT_ANSWER_TOOL_ID,
         description: "提交 GAIA 任务的最终答案。每个任务只允许调用一次，提交后任务结束。",
+        inputBinding: submitAnswerInputBinding,
         inputContract: SUBMIT_ANSWER_INPUT_CONTRACT,
         isReadOnly: true,
     };

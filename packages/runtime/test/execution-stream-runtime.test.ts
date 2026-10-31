@@ -21,6 +21,7 @@ import {
     type ExecutionStreamPublisher,
 } from "../../execution-stream/src/index";
 import { BaseTestStepExecutor, currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const inputContract = contract.record(contract.string());
 
@@ -115,7 +116,7 @@ test("Runner 映射 Step/Tool 生命周期并在提交边界发布 step_committe
     const runner = new Runner({
         store,
         executor: new StreamDecisionExecutor(),
-        toolRegistry: { get: () => createToolRegistration(createStreamingTool()) },
+        toolRegistry: { get: () => createTestToolRegistration(createStreamingTool()) },
         trajectoryStore: trajectoryStoreFor(store),
         executionStream: publisher,
     });
@@ -151,7 +152,7 @@ test("Runner 发布执行流失败时不改变执行结果", async () => {
     const runner = new Runner({
         store,
         executor: new StreamDecisionExecutor(),
-        toolRegistry: { get: () => createToolRegistration(createStreamingTool()) },
+        toolRegistry: { get: () => createTestToolRegistration(createStreamingTool()) },
         trajectoryStore: trajectoryStoreFor(store),
         executionStream: failingPublisher,
     });

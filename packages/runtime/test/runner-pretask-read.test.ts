@@ -18,11 +18,13 @@ import {
     createToolRegistration,
     InMemoryToolRegistry,
     type Tool,
-    type ToolDefinition,
+    type BoundToolDefinition,
 } from "../../tool-core/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { BaseTestStepExecutor, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
 import { contract } from "../../contracts/src/index";
+import { createTransitionalToolInputBinding } from "../../tool-core/src/index";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 function createGoal(input: Parameters<typeof createUnexposedGoal>[0]) {
     return withDiscoveredProfileTools(createUnexposedGoal(input));
@@ -35,36 +37,40 @@ const profile: AgentProfile = {
     toolIds: ["read_file", "write_file", "failing_read", "throwing_read"],
 };
 
-const READ_FILE_DEFINITION: ToolDefinition = {
+const READ_FILE_DEFINITION: BoundToolDefinition = {
     id: "read_file",
     description: "Read file content",
+    inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.object({ path: contract.string() }) }),
     inputContract: contract.object({ path: contract.string() }),
     isReadOnly: true,
 };
 
-const WRITE_FILE_DEFINITION: ToolDefinition = {
+const WRITE_FILE_DEFINITION: BoundToolDefinition = {
     id: "write_file",
     description: "Write file content",
+    inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.object({ path: contract.string(), content: contract.string() }) }),
     inputContract: contract.object({ path: contract.string(), content: contract.string() }),
     isReadOnly: false,
 };
 
-const FAILING_READ_DEFINITION: ToolDefinition = {
+const FAILING_READ_DEFINITION: BoundToolDefinition = {
     id: "failing_read",
     description: "Read that returns domain failure",
+    inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.object({ path: contract.string() }) }),
     inputContract: contract.object({ path: contract.string() }),
     isReadOnly: true,
 };
 
-const THROWING_READ_DEFINITION: ToolDefinition = {
+const THROWING_READ_DEFINITION: BoundToolDefinition = {
     id: "throwing_read",
     description: "Read that throws unexpected error",
+    inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.object({ path: contract.string() }) }),
     inputContract: contract.object({ path: contract.string() }),
     isReadOnly: true,
 };
 
 function createMockTool(
-    definition: ToolDefinition,
+    definition: BoundToolDefinition,
     impl?: {
         execute?: (input: unknown) => Promise<any>;
     },
@@ -114,8 +120,8 @@ test("无任务只读 Action: 使用普通生命周期计 Step，并在同一次
     const stepExecutor = new QueueStepExecutor();
 
     const toolRegistry = new InMemoryToolRegistry([
-        createToolRegistration(createMockTool(READ_FILE_DEFINITION)),
-        createToolRegistration(createMockTool(WRITE_FILE_DEFINITION)),
+        createTestToolRegistration(createMockTool(READ_FILE_DEFINITION)),
+        createTestToolRegistration(createMockTool(WRITE_FILE_DEFINITION)),
     ]);
 
     const runner = new Runner({
@@ -198,7 +204,7 @@ test("无任务只读 Action: require_approval 使用普通 pendingAction 恢复
     const trajectoryStore = trajectoryStoreFor(store);
     const stepExecutor = new QueueStepExecutor();
     const toolRegistry = new InMemoryToolRegistry([
-        createToolRegistration(createMockTool(READ_FILE_DEFINITION)),
+        createTestToolRegistration(createMockTool(READ_FILE_DEFINITION)),
     ]);
     const runner = new Runner({
         store,
@@ -287,7 +293,7 @@ test("无任务只读 Action: maxSteps 统一计入前置读取", async () => {
         store,
         executor: stepExecutor,
         toolRegistry: new InMemoryToolRegistry([
-            createToolRegistration(createMockTool(READ_FILE_DEFINITION)),
+            createTestToolRegistration(createMockTool(READ_FILE_DEFINITION)),
         ]),
         trajectoryStore,
     });
@@ -350,7 +356,7 @@ test("无任务只读 Action: 领域 failure 也通过普通 Observation 计 Ste
     });
 
     const toolRegistry = new InMemoryToolRegistry([
-        createToolRegistration(failingReadTool),
+        createTestToolRegistration(failingReadTool),
     ]);
 
     const runner = new Runner({
@@ -424,7 +430,7 @@ test("无任务只读 Action: 工具运行时异常停止为 TOOL_EXECUTION_ERRO
     });
 
     const toolRegistry = new InMemoryToolRegistry([
-        createToolRegistration(throwingReadTool),
+        createTestToolRegistration(throwingReadTool),
     ]);
 
     const runner = new Runner({
@@ -483,7 +489,7 @@ test("Plan 提案未批准时只读门先于 Tool Policy 拒绝写入", async ()
     });
 
     const toolRegistry = new InMemoryToolRegistry([
-        createToolRegistration(writeTool),
+        createTestToolRegistration(writeTool),
     ]);
 
     const runner = new Runner({
@@ -587,7 +593,7 @@ test("普通 Run 直接调用已授权写工具并用当前 Run Observation 完�
         store,
         executor,
         toolRegistry: new InMemoryToolRegistry([
-            createToolRegistration(createMockTool(WRITE_FILE_DEFINITION, {
+            createTestToolRegistration(createMockTool(WRITE_FILE_DEFINITION, {
                 async execute(input) {
                     writeExecuted = true;
                     return { kind: "success", output: input, summary: "wrote file" };
@@ -677,7 +683,7 @@ test("普通 Run 允许无 Tool 的空证据回答，但有业务 Observation �
         store: observedStore,
         executor: observedExecutor,
         toolRegistry: new InMemoryToolRegistry([
-            createToolRegistration(createMockTool(WRITE_FILE_DEFINITION)),
+            createTestToolRegistration(createMockTool(WRITE_FILE_DEFINITION)),
         ]),
         toolPolicy: { evaluate: () => "allow" },
         trajectoryStore: observedTrajectory,
@@ -829,7 +835,7 @@ test("YOLO 模式边界: 任务批准后 YOLO 自动放行写工具并计 Step�
     });
 
     const toolRegistry = new InMemoryToolRegistry([
-        createToolRegistration(writeTool),
+        createTestToolRegistration(writeTool),
     ]);
 
     // YOLO 模式策略：对所有工具调用均返回 allow
@@ -940,7 +946,7 @@ test("普通只读 Action 重启恢复: 读取后的 Step 可恢复并继续推�
     const stepExecutor1 = new QueueStepExecutor();
 
     const toolRegistry = new InMemoryToolRegistry([
-        createToolRegistration(createMockTool(READ_FILE_DEFINITION)),
+        createTestToolRegistration(createMockTool(READ_FILE_DEFINITION)),
     ]);
 
     const runner1 = new Runner({

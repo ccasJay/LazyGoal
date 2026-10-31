@@ -1,12 +1,14 @@
 import { open, readdir, stat } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 
-import type {
-    Tool,
-    ToolDefinition,
-    ToolExecutionRequest,
-    ToolObservation,
-    ToolValidationResult,
+import {
+    createTransitionalToolInputBinding,
+    type BoundTool,
+    type Tool,
+    type BoundToolDefinition,
+    type ToolExecutionRequest,
+    type ToolObservation,
+    type ToolValidationResult,
 } from "../../tool-core/src/index";
 import { contract } from "../../contracts/src/index";
 import {
@@ -105,6 +107,13 @@ export interface ReadFileInput {
     readonly cursor?: string;
 }
 
+/** `ReadFile` 的过渡期输入绑定；生成能力支持整数注解后替换为生成绑定。 */
+export const readFileInputBinding = createTransitionalToolInputBinding<ReadFileInput>({
+    contractId: "tool.read_file.input",
+    version: 1,
+    contract: READ_FILE_INPUT_CONTRACT,
+});
+
 /** ReadFile 成功输出结构。 */
 export interface ReadFileOutput {
     /** 文件的相对路径。 */
@@ -148,10 +157,11 @@ interface ReadFileCursorPayload {
  * });
  * ```
  */
-export class ReadFileTool implements Tool<typeof READ_FILE_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof READ_FILE_INPUT_CONTRACT> = {
+export class ReadFileTool implements BoundTool<ReadFileInput> {
+    readonly definition: BoundToolDefinition<ReadFileInput> = {
         id: READ_FILE_TOOL_ID,
         description: "Read UTF-8 text from a file in workspaceRoot with line range and pagination support.",
+        inputBinding: readFileInputBinding,
         inputContract: READ_FILE_INPUT_CONTRACT,
         isReadOnly: true,
     };

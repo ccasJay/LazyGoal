@@ -3,15 +3,10 @@ import type {
     ToolCallAction,
 } from "./domain";
 import {
-    compileJsonSchema,
-    safeParse,
-} from "../../contracts/src/index";
-import {
     throwIfAborted,
 } from "../../execution-control/src/index";
 import type {
-    ToolDefinition,
-    ToolInputContract,
+    BoundToolDefinition,
     ToolRegistration,
     ToolRegistry,
 } from "../../tool-core/src/index";
@@ -24,18 +19,29 @@ import type {
  * const registration = createProgramToolRegistration(definition);
  * ```
  */
-export function createProgramToolRegistration<C extends ToolInputContract>(
-    definition: ToolDefinition<C>,
+export function createProgramToolRegistration<Input>(
+    definition: BoundToolDefinition<Input>,
 ): ToolRegistration {
-    compileJsonSchema(definition.inputContract);
     return {
         kind: "program",
-        definition,
+        definition: definition as BoundToolDefinition,
         replayPolicy: "manual",
         prepare(input, control) {
             throwIfAborted(control);
-            const parsed = safeParse(definition.inputContract, input);
-            if (!parsed.success || typeof (parsed.data as { code?: unknown }).code !== "string"
+            const parsed = definition.inputBinding.read(input, "strip");
+            throwIfAborted(control);
+            if (!parsed.ok) {
+                const first = parsed.issues[0];
+                const location = first === undefined || first.path === "" ? "$" : first.path;
+                return {
+                    ok: false,
+                    error: {
+                        code: "INVALID_TOOL_INPUT",
+                        message: `${definition.id} 输入 Contract 校验失败：${first?.code ?? "constraint"} at ${location}`,
+                    },
+                };
+            }
+            if (typeof (parsed.data as { code?: unknown }).code !== "string"
                 || Buffer.byteLength((parsed.data as { code: string }).code) > 64 * 1024) {
                 return {
                     ok: false,
@@ -47,7 +53,8 @@ export function createProgramToolRegistration<C extends ToolInputContract>(
             }
             return {
                 ok: true,
-                input: parsed.data,
+                input: parsed.data as { readonly code: string },
+                ...(parsed.diagnostic === undefined ? {} : { inputDiagnostic: parsed.diagnostic }),
                 async execute() {
                     throw new Error("PTC_PROGRAM_REQUIRES_RUNNER");
                 },
@@ -69,8 +76,8 @@ export interface ToolPolicyContext {
     readonly goal: Goal;
     /** Agent 当前请求的 Action。 */
     readonly action: ToolCallAction;
-    /** Registry 解析出的 Tool 描述。 */
-    readonly tool: ToolDefinition;
+    /** Registry 解析出的 Tool 描述与输入绑定。 */
+    readonly tool: BoundToolDefinition;
 }
 
 /**
@@ -118,8 +125,8 @@ export interface ToolPolicy {
 export function resolveAuthorizedToolDefinitions(
     goal: Goal,
     registry: ToolRegistry,
-): readonly ToolDefinition[] {
-    const definitions: ToolDefinition[] = [];
+): readonly BoundToolDefinition[] {
+    const definitions: BoundToolDefinition[] = [];
 
     for (const toolId of goal.definition.profile.toolIds) {
         const registration = registry.get(toolId);
@@ -131,6 +138,7 @@ export function resolveAuthorizedToolDefinitions(
                 ...(registration.definition.discoveryAliases === undefined
                     ? {}
                     : { discoveryAliases: Object.freeze([...registration.definition.discoveryAliases]) }),
+                inputBinding: registration.definition.inputBinding,
                 inputContract: registration.definition.inputContract,
                 isReadOnly: registration.definition.isReadOnly,
             }));

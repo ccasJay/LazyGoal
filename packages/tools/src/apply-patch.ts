@@ -4,8 +4,9 @@ import { dirname, resolve } from "node:path";
 import * as diff from "diff";
 
 import type {
+    BoundTool,
     Tool,
-    ToolDefinition,
+    BoundToolDefinition,
     ToolExecutionRequest,
     ToolObservation,
     ToolValidationResult,
@@ -17,6 +18,8 @@ import {
     throwIfAborted,
     type ExecutionControl,
 } from "../../execution-control/src/index";
+import { applyPatchInputBinding } from "./generated/apply-patch/binding";
+export { applyPatchInputBinding };
 import { invalidInput } from "./internal/invalid-input";
 import { markWorkspaceModified } from "./internal/workspace-version";
 import {
@@ -135,10 +138,11 @@ function normalizeRelativePath(p: string): string {
  * });
  * ```
  */
-export class ApplyPatchTool implements Tool<typeof APPLY_PATCH_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof APPLY_PATCH_INPUT_CONTRACT> = {
+export class ApplyPatchTool implements BoundTool<ApplyPatchInput> {
+    readonly definition: BoundToolDefinition<ApplyPatchInput> = {
         id: APPLY_PATCH_TOOL_ID,
         description: "Apply unified or Git text patches across files in workspace with strict unique matching.",
+        inputBinding: applyPatchInputBinding,
         inputContract: APPLY_PATCH_INPUT_CONTRACT,
         isReadOnly: false,
     };

@@ -1,12 +1,15 @@
 import type {
     Contract,
-    InferContract,
     JsonValue,
 } from "../../contracts/src/index";
+import type {
+    ContractBinding,
+    ContractDiagnostic,
+} from "../../contract-binding/src/index";
 import type { ExecutionControl } from "../../execution-control/src/index";
 import type { DerivedSandboxAccess, SandboxExecutionPlan } from "../../sandbox/src/index";
 
-/** Tool 输入 Contract 的 JSON AST 类型边界。 */
+/** Tool 输入 Contract 的 JSON AST 类型边界（过渡期供模型线消费）。 */
 export type ToolInputContract = Contract<JsonValue>;
 
 /**
@@ -40,15 +43,16 @@ export interface ToolExecutionContext {
  *
  * @example
  * ```ts
- * const definition: ToolDefinition<typeof InputContract> = {
+ * const definition: BoundToolDefinition<ReadFileInput> = {
  *   id: "read_file",
  *   description: "读取工作区内的文本文件",
- *   inputContract: InputContract,
+ *   inputBinding: readFileInputBinding,
+ *   inputContract: READ_FILE_INPUT_CONTRACT,
  *   isReadOnly: true,
  * };
  * ```
  */
-export interface ToolDefinition<C extends ToolInputContract = ToolInputContract> {
+export interface ToolDefinition<Input = JsonValue> {
     /** 稳定的 Tool 标识，必须与 Profile 中的 `toolIds` 对应。 */
     readonly id: string;
     /** 面向 Agent 的用途说明。 */
@@ -61,8 +65,12 @@ export interface ToolDefinition<C extends ToolInputContract = ToolInputContract>
      * 当前 Run 的暴露、Policy、审批和沙箱检查。
      */
     readonly discoveryAliases?: readonly string[];
-    /** Tool 输入结构唯一事实源；模型 Schema 由该 AST 编译得到。 */
-    readonly inputContract: C;
+    /**
+     * 过渡期供模型线消费的输入 AST。
+     *
+     * @deprecated 与模型线联合切换时删除；不得用于 Tool `prepare` 或新增字段定义。
+     */
+    readonly inputContract: ToolInputContract;
     /**
      * 是否为只读工具。
      *
@@ -73,6 +81,30 @@ export interface ToolDefinition<C extends ToolInputContract = ToolInputContract>
      * 和沙箱规则决定调用能否执行。缺失声明按非只读处理。
      */
     readonly isReadOnly: boolean;
+}
+
+/**
+ * 可注册 Tool 的输入绑定定义。
+ *
+ * @remarks
+ * 在模型可见描述之外增加权威输入绑定。注册与 `prepare` 只通过该绑定读取模型或
+ * 持久化输入；未知字段按 `strip` 策略移除并产生有界诊断。绑定身份、版本和 Schema
+ * 同时供模型声明与远程 Worker 清单消费。
+ *
+ * @example
+ * ```ts
+ * const definition: BoundToolDefinition<ReadFileInput> = {
+ *     id: "read_file",
+ *     description: "读取工作区内的文本文件",
+ *     inputBinding: readFileInputBinding,
+ *     inputContract: READ_FILE_INPUT_CONTRACT,
+ *     isReadOnly: true,
+ * };
+ * ```
+ */
+export interface BoundToolDefinition<Input = JsonValue> extends ToolDefinition<Input> {
+    /** Tool 输入的权威 Schema、校验与读取边界。 */
+    readonly inputBinding: ContractBinding<Input>;
 }
 
 /**
@@ -207,12 +239,12 @@ export type ToolValidationResult =
  *
  * @example
  * ```ts
- * const InputContract = contract.object({ message: contract.string() });
- * const tool: Tool<typeof InputContract> = {
+ * const tool: Tool<EchoInput> = {
  *   definition: {
  *     id: "echo",
  *     description: "返回输入文本",
- *     inputContract: InputContract,
+ *     inputBinding: echoInputBinding,
+ *     inputContract: ECHO_INPUT_CONTRACT,
  *     isReadOnly: true,
  *   },
  *   replayPolicy: "safe",
@@ -225,9 +257,11 @@ export type ToolValidationResult =
  * };
  * ```
  */
-export interface Tool<C extends ToolInputContract = ToolInputContract> {
-    /** Tool 的稳定描述与 JSON 输入协议。 */
-    readonly definition: ToolDefinition<C>;
+export interface Tool<Input = JsonValue> {
+    /** Tool 的稳定描述；可附带输入绑定，注册入口要求绑定必须存在。 */
+    readonly definition: ToolDefinition<Input> & {
+        readonly inputBinding?: ContractBinding<Input>;
+    };
     /** 进程中断后对未完成 Action 的重放策略。 */
     readonly replayPolicy: "safe" | "manual";
     /**
@@ -236,7 +270,7 @@ export interface Tool<C extends ToolInputContract = ToolInputContract> {
      * @param input - Input Contract 返回的隔离输入。
      * @returns 成功或带稳定 `INVALID_TOOL_INPUT` 错误的失败结果。
      */
-    validate(input: InferContract<C>): ToolValidationResult;
+    validate(input: Input): ToolValidationResult;
     /**
      * 可选的沙箱能力派生接口。
      *
@@ -255,7 +289,7 @@ export interface Tool<C extends ToolInputContract = ToolInputContract> {
      * ```
      */
     resolveSandboxAccess?(
-        input: InferContract<C>,
+        input: Input,
         control?: ExecutionControl,
     ): Promise<DerivedSandboxAccess | undefined> | DerivedSandboxAccess | undefined;
     /**
@@ -269,7 +303,7 @@ export interface Tool<C extends ToolInputContract = ToolInputContract> {
      *   `ExecutionAbortedError`，调用方不得将其伪装成 Observation。
      */
     execute(
-        request: ToolExecutionRequest<InferContract<C>>,
+        request: ToolExecutionRequest<Input>,
         control?: ExecutionControl,
     ): Promise<ToolObservation>;
     /**
@@ -282,9 +316,27 @@ export interface Tool<C extends ToolInputContract = ToolInputContract> {
      *   或中止错误由调用方按 replay policy 处理，不得伪装成 Observation。
      */
     readonly stream?: (
-        request: ToolExecutionRequest<InferContract<C>>,
+        request: ToolExecutionRequest<Input>,
         control?: ExecutionControl,
     ) => AsyncIterable<ToolStreamEvent>;
+}
+
+/**
+ * 可注册的 Tool：在模型可见定义之外提供权威输入绑定。
+ *
+ * @remarks
+ * `createToolRegistration` 只接受该接口；普通 `Tool` 不携带绑定，不能进入执行
+ * Registry。生产工具实现与本接口一致，测试替身应由测试辅助函数显式构造绑定。
+ *
+ * @example
+ * ```ts
+ * const tool: BoundTool<ReadFileInput> = new ReadFileTool("/workspace");
+ * const registration = createToolRegistration(tool);
+ * ```
+ */
+export interface BoundTool<Input = JsonValue> extends Tool<Input> {
+    /** Tool 的稳定描述与权威输入绑定。 */
+    readonly definition: BoundToolDefinition<Input>;
 }
 
 /**
@@ -306,6 +358,14 @@ export type PreparedToolAction =
         readonly ok: true;
         /** Contract Parser 创建的、与原始输入隔离的 canonical 输入。 */
         readonly input: JsonValue;
+        /**
+         * 成功读取时剥离未知字段产生的有界诊断。
+         *
+         * @remarks
+         * 只含契约身份、版本和有界 JSON Pointer 路径，不含字段值或原始载荷；
+         * 未发生剥离时不出现。
+         */
+        readonly inputDiagnostic?: ContractDiagnostic;
         /**
          * 可选的同源沙箱能力派生闭包。
          *
@@ -360,8 +420,8 @@ export type PreparedToolAction =
 export interface ToolRegistration {
     /** 程序注册项由 Runner 调度；普通业务工具为 "tool"。 */
     readonly kind?: "tool" | "program";
-    /** 对外展示的稳定 Tool 描述。 */
-    readonly definition: ToolDefinition;
+    /** 对外展示的稳定 Tool 描述与输入绑定。 */
+    readonly definition: BoundToolDefinition;
     /** 进程中断后对未完成 Action 的重放策略。 */
     readonly replayPolicy: "safe" | "manual";
     /**

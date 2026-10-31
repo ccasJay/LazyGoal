@@ -1,6 +1,8 @@
 import { contract } from "../../contracts/src/index";
+import { executeProgramInputBinding } from "./generated/execute-program/binding";
+export { executeProgramInputBinding };
 import { createProgramToolRegistration } from "../../runtime/src/tool";
-import type { ToolDefinition } from "../../tool-core/src/index";
+import type { BoundToolDefinition } from "../../tool-core/src/index";
 
 /** 模型显式触发 PTC 的稳定 Tool ID。 */
 export const EXECUTE_PROGRAM_TOOL_ID = "execute_program";
@@ -22,10 +24,11 @@ export interface ExecuteProgramInput {
 }
 
 /** 程序入口不代表内部业务调用已获权限。 */
-export const EXECUTE_PROGRAM_DEFINITION: ToolDefinition<typeof EXECUTE_PROGRAM_INPUT_CONTRACT> = {
+export const EXECUTE_PROGRAM_DEFINITION: BoundToolDefinition<ExecuteProgramInput> = {
     id: EXECUTE_PROGRAM_TOOL_ID,
     description: "Run a bounded JavaScript program that calls authorized tools via tools[toolId](input) and returns one JSON-safe conclusion.",
     discoveryAliases: ["ptc", "programmatic tool calling", "程序化工具调用"],
+    inputBinding: executeProgramInputBinding,
     inputContract: EXECUTE_PROGRAM_INPUT_CONTRACT,
     isReadOnly: false,
 };

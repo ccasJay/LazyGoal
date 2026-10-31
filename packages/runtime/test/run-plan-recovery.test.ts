@@ -14,6 +14,8 @@ import {
     type StepExecutionInput,
 } from "../src/index";
 import { BaseTestStepExecutor, currentProtocols, trajectoryStoreFor } from "./current-fixtures";
+import { createTransitionalToolInputBinding } from "../../tool-core/src/index";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 class InterruptAfterFirstAcceptedStage extends BaseTestStepExecutor {
     private index = 0;
@@ -93,7 +95,7 @@ test("恢复已批准路线从下一个待执行阶段继续，且不重放已�
     const backingStore = new InMemoryGoalStore();
     const trajectory = trajectoryStoreFor(backingStore);
     let recorded = 0;
-    const tool = createToolRegistration({
+    const tool = createTestToolRegistration({
         definition: { id: "record_once", description: "Record one durable side effect", inputContract: contract.object({}), isReadOnly: true },
         replayPolicy: "safe",
         validate: () => ({ ok: true }),
@@ -173,7 +175,7 @@ test("批准路线的 Snapshot 检查点失败时不继续执行工具", async (
             return { kind: "tool_call", action: { actionId: "should-not-run", toolId: "record_once", input: {} } };
         }
     }
-    const registry = new InMemoryToolRegistry([createToolRegistration({
+    const registry = new InMemoryToolRegistry([createTestToolRegistration({
         definition: { id: "record_once", description: "Record a side effect", inputContract: contract.object({}), isReadOnly: false },
         replayPolicy: "safe",
         validate: () => ({ ok: true }),

@@ -2,13 +2,15 @@ import { spawn } from "node:child_process";
 import { realpath } from "node:fs/promises";
 import { delimiter, dirname, resolve } from "node:path";
 
-import type {
-    Tool,
-    ToolDefinition,
-    ToolExecutionRequest,
-    ToolObservation,
-    ToolStreamEvent,
-    ToolValidationResult,
+import {
+    createTransitionalToolInputBinding,
+    type BoundTool,
+    type Tool,
+    type BoundToolDefinition,
+    type ToolExecutionRequest,
+    type ToolObservation,
+    type ToolStreamEvent,
+    type ToolValidationResult,
 } from "../../tool-core/src/index";
 import { contract } from "../../contracts/src/index";
 import {
@@ -153,12 +155,19 @@ export interface BashInput {
      * 命令超时毫秒数。
      * @asType integer
      * @minimum 1
-     * @maximum 600000
+     * @maximum 120000
      */
     readonly timeoutMs?: number;
     /** 可选的沙箱能力申请。 */
     readonly sandboxAccess?: BashSandboxAccessInput;
 }
+
+/** `bash` 的过渡期输入绑定；生成能力支持整数注解后替换为生成绑定。 */
+export const bashInputBinding = createTransitionalToolInputBinding<BashInput>({
+    contractId: "tool.bash.input",
+    version: 1,
+    contract: BASH_INPUT_CONTRACT,
+});
 
 /**
  * BashTool 的配置选项。
@@ -591,10 +600,11 @@ function runShellCommand(
  * });
  * ```
  */
-export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof BASH_INPUT_CONTRACT> = {
+export class BashTool implements BoundTool<BashInput> {
+    readonly definition: BoundToolDefinition<BashInput> = {
         id: BASH_TOOL_ID,
         description: "在 workspaceRoot 内以 bash 执行命令并返回截断后的 stdout/stderr",
+        inputBinding: bashInputBinding,
         inputContract: BASH_INPUT_CONTRACT,
         isReadOnly: false,
     };

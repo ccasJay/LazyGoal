@@ -26,6 +26,8 @@ import { contract } from "../../contracts/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import type { SandboxExecutionPlan } from "../../sandbox/src/index";
 import { BaseTestStepExecutor, currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
+import { createTransitionalToolInputBinding } from "../../tool-core/src/index";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const TEST_INPUT_CONTRACT = contract.object({
     command: contract.string(),
@@ -76,11 +78,12 @@ function createGoal(input: Parameters<typeof createUnexposedGoal>[0]) {
 function createManualSandboxTool(
     workspaceRoot: string,
     executeHandler?: (request: ToolExecutionRequest<SandboxTestInput>) => Promise<ToolObservation> | ToolObservation,
-): Tool<typeof TEST_INPUT_CONTRACT> {
+): Tool<any> {
     return {
         definition: {
             id: "bash",
             description: "manual replay bash",
+            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: TEST_INPUT_CONTRACT }),
             inputContract: TEST_INPUT_CONTRACT,
             isReadOnly: false,
         },
@@ -150,7 +153,7 @@ test("进程恢复后旧计划不复用，重新核准时基于当前状态重�
 
         const registry = {
             get(id: string) {
-                if (id === "bash") return createToolRegistration(tool);
+                if (id === "bash") return createTestToolRegistration(tool);
                 throw new Error(`Tool ${id} not found`);
             },
         };
@@ -254,7 +257,7 @@ test("受限命令执行结果不确定（outcome_unknown）时维持人工等�
 
     const registry = {
         get(id: string) {
-            if (id === "bash") return createToolRegistration(tool);
+            if (id === "bash") return createTestToolRegistration(tool);
             throw new Error(`Tool ${id} not found`);
         },
     };

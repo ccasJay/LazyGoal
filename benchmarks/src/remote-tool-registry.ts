@@ -1,23 +1,17 @@
-import {
-    compileJsonSchema,
-    safeParse,
-} from "../../packages/contracts/src/index.js";
+import type { JsonValue } from "../../packages/contracts/src/index.js";
 import {
     throwIfAborted,
     type ExecutionControl,
 } from "../../packages/execution-control/src/index.js";
 import {
-    createToolRegistration,
     InMemoryToolRegistry,
-    type ToolDefinition,
+    type BoundToolDefinition,
+    type Tool,
     type ToolExecutionContext,
     type ToolObservation,
     type ToolRegistration,
     type ToolRegistry,
 } from "../../packages/tool-core/src/index.js";
-import type {
-    JsonValue,
-} from "../../packages/contracts/src/index.js";
 import type {
     DerivedSandboxAccess,
     SandboxExecutionPlan,
@@ -37,8 +31,8 @@ import type { ToolRpcClient } from "./tool-rpc.js";
 export interface RemoteToolRegistrationOptions {
     /** 绑定的跨进程工具 RPC 客户端。 */
     readonly client: ToolRpcClient;
-    /** 工具的静态定义契约。 */
-    readonly definition: ToolDefinition;
+    /** 工具的静态定义契约与输入绑定。 */
+    readonly definition: BoundToolDefinition<unknown>;
     /** 进程中断后对未完成 Action 的重放策略。 */
     readonly replayPolicy: "safe" | "manual";
     /** 可选的沙箱权限派生解析器。 */
@@ -67,24 +61,22 @@ export interface RemoteToolRegistrationOptions {
 export function createRemoteToolRegistration(
     options: RemoteToolRegistrationOptions,
 ): ToolRegistration {
-    compileJsonSchema(options.definition.inputContract);
-
     return {
         definition: options.definition,
         replayPolicy: options.replayPolicy,
         prepare(input: JsonValue, control?: ExecutionControl) {
             throwIfAborted(control);
-            const parsed = safeParse(options.definition.inputContract, input);
+            const parsed = options.definition.inputBinding.read(input, "strip");
             throwIfAborted(control);
 
-            if (!parsed.success) {
+            if (!parsed.ok) {
                 const issue = parsed.issues[0];
-                const path = issue === undefined ? "$" : issue.path.join(".");
+                const path = issue === undefined || issue.path === "" ? "$" : issue.path;
                 return {
                     ok: false,
                     error: {
                         code: "INVALID_TOOL_INPUT",
-                        message: `${options.definition.id} 输入 Contract 校验失败：${issue?.code ?? "unknown"} at ${path}`,
+                        message: `${options.definition.id} 输入 Contract 校验失败：${issue?.code ?? "constraint"} at ${path}`,
                     },
                 };
             }
@@ -92,6 +84,7 @@ export function createRemoteToolRegistration(
             return {
                 ok: true,
                 input: parsed.data as JsonValue,
+                ...(parsed.diagnostic === undefined ? {} : { inputDiagnostic: parsed.diagnostic }),
                 ...(options.resolveSandboxAccess !== undefined
                     ? {
                         resolveSandboxAccess(resolveControl?: ExecutionControl) {
@@ -170,7 +163,7 @@ export function createSwebenchRemoteToolRegistry(client: ToolRpcClient): InMemor
  */
 export function createGaiaRemoteToolRegistry(client: ToolRpcClient): InMemoryToolRegistry {
     const dummyRoot = "/dummy";
-    const tools = [
+    const tools: readonly Tool<unknown>[] = [
         new ReadFileTool(dummyRoot),
         new WebSearchTool(async () => []),
         new WebFetchTool(async () => ""),

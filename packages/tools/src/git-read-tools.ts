@@ -1,12 +1,18 @@
 import { resolve } from "node:path";
 
-import type {
-    Tool,
-    ToolDefinition,
-    ToolExecutionRequest,
-    ToolObservation,
-    ToolValidationResult,
+import {
+    createTransitionalToolInputBinding,
+    type BoundTool,
+    type Tool,
+    type BoundToolDefinition,
+    type ToolExecutionRequest,
+    type ToolObservation,
+    type ToolValidationResult,
 } from "../../tool-core/src/index";
+import { gitBranchListInputBinding } from "./generated/git-branch-list/binding";
+export { gitBranchListInputBinding };
+import { gitWorktreeListInputBinding } from "./generated/git-worktree-list/binding";
+export { gitWorktreeListInputBinding };
 import { contract } from "../../contracts/src/index";
 import {
     throwIfAborted,
@@ -92,6 +98,13 @@ export interface GitStatusInput {
     readonly maxEntries?: number;
 }
 
+/** `git_status` 的过渡期输入绑定；生成能力支持整数注解后替换为生成绑定。 */
+export const gitStatusInputBinding = createTransitionalToolInputBinding<GitStatusInput>({
+    contractId: "tool.git_status.input",
+    version: 1,
+    contract: GIT_STATUS_INPUT_CONTRACT,
+});
+
 export interface GitStatusEntry {
     readonly path: string;
     readonly origPath?: string | undefined;
@@ -151,6 +164,13 @@ export interface GitDiffInput {
     readonly cursor?: string;
 }
 
+/** `git_diff` 的过渡期输入绑定；生成能力支持整数注解后替换为生成绑定。 */
+export const gitDiffInputBinding = createTransitionalToolInputBinding<GitDiffInput>({
+    contractId: "tool.git_diff.input",
+    version: 1,
+    contract: GIT_DIFF_INPUT_CONTRACT,
+});
+
 export interface GitDiffOutput {
     readonly repoPath: string;
     readonly diff: string;
@@ -193,6 +213,13 @@ export interface GitLogInput {
     /** 上一页返回的分页游标。 */
     readonly cursor?: string;
 }
+
+/** `git_log` 的过渡期输入绑定；生成能力支持整数注解后替换为生成绑定。 */
+export const gitLogInputBinding = createTransitionalToolInputBinding<GitLogInput>({
+    contractId: "tool.git_log.input",
+    version: 1,
+    contract: GIT_LOG_INPUT_CONTRACT,
+});
 
 export interface GitCommitRecord {
     readonly hash: string;
@@ -242,6 +269,13 @@ export interface GitShowInput {
     /** 上一页返回的分页游标。 */
     readonly cursor?: string;
 }
+
+/** `git_show` 的过渡期输入绑定；生成能力支持整数注解后替换为生成绑定。 */
+export const gitShowInputBinding = createTransitionalToolInputBinding<GitShowInput>({
+    contractId: "tool.git_show.input",
+    version: 1,
+    contract: GIT_SHOW_INPUT_CONTRACT,
+});
 
 export interface GitShowOutput {
     readonly repoPath: string;
@@ -379,10 +413,11 @@ async function resolveRepoDirectory(
  * const res = await tool.execute({ actionId: "act-1", input: {} });
  * ```
  */
-export class GitStatusTool implements Tool<typeof GIT_STATUS_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof GIT_STATUS_INPUT_CONTRACT> = {
+export class GitStatusTool implements BoundTool<GitStatusInput> {
+    readonly definition: BoundToolDefinition<GitStatusInput> = {
         id: GIT_STATUS_TOOL_ID,
         description: "Inspect working tree and index status using porcelain v2 format with pagination.",
+        inputBinding: gitStatusInputBinding,
         inputContract: GIT_STATUS_INPUT_CONTRACT,
         isReadOnly: true,
     };
@@ -590,10 +625,11 @@ export class GitStatusTool implements Tool<typeof GIT_STATUS_INPUT_CONTRACT> {
  * const res = await tool.execute({ actionId: "act-2", input: { staged: true } });
  * ```
  */
-export class GitDiffTool implements Tool<typeof GIT_DIFF_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof GIT_DIFF_INPUT_CONTRACT> = {
+export class GitDiffTool implements BoundTool<GitDiffInput> {
+    readonly definition: BoundToolDefinition<GitDiffInput> = {
         id: GIT_DIFF_TOOL_ID,
         description: "Inspect working tree or staged diff, or diff between commits with line pagination.",
+        inputBinding: gitDiffInputBinding,
         inputContract: GIT_DIFF_INPUT_CONTRACT,
         isReadOnly: true,
     };
@@ -748,10 +784,11 @@ export class GitDiffTool implements Tool<typeof GIT_DIFF_INPUT_CONTRACT> {
  * const res = await tool.execute({ actionId: "act-3", input: { maxCount: 10 } });
  * ```
  */
-export class GitLogTool implements Tool<typeof GIT_LOG_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof GIT_LOG_INPUT_CONTRACT> = {
+export class GitLogTool implements BoundTool<GitLogInput> {
+    readonly definition: BoundToolDefinition<GitLogInput> = {
         id: GIT_LOG_TOOL_ID,
         description: "List commit history with structured author, date, and message fields with pagination.",
+        inputBinding: gitLogInputBinding,
         inputContract: GIT_LOG_INPUT_CONTRACT,
         isReadOnly: true,
     };
@@ -918,10 +955,11 @@ export class GitLogTool implements Tool<typeof GIT_LOG_INPUT_CONTRACT> {
  * const res = await tool.execute({ actionId: "act-4", input: { object: "HEAD" } });
  * ```
  */
-export class GitShowTool implements Tool<typeof GIT_SHOW_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof GIT_SHOW_INPUT_CONTRACT> = {
+export class GitShowTool implements BoundTool<GitShowInput> {
+    readonly definition: BoundToolDefinition<GitShowInput> = {
         id: GIT_SHOW_TOOL_ID,
         description: "Show commit details, blob content, or diff for a Git object with line pagination.",
+        inputBinding: gitShowInputBinding,
         inputContract: GIT_SHOW_INPUT_CONTRACT,
         isReadOnly: true,
     };
@@ -1087,10 +1125,11 @@ export class GitShowTool implements Tool<typeof GIT_SHOW_INPUT_CONTRACT> {
  * const res = await tool.execute({ actionId: "act-5", input: {} });
  * ```
  */
-export class GitBranchListTool implements Tool<typeof GIT_BRANCH_LIST_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof GIT_BRANCH_LIST_INPUT_CONTRACT> = {
+export class GitBranchListTool implements BoundTool<GitBranchListInput> {
+    readonly definition: BoundToolDefinition<GitBranchListInput> = {
         id: GIT_BRANCH_LIST_TOOL_ID,
         description: "List local and tracked branches in the repository without network access.",
+        inputBinding: gitBranchListInputBinding,
         inputContract: GIT_BRANCH_LIST_INPUT_CONTRACT,
         isReadOnly: true,
     };
@@ -1215,10 +1254,11 @@ export class GitBranchListTool implements Tool<typeof GIT_BRANCH_LIST_INPUT_CONT
  * const res = await tool.execute({ actionId: "act-6", input: {} });
  * ```
  */
-export class GitWorktreeListTool implements Tool<typeof GIT_WORKTREE_LIST_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof GIT_WORKTREE_LIST_INPUT_CONTRACT> = {
+export class GitWorktreeListTool implements BoundTool<GitWorktreeListInput> {
+    readonly definition: BoundToolDefinition<GitWorktreeListInput> = {
         id: GIT_WORKTREE_LIST_TOOL_ID,
         description: "List all linked worktrees in the repository using porcelain format.",
+        inputBinding: gitWorktreeListInputBinding,
         inputContract: GIT_WORKTREE_LIST_INPUT_CONTRACT,
         isReadOnly: true,
     };

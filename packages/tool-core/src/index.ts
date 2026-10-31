@@ -20,8 +20,11 @@
 
 export { TransientToolExecutionFailure } from "./errors";
 export { createToolRegistration } from "./registration";
+export { createTransitionalToolInputBinding } from "./transitional-binding";
 export { InMemoryToolRegistry } from "./registry";
 export type {
+    BoundTool,
+    BoundToolDefinition,
     PreparedToolAction,
     Tool,
     ToolDefinition,

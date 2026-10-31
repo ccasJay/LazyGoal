@@ -6,6 +6,8 @@ import { contract } from "../../contracts/src/index";
 import { createToolRegistration, type ToolRegistry } from "../../tool-core/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
+import { createTransitionalToolInputBinding } from "../../tool-core/src/index";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const sampleTool = {
     id: "sample_business_tool",
@@ -15,6 +17,7 @@ const sampleTool = {
         properties: { value: { type: "string" } },
         required: ["value"],
     },
+    inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.object({ value: contract.string() }) }),
     inputContract: contract.object({ value: contract.string() }),
     isReadOnly: false,
     execute: async ({ value }: { value: string }) => ({ echoed: value }),
@@ -28,7 +31,7 @@ const profile: AgentProfile = {
 };
 
 function createTestToolRegistry(onExecute?: () => void): ToolRegistry {
-    const reg = createToolRegistration({
+    const reg = createTestToolRegistration({
         definition: sampleTool,
         replayPolicy: "safe",
         validate: () => ({ ok: true }),

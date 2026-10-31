@@ -104,7 +104,6 @@ test("WriteFileTool 拒绝非法输入且不访问文件系统", async () => {
             {},
             { path: "a.txt" },
             { content: "x" },
-            { path: "a.txt", content: "x", extra: true },
             { path: "", content: "x" },
             { path: 42, content: "x" },
             { path: "a.txt", content: 42 },
@@ -124,6 +123,13 @@ test("WriteFileTool 拒绝非法输入且不访问文件系统", async () => {
             if (!result.ok) {
                 assert.equal(result.error.code, "INVALID_TOOL_INPUT");
             }
+        }
+
+        const stripped = registration.prepare(asJsonValue({ path: "a.txt", content: "x", extra: true }));
+        assert.equal(stripped.ok, true);
+        if (stripped.ok) {
+            assert.deepEqual(stripped.input, { path: "a.txt", content: "x" });
+            assert.deepEqual(stripped.inputDiagnostic?.paths, ["/extra"]);
         }
 
         const result = registration.prepare({ path: "../secret.txt", content: "x" });

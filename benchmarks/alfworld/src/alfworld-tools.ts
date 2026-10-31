@@ -1,7 +1,8 @@
 import { ExecutionAbortedError, isExecutionAbortedError, throwIfAborted, type ExecutionControl } from "../../../packages/execution-control/src/index.js";
 import type {
+    BoundTool,
     Tool,
-    ToolDefinition,
+    BoundToolDefinition,
     ToolExecutionRequest,
     ToolObservation,
     ToolRegistry,
@@ -11,6 +12,10 @@ import {
     createToolRegistration,
     InMemoryToolRegistry,
 } from "../../../packages/tool-core/src/index.js";
+import { alfworldResetInputBinding } from "./generated/alfworld-reset/binding.js";
+export { alfworldResetInputBinding };
+import { alfworldStepInputBinding } from "./generated/alfworld-step/binding.js";
+export { alfworldStepInputBinding };
 import type { JsonValue } from "../../../packages/contracts/src/index.js";
 type JsonObject = { readonly [key: string]: JsonValue };
 import { contract } from "../../../packages/contracts/src/index.js";
@@ -182,10 +187,11 @@ export class SidecarAlfworldSession implements AlfworldSession {
  * await tool.execute({ actionId: "reset-1", input: {} });
  * ```
  */
-export class AlfworldResetTool implements Tool<typeof ALFWORLD_RESET_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof ALFWORLD_RESET_INPUT_CONTRACT> = {
+export class AlfworldResetTool implements BoundTool<AlfworldResetInput> {
+    readonly definition: BoundToolDefinition<AlfworldResetInput> = {
         id: ALFWORLD_RESET_TOOL_ID,
         description: "初始化固定 ALFWorld TextWorld 任务会话",
+        inputBinding: alfworldResetInputBinding,
         inputContract: ALFWORLD_RESET_INPUT_CONTRACT,
         isReadOnly: false,
     };
@@ -250,10 +256,11 @@ export class AlfworldResetTool implements Tool<typeof ALFWORLD_RESET_INPUT_CONTR
  * await tool.execute({ actionId: "step-1", input: { command: "look" } });
  * ```
  */
-export class AlfworldStepTool implements Tool<typeof ALFWORLD_STEP_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof ALFWORLD_STEP_INPUT_CONTRACT> = {
+export class AlfworldStepTool implements BoundTool<AlfworldStepInput> {
+    readonly definition: BoundToolDefinition<AlfworldStepInput> = {
         id: ALFWORLD_STEP_TOOL_ID,
         description: "向活动 ALFWorld TextWorld 会话提交一条命令",
+        inputBinding: alfworldStepInputBinding,
         inputContract: ALFWORLD_STEP_INPUT_CONTRACT,
         isReadOnly: false,
     };

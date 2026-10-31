@@ -1,12 +1,14 @@
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import { contract } from "../../../packages/contracts/src/index.js";
-import type {
-    Tool,
-    ToolDefinition,
-    ToolExecutionRequest,
-    ToolObservation,
-    ToolValidationResult,
+import {
+    createTransitionalToolInputBinding,
+    type BoundTool,
+    type Tool,
+    type BoundToolDefinition,
+    type ToolExecutionRequest,
+    type ToolObservation,
+    type ToolValidationResult,
 } from "../../../packages/tool-core/src/index.js";
 import {
     throwIfAborted,
@@ -58,6 +60,13 @@ export interface BashExecInput {
     /** 可选的命令工作目录。 */
     readonly workdir?: string;
 }
+
+/** `bash_exec` 的过渡期输入绑定；生成能力支持整数注解后替换为生成绑定。 */
+export const bashExecInputBinding = createTransitionalToolInputBinding<BashExecInput>({
+    contractId: "tool.bash_exec.input",
+    version: 1,
+    contract: BASH_EXEC_INPUT_CONTRACT,
+});
 
 /**
  * `bash_exec` 工具的执行结果数据契约。
@@ -112,10 +121,11 @@ export function truncateOutput(content: string, maxBytes: number = BASH_EXEC_MAX
  * });
  * ```
  */
-export class BashExecTool implements Tool<typeof BASH_EXEC_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof BASH_EXEC_INPUT_CONTRACT> = {
+export class BashExecTool implements BoundTool<BashExecInput> {
+    readonly definition: BoundToolDefinition<BashExecInput> = {
         id: BASH_EXEC_TOOL_ID,
         description: "在容器终端内执行 bash 命令，返回 stdout、stderr 与 exitCode。支持可选的超时时间与工作目录。",
+        inputBinding: bashExecInputBinding,
         inputContract: BASH_EXEC_INPUT_CONTRACT,
         isReadOnly: false,
     };

@@ -26,6 +26,8 @@ import type {
     StepExecutionInput,
     StepExecutor,
 } from "../src/index";
+import { createTransitionalToolInputBinding } from "../../tool-core/src/index";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const profile: AgentProfile = {
     id: "profile-1",
@@ -38,6 +40,7 @@ const readFileTool: Tool = {
     definition: {
         id: "read_file",
         description: "Read a file",
+        inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.object({ path: contract.string() }) }),
         inputContract: contract.object({ path: contract.string() }),
         isReadOnly: true,
     },
@@ -164,7 +167,7 @@ test("runs the complete ask_user, ordinary read, task approval, blocked resume, 
         store,
         executor: new WorkflowStepExecutor(events),
         toolRegistry: new InMemoryToolRegistry([
-            createToolRegistration(readFileTool),
+            createTestToolRegistration(readFileTool),
         ]),
     });
     const coordinator = new GoalCoordinator({
