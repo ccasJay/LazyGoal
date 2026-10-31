@@ -77,7 +77,18 @@ export function createTransitionalToolInputBinding<Input>(options: {
 
 function containsOpenObject(schema: ContractSchemaNode): boolean {
     if (schema.type === "object" && schema.additionalProperties !== false) return true;
-    if (schema.type === undefined && schema.properties === undefined && schema.items === undefined) return true;
+    if (schema.additionalProperties !== undefined && schema.additionalProperties !== false) return true;
+    if (
+        schema.type === undefined
+        && schema.$ref === undefined
+        && schema.properties === undefined
+        && schema.items === undefined
+        && schema.enum === undefined
+        && schema.const === undefined
+        && schema.additionalProperties === undefined
+    ) {
+        return true;
+    }
     if (schema.items !== undefined && containsOpenObject(schema.items)) return true;
     return Object.values(schema.properties ?? {}).some(containsOpenObject);
 }
