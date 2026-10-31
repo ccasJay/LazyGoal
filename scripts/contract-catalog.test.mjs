@@ -26,7 +26,7 @@ test("catalog covers the inventory baseline and current enabled contracts", asyn
     });
     assert.equal(catalog.entries.length, 1016);
     assert.equal(catalog.entries.length, Object.values(counts).reduce((sum, value) => sum + value, 0));
-    assert.equal(collectEnabledContractEntries(catalog).length, 78);
+    assert.equal(collectEnabledContractEntries(catalog).length, 79);
     assert.equal(catalog.entries.filter(entry => entry.status === "moved").length, 2);
     assert.equal(catalog.reconciliation.moved.length, 2);
     assert.equal(catalog.entries.filter(entry => entry.status === "deleted").length, catalog.reconciliation.deleted.length);
@@ -180,12 +180,13 @@ test("catalog rejects missing sources, invalid counts and unsupported enabled re
 test("catalog artifact paths are unique and repository-relative", async () => {
     const catalog = await loadContractCatalog();
     const enabled = collectEnabledContractEntries(catalog);
-    assert.equal(enabled.length, 78);
+    assert.equal(enabled.length, 79);
     const paths = enabled.flatMap(contractArtifactPaths);
     assert.equal(new Set(paths).size, paths.length);
     assert.ok(paths.every(item => !path.isAbsolute(item) && !item.split("/").includes("..")));
     assert.ok(paths.includes("packages/web-contracts/src/generated/provider-models-reader.ts"));
     assert.ok(paths.includes("packages/storage/src/generated/goal-snapshot-binding.ts"));
+    assert.ok(paths.includes("packages/storage/src/generated/agent-profile-file-binding.ts"));
     assert.ok(paths.includes("packages/storage/src/generated/context-retrieval-index-sidecar-binding.ts"));
     assert.ok(paths.includes("packages/tools/src/generated/write-file/binding.ts"));
     assert.ok(paths.includes("packages/model-contracts/src/generated/system-ask-user-input/binding.ts"));

@@ -1,0 +1,23 @@
+{
+  "contractId": "storage.agent-profile.file",
+  "version": 1,
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "source": {
+    "path": "packages/storage/src/agent-profile-file.ts#NonEmptyString,AgentProfileFile",
+    "sha256": "a3d57088cce9d276df76103d8c9a45548c6bf1a37192a0815866a1a7532b9015"
+  },
+  "generator": {
+    "name": "ts-json-schema-generator",
+    "version": "2.9.0",
+    "typescriptVersion": "5.9.3"
+  },
+  "validator": {
+    "name": "Ajv standalone",
+    "version": "8.20.0"
+  },
+  "bundler": {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "format": "esm"
+  }
+}

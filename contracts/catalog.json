@@ -287,6 +287,14 @@
                 "disposition": "由 TS 单源和生成绑定替代；当前字段定义见对应的 Storage 文件 DTO 与 packages/storage/src/generated。"
             },
             {
+                "key": "storage/src/agent-profile-file#NonEmptyStringSchema",
+                "disposition": "由 TS 单源具名 NonEmptyString 与生成绑定替代；当前约束见 AgentProfileFile 类型树与 packages/storage/src/generated。"
+            },
+            {
+                "key": "storage/src/agent-profile-file#AgentProfileFileSchema",
+                "disposition": "由 TS 单源和生成绑定替代；当前字段定义见 AgentProfileFile 类型树与 packages/storage/src/generated。"
+            },
+            {
                 "key": "storage/src/context-retrieval-index-sidecar#ContextDocumentFieldsSchema",
                 "disposition": "由 ContextRetrievalIndexSidecarFile TS DTO 与生成绑定替代；嵌套文档、倒排和查询缓存由 context-retrieval 领域校验。"
             },
@@ -358,7 +366,7 @@
             }
         ],
         "changed": [],
-        "note": "Web、Storage、工具与模型文件族的结构 Schema 已由 Catalog 从 TS 类型生成；Storage 中被生成绑定取代的 Zod/派生声明标记为 deleted，并保留逐项处置；ts-tool-input-migration 新增 30 个工具输入 TS 契约登记；模型线新增 92 个模型契约登记（模型 inventory 增量为 model-contracts-migration-additions）。Retrieval Index Sidecar 顶层结构已生成，嵌套查询结果仍由 context-retrieval 领域校验，因为其 DTO 依赖旧 Contract AST 推导类型。AgentProfile 文件仍由独立小 Spec 负责。全部盘点声明均已在当前源码定位；路径、行号、所有者、消费者、协议身份、版本与生成能力反映当前源码。两个 Provider Reader 辅助类型指向生成的 Reader。"
+        "note": "Web、Storage、工具与模型文件族的结构 Schema 已由 Catalog 从 TS 类型生成；Storage 中被生成绑定取代的 Zod/派生声明标记为 deleted，并保留逐项处置；ts-tool-input-migration 新增 30 个工具输入 TS 契约登记；模型线新增 92 个模型契约登记（模型 inventory 增量为 model-contracts-migration-additions）。Retrieval Index Sidecar 顶层结构已生成，嵌套查询结果仍由 context-retrieval 领域校验，因为其 DTO 依赖旧 Contract AST 推导类型。AgentProfile 文件已由独立小 Spec 迁移为 TS 单源和生成绑定。全部盘点声明均已在当前源码定位；路径、行号、所有者、消费者、协议身份、版本与生成能力反映当前源码。两个 Provider Reader 辅助类型指向生成的 Reader。"
     },
     "boundaries": [
         {
@@ -535,9 +543,9 @@
             "section": "边界入口",
             "entry": "Agent Profile 文件",
             "root": "Agent Profile 文件",
-            "sources": "[AgentProfileFile](../../../packages/storage/src/agent-profile-file.ts#L32)",
+            "sources": "[AgentProfileFile](../../../packages/storage/src/agent-profile-file.ts#L49) 与 [NonEmptyString](../../../packages/storage/src/agent-profile-file.ts#L25)",
             "protocol": "`AGENT_PROFILE_FILE_SCHEMA_VERSION = 1`；Profile 文件 ID 由路径承载",
-            "consumers": "[AgentProfileFileSchema](../../../packages/storage/src/agent-profile-file.ts#L55) → [JsonFileAgentProfileStore](../../../packages/storage/src/json-file-agent-profile-store.ts#L29)；Zod runtime 校验",
+            "consumers": "[agentProfileFileBinding](../../../packages/storage/src/generated/agent-profile-file-binding.ts) → [JsonFileAgentProfileStore](../../../packages/storage/src/json-file-agent-profile-store.ts#L29)；生成绑定以 `reject` 策略校验",
             "sourcePaths": [
                 "packages/storage/src/agent-profile-file.ts",
                 "packages/storage/src/json-file-agent-profile-store.ts"
@@ -33384,7 +33392,7 @@
             "declaration": "AgentProfileFile",
             "source": {
                 "path": "packages/storage/src/agent-profile-file.ts",
-                "line": 32
+                "line": 49
             },
             "status": "present",
             "disposition": null,
@@ -33395,12 +33403,13 @@
             "definition": "原生文件 DTO",
             "definitionKind": "native-ts",
             "relations": [],
-            "consumers": [],
-            "consumerNote": "AgentProfileFileSchema、JsonFileAgentProfileStore；映射为 Runtime Profile",
+            "consumers": [
+                "packages/storage/src/json-file-agent-profile-store.ts"
+            ],
             "protocol": {
                 "identity": {
-                    "state": "undeclared",
-                    "inventoryValue": "Agent Profile 文件"
+                    "state": "declared",
+                    "value": "storage.agent-profile.file"
                 },
                 "version": {
                     "state": "declared",
@@ -33409,12 +33418,37 @@
                 }
             },
             "generation": {
-                "state": "none",
-                "detail": "手写 Zod Schema 严格校验；无生成制品"
+                "state": "enabled",
+                "detail": "Agent Profile 文件 Schema、校验器和绑定由 TS 文件 DTO 生成；Store 消费生成绑定。",
+                "strategy": "typescript-binding",
+                "rootType": "AgentProfileFile",
+                "declaredTypes": [
+                    "NonEmptyString",
+                    "AgentProfileFile"
+                ],
+                "outputDirectory": "packages/storage/src/generated",
+                "artifacts": {
+                    "schemaModule": "agent-profile-file-schema.ts",
+                    "validator": "agent-profile-file-validator.mjs",
+                    "validatorTypes": "agent-profile-file-validator.d.mts",
+                    "manifest": "agent-profile-file-manifest.json",
+                    "binding": "agent-profile-file-binding.ts"
+                },
+                "binding": {
+                    "module": "../../../contract-binding/src/index",
+                    "dataType": "AgentProfileFile",
+                    "dataTypeModule": "../agent-profile-file",
+                    "exportName": "agentProfileFileBinding",
+                    "names": {
+                        "schema": "agentProfileFileSchema",
+                        "metadata": "agentProfileFileMetadata",
+                        "validator": "validateAgentProfileFile"
+                    }
+                }
             },
             "validation": {
-                "state": "zod",
-                "detail": "手写 Zod Schema 严格校验；无生成制品"
+                "state": "generated-reader",
+                "detail": "生成绑定校验结构与封闭对象；Profile ID、文件路径与错误映射由 Store 执行。"
             },
             "role": "boundary-root",
             "inventory": {
@@ -33430,8 +33464,8 @@
                 "path": "packages/storage/src/agent-profile-file.ts",
                 "line": 9
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "由 TS 单源具名 NonEmptyString 与生成绑定替代；当前约束见 AgentProfileFile 类型树与 packages/storage/src/generated。",
             "owner": "storage",
             "module": "storage",
             "boundary": "durable",
@@ -33471,10 +33505,10 @@
             "declaration": "AgentProfileFileSchema",
             "source": {
                 "path": "packages/storage/src/agent-profile-file.ts",
-                "line": 55
+                "line": 70
             },
-            "status": "present",
-            "disposition": null,
+            "status": "deleted",
+            "disposition": "由 TS 单源和生成绑定替代；当前字段定义见 AgentProfileFile 类型树与 packages/storage/src/generated。",
             "owner": "storage",
             "module": "storage",
             "boundary": "durable",

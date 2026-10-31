@@ -9,12 +9,29 @@ export const PROFILE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const NonEmptyStringSchema = z.string().min(1);
 
 /**
+ * Agent Profile 文件协议中的非空字符串。
+ *
+ * @remarks
+ * 标量字段与数组元素共用该类型，非空约束由下方注解生成。空数组本身合法，
+ * 含空字符串的元素会使文件读取失败。
+ *
+ * @minLength 1
+ *
+ * @example
+ * ```ts
+ * const toolId: NonEmptyString = "read_file";
+ * ```
+ */
+export type NonEmptyString = string;
+
+/**
  * Agent Profile 文件在磁盘上的严格 DTO。
  *
  * @remarks
  * 文件协议包含存储版本和展示元数据；`name`、`description` 不参与 Prompt
  * 生成，但会随新建 Goal 的冻结 Profile 一起保存。该类型只描述存储表示，
- * Runtime 侧的领域契约见 `@lazygoal/runtime` 的 `AgentProfile`。
+ * Runtime 侧的领域契约见 `@lazygoal/runtime` 的 `AgentProfile`。Catalog 从
+ * 该类型生成 Schema、校验器和绑定，字段与约束不在此文件外重复维护。
  *
  * @example
  * ```ts
@@ -31,12 +48,12 @@ const NonEmptyStringSchema = z.string().min(1);
  */
 export interface AgentProfileFile {
     readonly schemaVersion: typeof AGENT_PROFILE_FILE_SCHEMA_VERSION;
-    readonly id: string;
-    readonly name: string;
-    readonly description: string;
-    readonly systemPrompt: string;
-    readonly instructions: readonly string[];
-    readonly toolIds: readonly string[];
+    readonly id: NonEmptyString;
+    readonly name: NonEmptyString;
+    readonly description: NonEmptyString;
+    readonly systemPrompt: NonEmptyString;
+    readonly instructions: readonly NonEmptyString[];
+    readonly toolIds: readonly NonEmptyString[];
 }
 
 /**
