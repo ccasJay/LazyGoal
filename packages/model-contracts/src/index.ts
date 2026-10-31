@@ -168,6 +168,20 @@ export type {
 
 export type { ModelContractDecodeOptions } from "./model-output/decode-options";
 
+export {
+    createBoundBusinessToolDeclaration,
+    createBoundCheckpointToolDeclarations,
+    createBoundCompletionReviewDeclaration,
+    createBoundExecutingToolDeclarations,
+    createBoundModelOutputContractBundle,
+    createBoundRunStageToolDeclarations,
+    createBoundSystemToolDeclaration,
+    createBoundUnifiedToolDeclarations,
+    validateAndSortAuthorizedToolBindings,
+} from "./model-output/bound-factory";
+
+export type { BoundModelOutputRequest } from "./model-output/bound-factory";
+
 export type {
     AuthorizedToolBinding,
     ExecutingDecisionBindings,
