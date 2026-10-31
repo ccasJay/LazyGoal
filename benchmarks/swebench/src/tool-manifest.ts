@@ -8,7 +8,6 @@ import {
     ReadFileTool,
     WriteFileTool,
 } from "../../../packages/tools/src/index.js";
-import { compileJsonSchema } from "../../../packages/contracts/src/index.js";
 import type { ToolManifestEntry } from "../../src/tool-rpc.js";
 
 /** SWE-bench 支持的标准工具唯一标识列表。 */
@@ -54,7 +53,7 @@ export function getSwebenchToolManifest(): readonly ToolManifestEntry[] {
             Object.freeze({
                 id: t.definition.id,
                 description: t.definition.description,
-                inputSchema: compileJsonSchema(t.definition.inputContract) as Record<string, unknown>,
+                inputSchema: t.definition.inputBinding.schema as unknown as Record<string, unknown>,
                 replayPolicy: t.replayPolicy,
             }),
         ),

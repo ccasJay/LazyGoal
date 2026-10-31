@@ -6,7 +6,7 @@ import type { WorkingMemory } from "../../working-memory/src/index";
 import type { ModelContextFramePayload } from "../../runtime/src/index";
 import type { ContextLookupResult } from "../../runtime/src/context-retrieval";
 import type { RuntimeFeedback } from "../../runtime/src/runtime-feedback";
-import type { ToolDefinition } from "../../tool-core/src/index";
+import type { AnyBoundToolDefinition, ToolDefinition } from "../../tool-core/src/index";
 import type { ToolDiscoveryResult } from "../../runtime/src/tool-discovery";
 import type { ContextCompactor } from "../../context-budget/src/index";
 import {
@@ -36,16 +36,16 @@ import { ModelContextHardOverflowError } from "../../context-budget/src/index";
 
 import type {
     AgentDecision,
+    AuthorizedToolBinding,
     DecideOutput,
-    AuthorizedToolContract,
-    ModelOutputContractBundle,
+    ModelOutputBundle,
     SystemToolDeclaration,
 } from "../../model-contracts/src/index";
 import {
-    createCheckpointToolDeclarations,
-    createExecutingToolDeclarations,
-    createUnifiedToolDeclarations,
-    createModelOutputContractBundle,
+    createBoundCheckpointToolDeclarations,
+    createBoundModelOutputContractBundle,
+    createBoundUnifiedToolDeclarations,
+    modelOutputBindings,
 } from "../../model-contracts/src/index";
 
 export type { ModelInferenceView } from "../../model-view/src/index";
@@ -144,7 +144,7 @@ export function createStageMessages(
  * 绑定单轮 LLM 请求与对应响应解析契约包的请求计划。
  *
  * @remarks
- * 请求计划成对提供渲染后的 {@link LLMRequest} 与专门用于解析其响应的 {@link ModelOutputContractBundle}，
+ * 请求计划成对提供渲染后的 {@link LLMRequest} 与专门用于解析其响应的 {@link ModelOutputBundle}，
  * 确保已授权工具以及 Context Checkpoint 在请求与解析两端保持绝对一致。
  *
  * @example
@@ -158,7 +158,7 @@ export interface ModelOutputRequestPlan<Result = AgentDecision> {
     /** 渲染完成且计入预算的单轮 LLM 请求。 */
     readonly request: LLMRequest;
     /** 专门用于解析该响应的契约包。 */
-    readonly bundle: ModelOutputContractBundle<Result>;
+    readonly bundle: ModelOutputBundle<Result>;
     /** 与请求中 `tools` 完全一致、用于解码原生工具调用的声明集合。 */
     readonly toolDeclarations: readonly SystemToolDeclaration<unknown>[];
     /** 本次实际请求的阶段与新 Section 更新；仅在模型响应成功后随 Snapshot 一起提交。 */
@@ -167,7 +167,7 @@ export interface ModelOutputRequestPlan<Result = AgentDecision> {
 
 function project(
     goal: Goal,
-    tools: readonly ToolDefinition[] = [],
+    tools: readonly AnyBoundToolDefinition[] = [],
     workingMemory?: WorkingMemory,
     contextLookupResult?: ContextLookupResult,
     stage: PromptStage = "decide",
@@ -298,7 +298,7 @@ async function compactConversation(
  */
 export async function buildStepRequest<Result extends DecideOutput = AgentDecision>(
     goal: Goal,
-    tools: readonly ToolDefinition[] = [],
+    tools: readonly AnyBoundToolDefinition[] = [],
     renderer: PromptBundleRenderer,
     contextCompactor: ContextCompactor<ModelConversationMessage>,
     signal?: AbortSignal,
@@ -349,30 +349,32 @@ export async function buildStepRequest<Result extends DecideOutput = AgentDecisi
     const taskPresent = !isInitialCheckpoint && goal.state.run.approvedTask !== undefined;
     const planMode = !isInitialCheckpoint && goal.state.run.mode === "plan";
     const goalPlanWritable = !isInitialCheckpoint && dedupedView.dynamicContext.goalPlanWritable;
-    const authorizedToolContracts = visibleTools.map((t) => ({
+    const authorizedTools: readonly AuthorizedToolBinding[] = visibleTools.map((t) => ({
         id: t.id,
-        inputContract: t.inputContract,
+        description: t.description,
+        inputBinding: t.inputBinding,
         isReadOnly: t.isReadOnly,
     }));
 
     const initialBundle = isInitialCheckpoint
-        ? (createModelOutputContractBundle({ kind: "checkpoint" }) as unknown as ModelOutputContractBundle<Result>)
-        : (createModelOutputContractBundle<Result>({
+        ? (createBoundModelOutputContractBundle({ kind: "checkpoint" }, modelOutputBindings) as ModelOutputBundle<Result>)
+        : createBoundModelOutputContractBundle<Result>({
             kind: "executing",
-            authorizedTools: authorizedToolContracts,
+            authorizedTools,
             taskPresent,
             planMode,
             goalPlanWritable,
             allowThink: stage === "decide" && stageContext?.allowThink === true,
             allowToolDiscovery: stage === "decide",
-        }) as unknown as ModelOutputContractBundle<Result>);
+        }, modelOutputBindings);
 
     const toolDeclarations = isInitialCheckpoint
-        ? createCheckpointToolDeclarations()
+        ? createBoundCheckpointToolDeclarations(modelOutputBindings)
         : stage === "think"
             ? []
-        : createUnifiedToolDeclarations(
-            authorizedToolContracts,
+        : createBoundUnifiedToolDeclarations(
+            authorizedTools,
+            modelOutputBindings,
             taskPresent,
             planMode,
             goalPlanWritable,
@@ -402,7 +404,7 @@ export async function buildStepRequest<Result extends DecideOutput = AgentDecisi
 function renderFinalRequest<Result = AgentDecision>(
     view: ModelInferenceView,
     renderer: PromptBundleRenderer,
-    initialBundle: ModelOutputContractBundle<Result>,
+    initialBundle: ModelOutputBundle<Result>,
     initialToolDeclarations: readonly SystemToolDeclaration<unknown>[],
     modelCapabilities?: ModelCapabilities,
     structuredOutputMode: StructuredOutputMode = "strict",
@@ -418,7 +420,7 @@ function renderFinalRequest<Result = AgentDecision>(
 
     const render = (
         targetView: ModelInferenceView,
-        bundle: ModelOutputContractBundle<Result>,
+        bundle: ModelOutputBundle<Result>,
     ): LLMRequest => {
         sectionPlan = planDynamicSectionUpdates(
             renderer.dynamicSectionIdentities(),
@@ -463,7 +465,7 @@ function renderFinalRequest<Result = AgentDecision>(
 
     const finalizePlan = (
         req: LLMRequest,
-        bundle: ModelOutputContractBundle<Result>,
+        bundle: ModelOutputBundle<Result>,
         toolDeclarations: readonly SystemToolDeclaration<unknown>[],
         targetView: ModelInferenceView,
     ): ModelOutputRequestPlan<Result> => ({
@@ -542,10 +544,8 @@ function renderFinalRequest<Result = AgentDecision>(
     while (measured.hardOverflow && olderConversation.length > 0) {
         conversationPruned = true;
         olderConversation.shift();
-        currentBundle = createModelOutputContractBundle({
-            kind: "checkpoint",
-        }) as unknown as ModelOutputContractBundle<Result>;
-        currentToolDeclarations = createCheckpointToolDeclarations();
+        currentBundle = createBoundModelOutputContractBundle({ kind: "checkpoint" }, modelOutputBindings) as ModelOutputBundle<Result>;
+        currentToolDeclarations = createBoundCheckpointToolDeclarations(modelOutputBindings);
         request = render(buildCandidateView(), currentBundle);
         measured = planner.measure(request);
     }

@@ -10,6 +10,8 @@ import { createToolRegistration, InMemoryToolRegistry } from "../../tool-core/sr
 import { contract } from "../../contracts/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { currentProtocols, InMemoryTrajectoryStore } from "./current-fixtures";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 function goal(id: string, mode: "normal" | "plan" = "normal"): Goal {
     const created = createGoal({ ...currentProtocols, id, runId: "run-1", intent: "Explain implementation behavior with source evidence",
@@ -66,10 +68,10 @@ for (const mode of ["normal", "plan"] as const) {
         const trajectory = new InMemoryTrajectoryStore();
         await store.save(initial);
         const reads: string[] = [];
-        const toolRegistry = new InMemoryToolRegistry([createToolRegistration({
-            definition: { id: "read", description: "Read a resource", isReadOnly: true, inputContract: contract.object({ path: contract.string() }) },
+        const toolRegistry = new InMemoryToolRegistry([createTestToolRegistration({
+            definition: { id: "read", description: "Read a resource", isReadOnly: true, inputBinding: createTestBinding("test.fixture", objectInputSchema({ path: { type: "string" } }))},
             replayPolicy: "safe", validate: () => ({ ok: true }),
-            async execute({ input }) {
+            async execute({ input }: any) {
                 reads.push(String(input.path));
                 return { kind: "success", output: { text: input.path === "packages" ? "cache.ts" : "export const read = (cache, key) => cache.get(key);" }, summary: "Read resource" };
             },
@@ -249,7 +251,7 @@ for (const mode of ["normal", "plan"] as const) {
             const trajectory = new InMemoryTrajectoryStore();
             await store.save(initial);
             let calls = 0, reads = 0, reviews = 0;
-            const registry = new InMemoryToolRegistry([createToolRegistration({ definition: { id: "read", description: "Read resource", inputContract: contract.object({ path: contract.string() }), isReadOnly: true }, replayPolicy: "safe", validate: () => ({ ok: true }),
+            const registry = new InMemoryToolRegistry([createTestToolRegistration({ definition: { id: "read", description: "Read resource", inputBinding: createTestBinding("test.fixture", objectInputSchema({ path: { type: "string" } })), isReadOnly: true }, replayPolicy: "safe", validate: () => ({ ok: true }),
                 async execute() { reads++; return { kind: "success", output: { text: "Verified source" }, summary: "Read source" }; } })]);
             const executor = createStepExecutor(input => {
                 calls++;

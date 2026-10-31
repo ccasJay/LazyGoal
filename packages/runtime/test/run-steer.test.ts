@@ -17,6 +17,8 @@ import { contract } from "../../contracts/src/index";
 import { createToolRegistration, type Tool } from "../../tool-core/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const profile: AgentProfile = {
     id: "steer-profile",
@@ -155,7 +157,7 @@ test("Steer received during a Tool waits for its committed Observation before en
         definition: {
             id: "probe",
             description: "Test tool",
-            inputContract: contract.record(contract.string()),
+            inputBinding: createTestBinding("test.tool", openObjectSchema()),
             isReadOnly: true,
         },
         replayPolicy: "safe",
@@ -183,7 +185,7 @@ test("Steer received during a Tool waits for its committed Observation before en
         store,
         trajectoryStore: trajectory,
         executor,
-        toolRegistry: { get: () => createToolRegistration(tool) },
+        toolRegistry: { get: () => createTestToolRegistration(tool) },
     });
     const execution = runner.runUntilBlocked({ goalId: initial.id, runId: initial.state.run.id });
     await entered.promise;

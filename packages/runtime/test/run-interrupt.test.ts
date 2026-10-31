@@ -19,6 +19,8 @@ import { createToolRegistration, type Tool } from "../../tool-core/src/index";
 import { InMemoryGoalStore, goalSnapshotCodec } from "../../storage/src/index";
 import { hasPendingSessionInputs } from "../src/index";
 import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const profile: AgentProfile = { id: "interrupt-profile", systemPrompt: "test", instructions: [], toolIds: [] };
 
@@ -167,7 +169,7 @@ test("Interrupted Tool cancels without another model call and preserves its unkn
         async reviewCompletion() { return { kind: "accept" }; },
     };
     const tool: Tool = {
-        definition: { id: "write_probe", description: "May write externally", inputContract: contract.record(contract.string()), isReadOnly: false },
+        definition: { id: "write_probe", description: "May write externally", inputBinding: createTestBinding("test.fixture", openObjectSchema()), isReadOnly: false },
         replayPolicy: "manual",
         validate: () => ({ ok: true }),
         async execute(_request, control) {
@@ -180,7 +182,7 @@ test("Interrupted Tool cancels without another model call and preserves its unkn
         store,
         trajectoryStore: trajectory,
         executor,
-        toolRegistry: { get: (toolId) => toolId === "write_probe" ? createToolRegistration(tool) : undefined },
+        toolRegistry: { get: (toolId) => toolId === "write_probe" ? createTestToolRegistration(tool) : undefined },
     });
     const execution = runner.runUntilBlocked({ goalId: initial.id, runId: initial.state.run.id });
     await entered.promise;

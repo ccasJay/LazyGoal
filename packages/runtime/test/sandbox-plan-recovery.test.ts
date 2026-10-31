@@ -26,18 +26,10 @@ import { contract } from "../../contracts/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import type { SandboxExecutionPlan } from "../../sandbox/src/index";
 import { BaseTestStepExecutor, currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
-const TEST_INPUT_CONTRACT = contract.object({
-    command: contract.string(),
-    sandboxAccess: contract.optional(contract.object({
-        files: contract.optional(contract.array(contract.object({
-            path: contract.string(),
-            access: contract.enum(["read", "write"]),
-            kind: contract.enum(["file", "directory_tree"]),
-            purpose: contract.string(),
-        }))),
-    })),
-});
+const TEST_INPUT_SCHEMA = sandboxCommandSchema();
 
 type SandboxTestInput = {
     readonly command: string;
@@ -76,12 +68,12 @@ function createGoal(input: Parameters<typeof createUnexposedGoal>[0]) {
 function createManualSandboxTool(
     workspaceRoot: string,
     executeHandler?: (request: ToolExecutionRequest<SandboxTestInput>) => Promise<ToolObservation> | ToolObservation,
-): Tool<typeof TEST_INPUT_CONTRACT> {
+): Tool<any> {
     return {
         definition: {
             id: "bash",
             description: "manual replay bash",
-            inputContract: TEST_INPUT_CONTRACT,
+            inputBinding: createTestBinding("test.tool", TEST_INPUT_SCHEMA),
             isReadOnly: false,
         },
         replayPolicy: "manual",
@@ -150,7 +142,7 @@ test("进程恢复后旧计划不复用，重新核准时基于当前状态重�
 
         const registry = {
             get(id: string) {
-                if (id === "bash") return createToolRegistration(tool);
+                if (id === "bash") return createTestToolRegistration(tool);
                 throw new Error(`Tool ${id} not found`);
             },
         };
@@ -254,7 +246,7 @@ test("受限命令执行结果不确定（outcome_unknown）时维持人工等�
 
     const registry = {
         get(id: string) {
-            if (id === "bash") return createToolRegistration(tool);
+            if (id === "bash") return createTestToolRegistration(tool);
             throw new Error(`Tool ${id} not found`);
         },
     };

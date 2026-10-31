@@ -1,0 +1,23 @@
+{
+  "contractId": "model.system-tool.revise-run-stage",
+  "version": 1,
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "source": {
+    "path": "packages/model-contracts/src/model-output/schema-types.ts#SystemReviseRunStageInput",
+    "sha256": "9bdf4a6430bf880852474d9a7840dc71d2f48b81b2b1ed810fdae27577ba7991"
+  },
+  "generator": {
+    "name": "ts-json-schema-generator",
+    "version": "2.9.0",
+    "typescriptVersion": "5.9.3"
+  },
+  "validator": {
+    "name": "Ajv standalone",
+    "version": "8.20.0"
+  },
+  "bundler": {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "format": "esm"
+  }
+}

@@ -11,6 +11,7 @@ import { createBrowserTrajectoryRoutes, createBrowserSessionAccess } from "../sr
 import type { BrowserTrajectoryPage, BrowserTrajectoryDetail } from "../src/index";
 import { createHttpService } from "../../http/src/index";
 import { JsonFileTrajectoryStore } from "../../storage/src/index";
+import { browserTrajectoryDetailBinding } from "../../web-contracts/src/index";
 
 function goal(boundary = 500): Goal {
     const value = createGoal({ id: "goal-1", intent: "Inspect trajectory", runId: "run-1", promptBundleVersion: 1,
@@ -108,10 +109,14 @@ test("details associate Action facts across pages and never treat tool_finished 
     const unrelated = fact(151, { ...metadata, actionId: "action-2", eventType: "observation_recorded", payload: { type: "observation_recorded", actionId: "action-2", observation: { kind: "success", output: "other output", summary: "other" } } });
     const app = routes(goal(), [started, finished, unrelated]);
     const result = await (await app.request("/api/goals/goal-1/trajectory/events/150?runId=run-1")).json() as BrowserTrajectoryDetail;
+    const resultRead = browserTrajectoryDetailBinding.read(result, "strip");
+    assert.equal(resultRead.ok, true, JSON.stringify(resultRead));
     assert.deepEqual(result.input, { path: "example.txt" }); assert.equal(result.toolDurationMs, 2000);
     assert.equal(result.observationConfirmed, false); assert.equal(result.result, undefined); assert.deepEqual(result.event, finished);
     const observed = fact(152, { ...metadata, actionId: "action-1", eventType: "observation_recorded", payload: { type: "observation_recorded", actionId: "action-1", observation: { kind: "success", output: "confirmed output", summary: "read" } } });
     const confirmed = await (await routes(goal(), [started, finished, observed]).request("/api/goals/goal-1/trajectory/events/1?runId=run-1")).json() as BrowserTrajectoryDetail;
+    const confirmedRead = browserTrajectoryDetailBinding.read(confirmed, "strip");
+    assert.equal(confirmedRead.ok, true, JSON.stringify(confirmedRead));
     assert.equal(confirmed.observationConfirmed, true); assert.equal((confirmed.result as {output: unknown}).output, "confirmed output");
     const invalidTiming = await (await routes(goal(), [started, { ...finished, occurredAt: "invalid" }]).request("/api/goals/goal-1/trajectory/events/1?runId=run-1")).json() as BrowserTrajectoryDetail;
     assert.equal(invalidTiming.toolDurationMs, null);

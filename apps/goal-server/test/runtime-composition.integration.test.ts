@@ -25,8 +25,10 @@ import {
     InMemoryToolRegistry,
     type Tool,
 } from "../../../packages/tool-core/src/index";
-import { contract } from "../../../packages/contracts/src/index";
+import { contract, type JsonValue } from "../../../packages/contracts/src/index";
+import { createTestBinding, objectInputSchema } from "../../../packages/tool-core/test/binding-fixtures";
 import { createRuntimeComposition } from "../src/runtime/index";
+import { createTestToolRegistration } from "../../../packages/tool-core/test/helpers";
 
 const profile: AgentProfile = {
     id: "profile-runtime-composition",
@@ -105,7 +107,7 @@ function readFileTool(): Tool {
         definition: {
             id: "read_file",
             description: "Read a file",
-            inputContract: contract.object({ path: contract.string() }),
+            inputBinding: createTestBinding<JsonValue>("test.fixture", objectInputSchema({ path: { type: "string" } })),
             isReadOnly: true,
         },
         replayPolicy: "safe",
@@ -291,7 +293,7 @@ test("构造中途失败结算自有资源、保留初始故障且不关闭借�
     const fixture = await setupFixture();
     const resources = new ManagedResourceRegistry();
     const abortController = new AbortController();
-    const borrowedRegistry = new InMemoryToolRegistry([createToolRegistration(readFileTool())]);
+    const borrowedRegistry = new InMemoryToolRegistry([createTestToolRegistration(readFileTool())]);
     try {
         await assert.rejects(
             createRuntimeComposition({

@@ -18,7 +18,19 @@ import {
     type LLMStreamEvent,
 } from "../../llm-core/src/index";
 import { nativeResponseMessage } from "../../model-response/src/index";
-import { createModelOutputContractBundle } from "../../model-contracts/src/index";
+import {
+    createBoundModelOutputContractBundle,
+    modelOutputBindings,
+    type AgentDecision,
+    type BoundModelOutputRequest,
+    type ModelOutputBundle,
+} from "../../model-contracts/src/index";
+
+function createModelOutputContractBundle<Result extends AgentDecision = AgentDecision>(
+    request: BoundModelOutputRequest,
+): ModelOutputBundle<Result> {
+    return createBoundModelOutputContractBundle<Result>(request, modelOutputBindings);
+}
 
 const TOOLS = [
     { id: "read_file", description: "Read a file", parametersSchema: { type: "object", properties: {} } },

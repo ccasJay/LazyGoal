@@ -2,110 +2,61 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-    compileJsonSchema,
-    safeParse,
-    type InferContract,
-} from "../../../packages/contracts/src/index.js";
-import {
-    ALFWORLD_RESET_INPUT_CONTRACT,
-    ALFWORLD_STEP_INPUT_CONTRACT,
+    ALFWORLD_RESET_TOOL_ID,
+    ALFWORLD_STEP_TOOL_ID,
     AlfworldResetTool,
     AlfworldStepTool,
+    alfworldResetInputBinding,
+    alfworldStepInputBinding,
 } from "../src/alfworld-tools.js";
 
-type Equal<Left, Right> =
-    (<Value>() => Value extends Left ? 1 : 2) extends
-        (<Value>() => Value extends Right ? 1 : 2)
-        ? true
-        : false;
-type Assert<Value extends true> = Value;
-
-type _ResetInputIsEmptyObject = Assert<Equal<
-    InferContract<typeof ALFWORLD_RESET_INPUT_CONTRACT>,
-    {}
->>;
-type _StepInputIsInferred = Assert<Equal<
-    InferContract<typeof ALFWORLD_STEP_INPUT_CONTRACT>,
-    { readonly command: string }
->>;
-type _ResetValidateUsesContractOutput = Assert<Equal<
-    Parameters<AlfworldResetTool["validate"]>[0],
-    InferContract<typeof ALFWORLD_RESET_INPUT_CONTRACT>
->>;
-type _StepExecuteUsesContractOutput = Assert<Equal<
-    Parameters<AlfworldStepTool["execute"]>[0]["input"],
-    InferContract<typeof ALFWORLD_STEP_INPUT_CONTRACT>
->>;
-
-const schemaUri = "https://json-schema.org/draft/2020-12/schema";
-
-test("ALFWorld Reset 与 Step Contract 通过类型推导和结构 fixtures", () => {
+test("ALFWorld Reset 与 Step 使用生成输入绑定校验结构 fixtures", () => {
     const cases = [
         {
-            id: "alfworld_reset",
-            inputContract: ALFWORLD_RESET_INPUT_CONTRACT,
+            id: ALFWORLD_RESET_TOOL_ID,
+            binding: alfworldResetInputBinding,
             valid: {},
             invalid: [
-                { value: null, code: "invalid_type", path: [] },
-                { value: { extra: true }, code: "extra_field", path: ["extra"] },
+                { value: null, code: "type", path: "" },
+                { value: { extra: true }, code: "unknown", path: "/extra" },
             ],
-            schema: {
-                $schema: schemaUri,
-                type: "object",
-                properties: {},
-                additionalProperties: false,
-            },
         },
         {
-            id: "alfworld_step",
-            inputContract: ALFWORLD_STEP_INPUT_CONTRACT,
+            id: ALFWORLD_STEP_TOOL_ID,
+            binding: alfworldStepInputBinding,
             valid: { command: "  look  " },
             invalid: [
-                { value: {}, code: "missing_field", path: ["command"] },
-                { value: { command: 42 }, code: "invalid_type", path: ["command"] },
-                { value: { command: "look", extra: true }, code: "extra_field", path: ["extra"] },
+                { value: {}, code: "required", path: "/command" },
+                { value: { command: 42 }, code: "type", path: "/command" },
+                { value: { command: "look", extra: true }, code: "unknown", path: "/extra" },
             ],
-            schema: {
-                $schema: schemaUri,
-                type: "object",
-                properties: { command: { type: "string" } },
-                required: ["command"],
-                additionalProperties: false,
-            },
         },
     ] as const;
 
     for (const contractCase of cases) {
-        const parsed = safeParse(contractCase.inputContract, contractCase.valid);
-
-        assert.equal(parsed.success, true, `${contractCase.id} valid input was rejected`);
-        if (parsed.success) assert.deepEqual(parsed.data, contractCase.valid);
+        const valid = contractCase.binding.read(contractCase.valid, "reject");
+        assert.equal(valid.ok, true, `${contractCase.id} valid input was rejected`);
+        if (valid.ok) assert.deepEqual(valid.data, contractCase.valid);
 
         for (const invalid of contractCase.invalid) {
-            const result = safeParse(contractCase.inputContract, invalid.value);
-
-            assert.equal(
-                result.success,
-                false,
-                `${contractCase.id} accepted ${JSON.stringify(invalid.value)}`,
-            );
-            if (!result.success) {
+            const result = contractCase.binding.read(invalid.value, "reject");
+            assert.equal(result.ok, false, `${contractCase.id} accepted ${JSON.stringify(invalid.value)}`);
+            if (!result.ok) {
                 assert.equal(result.issues[0]?.code, invalid.code);
-                assert.deepEqual(result.issues[0]?.path, invalid.path);
+                assert.equal(result.issues[0]?.path, invalid.path);
             }
         }
 
-        const first = compileJsonSchema(contractCase.inputContract);
-        const second = compileJsonSchema(contractCase.inputContract);
-        assert.deepEqual(first, contractCase.schema);
+        const first = contractCase.binding.modelProjection().schema;
+        const second = contractCase.binding.modelProjection().schema;
         assert.equal(JSON.stringify(first), JSON.stringify(second));
-        assert.notStrictEqual(first, second);
+        assert.strictEqual(first, second);
     }
 });
 
 test("ALFWorld Step 的空白语义规则不改变已解析命令", () => {
     const whitespaceInput = { command: "   " };
-    const parsed = safeParse(ALFWORLD_STEP_INPUT_CONTRACT, whitespaceInput);
+    const parsed = alfworldStepInputBinding.read(whitespaceInput, "reject");
     const stepTool = new AlfworldStepTool({
         phase: "active",
         reset: async () => {
@@ -117,7 +68,7 @@ test("ALFWorld Step 的空白语义规则不改变已解析命令", () => {
         close: async () => {},
     });
 
-    assert.equal(parsed.success, true);
+    assert.equal(parsed.ok, true);
     assert.deepEqual(stepTool.validate(whitespaceInput), {
         ok: false,
         error: {

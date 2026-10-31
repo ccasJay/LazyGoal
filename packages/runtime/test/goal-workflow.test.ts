@@ -26,6 +26,8 @@ import type {
     StepExecutionInput,
     StepExecutor,
 } from "../src/index";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const profile: AgentProfile = {
     id: "profile-1",
@@ -38,7 +40,7 @@ const readFileTool: Tool = {
     definition: {
         id: "read_file",
         description: "Read a file",
-        inputContract: contract.object({ path: contract.string() }),
+        inputBinding: createTestBinding("test.tool", objectInputSchema({ path: { type: "string" } })),
         isReadOnly: true,
     },
     replayPolicy: "safe",
@@ -164,7 +166,7 @@ test("runs the complete ask_user, ordinary read, task approval, blocked resume, 
         store,
         executor: new WorkflowStepExecutor(events),
         toolRegistry: new InMemoryToolRegistry([
-            createToolRegistration(readFileTool),
+            createTestToolRegistration(readFileTool),
         ]),
     });
     const coordinator = new GoalCoordinator({

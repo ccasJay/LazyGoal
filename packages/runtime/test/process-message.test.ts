@@ -15,7 +15,7 @@ import { InMemoryGoalStore } from "../../storage/src/index";
 import {
     createToolRegistration,
     InMemoryToolRegistry,
-    type ToolDefinition,
+    type BoundToolDefinition,
 } from "../../tool-core/src/index";
 import {
     blockResponse,
@@ -28,6 +28,8 @@ import { DropOldestContextCompactor } from "../../context-budget/src/index";
 import type { LLMAdapter, LLMRequest, LLMResponse } from "../../llm-core/src/index";
 import type { NativeConversationIdentity } from "../../model-contracts/src/index";
 import { currentProtocols, messageOutline, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const identity: NativeConversationIdentity = {
     provider: "google",
@@ -41,11 +43,11 @@ const profile: AgentProfile = {
     instructions: ["Test"],
     toolIds: ["read_file"],
 };
-const readTool: ToolDefinition = {
+const readTool: BoundToolDefinition = {
     id: "read_file",
     description: "Read a file",
     isReadOnly: true,
-    inputContract: contract.object({ path: contract.string() }),
+    inputBinding: createTestBinding("test.tool", objectInputSchema({ path: { type: "string" } })),
 };
 const renderer = await createDefaultPromptBundleRenderer();
 
@@ -133,7 +135,7 @@ function createHarness(options: {
         renderer: renderer,
         contextCompactor: new DropOldestContextCompactor(),
     });
-    const registry = new InMemoryToolRegistry([createToolRegistration({
+    const registry = new InMemoryToolRegistry([createTestToolRegistration({
         definition: readTool,
         replayPolicy: "safe",
         validate: () => ({ ok: true }),

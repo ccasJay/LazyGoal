@@ -15,12 +15,14 @@ import {
     createToolRegistration,
     InMemoryToolRegistry,
     type Tool,
-    type ToolDefinition,
+    type BoundToolDefinition,
 } from "../../tool-core/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { BaseTestStepExecutor, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
 import { contract } from "../../contracts/src/index";
 import type { AskUserQuestionInput } from "../../model-contracts/src/index";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 function createGoal(input: Parameters<typeof createUnexposedGoal>[0]) {
     return withDiscoveredProfileTools(createUnexposedGoal(input));
@@ -33,21 +35,21 @@ const profile: AgentProfile = {
     toolIds: ["read_file", "write_file"],
 };
 
-const READ_FILE_DEFINITION: ToolDefinition = {
+const READ_FILE_DEFINITION: BoundToolDefinition = {
     id: "read_file",
     description: "Read file content",
-    inputContract: contract.object({ path: contract.string() }),
+    inputBinding: createTestBinding("test.tool", objectInputSchema({ path: { type: "string" } })),
     isReadOnly: true,
 };
 
-const WRITE_FILE_DEFINITION: ToolDefinition = {
+const WRITE_FILE_DEFINITION: BoundToolDefinition = {
     id: "write_file",
     description: "Write file content",
-    inputContract: contract.object({ path: contract.string(), content: contract.string() }),
+    inputBinding: createTestBinding("test.tool", objectInputSchema({ path: { type: "string" }, content: { type: "string" } })),
     isReadOnly: false,
 };
 
-function createMockTool(definition: ToolDefinition): Tool {
+function createMockTool(definition: BoundToolDefinition): Tool {
     return {
         definition,
         replayPolicy: "safe",
@@ -150,8 +152,8 @@ function createCoordinatorTestRig(mode: "normal" | "plan" = "plan") {
     const trajectoryStore = trajectoryStoreFor(store);
     const stepExecutor = new QueueStepExecutor();
     const toolRegistry = new InMemoryToolRegistry([
-        createToolRegistration(createMockTool(READ_FILE_DEFINITION)),
-        createToolRegistration(createMockTool(WRITE_FILE_DEFINITION)),
+        createTestToolRegistration(createMockTool(READ_FILE_DEFINITION)),
+        createTestToolRegistration(createMockTool(WRITE_FILE_DEFINITION)),
     ]);
 
     const runner = new Runner({

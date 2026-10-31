@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
 
-import { contract } from "../../contracts/src/index";
+import { createTestBinding, openObjectSchema } from "../../tool-core/test/binding-fixtures";
+import type { JsonValue } from "../../contracts/src/index";
 import { InMemoryExecutionStreamPublisher } from "../../execution-stream/src/index";
 import {
     createGoal,
@@ -38,6 +39,7 @@ import {
     readBrowserGoalSession,
 } from "../src/index";
 import { bindMessagesToRun, testAssistantMessage, testUserMessage } from "../../runtime/test/current-fixtures";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 
 const protocols = {
@@ -53,7 +55,7 @@ const profile: AgentProfile = {
     toolIds: ["manual_write"],
 };
 
-const inputContract = contract.record(contract.string());
+const inputBinding = createTestBinding<JsonValue>("test.browser", openObjectSchema());
 
 test("recreated browser services restore committed messages, steps, wait, and plan", async () => {
     const directory = await mkdtemp(join(tmpdir(), "lazygoal-browser-recovery-view-"));
@@ -109,11 +111,11 @@ test("manual Tool result recovered after restart stays unknown and stream reconn
         const initialTrajectory = new JsonFileTrajectoryStore(trajectoryDirectory);
         const interrupted = await saveApprovedAction(initialStore, "goal-browser-recovery-action");
         let toolCalls = 0;
-        const tool: Tool<typeof inputContract> = {
+        const tool: Tool = {
             definition: {
                 id: "manual_write",
                 description: "A controlled non-repeatable workspace action.",
-                inputContract,
+                inputBinding,
                 isReadOnly: false,
             },
             replayPolicy: "manual",
@@ -127,7 +129,7 @@ test("manual Tool result recovered after restart stays unknown and stream reconn
                 };
             },
         };
-        const registration = createToolRegistration(tool);
+        const registration = createTestToolRegistration(tool);
         const firstProcessTrajectory = new FailObservationTrajectoryStore(initialTrajectory);
         const firstRunner = new Runner({
             store: initialStore,

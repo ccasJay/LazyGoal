@@ -1,42 +1,41 @@
 import {
-  isAcceptedCommand,
-  isBrowserCreateSessionResult,
-  isBrowserSessionInputResult,
-  isBrowserSessionInputQueryResult,
-  isBrowserSessionState,
-  isBrowserGoalSession,
-  isBrowserInteractionDetailResult,
-  isBrowserActionReviewResult,
-  isGoalList,
-  isBrowserActivityPage,
-  isGoalSessionEnvelope,
-  isGoalSessionStateEnvelope,
-  isLiveEvent,
-  isMetricsSnapshot,
-  isModelCatalog,
-  isModelInputDetail,
-  isModelInputs,
-  isModelPreferenceAccepted,
-  readBrowserProviderModels,
-  type BrowserProviderModelsUnknownFieldDiagnostic,
-  type BrowserProviderModelQuery,
-  type BrowserProviderModels,
-  isProviderProfile,
-  isProviderSettings,
-  isProviderProfileWriteResult,
-  isProviderProfileDeleteResult,
-  isProviderProfileActivationResult,
-  isProviderProfileTestResult,
-  isModelSelectionAccepted,
+  acceptedCommandBinding,
+  browserActionReviewResultBinding,
+  browserActivityPageBinding,
+  browserCreateSessionResultBinding,
+  browserGoalListBinding,
+  browserGoalLiveEventBinding,
+  browserGoalSessionEnvelopeBinding,
+  browserGoalSessionStateEnvelopeBinding,
+  browserInteractionDetailResultBinding,
+  browserModelCatalogBinding,
+  browserModelInputDetailBinding,
+  browserModelInputsBinding,
+  browserModelPreferenceResultBinding,
+  browserModelSelectionResultBinding,
+  browserPermissionModeResultBinding,
+  browserProviderProfileActivationResultBinding,
+  browserProviderProfileDeleteResultBinding,
+  browserProviderProfileTestResultBinding,
+  browserProviderProfileWriteResultBinding,
+  browserProviderSettingsBinding,
+  browserSessionInputQueryResultBinding,
+  browserSessionInputResultBinding,
+  browserToolGrantResultBinding,
+  browserTrajectoryDetailBinding,
+  browserTrajectoryPageBinding,
+  browserTrajectoryRunsBinding,
+  browserWorkspaceContextBinding,
   isOkResponse,
-  isPermissionModeResult,
+  isNullableSafeInteger,
   isRecord,
-  isToolGrantResult,
-  isTrajectoryDetail,
-  isTrajectoryPage,
-  isTrajectoryRuns,
-  isWorkspaceContext,
+  readBrowserProviderModels,
+  sessionMetricsSnapshotBinding,
   type AcceptedCommand,
+  type BrowserActionReviewCommand,
+  type BrowserActionReviewResult,
+  type BrowserActivityPage,
+  type BrowserActivityQuery,
   type BrowserCreateSessionCommand,
   type BrowserCreateSessionResult,
   type BrowserGoalList,
@@ -45,34 +44,35 @@ import {
   type BrowserGoalPlanModeCommand,
   type BrowserGoalSession,
   type BrowserGoalSessionState,
-  type BrowserActivityPage,
-  type BrowserActivityQuery,
-  type BrowserActionReviewCommand,
-  type BrowserActionReviewResult,
   type BrowserInteractionDetailResult,
+  type BrowserModelCatalog,
+  type BrowserModelInputDetail,
+  type BrowserModelInputs,
+  type BrowserModelSelectionCommand,
+  type BrowserPermissionModeCommand,
+  type BrowserPermissionModeResult,
+  type BrowserProviderModelQuery,
+  type BrowserProviderModels,
+  type BrowserProviderModelsUnknownFieldDiagnostic,
+  type BrowserProviderProfileActivationResult,
+  type BrowserProviderProfileDeleteResult,
+  type BrowserProviderProfileInput,
+  type BrowserProviderProfileTestResult,
+  type BrowserProviderProfileWriteResult,
+  type BrowserProviderSettings,
   type BrowserSessionInputCommand,
   type BrowserSessionInputQueryResult,
   type BrowserSessionInputResult,
   type BrowserSessionState,
-  type BrowserModelCatalog,
-  type BrowserModelInputDetail,
-  type BrowserModelInputSummary,
-  type BrowserModelSelectionCommand,
-  type BrowserPermissionModeCommand,
-  type BrowserPermissionModeResult,
   type BrowserToolGrantResult,
   type BrowserToolGrantRevokeCommand,
   type BrowserTrajectoryDetail,
   type BrowserTrajectoryEntry,
   type BrowserTrajectoryPage,
-  type BrowserTrajectoryRun,
+  type BrowserTrajectoryRuns,
   type BrowserWorkspaceContext,
-  type BrowserProviderProfileInput,
-  type BrowserProviderProfileWriteResult,
-  type BrowserProviderProfileDeleteResult,
-  type BrowserProviderProfileActivationResult,
-  type BrowserProviderProfileTestResult,
-  type BrowserProviderSettings,
+  type ContractBinding,
+  type ContractDiagnostic,
   type SessionMetricsSnapshot,
 } from "../../../packages/web-contracts/src/index";
 import { readSseMessages } from "./sse";
@@ -96,7 +96,7 @@ export const browserApi = {
   },
 
   listGoals(signal?: AbortSignal): Promise<BrowserGoalList> {
-    return requestJson("/api/goals", isGoalList, signal);
+    return requestContract("/api/goals", browserGoalListBinding, signal);
   },
 
   setGoalArchived(goalId: string, archived: boolean): Promise<{ readonly ok: true }> {
@@ -113,7 +113,7 @@ export const browserApi = {
 
   /** 读取会话视图与 Runtime 安全会话投影（队列、暂停、提交修订、是否需要恢复）。 */
   async readGoalSession(goalId: string, signal?: AbortSignal): Promise<{ goal: BrowserGoalSession; session?: BrowserSessionState }> {
-    const body = await requestJson(`/api/goals/${encodeURIComponent(goalId)}`, isGoalSessionEnvelope, signal);
+    const body = await requestContract(`/api/goals/${encodeURIComponent(goalId)}`, browserGoalSessionEnvelopeBinding, signal);
     return {
       goal: body.goal,
       ...(body.session === undefined ? {} : { session: body.session }),
@@ -133,7 +133,7 @@ export const browserApi = {
    * ```
    */
   async readGoalSessionState(goalId: string, signal?: AbortSignal): Promise<{ goal: BrowserGoalSessionState; session?: BrowserSessionState }> {
-    const body = await requestJson(`/api/goals/${encodeURIComponent(goalId)}?view=state`, isGoalSessionStateEnvelope, signal);
+    const body = await requestContract(`/api/goals/${encodeURIComponent(goalId)}?view=state`, browserGoalSessionStateEnvelopeBinding, signal);
     return {
       goal: body.goal,
       ...(body.session === undefined ? {} : { session: body.session }),
@@ -160,29 +160,32 @@ export const browserApi = {
     if (query.after !== undefined) params.set("after", query.after);
     if (query.limit !== undefined) params.set("limit", String(query.limit));
     const suffix = params.size === 0 ? "" : `?${params.toString()}`;
-    return requestJson(`/api/goals/${encodeURIComponent(goalId)}/activity${suffix}`, isBrowserActivityPage, signal);
+    return requestContract(`/api/goals/${encodeURIComponent(goalId)}/activity${suffix}`, browserActivityPageBinding, signal);
   },
 
-  modelInputs(goalId: string, runId: string, offset = 0, signal?: AbortSignal, query = ""): Promise<{ calls: BrowserModelInputSummary[]; total: number; nextOffset: number | null }> {
-    return requestJson(`/api/goals/${encodeURIComponent(goalId)}/model-inputs?runId=${encodeURIComponent(runId)}&offset=${offset}&q=${encodeURIComponent(query)}`, isModelInputs, signal);
+  modelInputs(goalId: string, runId: string, offset = 0, signal?: AbortSignal, query = ""): Promise<BrowserModelInputs> {
+    return requestContract(`/api/goals/${encodeURIComponent(goalId)}/model-inputs?runId=${encodeURIComponent(runId)}&offset=${offset}&q=${encodeURIComponent(query)}`, browserModelInputsBinding, signal, {}, undefined, data => isNullableSafeInteger(data.nextOffset));
   },
   modelInput(goalId: string, runId: string, callId: string, signal?: AbortSignal): Promise<BrowserModelInputDetail> {
-    return requestJson(`/api/goals/${encodeURIComponent(goalId)}/model-inputs?runId=${encodeURIComponent(runId)}&callId=${encodeURIComponent(callId)}`, isModelInputDetail, signal);
+    return requestContract(`/api/goals/${encodeURIComponent(goalId)}/model-inputs?runId=${encodeURIComponent(runId)}&callId=${encodeURIComponent(callId)}`, browserModelInputDetailBinding, signal);
   },
-  trajectoryRuns(goalId: string, offset = 0, signal?: AbortSignal): Promise<{ runs: BrowserTrajectoryRun[]; nextOffset: number | null }> {
-    return requestJson(`/api/goals/${encodeURIComponent(goalId)}/trajectory/runs?offset=${offset}`, isTrajectoryRuns, signal);
+  trajectoryRuns(goalId: string, offset = 0, signal?: AbortSignal): Promise<BrowserTrajectoryRuns> {
+    return requestContract(`/api/goals/${encodeURIComponent(goalId)}/trajectory/runs?offset=${offset}`, browserTrajectoryRunsBinding, signal, {}, undefined, data => isNullableSafeInteger(data.nextOffset));
   },
 
   trajectory(goalId: string, query: URLSearchParams, signal?: AbortSignal): Promise<BrowserTrajectoryPage> {
-    return requestJson(`/api/goals/${encodeURIComponent(goalId)}/trajectory?${query}`, isTrajectoryPage, signal);
+    return requestContract(`/api/goals/${encodeURIComponent(goalId)}/trajectory?${query}`, browserTrajectoryPageBinding, signal, {}, undefined,
+      data => isNullableSafeInteger(data.previousCursor)
+        && isNullableSafeInteger(data.nextCursor)
+        && isNullableSafeInteger(data.locatedSequence));
   },
 
   trajectoryDetail(goalId: string, runId: string, sequence: number, signal?: AbortSignal): Promise<BrowserTrajectoryDetail> {
-    return requestJson(`/api/goals/${encodeURIComponent(goalId)}/trajectory/events/${sequence}?runId=${encodeURIComponent(runId)}`, isTrajectoryDetail, signal);
+    return requestContract(`/api/goals/${encodeURIComponent(goalId)}/trajectory/events/${sequence}?runId=${encodeURIComponent(runId)}`, browserTrajectoryDetailBinding, signal);
   },
 
   readMetrics(goalId: string, signal?: AbortSignal): Promise<SessionMetricsSnapshot> {
-    return requestJson(`/goals/${encodeURIComponent(goalId)}/metrics`, isMetricsSnapshot, signal);
+    return requestContract(`/goals/${encodeURIComponent(goalId)}/metrics`, sessionMetricsSnapshotBinding, signal);
   },
 
   async *metrics(goalId: string, signal: AbortSignal): AsyncGenerator<SessionMetricsSnapshot> {
@@ -195,25 +198,27 @@ export const browserApi = {
       if (message.event === "error") throw new Error("metrics_unavailable");
       if (message.event !== "snapshot") continue;
       const value = parseSseJson(message.data, "invalid_metrics_response");
-      if (!isMetricsSnapshot(value)) throw new Error("invalid_metrics_response");
-      yield value;
+      const result = sessionMetricsSnapshotBinding.read(value, "strip");
+      if (!result.ok) throw new Error("invalid_metrics_response");
+      reportWireDiagnostic(result.diagnostic);
+      yield result.data;
     }
   },
 
   createGoal(command: BrowserCreateSessionCommand): Promise<BrowserCreateSessionResult> {
-    return postJson("/api/goals", command, isBrowserCreateSessionResult);
+    return postContract("/api/goals", command, browserCreateSessionResultBinding);
   },
 
   /** 受理一条统一会话输入；新受理与既有收据都以收据核验。 */
   submitInput(goalId: string, input: BrowserSessionInputCommand): Promise<BrowserSessionInputResult> {
-    return postJson(`/api/goals/${encodeURIComponent(goalId)}/inputs`, input, isBrowserSessionInputResult);
+    return postContract(`/api/goals/${encodeURIComponent(goalId)}/inputs`, input, browserSessionInputResultBinding);
   },
 
   /** 按身份查询持久化收据；未找到与读取失败明确区分。 */
   readInputReceipt(goalId: string, inputId: string, signal?: AbortSignal): Promise<BrowserSessionInputQueryResult> {
-    return requestJson(
+    return requestContract(
       `/api/goals/${encodeURIComponent(goalId)}/inputs/${encodeURIComponent(inputId)}`,
-      isBrowserSessionInputQueryResult,
+      browserSessionInputQueryResultBinding,
       signal,
     );
   },
@@ -226,42 +231,46 @@ export const browserApi = {
     const path = target?.goalId === undefined
       ? `/api/models${query}`
       : `/api/goals/${encodeURIComponent(target.goalId)}/models${query}`;
-    return requestJson(path, isModelCatalog, signal);
+    return requestContract(path, browserModelCatalogBinding, signal);
   },
 
-  selectModel(goalId: string, command: BrowserModelSelectionCommand): Promise<{ readonly ok: true; readonly modelId: string; readonly defaultModelSaved: boolean }> {
-    return postJson(`/api/goals/${encodeURIComponent(goalId)}/model-selection`, command, isModelSelectionAccepted);
+  async selectModel(goalId: string, command: BrowserModelSelectionCommand): Promise<{ readonly ok: true; readonly modelId: string; readonly defaultModelSaved: boolean }> {
+    const result = await postContract(`/api/goals/${encodeURIComponent(goalId)}/model-selection`, command, browserModelSelectionResultBinding);
+    if (!result.ok) throw new Error("invalid_api_response");
+    return result;
   },
 
-  setModelPreference(modelId: string, providerProfileId?: string): Promise<{ readonly ok: true; readonly modelId: string }> {
-    return postJson("/api/project/model-preference", {
+  async setModelPreference(modelId: string, providerProfileId?: string): Promise<{ readonly ok: true; readonly modelId: string }> {
+    const result = await postContract("/api/project/model-preference", {
       modelId,
       ...(providerProfileId === undefined ? {} : { providerProfileId }),
-    }, isModelPreferenceAccepted);
+    }, browserModelPreferenceResultBinding);
+    if (!result.ok) throw new Error("invalid_api_response");
+    return result;
   },
 
   listProviders(signal?: AbortSignal): Promise<BrowserProviderSettings> {
-    return requestJson("/api/providers", isProviderSettings, signal);
+    return requestContract("/api/providers", browserProviderSettingsBinding, signal, {}, hasNoPlaintextProviderCredential);
   },
 
   createProvider(input: BrowserProviderProfileInput): Promise<BrowserProviderProfileWriteResult> {
-    return postJson("/api/providers", input, isProviderProfileWriteResult);
+    return postContract("/api/providers", input, browserProviderProfileWriteResultBinding, hasNoPlaintextProviderCredentialInResult);
   },
 
   updateProvider(profileId: string, input: BrowserProviderProfileInput, signal?: AbortSignal): Promise<BrowserProviderProfileWriteResult> {
-    return requestJson(`/api/providers/${encodeURIComponent(profileId)}`, isProviderProfileWriteResult, signal, {
+    return requestContract(`/api/providers/${encodeURIComponent(profileId)}`, browserProviderProfileWriteResultBinding, signal, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(input),
-    });
+    }, hasNoPlaintextProviderCredentialInResult);
   },
 
   deleteProvider(profileId: string, signal?: AbortSignal): Promise<BrowserProviderProfileDeleteResult> {
-    return requestJson(`/api/providers/${encodeURIComponent(profileId)}`, isProviderProfileDeleteResult, signal, { method: "DELETE" });
+    return requestContract(`/api/providers/${encodeURIComponent(profileId)}`, browserProviderProfileDeleteResultBinding, signal, { method: "DELETE" }, hasNoPlaintextProviderCredentialInResult);
   },
 
   activateProvider(profileId: string, signal?: AbortSignal): Promise<BrowserProviderProfileActivationResult> {
-    return requestJson(`/api/providers/${encodeURIComponent(profileId)}/activate`, isProviderProfileActivationResult, signal, { method: "POST" });
+    return requestContract(`/api/providers/${encodeURIComponent(profileId)}/activate`, browserProviderProfileActivationResultBinding, signal, { method: "POST" });
   },
 
   fetchProviderModels(input: BrowserProviderModelQuery, signal?: AbortSignal): Promise<BrowserProviderModels> {
@@ -269,17 +278,17 @@ export const browserApi = {
   },
 
   testProvider(profileId: string, signal?: AbortSignal): Promise<BrowserProviderProfileTestResult> {
-    return requestJson(`/api/providers/${encodeURIComponent(profileId)}/test`, isProviderProfileTestResult, signal, { method: "POST" });
+    return requestContract(`/api/providers/${encodeURIComponent(profileId)}/test`, browserProviderProfileTestResultBinding, signal, { method: "POST" });
   },
 
   enterPlanMode(
     goalId: string,
     command: BrowserGoalPlanModeCommand,
   ): Promise<AcceptedCommand> {
-    return postJson(
+    return postContract(
       `/api/goals/${encodeURIComponent(goalId)}/plan-mode`,
       command,
-      isAcceptedCommand,
+      acceptedCommandBinding,
     );
   },
 
@@ -307,8 +316,10 @@ export const browserApi = {
       }
     }
     const value: unknown = await response.json();
-    if (!isBrowserInteractionDetailResult(value)) throw new Error("invalid_api_response");
-    return value;
+    const result = browserInteractionDetailResultBinding.read(value, "strip");
+    if (!result.ok) throw new Error("invalid_api_response");
+    reportWireDiagnostic(result.diagnostic);
+    return result.data;
   },
 
   /**
@@ -345,21 +356,23 @@ export const browserApi = {
       }
     }
     const value: unknown = await response.json();
-    if (!isBrowserActionReviewResult(value)) throw new Error("invalid_api_response");
-    return value;
+    const result = browserActionReviewResultBinding.read(value, "strip");
+    if (!result.ok) throw new Error("invalid_api_response");
+    reportWireDiagnostic(result.diagnostic);
+    return result.data;
   },
 
   listToolGrants(goalId: string, runId: string): Promise<BrowserToolGrantResult> {
-    return requestJson(
+    return requestContract(
       `/api/goals/${encodeURIComponent(goalId)}/grants?runId=${encodeURIComponent(runId)}`,
-      isToolGrantResult,
+      browserToolGrantResultBinding,
     );
   },
 
   revokeToolGrant(goalId: string, command: BrowserToolGrantRevokeCommand): Promise<BrowserToolGrantResult> {
-    return requestJson(
+    return requestContract(
       `/api/goals/${encodeURIComponent(goalId)}/grants/${encodeURIComponent(command.grantId)}`,
-      isToolGrantResult,
+      browserToolGrantResultBinding,
       undefined,
       {
         method: "DELETE",
@@ -370,15 +383,15 @@ export const browserApi = {
   },
 
   getPermissionMode(): Promise<BrowserPermissionModeResult> {
-    return requestJson("/api/project/permission-mode", isPermissionModeResult);
+    return requestContract("/api/project/permission-mode", browserPermissionModeResultBinding);
   },
 
   readWorkspace(signal?: AbortSignal): Promise<BrowserWorkspaceContext> {
-    return requestJson("/api/project/workspace", isWorkspaceContext, signal);
+    return requestContract("/api/project/workspace", browserWorkspaceContextBinding, signal);
   },
 
   setPermissionMode(command: BrowserPermissionModeCommand): Promise<BrowserPermissionModeResult> {
-    return postJson("/api/project/permission-mode", command, isPermissionModeResult);
+    return postContract("/api/project/permission-mode", command, browserPermissionModeResultBinding);
   },
 
   /** 订阅覆盖整个 Goal 的安全事件流；Run 切换不关闭订阅。 */
@@ -399,8 +412,10 @@ export const browserApi = {
     for await (const message of readSseMessages(response.body, signal)) {
       if (message.event !== undefined && message.event !== "update") continue;
       const value = parseSseJson(message.data, "invalid_event_response");
-      if (!isLiveEvent(value)) throw new Error("invalid_event_response");
-      yield value;
+      const result = browserGoalLiveEventBinding.read(value, "strip");
+      if (!result.ok) throw new Error("invalid_event_response");
+      reportWireDiagnostic(result.diagnostic);
+      yield result.data;
     }
   },
 };
@@ -449,6 +464,37 @@ async function postJson<T>(path: string, body: unknown, guard: (value: unknown) 
   });
 }
 
+async function postContract<T>(path: string, body: unknown, binding: ContractBinding<T>, precheck?: (value: unknown) => boolean): Promise<T> {
+  return requestContract(path, binding, undefined, {
+    method: "POST",
+    headers: authorizedHeaders({ "content-type": "application/json" }),
+    body: JSON.stringify(body),
+  }, precheck);
+}
+
+async function requestContract<T>(
+  path: string,
+  binding: ContractBinding<T>,
+  signal?: AbortSignal,
+  init: RequestInit = {},
+  precheck?: (value: unknown) => boolean,
+  postRead?: (data: T) => boolean,
+): Promise<T> {
+  const response = await fetch(path, {
+    ...init,
+    headers: authorizedHeaders(init.headers),
+    ...(signal === undefined ? {} : { signal }),
+  });
+  if (!response.ok) throw await responseError(response);
+  const value: unknown = await response.json();
+  if (precheck !== undefined && !precheck(value)) throw new Error("invalid_api_response");
+  const result = binding.read(value, "strip");
+  if (!result.ok) throw new Error("invalid_api_response");
+  if (postRead !== undefined && !postRead(result.data)) throw new Error("invalid_api_response");
+  reportWireDiagnostic(result.diagnostic);
+  return result.data;
+}
+
 async function requestJson<T>(
   path: string,
   guard: (value: unknown) => value is T,
@@ -464,6 +510,26 @@ async function requestJson<T>(
   const value: unknown = await response.json();
   if (!guard(value)) throw new Error("invalid_api_response");
   return value;
+}
+
+function reportWireDiagnostic(diagnostic: ContractDiagnostic | undefined): void {
+  if (diagnostic === undefined) return;
+  try {
+    console.debug("[goal-board] response has unknown fields", diagnostic);
+  } catch {
+    // 诊断输出失败不改变合法 API 响应的读取结果。
+  }
+}
+
+function hasNoPlaintextProviderCredential(value: unknown): boolean {
+  return isRecord(value)
+    && Array.isArray(value.profiles)
+    && value.profiles.every(profile => isRecord(profile) && !("apiKey" in profile));
+}
+
+function hasNoPlaintextProviderCredentialInResult(value: unknown): boolean {
+  if (!isRecord(value) || !isRecord(value.profile)) return true;
+  return !("apiKey" in value.profile);
 }
 
 function authorizedHeaders(input?: HeadersInit): Headers {

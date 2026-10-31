@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { contract } from "../../contracts/src/index";
 import {
-    createUnifiedToolDeclarations,
+    createBoundCompletionReviewDeclaration,
+    createBoundUnifiedToolDeclarations,
     isModelAssistantMessage,
-    SystemCompletionReviewDeclaration,
+    modelOutputBindings,
 } from "../../model-contracts/src/index";
+import { createTestToolDefinition, objectInputSchema } from "../../tool-core/test/binding-fixtures";
 import type { LLMResponse } from "../../llm-core/src/index";
 import { blockResponse, textResponse, toolCallResponse } from "../../llm-core/test/response-fixtures";
 import {
@@ -24,17 +25,17 @@ import {
 
 const AUTHORIZED_TOOL_IDS = ["read_file"] as const;
 
-const declarations = createUnifiedToolDeclarations(
-    [{
-        id: "read_file",
-        inputContract: contract.object({ path: contract.string() }),
+const declarations = createBoundUnifiedToolDeclarations(
+    [createTestToolDefinition("read_file", objectInputSchema({ path: { type: "string" } }), {
         isReadOnly: true,
-    }],
+    })],
+    modelOutputBindings,
     true,
     false,
     false,
     false,
 );
+const completionReviewDeclaration = createBoundCompletionReviewDeclaration(modelOutputBindings);
 
 test("classifyDecideResponse 区分单调用、批次、Assistant 消息与无可用结果", () => {
     const call = { callId: "call-1", toolId: "read_file", argumentsJson: "{\"path\":\"a.ts\"}" };
@@ -225,7 +226,7 @@ test("decodeToolCallOutcome 对非法 JSON 与契约违规保持稳定 issue 与
 
     assert.throws(
         () => decodeToolCallOutcome(
-            { callId: "call-1", toolId: "system_complete_task", argumentsJson: JSON.stringify({ summary: 1 }) },
+            { callId: "call-1", toolId: "system_complete_task", argumentsJson: JSON.stringify({ summary: 1, evidenceSequences: [], memoryPatch: null, contextNotes: null }) },
             declarations,
             AUTHORIZED_TOOL_IDS,
         ),
@@ -311,7 +312,7 @@ test("decodeCompletionReviewResponse 解码接受与拒绝，并拒绝调用数�
     assert.deepEqual(
         decodeCompletionReviewResponse(toolCallResponse({
             callId: "review-1",
-            toolId: SystemCompletionReviewDeclaration.id,
+            toolId: completionReviewDeclaration.id,
             argumentsJson: JSON.stringify({ result: { kind: "accept" } }),
         })),
         { kind: "accept" },
@@ -319,7 +320,7 @@ test("decodeCompletionReviewResponse 解码接受与拒绝，并拒绝调用数�
     assert.deepEqual(
         decodeCompletionReviewResponse(toolCallResponse({
             callId: "review-2",
-            toolId: SystemCompletionReviewDeclaration.id,
+            toolId: completionReviewDeclaration.id,
             argumentsJson: JSON.stringify({ result: { kind: "reject", feedback: "缺少验证" } }),
         })),
         { kind: "reject", feedback: "缺少验证" },

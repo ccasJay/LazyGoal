@@ -31,6 +31,8 @@ import type {
     RunRef,
     StepExecutor,
 } from "../src/index";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const profile: AgentProfile = {
     id: "profile-1",
@@ -39,7 +41,7 @@ const profile: AgentProfile = {
     toolIds: [],
 };
 
-const TEST_INPUT_CONTRACT = contract.record(contract.string());
+const TEST_INPUT_SCHEMA = openObjectSchema();
 
 function createExecutingGoal(
     toolIds: readonly string[] = [],
@@ -190,11 +192,11 @@ test("Runner keeps an approved pending Action when Tool execution is aborted", a
     const toolStarted = new Promise<void>((resolve) => {
         started = resolve;
     });
-    const tool: Tool<typeof TEST_INPUT_CONTRACT> = {
+    const tool: Tool<any> = {
         definition: {
             id: "echo",
             description: "Echo input",
-            inputContract: TEST_INPUT_CONTRACT,
+            inputBinding: createTestBinding("test.tool", TEST_INPUT_SCHEMA),
             isReadOnly: false,
         },
         replayPolicy: "safe",
@@ -229,7 +231,7 @@ test("Runner keeps an approved pending Action when Tool execution is aborted", a
         store,
         executor,
         toolRegistry: {
-            get: (toolId) => toolId === "echo" ? createToolRegistration(tool) : undefined,
+            get: (toolId) => toolId === "echo" ? createTestToolRegistration(tool) : undefined,
         },
     });
     const operation = runner.run(
@@ -268,11 +270,11 @@ test("Runner 原样传播 Contract 解析边界的 ExecutionAbortedError", async
             return "hello";
         },
     });
-    const tool: Tool<typeof TEST_INPUT_CONTRACT> = {
+    const tool: Tool<any> = {
         definition: {
             id: "echo",
             description: "Echo input",
-            inputContract: TEST_INPUT_CONTRACT,
+            inputBinding: createTestBinding("test.tool", TEST_INPUT_SCHEMA),
             isReadOnly: false,
         },
         replayPolicy: "safe",
@@ -290,7 +292,7 @@ test("Runner 原样传播 Contract 解析边界的 ExecutionAbortedError", async
                 action: { actionId: "action-parse-abort", toolId: "echo", input },
             };
         }, async () => ({ kind: "accept" })),
-        toolRegistry: { get: () => createToolRegistration(tool) },
+        toolRegistry: { get: () => createTestToolRegistration(tool) },
     });
 
     await assert.rejects(
@@ -313,11 +315,11 @@ test("Runner 原样传播 Tool 语义校验边界的 ExecutionAbortedError", asy
     const store = new InMemoryGoalStore();
     await seed(store, goal);
     let policyCalls = 0;
-    const tool: Tool<typeof TEST_INPUT_CONTRACT> = {
+    const tool: Tool<any> = {
         definition: {
             id: "echo",
             description: "Echo input",
-            inputContract: TEST_INPUT_CONTRACT,
+            inputBinding: createTestBinding("test.tool", TEST_INPUT_SCHEMA),
             isReadOnly: false,
         },
         replayPolicy: "safe",
@@ -341,7 +343,7 @@ test("Runner 原样传播 Tool 语义校验边界的 ExecutionAbortedError", asy
                 },
             };
         }, async () => ({ kind: "accept" })),
-        toolRegistry: { get: () => createToolRegistration(tool) },
+        toolRegistry: { get: () => createTestToolRegistration(tool) },
         toolPolicy: {
             evaluate: () => {
                 policyCalls += 1;
@@ -370,11 +372,11 @@ test("Runner 原样传播 Tool 执行边界的 ExecutionAbortedError 并保留 a
     const store = new InMemoryGoalStore();
     await seed(store, goal);
     const trajectory = new InMemoryTrajectoryStore();
-    const tool: Tool<typeof TEST_INPUT_CONTRACT> = {
+    const tool: Tool<any> = {
         definition: {
             id: "echo",
             description: "Echo input",
-            inputContract: TEST_INPUT_CONTRACT,
+            inputBinding: createTestBinding("test.tool", TEST_INPUT_SCHEMA),
             isReadOnly: false,
         },
         replayPolicy: "safe",
@@ -396,7 +398,7 @@ test("Runner 原样传播 Tool 执行边界的 ExecutionAbortedError 并保留 a
                 },
             };
         }, async () => ({ kind: "accept" })),
-        toolRegistry: { get: () => createToolRegistration(tool) },
+        toolRegistry: { get: () => createTestToolRegistration(tool) },
     });
 
     await assert.rejects(

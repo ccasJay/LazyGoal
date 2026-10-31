@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { contract } from "../../contracts/src/index";
 import type { NativeConversationIdentity } from "../../model-contracts/src/index";
 import { createGoal } from "../../runtime/src/domain";
 import type { Goal, GoalMessage } from "../../runtime/src/domain";
@@ -19,7 +18,7 @@ import {
     createPromptBundleRenderer,
 } from "../../prompt-renderer/src/index";
 import { createEmptyWorkingMemory } from "../../working-memory/src/index";
-import type { ToolDefinition } from "../../tool-core/src/index";
+import { createTestToolDefinition, objectInputSchema } from "../../tool-core/test/binding-fixtures";
 import { buildStepRequest, createStageMessages } from "../src/index";
 import { currentProtocols, createInMemoryTrajectoryStore } from "../../agent/test/current-fixtures";
 
@@ -30,18 +29,13 @@ const profile = {
     toolIds: ["read_file", "write_file"],
 };
 
-const READ_TOOL: ToolDefinition = {
-    id: "read_file",
-    description: "Read a file",
-    inputContract: contract.object({ path: contract.string() }),
-    isReadOnly: true,
-};
-const WRITE_TOOL: ToolDefinition = {
-    id: "write_file",
-    description: "Write a file",
-    inputContract: contract.object({ path: contract.string(), content: contract.string() }),
-    isReadOnly: false,
-};
+const READ_TOOL = createTestToolDefinition("read_file", objectInputSchema({
+    path: { type: "string" },
+}), { description: "Read a file", isReadOnly: true });
+const WRITE_TOOL = createTestToolDefinition("write_file", objectInputSchema({
+    path: { type: "string" },
+    content: { type: "string" },
+}), { description: "Write a file", isReadOnly: false });
 
 const templates = [
     { id: "global-overview@1", source: "GLOBAL" },

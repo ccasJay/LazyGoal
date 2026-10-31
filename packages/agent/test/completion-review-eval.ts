@@ -6,8 +6,7 @@ import { createLlmAdapter } from "../../llm/src/index";
 import { LLMStepExecutor } from "../../model-execution/src/index";
 import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
 import { DropOldestContextCompactor } from "../../context-budget/src/index";
-import { safeParse } from "../../contracts/src/index";
-import { AgentDecisionContract, type CompletionReviewResult } from "../../model-contracts/src/index";
+import { decodeBoundAgentDecision, modelOutputBindings, type CompletionReviewResult } from "../../model-contracts/src/index";
 import { buildCommittedEvidenceIndex, validateFactEvidence } from "../../runtime/src/evidence-gate";
 import type { CompletionReviewInput } from "../../runtime/src/step-executor";
 import { currentProtocols } from "./current-fixtures";
@@ -140,7 +139,8 @@ export async function runCompletionReviewEvaluation(env: Readonly<Record<string,
                 : ("completionEvidence" in candidate ? candidate.completionEvidence.flatMap(item => item.evidenceSequences) : []);
             const index = buildCommittedEvidenceIndex({ goalId: input.goal.id, runId: input.goal.state.run.id, committedThroughSequence: input.evidence.length, events: input.evidence });
             for (const sequence of sequences) validateFactEvidence([sequence], index);
-            const baselineAccepted = safeParse(AgentDecisionContract, input.candidate).success;
+            let baselineAccepted = true;
+            try { decodeBoundAgentDecision(input.candidate, modelOutputBindings); } catch { baselineAccepted = false; }
             if (!baselineAccepted) throw new Error("Evaluation candidate must pass the baseline contract");
             const started = Date.now();
             try {

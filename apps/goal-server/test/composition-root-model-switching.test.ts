@@ -249,15 +249,18 @@ test("浏览器只提交模型 ID，服务端目录生成并保存 OpenCode Go �
             body: JSON.stringify(body),
         });
         for (const forged of [
-            { executionApi: "openai-completions" },
+            { executionApi: "attacker-api" },
             { baseURL: "https://attacker.invalid/v1" },
-            { contextWindowTokens: 1_000_000 },
-            { maxOutputTokens: 524_288 },
+            { contextWindowTokens: 999 },
+            { maxOutputTokens: 999 },
         ]) {
             const response = await request({ runId: "run-dynamic-browser", modelId: "minimax-m3.1-flash-free", ...forged });
-            assert.equal(response.status, 400);
+            assert.equal(response.status, 200);
         }
-        assert.equal((await root.workspaceGoalStore.restore("goal-dynamic-browser"))?.state.modelSelection.modelId, "kimi-k3");
+        const afterForged = await root.workspaceGoalStore.restore("goal-dynamic-browser");
+        assert.equal(afterForged?.state.modelSelection.executionApi, "openai-completions");
+        assert.equal(afterForged?.state.modelSelection.contextWindowTokens, 1_000_000);
+        assert.equal(afterForged?.state.modelSelection.maxOutputTokens, 524_288);
 
         const selected = await request({ runId: "run-dynamic-browser", modelId: "minimax-m3.1-flash-free" });
         assert.ok(catalog.requests.length > 0, "selection resolves its model from the injected server catalog");

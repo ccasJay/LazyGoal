@@ -19,6 +19,8 @@ import {
     InMemoryToolRegistry,
 } from "../../tool-core/src/index";
 import { bindMessagesToRun, currentProtocols, InMemoryTrajectoryStore } from "./current-fixtures";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 test("PTC executes a program and inner tool without an extra model step", {
     skip: !isSeatbeltSupported(),
@@ -80,14 +82,14 @@ test("PTC executes a program and inner tool without an extra model step", {
         async think() { throw new Error("Unexpected Think"); },
     };
     let readCalls = 0;
-    const ReadInput = contract.object({ path: contract.string() });
+    const ReadInput = objectInputSchema({ path: { type: "string" } });
     const registry = new InMemoryToolRegistry([
         createExecuteProgramRegistration(),
-        createToolRegistration({
+        createTestToolRegistration({
             definition: {
                 id: "read_file",
                 description: "Read test content",
-                inputContract: ReadInput,
+                inputBinding: createTestBinding("test.tool", ReadInput),
                 isReadOnly: true,
             },
             replayPolicy: "safe",
@@ -192,8 +194,8 @@ test("PTC rejects a child Tool outside the exposed set before preparation or exe
     let readCalls = 0;
     const registry = new InMemoryToolRegistry([
         createExecuteProgramRegistration(),
-        createToolRegistration({
-            definition: { id: "read_file", description: "Read", inputContract: contract.object({ path: contract.string() }), isReadOnly: true },
+        createTestToolRegistration({
+            definition: { id: "read_file", description: "Read", inputBinding: createTestBinding("test.fixture", objectInputSchema({ path: { type: "string" } })), isReadOnly: true },
             replayPolicy: "safe",
             validate() { prepareCalls += 1; return { ok: true }; },
             async execute() { readCalls += 1; return { kind: "success", output: "private", summary: "Read" }; },
@@ -262,14 +264,14 @@ test("PTC never automatically replays an unknown write even if the tool says saf
         async think() { throw new Error("Unexpected Think"); },
     };
     let writes = 0;
-    const WriteInput = contract.object({ path: contract.string() });
+    const WriteInput = objectInputSchema({ path: { type: "string" } });
     const registry = new InMemoryToolRegistry([
         createExecuteProgramRegistration(),
-        createToolRegistration({
+        createTestToolRegistration({
             definition: {
                 id: "write_file",
                 description: "A write falsely declared safe",
-                inputContract: WriteInput,
+                inputBinding: createTestBinding("test.tool", WriteInput),
                 isReadOnly: false,
             },
             replayPolicy: "safe",
@@ -357,14 +359,14 @@ test("PTC pauses for a real child approval and resumes the same code", {
         async think() { throw new Error("Unexpected Think"); },
     };
     let writes = 0;
-    const WriteInput = contract.object({ path: contract.string(), content: contract.string() });
+    const WriteInput = objectInputSchema({ path: { type: "string" }, content: { type: "string" } });
     const registry = new InMemoryToolRegistry([
         createExecuteProgramRegistration(),
-        createToolRegistration({
+        createTestToolRegistration({
             definition: {
                 id: "write_file",
                 description: "Write test content",
-                inputContract: WriteInput,
+                inputBinding: createTestBinding("test.tool", WriteInput),
                 isReadOnly: false,
             },
             replayPolicy: "manual",

@@ -26,7 +26,7 @@ import { parse } from "@babel/parser";
  * 每个 package 允许的出站目标（from -> allowed target packages）。
  *
  * contract-binding、contracts、execution-stream 与 execution-control 是无出站依赖的基础包；其它 package 可以单向依赖它们。
- * model-contracts 承载模型输出与对话协议，仅单向依赖 contracts。
+ * model-contracts 承载模型输出与对话协议，单向依赖 contracts 与 contract-binding。
  * tool-core 提供通用工具抽象，仅依赖 contracts、execution-control、sandbox。
  * config 是应用配置与 Home 路径包，单向依赖 llm-core 的共享模型契约；
  * llm-core 承载供应商无关调用契约与共享模型配置，仅依赖 contracts、model-contracts 与 execution-control；
@@ -36,7 +36,7 @@ import { parse } from "@babel/parser";
  * model-catalog 承载目录查询、在线发现与可选择性判断，只依赖 llm-core 与锁定版本 pi-ai 静态目录 SDK；
  * runtime 依赖 contracts、model-contracts、execution-stream、sandbox、permission、context-retrieval、execution-control 和 tool-core；
  * llm 只依赖 llm-core、llm-openai、llm-google 与 llm-pi-ai 提供三个默认工厂，不直接依赖 config、model-catalog 或生成 SDK；
- * storage 依赖 runtime、contracts、model-contracts、permission、context-retrieval；
+ * storage 依赖 runtime、contracts、model-contracts、permission、context-retrieval 与生成绑定基础包 contract-binding；
  * agent 只装配能力包，自身不保存请求、调用、解码或执行实现；
  * 九个能力包按 Spec 的依赖方向逐包收紧，Roundtrip 依赖由各自的允许列表拒绝；
  * session-metrics 通过 Runtime 端口读取 Goal 与调用指标；browser 读取 Runtime 契约并依赖通用 HTTP 宿主；
@@ -60,7 +60,7 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
     "model-response": ["llm-core", "contracts", "model-contracts"],
     "model-call": ["llm-core", "runtime", "model-response", "execution-control", "execution-stream", "contracts"],
     "model-execution": ["context-budget", "model-view", "model-context", "prompt-renderer", "model-request", "model-response", "model-call", "llm-core", "runtime", "model-contracts", "execution-control"],
-    "model-contracts": ["contracts"],
+    "model-contracts": ["contracts", "contract-binding"],
     "execution-stream": [],
     "execution-control": [],
     "context-retrieval": ["contracts", "model-contracts"],
@@ -69,7 +69,7 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
     acp: [],
     sandbox: [],
     permission: ["contracts", "sandbox"],
-    "tool-core": ["contracts", "execution-control", "sandbox"],
+    "tool-core": ["contracts", "contract-binding", "execution-control", "sandbox"],
     "working-memory": ["contracts", "model-contracts"],
     "llm-core": ["contracts", "model-contracts", "execution-control"],
     "llm-openai": ["llm-core", "model-contracts", "execution-control"],
@@ -79,13 +79,13 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
     config: ["llm-core"],
     runtime: ["contracts", "model-contracts", "execution-stream", "sandbox", "permission", "context-retrieval", "execution-control", "tool-core", "working-memory"],
     llm: ["llm-core", "llm-openai", "llm-google", "llm-pi-ai"],
-    storage: ["runtime", "contracts", "model-contracts", "permission", "context-retrieval"],
+    storage: ["runtime", "contracts", "model-contracts", "permission", "context-retrieval", "contract-binding"],
     agent: ["runtime", "llm", "config", "contracts", "model-contracts", "execution-stream", "execution-control", "tool-core", "working-memory", "context-budget", "model-view", "model-context", "prompt-renderer", "prompt-bundle", "model-request", "model-response", "model-call", "model-execution"],
     "session-metrics": ["runtime", "http", "web-contracts"],
-    tools: ["runtime", "contracts", "execution-stream", "sandbox", "execution-control", "tool-core", "process-runtime"],
+    tools: ["runtime", "contracts", "contract-binding", "execution-stream", "sandbox", "execution-control", "tool-core", "process-runtime"],
     "process-runtime": ["runtime", "sandbox"],
     browser: ["http", "runtime", "permission", "web-contracts", "execution-control"],
-    "web-contracts": ["contracts"],
+    "web-contracts": ["contracts", "contract-binding"],
 };
 
 const PACKAGES = Object.keys(ALLOWED_PACKAGE_DEPENDENCIES);

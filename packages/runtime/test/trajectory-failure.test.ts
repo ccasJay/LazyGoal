@@ -27,6 +27,8 @@ import type {
     TrajectoryStore,
 } from "../src/index";
 import { currentProtocols, withDiscoveredProfileTools } from "./current-fixtures";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 function createGoal(input: Parameters<typeof createUnexposedGoal>[0]) {
     return withDiscoveredProfileTools(createUnexposedGoal(input));
@@ -39,7 +41,7 @@ const profile: AgentProfile = {
     toolIds: ["echo"],
 };
 
-const TEST_INPUT_CONTRACT = contract.record(contract.string());
+const TEST_INPUT_SCHEMA = openObjectSchema();
 
 class MemoryGoalStore implements GoalStore {
     private goal?: Goal;
@@ -119,12 +121,12 @@ function executingGoal(id: string): Goal {
     };
 }
 
-function toolThatFails(): Tool<typeof TEST_INPUT_CONTRACT> {
+function toolThatFails(): Tool<any> {
     return {
         definition: {
             id: "echo",
             description: "echo",
-            inputContract: TEST_INPUT_CONTRACT,
+            inputBinding: createTestBinding("test.tool", TEST_INPUT_SCHEMA),
             isReadOnly: false,
         },
         replayPolicy: "manual",
@@ -135,12 +137,12 @@ function toolThatFails(): Tool<typeof TEST_INPUT_CONTRACT> {
     };
 }
 
-function toolWithoutResult(): Tool<typeof TEST_INPUT_CONTRACT> {
+function toolWithoutResult(): Tool<any> {
     return {
         definition: {
             id: "echo",
             description: "echo",
-            inputContract: TEST_INPUT_CONTRACT,
+            inputBinding: createTestBinding("test.tool", TEST_INPUT_SCHEMA),
             isReadOnly: false,
         },
         replayPolicy: "manual",
@@ -151,12 +153,12 @@ function toolWithoutResult(): Tool<typeof TEST_INPUT_CONTRACT> {
     };
 }
 
-function toolThatSucceeds(onExecute?: () => void): Tool<typeof TEST_INPUT_CONTRACT> {
+function toolThatSucceeds(onExecute?: () => void): Tool<any> {
     return {
         definition: {
             id: "echo",
             description: "echo",
-            inputContract: TEST_INPUT_CONTRACT,
+            inputBinding: createTestBinding("test.tool", TEST_INPUT_SCHEMA),
             isReadOnly: false,
         },
         replayPolicy: "safe",
@@ -191,7 +193,7 @@ test("a pre-effect event append failure stops before Tool execution and new Snap
     const runner = new Runner({
         trajectoryStore: sink,
         store,
-        toolRegistry: { get: () => createToolRegistration(tool) },
+        toolRegistry: { get: () => createTestToolRegistration(tool) },
         executor: createStepExecutor(async () => toolDecision(), async () => ({ kind: "accept" })),
     });
     await assert.rejects(
@@ -215,7 +217,7 @@ test("a failed Tool keeps tool_started but never fabricates tool_finished or suc
     const runner = new Runner({
         trajectoryStore: sink,
         store,
-        toolRegistry: { get: () => createToolRegistration(tool) },
+        toolRegistry: { get: () => createTestToolRegistration(tool) },
         executor: createStepExecutor(async () => toolDecision(), async () => ({ kind: "accept" })),
     });
 
@@ -251,7 +253,7 @@ test("an Observation append failure keeps the durable pending Action and prior f
     const runner = new Runner({
         trajectoryStore: sink,
         store,
-        toolRegistry: { get: () => createToolRegistration(tool) },
+        toolRegistry: { get: () => createTestToolRegistration(tool) },
         executor: createStepExecutor(async () => toolDecision(), async () => ({ kind: "accept" })),
     });
 
@@ -285,7 +287,7 @@ test("a Tool without a result records an execution error without a fabricated fi
     const runner = new Runner({
         trajectoryStore: sink,
         store,
-        toolRegistry: { get: () => createToolRegistration(toolWithoutResult()) },
+        toolRegistry: { get: () => createTestToolRegistration(toolWithoutResult()) },
         executor: createStepExecutor(async () => toolDecision(), async () => ({ kind: "accept" })),
     });
 

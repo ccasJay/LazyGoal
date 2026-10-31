@@ -32,6 +32,7 @@ import type {
 import { createDefaultModelContextBudgetPolicy, type ModelCapabilities } from "../../context-budget/src/index";
 import {
     callModel,
+    recordLlmDiagnosticTrace,
     recordLlmError,
 } from "../../model-call/src/index";
 import {
@@ -191,11 +192,13 @@ export class LLMStepExecutor implements StepExecutor {
         callId: string,
         adapter: LLMAdapter,
     ): Promise<DecideOutput> {
+        const diagnostics: unknown[] = [];
         try {
             let output = decodeToolCallOutcome(
                 toolCall,
                 declarations,
                 input.authorizedTools.map((tool) => tool.id),
+                { onDiagnostic: diagnostic => diagnostics.push(diagnostic) },
             );
             if (output.kind === "tool_call") {
                 const actionId = adapter.nativeConversationIdentity !== undefined
@@ -208,6 +211,15 @@ export class LLMStepExecutor implements StepExecutor {
         } catch (error) {
             await recordLlmError(this.traceSink, traceIdentity(goal), error, Date.now() - startedAt, "response_parse", callId);
             throw error;
+        } finally {
+            if (diagnostics.length > 0) {
+                await recordLlmDiagnosticTrace({
+                    sink: this.traceSink,
+                    identity: traceIdentity(goal),
+                    kind: "model_output_diagnostic",
+                    payload: { callId, toolId: toolCall.toolId, diagnostics },
+                });
+            }
         }
     }
 

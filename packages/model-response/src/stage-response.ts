@@ -8,13 +8,15 @@
  */
 
 import {
-    SystemCompletionReviewDeclaration,
+    createBoundCompletionReviewDeclaration,
     decodePhaseToolCall,
     isModelAssistantMessage,
+    modelOutputBindings,
     sameNativeIdentity,
     type CompletionReviewResult,
     type DecideOutput,
     type ModelAssistantMessage,
+    type ModelContractDecodeOptions,
     type NativeConversationIdentity,
     type SystemToolDeclaration,
 } from "../../model-contracts/src/index";
@@ -106,6 +108,7 @@ export function decodeToolCallOutcome(
     toolCall: LLMToolCall,
     declarations: readonly SystemToolDeclaration<unknown>[],
     authorizedToolIds: readonly string[],
+    options?: ModelContractDecodeOptions,
 ): DecideOutput {
     let rawArgs: unknown;
     try {
@@ -132,13 +135,13 @@ export function decodeToolCallOutcome(
         : toolCall.toolId;
     const declaration = declarations.find(tool => tool.id === effectiveToolId);
     try {
-        return decodePhaseToolCall(declarations, effectiveToolId, rawArgs) as DecideOutput;
+        return decodePhaseToolCall(declarations, effectiveToolId, rawArgs, options) as DecideOutput;
     } catch (firstError) {
         if (firstError instanceof ContractValidationError) {
             const sanitizedArgs = unwrapAndSanitizeToolArguments(effectiveToolId, rawArgs, declaration);
             if (sanitizedArgs !== rawArgs) {
                 try {
-                    return decodePhaseToolCall(declarations, effectiveToolId, sanitizedArgs) as DecideOutput;
+                    return decodePhaseToolCall(declarations, effectiveToolId, sanitizedArgs, options) as DecideOutput;
                 } catch {
                     // 解包净化后仍不符合契约，保留抛出原始错误
                 }
@@ -464,11 +467,12 @@ export function normalizeRequestThinkGoal(output: { readonly goal: string }): st
  */
 export function decodeCompletionReviewResponse(response: LLMResponse): CompletionReviewResult {
     const call = requireSingleToolCall(response);
-    if (call.toolId !== SystemCompletionReviewDeclaration.id) {
+    const declaration = createBoundCompletionReviewDeclaration(modelOutputBindings);
+    if (call.toolId !== declaration.id) {
         throw new LLMResponseProtocolError("Completion review returned an undeclared result call");
     }
     try {
-        return decodePhaseToolCall([SystemCompletionReviewDeclaration], call.toolId,
+        return decodePhaseToolCall([declaration], call.toolId,
             JSON.parse(call.argumentsJson));
     } catch (error) {
         throw error instanceof SyntaxError || error instanceof ContractValidationError

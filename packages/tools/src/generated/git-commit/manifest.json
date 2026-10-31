@@ -1,0 +1,23 @@
+{
+  "contractId": "tool.git_commit.input",
+  "version": 1,
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "source": {
+    "path": "packages/tools/src/git-write-tools.ts#GitCommitInput,GitCommitAuthorInput",
+    "sha256": "270f5d53d8669aab1f4873546e4a60cffad6124f02b62047bdeb624174368cf2"
+  },
+  "generator": {
+    "name": "ts-json-schema-generator",
+    "version": "2.9.0",
+    "typescriptVersion": "5.9.3"
+  },
+  "validator": {
+    "name": "Ajv standalone",
+    "version": "8.20.0"
+  },
+  "bundler": {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "format": "esm"
+  }
+}

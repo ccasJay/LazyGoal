@@ -72,19 +72,36 @@ test("returns undefined for a missing Profile and rejects unsafe IDs", async () 
     );
 });
 
-test("uses Zod strict validation for JSON, schema, and Profile ID", async () => {
+test("accepts empty instruction and tool ID arrays", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "lazygoal-profile-empty-arrays-"));
+    await writeProfileFile(directory, "default.json", {
+        ...defaultProfile,
+        instructions: [],
+        toolIds: [],
+    });
+
+    const profile = await new JsonFileAgentProfileStore(directory).load("default");
+
+    assert.deepEqual(profile, {
+        id: defaultProfile.id,
+        name: defaultProfile.name,
+        description: defaultProfile.description,
+        systemPrompt: defaultProfile.systemPrompt,
+        instructions: [],
+        toolIds: [],
+    });
+});
+
+test("rejects invalid JSON, structure, version and Profile ID", async () => {
+    const { toolIds: _toolIds, ...missingToolIds } = defaultProfile;
     const cases: readonly [string, unknown, RegExp][] = [
         ["invalid-json", "not json", /不是合法 JSON/],
-        [
-            "extra-field",
-            { ...defaultProfile, extra: true },
-            /不符合 Schema/,
-        ],
-        [
-            "wrong-version",
-            { ...defaultProfile, schemaVersion: 2 },
-            /不符合 Schema/,
-        ],
+        ["extra-field", { ...defaultProfile, extra: true }, /不符合 Schema/],
+        ["wrong-version", { ...defaultProfile, schemaVersion: 2 }, /不符合 Schema/],
+        ["empty-scalar", { ...defaultProfile, name: "" }, /不符合 Schema/],
+        ["empty-element", { ...defaultProfile, instructions: [""] }, /不符合 Schema/],
+        ["missing-field", missingToolIds, /不符合 Schema/],
+        ["wrong-type", { ...defaultProfile, toolIds: "read_file" }, /不符合 Schema/],
         [
             "mismatched-id",
             { ...defaultProfile, id: "other" },
@@ -103,6 +120,55 @@ test("uses Zod strict validation for JSON, schema, and Profile ID", async () => 
                 && message.test(error.message),
         );
     }
+});
+
+test("invalid Profile errors expose stable identity and safe field issues", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "lazygoal-profile-safe-issues-"));
+    const secret = "super-secret-profile-body";
+    await writeProfileFile(directory, "default.json", {
+        ...defaultProfile,
+        systemPrompt: secret,
+        instructions: [""],
+        extra: true,
+    });
+
+    await assert.rejects(
+        new JsonFileAgentProfileStore(directory).load("default"),
+        (error: unknown) => {
+            assert.ok(error instanceof AgentProfileConfigurationError);
+            assert.equal(error.code, "INVALID_AGENT_PROFILE");
+            assert.equal(error.profileId, "default");
+            assert.equal(error.filePath, join(directory, "default.json"));
+            assert.equal(
+                error.issues?.some(issue => issue.path === "/instructions/0" && issue.code === "length"),
+                true,
+            );
+            assert.equal(
+                error.issues?.some(issue => issue.path === "/extra" && issue.code === "unknown"),
+                true,
+            );
+            assert.equal(JSON.stringify(error.issues).includes(secret), false);
+            assert.equal(error.message.includes(secret), false);
+            return true;
+        },
+    );
+});
+
+test("invalid JSON errors do not retain the parsed body", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "lazygoal-profile-json-body-"));
+    const secret = "super-secret-profile-body";
+    await writeProfileFile(directory, "default.json", `{"systemPrompt":"${secret}"`);
+
+    await assert.rejects(
+        new JsonFileAgentProfileStore(directory).load("default"),
+        (error: unknown) => {
+            assert.ok(error instanceof AgentProfileConfigurationError);
+            assert.equal(error.issues, undefined);
+            assert.equal(error.cause, undefined);
+            assert.equal(error.message.includes(secret), false);
+            return true;
+        },
+    );
 });
 
 test("loaded Profile metadata survives Goal snapshot persistence", async () => {

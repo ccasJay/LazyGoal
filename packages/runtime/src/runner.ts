@@ -69,15 +69,16 @@ import {
     type ContextLookupPort,
     type ContextLookupResult,
 } from "./context-retrieval";
-import { canonicalJson, isRecord, safeParse } from "../../contracts/src/index";
+import { canonicalJson, isRecord } from "../../contracts/src/index";
 import {
-    AgentDecisionContract,
+    decodeBoundAgentDecision,
+    modelOutputBindings,
     normalizeAskUserRequest,
     validateModelOutputSemantics,
 } from "../../model-contracts/src/index";
 
 import type {
-    ToolDefinition,
+    AnyBoundToolDefinition,
     ToolExecutionContext,
     ToolObservation,
     ToolStreamEvent,
@@ -563,22 +564,36 @@ function createRunnerFeedbackError(
 function validateAgentDecision(
     value: unknown,
 ): AgentDecision {
-    const parsed = safeParse(AgentDecisionContract, value);
-    if (!parsed.success) {
+    let decision: AgentDecision;
+    try {
+        decision = decodeBoundAgentDecision(value, modelOutputBindings);
+    } catch (error) {
+        if (error instanceof ExecutionAbortedError || isExecutionAbortedError(error)) throw error;
         return invalidAgentDecision(
-            `AgentDecision 不符合 canonical Contract: ${parsed.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join(", ")}`,
+            `AgentDecision 不符合生成绑定: ${formatDecisionBindingIssues(error)}`,
         );
     }
-    const semanticIssues = validateModelOutputSemantics(parsed.data);
+    const semanticIssues = validateModelOutputSemantics(decision);
     if (semanticIssues.length > 0) {
         return invalidAgentDecision(
             `AgentDecision 不符合语义规则: ${semanticIssues.map((i) => `${i.path.join(".")}: ${i.message}`).join(", ")}`,
         );
     }
-    if (parsed.data.kind === "context_lookup") {
-        return normalizeContextLookupRequest(parsed.data);
+    if (decision.kind === "context_lookup") {
+        return normalizeContextLookupRequest(decision);
     }
-    return parsed.data;
+    return decision;
+}
+
+function formatDecisionBindingIssues(error: unknown): string {
+    if (isRecord(error) && Array.isArray(error.issues)) {
+        return error.issues
+            .map(issue => isRecord(issue)
+                ? `${Array.isArray(issue.path) ? issue.path.join(".") : ""}: ${String(issue.message ?? issue.code)}`
+                : String(issue))
+            .join(", ");
+    }
+    return error instanceof Error ? error.message : String(error);
 }
 
 function isProtocolError(error: unknown): boolean {
@@ -3775,7 +3790,7 @@ class RunExecutor {
     private getAuthorizedToolDefinitions(
         goal: Goal,
         control?: ExecutionControl,
-    ): readonly ToolDefinition[] {
+    ): readonly AnyBoundToolDefinition[] {
         try {
             throwIfAborted(control);
             const definitions = resolveAuthorizedToolDefinitions(

@@ -1,0 +1,23 @@
+{
+  "contractId": "tool.web_fetch.input",
+  "version": 1,
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "source": {
+    "path": "packages/tools/src/web-fetch.ts#WebFetchInput",
+    "sha256": "75dcb0c47ccc724e75f563eae6dff46bcf3e29a4a83ce4d8b60a6754d9a42c2e"
+  },
+  "generator": {
+    "name": "ts-json-schema-generator",
+    "version": "2.9.0",
+    "typescriptVersion": "5.9.3"
+  },
+  "validator": {
+    "name": "Ajv standalone",
+    "version": "8.20.0"
+  },
+  "bundler": {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "format": "esm"
+  }
+}

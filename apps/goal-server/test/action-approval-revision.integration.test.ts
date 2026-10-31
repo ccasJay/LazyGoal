@@ -6,7 +6,8 @@ import { test } from "node:test";
 
 import type { LLMAdapter, LLMRequest, LLMResponse } from "../../../packages/llm-core/src/index";
 import { toolCallResponse } from "../../../packages/llm-core/test/response-fixtures";
-import { contract } from "../../../packages/contracts/src/index";
+import { contract, type JsonValue } from "../../../packages/contracts/src/index";
+import { createTestBinding, objectInputSchema } from "../../../packages/tool-core/test/binding-fixtures";
 import type { AgentProfile } from "../../../packages/runtime/src/index";
 import {
     createToolRegistration,
@@ -15,6 +16,7 @@ import {
     type Tool,
 } from "../../../packages/tool-core/src/index";
 import { createRuntimeComposition } from "../src/runtime/index";
+import { createTestToolRegistration } from "../../../packages/tool-core/test/helpers";
 
 /** 确定性模型：先请求一次写入，再完成任务。 */
 class ScriptedAdapter implements LLMAdapter {
@@ -45,7 +47,7 @@ function controlledWriteTool(executed: { value: string }[]): Tool {
         definition: {
             id: "controlled_write",
             description: "Controlled write",
-            inputContract: contract.object({ value: contract.string() }),
+            inputBinding: createTestBinding<JsonValue>("test.fixture", objectInputSchema({ value: { type: "string" } })),
             isReadOnly: false,
         },
         replayPolicy: "safe",
@@ -93,7 +95,7 @@ test("无界面宿主经正式预检返回修订决定，工具按最终参数�
     const fixture = await setupFixture();
     const executed: { value: string }[] = [];
     const toolRegistry = new InMemoryToolRegistry([
-        createToolRegistration(controlledWriteTool(executed)),
+        createTestToolRegistration(controlledWriteTool(executed)),
     ]);
     const runtime = await createRuntimeComposition({
         cwd: fixture.workspace,
@@ -153,7 +155,7 @@ test("无界面宿主缺少恢复处理器时，未知结果等待不被普通�
     const fixture = await setupFixture();
     const executed: { value: string }[] = [];
     const toolRegistry = new InMemoryToolRegistry([
-        createToolRegistration(failingManualTool(executed)),
+        createTestToolRegistration(failingManualTool(executed)),
     ]);
     const runtime = await createRuntimeComposition({
         cwd: fixture.workspace,
@@ -255,7 +257,7 @@ function failingManualTool(executed: { value: string }[]): Tool {
         definition: {
             id: "controlled_write",
             description: "Controlled write with an unknown effect",
-            inputContract: contract.object({ value: contract.string() }),
+            inputBinding: createTestBinding<JsonValue>("test.fixture", objectInputSchema({ value: { type: "string" } })),
             isReadOnly: false,
         },
         replayPolicy: "manual",

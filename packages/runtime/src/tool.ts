@@ -3,15 +3,11 @@ import type {
     ToolCallAction,
 } from "./domain";
 import {
-    compileJsonSchema,
-    safeParse,
-} from "../../contracts/src/index";
-import {
     throwIfAborted,
 } from "../../execution-control/src/index";
 import type {
-    ToolDefinition,
-    ToolInputContract,
+    AnyBoundToolDefinition,
+    BoundToolDefinition,
     ToolRegistration,
     ToolRegistry,
 } from "../../tool-core/src/index";
@@ -24,18 +20,29 @@ import type {
  * const registration = createProgramToolRegistration(definition);
  * ```
  */
-export function createProgramToolRegistration<C extends ToolInputContract>(
-    definition: ToolDefinition<C>,
+export function createProgramToolRegistration<Input>(
+    definition: BoundToolDefinition<Input>,
 ): ToolRegistration {
-    compileJsonSchema(definition.inputContract);
     return {
         kind: "program",
-        definition,
+        definition: definition as BoundToolDefinition,
         replayPolicy: "manual",
         prepare(input, control) {
             throwIfAborted(control);
-            const parsed = safeParse(definition.inputContract, input);
-            if (!parsed.success || typeof (parsed.data as { code?: unknown }).code !== "string"
+            const parsed = definition.inputBinding.read(input, "strip");
+            throwIfAborted(control);
+            if (!parsed.ok) {
+                const first = parsed.issues[0];
+                const location = first === undefined || first.path === "" ? "$" : first.path;
+                return {
+                    ok: false,
+                    error: {
+                        code: "INVALID_TOOL_INPUT",
+                        message: `${definition.id} 输入 Contract 校验失败：${first?.code ?? "constraint"} at ${location}`,
+                    },
+                };
+            }
+            if (typeof (parsed.data as { code?: unknown }).code !== "string"
                 || Buffer.byteLength((parsed.data as { code: string }).code) > 64 * 1024) {
                 return {
                     ok: false,
@@ -47,7 +54,8 @@ export function createProgramToolRegistration<C extends ToolInputContract>(
             }
             return {
                 ok: true,
-                input: parsed.data,
+                input: parsed.data as { readonly code: string },
+                ...(parsed.diagnostic === undefined ? {} : { inputDiagnostic: parsed.diagnostic }),
                 async execute() {
                     throw new Error("PTC_PROGRAM_REQUIRES_RUNNER");
                 },
@@ -69,8 +77,8 @@ export interface ToolPolicyContext {
     readonly goal: Goal;
     /** Agent 当前请求的 Action。 */
     readonly action: ToolCallAction;
-    /** Registry 解析出的 Tool 描述。 */
-    readonly tool: ToolDefinition;
+    /** Registry 解析出的 Tool 描述与输入绑定。 */
+    readonly tool: BoundToolDefinition;
 }
 
 /**
@@ -102,8 +110,8 @@ export interface ToolPolicy {
  *
  * @remarks
  * 结果只包含冻结 Profile 白名单与 Registry 已注册 Tool 的交集。每个
- * `id` 和 `description` 都会被复制；带内部品牌且不可变的 Input Contract 与注册项
- * 共享引用。本函数不判断 Prompt 版本、准备或执行 Tool，也不修改 Goal。
+ * `id` 和 `description` 都会被复制；权威输入绑定与注册项共享引用。本函数不判断
+ * Prompt 版本、准备或执行 Tool，也不修改 Goal。
  *
  * @param goal - 提供冻结 Profile Tool 白名单的完整 Goal。
  * @param registry - 当前 Runtime 已注册的 Tool 查找边界。
@@ -118,8 +126,8 @@ export interface ToolPolicy {
 export function resolveAuthorizedToolDefinitions(
     goal: Goal,
     registry: ToolRegistry,
-): readonly ToolDefinition[] {
-    const definitions: ToolDefinition[] = [];
+): readonly AnyBoundToolDefinition[] {
+    const definitions: AnyBoundToolDefinition[] = [];
 
     for (const toolId of goal.definition.profile.toolIds) {
         const registration = registry.get(toolId);
@@ -131,7 +139,7 @@ export function resolveAuthorizedToolDefinitions(
                 ...(registration.definition.discoveryAliases === undefined
                     ? {}
                     : { discoveryAliases: Object.freeze([...registration.definition.discoveryAliases]) }),
-                inputContract: registration.definition.inputContract,
+                inputBinding: registration.definition.inputBinding,
                 isReadOnly: registration.definition.isReadOnly,
             }));
         }

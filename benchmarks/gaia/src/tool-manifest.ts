@@ -14,7 +14,6 @@ import {
     type WebSearchBackend,
     type WebSearchResult,
 } from "../../../packages/tools/src/index.js";
-import { compileJsonSchema } from "../../../packages/contracts/src/index.js";
 import type { ToolManifestEntry, ToolRpcBackendPort } from "../../src/tool-rpc.js";
 import { SUBMIT_ANSWER_TOOL_ID, SubmitAnswerTool } from "./submit-answer.js";
 import { GaiaBashTool } from "./bash.js";
@@ -66,7 +65,7 @@ export function getGaiaToolManifest(): readonly ToolManifestEntry[] {
             Object.freeze({
                 id: t.definition.id,
                 description: t.definition.description,
-                inputSchema: compileJsonSchema(t.definition.inputContract) as Record<string, unknown>,
+                inputSchema: t.definition.inputBinding.schema as unknown as Record<string, unknown>,
                 replayPolicy: t.replayPolicy,
             }),
         ),

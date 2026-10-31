@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { createBrowserSessionAccess } from "../../../packages/browser/src/index";
-import { contract } from "../../../packages/contracts/src/index";
+import { contract, type JsonValue } from "../../../packages/contracts/src/index";
+import { createTestBinding, objectInputSchema } from "../../../packages/tool-core/test/binding-fixtures";
 import type { LLMAdapter, LLMRequest, LLMResponse } from "../../../packages/llm-core/src/index";
 import { toolCallResponse } from "../../../packages/llm-core/test/response-fixtures";
 import type { AgentProfile } from "../../../packages/runtime/src/index";
@@ -19,6 +20,7 @@ import {
 import { createExecuteProgramRegistration } from "../../../packages/tools/src/index";
 import { runServerSession } from "../src/cli";
 import { createCompositionRoot } from "../src/composition-root";
+import { createTestToolRegistration } from "../../../packages/tool-core/test/helpers";
 
 /**
  * 跨 Spec 中间集成场景（S＋H＋A＋P）在正式装配上的实测。
@@ -257,7 +259,7 @@ function controlledWriteTool(executed: { value: string }[]): Tool {
         definition: {
             id: "controlled_write",
             description: "Controlled write",
-            inputContract: contract.object({ value: contract.string() }),
+            inputBinding: createTestBinding<JsonValue>("test.fixture", objectInputSchema({ value: { type: "string" } })),
             isReadOnly: false,
         },
         replayPolicy: "safe",
@@ -275,7 +277,7 @@ function unknownEffectTool(executed: { value: string }[]): Tool {
         definition: {
             id: "controlled_write",
             description: "Controlled write with an unknown effect",
-            inputContract: contract.object({ value: contract.string() }),
+            inputBinding: createTestBinding<JsonValue>("test.fixture", objectInputSchema({ value: { type: "string" } })),
             isReadOnly: false,
         },
         replayPolicy: "manual",
@@ -346,7 +348,7 @@ test("集成：审批等待按 action_approval 领域身份发布，修订后按
     const harness = await startHarness({
         adapter,
         profile: PROFILE,
-        toolRegistry: new InMemoryToolRegistry([createToolRegistration(controlledWriteTool(executed))]),
+        toolRegistry: new InMemoryToolRegistry([createTestToolRegistration(controlledWriteTool(executed))]),
         toolPolicy: REQUIRE_APPROVAL,
     });
     try {
@@ -494,7 +496,7 @@ test("集成：结果未知按 action_recovery 领域身份发布，恢复引用
     const harness = await startHarness({
         adapter,
         profile: PROFILE,
-        toolRegistry: new InMemoryToolRegistry([createToolRegistration(unknownEffectTool(executed))]),
+        toolRegistry: new InMemoryToolRegistry([createTestToolRegistration(unknownEffectTool(executed))]),
         toolPolicy: REQUIRE_APPROVAL,
     });
     try {
@@ -631,11 +633,11 @@ test("集成：PTC 子操作工具活动保留子操作身份，父程序身份�
         },
         toolRegistry: new InMemoryToolRegistry([
             createExecuteProgramRegistration(),
-            createToolRegistration({
+            createTestToolRegistration({
                 definition: {
                     id: "write_file",
                     description: "受控写入 Tool",
-                    inputContract: contract.object({ path: contract.string(), content: contract.string() }),
+                    inputBinding: createTestBinding<JsonValue>("test.fixture", objectInputSchema({ path: { type: "string" }, content: { type: "string" } })),
                     isReadOnly: false,
                 },
                 replayPolicy: "safe",

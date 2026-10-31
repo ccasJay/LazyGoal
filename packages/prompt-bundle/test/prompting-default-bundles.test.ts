@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createCheckpointToolDeclarations, createUnifiedToolDeclarations } from "../../model-contracts/src/index";
+import {
+    createBoundCheckpointToolDeclarations,
+    createBoundUnifiedToolDeclarations,
+    modelOutputBindings,
+} from "../../model-contracts/src/index";
 import type {
     ModelDynamicContext,
     ModelInferenceView,
@@ -155,7 +159,7 @@ test("Run mode section keeps its exact tool list aligned with the active output 
         assert.ok(allowed);
         assert.deepEqual(
             allowed[1]!.split(", ").sort(),
-            createUnifiedToolDeclarations([], taskPresent, runMode === "plan", runMode === "plan")
+            createBoundUnifiedToolDeclarations([], modelOutputBindings, taskPresent, runMode === "plan", runMode === "plan")
                 .map((tool) => tool.id).sort(),
         );
 
@@ -250,7 +254,7 @@ test("GoalPlan、Working Memory 与检查点各自保持独立来源和动态 se
     const workingMemory = messages.find((message) => message.sectionId === "working_memory");
 
     assert.match(modeText, /Call only `system_context_checkpoint`/);
-    assert.deepEqual(createCheckpointToolDeclarations().map((tool) => tool.id), ["system_context_checkpoint"]);
+    assert.deepEqual(createBoundCheckpointToolDeclarations(modelOutputBindings).map((tool) => tool.id), ["system_context_checkpoint"]);
     assert.equal(workingMemory?.source, "WorkingMemory");
     assert.equal(workingMemory?.role, "user");
 

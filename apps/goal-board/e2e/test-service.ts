@@ -2,7 +2,8 @@ import { JsonFileModelInputStore, JsonFileModelPreferenceStore } from "../../../
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
-import { contract } from "../../../packages/contracts/src/index";
+import { contract, type JsonValue } from "../../../packages/contracts/src/index";
+import { createTestBinding, objectInputSchema } from "../../../packages/tool-core/test/binding-fixtures";
 import type { LLMAdapter, LLMRequest, LLMResponse } from "../../../packages/llm-core/src/index";
 import { toolResponseFixture } from "../../../packages/agent/test/tool-response-fixture";
 import {
@@ -26,7 +27,7 @@ import {
 } from "../../../packages/browser/src/index";
 import { createCompositionRoot } from "../../goal-server/src/composition-root";
 
-const fixtureInput = contract.object({ value: contract.string() });
+const fixtureInput = objectInputSchema({ value: { type: "string" } });
 const profile: AgentProfile = {
     id: "browser-e2e",
     systemPrompt: "Use the deterministic browser acceptance flow.",
@@ -180,11 +181,11 @@ await writeStatus();
 async function writeStatus(): Promise<void> {
     await writeFile(statusFile!, JSON.stringify({ modelCalls: adapter.calls, toolCalls }));
 }
-const controlledTool: Tool<typeof fixtureInput> = {
+const controlledTool: Tool = {
     definition: {
         id: "browser_fixture_write",
         description: "Write one deterministic value to the isolated acceptance workspace.",
-        inputContract: fixtureInput,
+        inputBinding: createTestBinding<JsonValue>("test.fixture", fixtureInput),
         isReadOnly: false,
     },
     replayPolicy: "manual",

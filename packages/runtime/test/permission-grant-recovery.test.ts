@@ -38,22 +38,10 @@ import {
     createApprovalFixture,
     createAwaitingApprovalGoal,
 } from "./action-approval-fixtures";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
-const TEST_INPUT_CONTRACT = contract.object({
-    command: contract.string(),
-    sandboxAccess: contract.optional(contract.object({
-        files: contract.optional(contract.array(contract.object({
-            path: contract.string(),
-            access: contract.enum(["read", "write"]),
-            kind: contract.enum(["file", "directory_tree"]),
-            purpose: contract.string(),
-        }))),
-        network: contract.optional(contract.object({
-            targets: contract.array(contract.string()),
-            purpose: contract.string(),
-        })),
-    })),
-});
+const TEST_INPUT_SCHEMA = sandboxCommandSchema();
 
 type SandboxTestInput = {
     readonly command: string;
@@ -80,7 +68,7 @@ function createMockBashTool(onExecute?: (request: ToolExecutionRequest) => void)
         definition: {
             id: "bash",
             description: "受限测试 bash",
-            inputContract: TEST_INPUT_CONTRACT,
+            inputBinding: createTestBinding("test.tool", TEST_INPUT_SCHEMA),
             isReadOnly: false,
         },
         replayPolicy: "manual",
@@ -116,7 +104,7 @@ test("持续授权生命周期：沙箱审批选择 Goal 范围并在后续 Acti
         const mockBash = createMockBashTool((req) => {
             executedCommands.push((req.input as any).command);
         });
-        const registry = new InMemoryToolRegistry([createToolRegistration(mockBash)]);
+        const registry = new InMemoryToolRegistry([createTestToolRegistration(mockBash)]);
 
         const decisions: AgentDecision[] = [
             {
@@ -251,7 +239,7 @@ test("持续授权隔离与撤销：不同命令不复用，撤销后重新拦�
         const mockBash = createMockBashTool((req) => {
             executedCommands.push((req.input as any).command);
         });
-        const registry = new InMemoryToolRegistry([createToolRegistration(mockBash)]);
+        const registry = new InMemoryToolRegistry([createTestToolRegistration(mockBash)]);
 
         let currentDecision: AgentDecision = {
             kind: "tool_call",

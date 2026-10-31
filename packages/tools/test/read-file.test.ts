@@ -178,7 +178,6 @@ test("ReadFileTool 拒绝非法输入且不访问文件系统", async () => {
             { path: "nested/../../secret.txt" },
             { path: "/tmp/secret.txt" },
             { path: "C:\\secret.txt" },
-            { path: "README.md", extra: true },
         ];
 
         for (const input of invalidInputs) {
@@ -188,6 +187,13 @@ test("ReadFileTool 拒绝非法输入且不访问文件系统", async () => {
             if (!result.ok) {
                 assert.equal(result.error.code, "INVALID_TOOL_INPUT");
             }
+        }
+
+        const stripped = registration.prepare(asJsonValue({ path: "README.md", extra: true }));
+        assert.equal(stripped.ok, true);
+        if (stripped.ok) {
+            assert.deepEqual(stripped.input, { path: "README.md" });
+            assert.deepEqual(stripped.inputDiagnostic?.paths, ["/extra"]);
         }
     } finally {
         await rm(workspaceRoot, { recursive: true, force: true });

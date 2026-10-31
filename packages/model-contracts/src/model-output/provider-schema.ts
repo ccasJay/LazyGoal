@@ -1,9 +1,4 @@
-import {
-    compileJsonSchema,
-    type Contract,
-    type JsonSchema202012,
-    type JsonSchemaValue,
-} from "../../../contracts/src/index";
+import type { JsonSchema202012 } from "../../../contracts/src/index";
 import { ModelOutputContractDefinitionError } from "./errors";
 
 /**
@@ -144,34 +139,26 @@ function assertPortableSchemaNode(
 }
 
 /**
- * 编译 Wire Contract 并严格校验其落在 OpenAI 与 Gemini 共同支持的可移植结构子集内。
+ * 校验已生成的 Wire Schema 是否落在 OpenAI 与 Gemini 共用的可移植子集内。
  *
  * @remarks
- * 统一剥离根节点的 `$schema` 标识，并严格校验：
- * 1. 根必须是 object，且联合只位于 result 或更深层；
- * 2. 所有 object 必须声明 `additionalProperties: false` 且所有属性必须列入 `required`；
- * 3. 联合必须统一使用 `anyOf`，单值使用单元素 `enum`；
- * 4. 严禁出现开放 record、递归（`$defs`/`$ref`）、字符串正则与长度约束等 Provider 不兼容特性。
+ * 输入必须是已经完成 wire 归一化的独立 JSON Schema 对象；本函数会深复制并冻结结果，
+ * 不修改调用方对象。开放对象、递归引用、字符串长度/正则约束与 `const` 等不可移植
+ * 关键字都会在此失败，调用方应在模型请求构造前处理。
  *
- * @param wireContract - 顶层带 result envelope 的 Wire Contract。
- * @returns 确定性且只读的 JSON Schema 2020-12 独立数据对象。
- * @throws 存在不兼容或不可移植定义时抛出 `ModelOutputContractDefinitionError`。
+ * @param schema - 待校验的 JSON Schema 根对象。
+ * @returns 深复制并冻结的可移植 Schema。
+ * @throws 根不是对象或包含不可移植结构时抛出 `ModelOutputContractDefinitionError`。
  *
  * @example
  * ```ts
- * const schema = compileModelOutputSchema(wireContract);
+ * const portable = assertPortableModelSchema(binding.modelProjection().schema);
  * ```
  */
-export function compileModelOutputSchema<C extends Contract<unknown>>(
-    wireContract: C,
-): JsonSchema202012 {
-    const rawSchema = compileJsonSchema(wireContract);
-    const { $schema, ...cleanSchema } = rawSchema as Record<string, JsonSchemaValue>;
-
-    const isolatedCopy = JSON.parse(JSON.stringify(cleanSchema)) as Record<string, JsonSchemaValue>;
+export function assertPortableModelSchema(schema: Readonly<Record<string, unknown>>): JsonSchema202012 {
+    const isolatedCopy = JSON.parse(JSON.stringify(schema)) as Record<string, unknown>;
     assertPortableSchemaNode(isolatedCopy, [], true);
-
-    return Object.freeze(isolatedCopy);
+    return Object.freeze(isolatedCopy) as JsonSchema202012;
 }
 
 /**

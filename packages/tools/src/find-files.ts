@@ -2,17 +2,14 @@ import { lstat, readdir, stat } from "node:fs/promises";
 import { relative, resolve } from "node:path";
 import picomatch from "picomatch";
 
-import type {
-    Tool,
-    ToolDefinition,
-    ToolExecutionRequest,
-    ToolObservation,
-    ToolValidationResult,
-} from "../../tool-core/src/index";
 import {
-    contract,
-    type InferContract,
-} from "../../contracts/src/index";
+    type BoundTool,
+    type Tool,
+    type BoundToolDefinition,
+    type ToolExecutionRequest,
+    type ToolObservation,
+    type ToolValidationResult,
+} from "../../tool-core/src/index";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,
@@ -30,6 +27,7 @@ import {
     type DomainFailureMessages,
     type WorkspaceSandbox,
 } from "../../sandbox/src/index";
+import { findFilesInputBinding } from "./generated/find-files/binding";
 
 /** `FindFilesTool` 在 Profile 中使用的稳定标识。 */
 export const FIND_FILES_TOOL_ID = "find_files";
@@ -76,18 +74,32 @@ const FIND_FILES_DOMAIN_FAILURES: DomainFailureMessages = {
 };
 
 /** FindFiles Tool 的输入契约。 */
-export const FIND_FILES_INPUT_CONTRACT = contract.object({
-    pattern: contract.string(),
-    path: contract.optional(contract.string()),
-    maxResults: contract.optional(contract.integer({
-        minimum: 1,
-        maximum: FIND_FILES_MAX_RESULTS_LIMIT,
-    })),
-    cursor: contract.optional(contract.string()),
-});
 
 /** FindFiles 输入结构。 */
-export type FindFilesInput = InferContract<typeof FIND_FILES_INPUT_CONTRACT>;
+/**
+ * `find_files` 的结构化输入。
+ *
+ * @remarks
+ * `pattern` 使用 picomatch 语法；`path` 限定搜索根，`maxResults` 与 `cursor` 控制单页结果和续读。
+ */
+export interface FindFilesInput {
+    /** 文件匹配 glob 模式。 */
+    readonly pattern: string;
+    /** 可选的搜索根目录。 */
+    readonly path?: string;
+    /**
+     * 单页最多返回的结果数。
+     * @asType integer
+     * @minimum 1
+     * @maximum 1000
+     */
+    readonly maxResults?: number;
+    /** 上一页返回的分页游标。 */
+    readonly cursor?: string;
+}
+
+/** `find_files` 的生成输入绑定。 */
+export { findFilesInputBinding };
 
 /** FindFiles 成功输出结构。 */
 export interface FindFilesOutput {
@@ -128,11 +140,11 @@ interface FindFilesCursorPayload {
  * });
  * ```
  */
-export class FindFilesTool implements Tool<typeof FIND_FILES_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof FIND_FILES_INPUT_CONTRACT> = {
+export class FindFilesTool implements BoundTool<FindFilesInput> {
+    readonly definition: BoundToolDefinition<FindFilesInput> = {
         id: FIND_FILES_TOOL_ID,
         description: "Find files in workspace matching a glob pattern with pagination support.",
-        inputContract: FIND_FILES_INPUT_CONTRACT,
+        inputBinding: findFilesInputBinding,
         isReadOnly: true,
     };
 

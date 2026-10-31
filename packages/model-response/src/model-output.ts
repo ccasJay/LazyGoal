@@ -1,10 +1,12 @@
 import type { ContractValidationError } from "../../contracts/src/index";
 import type {
     AgentDecision,
-    ModelOutputContractBundle,
+    ModelContractDecodeOptions,
+    ModelOutputBundle,
 } from "../../model-contracts/src/index";
 import {
-    createModelOutputContractBundle,
+    createBoundModelOutputContractBundle,
+    modelOutputBindings,
     validateModelOutputSemantics,
 } from "../../model-contracts/src/index";
 import {
@@ -84,30 +86,32 @@ export function parseJson(content: string): unknown {
  *
  * @remarks
  * 1. 严格提取裸 JSON 或完整 fenced 代码块，拒绝正文夹带与空白文本；
- * 2. 由 Bundle 执行 Wire 校验与确定性解码（还原 optional 缺省、保留业务 null、复验 Input Contract）；
+ * 2. 由 Bundle 执行同源生成 Schema 的 Wire 解码与未知字段剥离诊断；
  * 3. 对解码后的规范对象进行基础语义校验（非空白字符串、非反转 range、非空变更）；
  * 4. 任何阶段失败均抛出带稳定分类码与定位路径的 {@link LLMResponseProtocolError}，绝不静默修复或降级。
  *
  * @param content - Adapter 返回的原始模型文本。
  * @param bundle - 当前请求绑定的模型输出契约包。
+ * @param options - 可选的未知字段剥离诊断观察参数；不改变接受范围。
  * @returns 通过校验并解码后的规范领域结果。
  * @throws {@link LLMResponseProtocolError} 格式、结构或基础语义不符时抛出。
  *
  * @example
  * ```ts
- * const bundle = createModelOutputContractBundle({ kind: "executing", taskPresent: false });
+ * const bundle = createBoundModelOutputContractBundle({ kind: "executing", taskPresent: false }, modelOutputBindings);
  * const result = parseModelOutput(readAssistantText(response), bundle);
  * ```
  */
 export function parseModelOutput<Result>(
     content: string,
-    bundle: ModelOutputContractBundle<Result>,
+    bundle: ModelOutputBundle<Result>,
+    options?: ModelContractDecodeOptions,
 ): Result {
     const rawJson = parseJson(content);
 
     let decoded: Result;
     try {
-        decoded = bundle.decode(rawJson);
+        decoded = bundle.decode(rawJson, options);
     } catch (error) {
         const validationError = error as ContractValidationError;
         if (Array.isArray(validationError?.issues)) {
@@ -164,11 +168,11 @@ export function parseModelOutput<Result>(
  */
 export function parseAgentDecision(
     content: string,
-    bundle?: ModelOutputContractBundle<AgentDecision>,
+    bundle?: ModelOutputBundle<AgentDecision>,
 ): AgentDecision {
-    const effectiveBundle = bundle ?? (createModelOutputContractBundle({
+    const effectiveBundle = bundle ?? createBoundModelOutputContractBundle<AgentDecision>({
         kind: "executing",
-    }) as unknown as ModelOutputContractBundle<AgentDecision>);
+    }, modelOutputBindings);
 
     return parseModelOutput(content, effectiveBundle);
 }

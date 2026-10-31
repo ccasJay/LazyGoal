@@ -1,22 +1,21 @@
 import { basename, dirname, join } from "node:path";
 
 import type {
+    BoundTool,
     Tool,
-    ToolDefinition,
+    BoundToolDefinition,
     ToolExecutionRequest,
     ToolObservation,
     ToolValidationResult,
 } from "../../tool-core/src/index";
-import {
-    contract,
-    type InferContract,
-} from "../../contracts/src/index";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,
     throwIfAborted,
     type ExecutionControl,
 } from "../../execution-control/src/index";
+import { writeFileInputBinding } from "./generated/write-file/binding";
+export { writeFileInputBinding };
 import { invalidInput } from "./internal/invalid-input";
 import { markWorkspaceModified } from "./internal/workspace-version";
 import {
@@ -52,13 +51,20 @@ const WRITE_FILE_DOMAIN_FAILURES: DomainFailureMessages = {
     },
 };
 
-/** Write File Tool 的唯一输入 Contract。 */
-export const WRITE_FILE_INPUT_CONTRACT = contract.object({
-    path: contract.string(),
-    content: contract.string(),
-});
+/** Write File Tool 的唯一输入 Contract（过渡期供模型线消费）。 */
 
-type WriteFileInput = InferContract<typeof WRITE_FILE_INPUT_CONTRACT>;
+/**
+ * `write_file` 的结构化输入。
+ *
+ * @remarks
+ * `path` 必须是工作区相对路径；`content` 为完整 UTF-8 文本，覆盖已有内容。
+ */
+export interface WriteFileInput {
+    /** 工作区相对文件路径。 */
+    readonly path: string;
+    /** 要写入的完整文件内容。 */
+    readonly content: string;
+}
 
 /**
  * 在指定 workspaceRoot 内写入 UTF-8 文本文件的 Tool。
@@ -80,11 +86,11 @@ type WriteFileInput = InferContract<typeof WRITE_FILE_INPUT_CONTRACT>;
  * });
  * ```
  */
-export class WriteFileTool implements Tool<typeof WRITE_FILE_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof WRITE_FILE_INPUT_CONTRACT> = {
+export class WriteFileTool implements BoundTool<WriteFileInput> {
+    readonly definition: BoundToolDefinition<WriteFileInput> = {
         id: WRITE_FILE_TOOL_ID,
         description: "写入 workspaceRoot 内的 UTF-8 文本文件（覆盖已有内容）",
-        inputContract: WRITE_FILE_INPUT_CONTRACT,
+        inputBinding: writeFileInputBinding,
         isReadOnly: false,
     };
 

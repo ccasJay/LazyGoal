@@ -34,7 +34,6 @@ export {
 } from "./environment-spec";
 export {
     SUBMIT_ANSWER_TOOL_ID,
-    SUBMIT_ANSWER_INPUT_CONTRACT,
     SubmitAnswerTool,
     type SubmitAnswerToolOptions,
 } from "./submit-answer";

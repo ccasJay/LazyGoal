@@ -21,6 +21,8 @@ import { contract } from "../../contracts/src/index";
 import { createToolRegistration, type Tool } from "../../tool-core/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const profile: AgentProfile = { id: "handler-profile", systemPrompt: "Test", instructions: [], toolIds: [] };
 const toolProfile: AgentProfile = { id: "handler-tool-profile", systemPrompt: "Test", instructions: [], toolIds: ["write_probe"] };
@@ -94,7 +96,7 @@ function createHarness(options: {
             : {
                 toolRegistry: {
                     get: (toolId: string) => toolId === tool.definition.id
-                        ? createToolRegistration(tool)
+                        ? createTestToolRegistration(tool)
                         : undefined,
                 },
             }),
@@ -287,7 +289,7 @@ test("自动放行的工具不触发审批处理器，恢复请求不落入普�
         definition: {
             id: "write_probe",
             description: "May write externally",
-            inputContract: contract.record(contract.string()),
+            inputBinding: createTestBinding("test.tool", openObjectSchema()),
             isReadOnly: false,
         },
         replayPolicy: "manual",
@@ -336,7 +338,7 @@ test("自动放行的工具不触发审批处理器，恢复请求不落入普�
         trajectoryStore: trajectory,
         executor,
         checkpointCommitter: committer,
-        toolRegistry: { get: (toolId) => toolId === "write_probe" ? createToolRegistration(tool) : undefined },
+        toolRegistry: { get: (toolId) => toolId === "write_probe" ? createTestToolRegistration(tool) : undefined },
     });
     const coordinator = new GoalCoordinator({
         store,

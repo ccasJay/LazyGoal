@@ -24,7 +24,7 @@ for (const structuredOutputMode of ["strict", "prompt_only"] as const) {
             ["system_revise_run_stage", { target: "Inspect public entry points", acceptanceCriteria: ["Identify public entry points"], reason: "Focus the investigation" }],
             ["system_complete_run_stage", { summary: "Entry points inspected", evidenceSequences: [] }],
             ["system_start_run_stage", { target: "Verify", acceptanceCriteria: ["Verify the findings"] }],
-            ["system_wait_for_input", { reason: "Await user input" }],
+            ["system_wait_for_input", { reason: "Await user input", memoryPatch: null }],
         ];
         let decisions = 0;
         let reviews = 0;

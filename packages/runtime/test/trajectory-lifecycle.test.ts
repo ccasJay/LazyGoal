@@ -29,6 +29,8 @@ import type {
     TrajectoryStore,
 } from "../src/index";
 import { currentProtocols, withDiscoveredProfileTools } from "./current-fixtures";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 function createGoal(input: Parameters<typeof createUnexposedGoal>[0]) {
     return withDiscoveredProfileTools(createUnexposedGoal(input));
@@ -41,7 +43,7 @@ const profile: AgentProfile = {
     toolIds: ["echo"],
 };
 
-const TEST_INPUT_CONTRACT = contract.record(contract.string());
+const TEST_INPUT_SCHEMA = openObjectSchema();
 
 class RecordingTrajectorySink implements TrajectoryStore {
     readonly events: TrajectoryEvent[] = [];
@@ -122,11 +124,11 @@ test("Runner appends ordered execution facts and commits Snapshot boundary after
     const toolEvents: string[] = [];
     let decisionCount = 0;
 
-    const tool: Tool<typeof TEST_INPUT_CONTRACT> = {
+    const tool: Tool<any> = {
         definition: {
             id: "echo",
             description: "echo",
-            inputContract: TEST_INPUT_CONTRACT,
+            inputBinding: createTestBinding("test.tool", TEST_INPUT_SCHEMA),
             isReadOnly: false,
         },
         replayPolicy: "safe",
@@ -152,7 +154,7 @@ test("Runner appends ordered execution facts and commits Snapshot boundary after
         trajectoryStore: sink,
         store,
         toolRegistry: {
-            get: (id) => id === tool.definition.id ? createToolRegistration(tool) : undefined,
+            get: (id) => id === tool.definition.id ? createTestToolRegistration(tool) : undefined,
         },
         executor: createStepExecutor(async () => {
             decisionCount += 1;
@@ -228,11 +230,11 @@ test("Runner 恢复 safe Action 时保持 Tool Observation 与 Snapshot 的提�
     );
     await store.save(interrupted);
     let prepareCalls = 0;
-    const tool: Tool<typeof TEST_INPUT_CONTRACT> = {
+    const tool: Tool<any> = {
         definition: {
             id: "echo",
             description: "echo",
-            inputContract: TEST_INPUT_CONTRACT,
+            inputBinding: createTestBinding("test.tool", TEST_INPUT_SCHEMA),
             isReadOnly: false,
         },
         replayPolicy: "safe",
@@ -242,7 +244,7 @@ test("Runner 恢复 safe Action 时保持 Tool Observation 与 Snapshot 的提�
             return { kind: "success", output: "ok", summary: "done" };
         },
     };
-    const baseRegistration = createToolRegistration(tool);
+    const baseRegistration = createTestToolRegistration(tool);
     const registration: ToolRegistration = {
         ...baseRegistration,
         prepare(input, control) {

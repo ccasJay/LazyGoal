@@ -19,12 +19,15 @@ import {
 import {
     createToolRegistration,
     InMemoryToolRegistry,
+    type BoundToolDefinition,
     type Tool,
     type ToolDefinition,
 } from "../../tool-core/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { BaseTestStepExecutor, currentProtocols, InMemoryTrajectoryStore, trajectoryStoreFor } from "./current-fixtures";
 import { contract } from "../../contracts/src/index";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const profile: AgentProfile = {
     id: "plan-run-profile",
@@ -38,15 +41,15 @@ const task: GoalTask = {
     completionCriteria: [],
 };
 
-const OBSERVATION_TOOL_INPUT = contract.object({});
-const OBSERVATION_TOOL_DEFINITION: ToolDefinition<typeof OBSERVATION_TOOL_INPUT> = {
+const OBSERVATION_TOOL_INPUT = objectInputSchema();
+const OBSERVATION_TOOL_DEFINITION: BoundToolDefinition<any> = {
     id: "record_observation",
     description: "产生可引用的当前 Run Observation",
-    inputContract: OBSERVATION_TOOL_INPUT,
+    inputBinding: createTestBinding("test.tool", OBSERVATION_TOOL_INPUT),
     isReadOnly: true,
 };
 
-const observationTool: Tool<typeof OBSERVATION_TOOL_INPUT> = {
+const observationTool: Tool<any> = {
     definition: OBSERVATION_TOOL_DEFINITION,
     replayPolicy: "safe",
     validate: () => ({ ok: true }),
@@ -366,7 +369,7 @@ test("同一 Run 可以依次完成多个 Todo，计划更新不会结束或创�
     const result = await new Runner({
         store,
         trajectoryStore: trajectory,
-        toolRegistry: new InMemoryToolRegistry([createToolRegistration(observationTool)]),
+        toolRegistry: new InMemoryToolRegistry([createTestToolRegistration(observationTool)]),
         executor: new MultiTodoExecutor(trajectory),
     }).run({ goalId: initial.id, runId: initial.state.run.id });
 
@@ -410,7 +413,7 @@ test("GoalPlan 提交遇到 Snapshot 或 Trajectory 故障时停在最后有效�
 
         let modelCalls = 0;
         let toolCalls = 0;
-        const countingTool: Tool<typeof OBSERVATION_TOOL_INPUT> = {
+        const countingTool: Tool<any> = {
             ...observationTool,
             async execute() {
                 toolCalls += 1;
@@ -439,7 +442,7 @@ test("GoalPlan 提交遇到 Snapshot 或 Trajectory 故障时停在最后有效�
             () => new Runner({
                 store,
                 trajectoryStore: trajectory,
-                toolRegistry: new InMemoryToolRegistry([createToolRegistration(countingTool)]),
+                toolRegistry: new InMemoryToolRegistry([createTestToolRegistration(countingTool)]),
                 executor,
             }).run({ goalId: initial.id, runId: initial.state.run.id }),
             failingBoundary === "snapshot" ? saveError : /goal plan trajectory append failed/,
@@ -510,7 +513,7 @@ test("GoalPlan Todo 可以引用当前 Run 已提交 Observation 完成", async 
     const result = await new Runner({
         store,
         trajectoryStore: trajectory,
-        toolRegistry: new InMemoryToolRegistry([createToolRegistration(observationTool)]),
+        toolRegistry: new InMemoryToolRegistry([createTestToolRegistration(observationTool)]),
         executor: new TodoCompletionExecutor(trajectory),
     }).run({ goalId: initial.id, runId: initial.state.run.id });
 

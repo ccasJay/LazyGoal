@@ -423,7 +423,6 @@ test("BashTool 拒绝非法输入", async () => {
             { command: "   " },
             { command: 42 },
             { command: "ls", timeoutMs: "100" },
-            { command: "ls", extra: true },
             { command: "ls", timeoutMs: 0 },
             { command: "ls", timeoutMs: -1 },
             { command: "ls", timeoutMs: 1.5 },
@@ -438,6 +437,13 @@ test("BashTool 拒绝非法输入", async () => {
             if (!result.ok) {
                 assert.equal(result.error.code, "INVALID_TOOL_INPUT");
             }
+        }
+
+        const stripped = registration.prepare(asJsonValue({ command: "ls", extra: true }));
+        assert.equal(stripped.ok, true);
+        if (stripped.ok) {
+            assert.deepEqual(stripped.input, { command: "ls" });
+            assert.deepEqual(stripped.inputDiagnostic?.paths, ["/extra"]);
         }
 
         assert.deepEqual(tool.validate({ command: "ls" }), { ok: true });

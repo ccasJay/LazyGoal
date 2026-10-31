@@ -28,22 +28,10 @@ import { contract } from "../../contracts/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import type { ProjectPermissionModeStore } from "../../permission/src/index";
 import { BaseTestStepExecutor, currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
-const TEST_INPUT_CONTRACT = contract.object({
-    command: contract.string(),
-    sandboxAccess: contract.optional(contract.object({
-        files: contract.optional(contract.array(contract.object({
-            path: contract.string(),
-            access: contract.enum(["read", "write"]),
-            kind: contract.enum(["file", "directory_tree"]),
-            purpose: contract.string(),
-        }))),
-        network: contract.optional(contract.object({
-            targets: contract.array(contract.string()),
-            purpose: contract.string(),
-        })),
-    })),
-});
+const TEST_INPUT_SCHEMA = sandboxCommandSchema();
 
 type SandboxTestInput = {
     readonly command: string;
@@ -82,12 +70,12 @@ class FakeStepExecutor extends BaseTestStepExecutor {
 function createSandboxTestTool(
     workspaceRoot: string,
     onExecute?: (request: ToolExecutionRequest<SandboxTestInput>) => void,
-): Tool<typeof TEST_INPUT_CONTRACT> {
+): Tool<any> {
     return {
         definition: {
             id: "bash",
             description: "受限测试 bash",
-            inputContract: TEST_INPUT_CONTRACT,
+            inputBinding: createTestBinding("test.tool", TEST_INPUT_SCHEMA),
             isReadOnly: false,
         },
         replayPolicy: "manual",
@@ -173,7 +161,7 @@ test("macOS 默认沙箱内的 Bash 在 YOLO 模式下自动放行执行", async
         });
         const registry = {
             get(id: string) {
-                if (id === "bash") return createToolRegistration(tool);
+                if (id === "bash") return createTestToolRegistration(tool);
                 throw new Error(`Tool ${id} not found`);
             },
         };
@@ -220,7 +208,7 @@ test("越界文件访问在 Default 模式下挂起审批并标明 approvalKind 
         });
         const registry = {
             get(id: string) {
-                if (id === "bash") return createToolRegistration(tool);
+                if (id === "bash") return createTestToolRegistration(tool);
                 throw new Error(`Tool ${id} not found`);
             },
         };
@@ -278,7 +266,7 @@ test("越界文件与网络访问即使在 YOLO 模式下也必须挂起审批�
         });
         const registry = {
             get(id: string) {
-                if (id === "bash") return createToolRegistration(tool);
+                if (id === "bash") return createTestToolRegistration(tool);
                 throw new Error(`Tool ${id} not found`);
             },
         };
@@ -335,7 +323,7 @@ test("单次审批通过后，恢复执行能携带核准沙箱能力并成功�
         });
         const registry = {
             get(id: string) {
-                if (id === "bash") return createToolRegistration(tool);
+                if (id === "bash") return createTestToolRegistration(tool);
                 throw new Error(`Tool ${id} not found`);
             },
         };
@@ -426,7 +414,7 @@ test("审批拒绝（reject_action）后，终止该 Action 调度，受限命�
         });
         const registry = {
             get(id: string) {
-                if (id === "bash") return createToolRegistration(tool);
+                if (id === "bash") return createTestToolRegistration(tool);
                 throw new Error(`Tool ${id} not found`);
             },
         };

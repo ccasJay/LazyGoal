@@ -1,0 +1,23 @@
+{
+  "contractId": "tool.context_shell.input",
+  "version": 1,
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "source": {
+    "path": "benchmarks/context/src/context-shell.ts#ContextShellInput",
+    "sha256": "ed282f56238dc34bc502f341081001d1def900be565467e770cb6828704f0885"
+  },
+  "generator": {
+    "name": "ts-json-schema-generator",
+    "version": "2.9.0",
+    "typescriptVersion": "5.9.3"
+  },
+  "validator": {
+    "name": "Ajv standalone",
+    "version": "8.20.0"
+  },
+  "bundler": {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "format": "esm"
+  }
+}

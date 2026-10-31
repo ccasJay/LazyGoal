@@ -4,6 +4,8 @@
 
 | 概念 | 简明含义 | 归属模块 | 权威说明 |
 | --- | --- | --- | --- |
+| 工具输入 TS 契约 | 各工具在源码中声明的输入 interface 与 JSDoc 约束；Catalog 登记其生成身份。 | [内置工具](../README.md) | [模块说明](./overview.md)、[Catalog](../../../contracts/catalog.json) |
+| 工具输入生成绑定 | 由 Catalog 从 TS 输入生成的 Schema、校验器与 `ContractBinding`；工具注册与准备消费。 | [内置工具](../README.md) | [模块说明](./overview.md)、[生成目录](../src/generated/) |
 | BashTool | 受控 Shell 工具。 | [内置工具](../README.md) | [模块说明](./overview.md) |
 | 仓库文本搜索 | Bash 在 workspaceRoot 内执行有界 shell 搜索；优先 bundled `rg`，运行时诊断后可降级为系统 `grep` 或 `find`/`awk`。 | [内置工具](../README.md) | [模块说明](./overview.md)、[Bash 实现](../src/bash.ts) |
 | ReadFileTool | 文件读取工具。 | [内置工具](../README.md) | [模块说明](./overview.md) |

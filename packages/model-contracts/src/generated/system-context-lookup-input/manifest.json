@@ -1,0 +1,23 @@
+{
+  "contractId": "model.system-tool.context-lookup",
+  "version": 1,
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "source": {
+    "path": "packages/model-contracts/src/model-output/schema-types.ts#SystemContextLookupInput,ContextLookupDirectoryBrowseInput,ContextLookupDirectorySearchInput,ContextLookupFilters,ContextLookupHistorySearchInput,ContextLookupNeed,ContextLookupOperationInput,ContextLookupPageSize,ContextLookupSequenceRange,ContextLookupSourceExpandInput,JsonInteger,NonNegativeInteger,PositiveInteger",
+    "sha256": "8413162b58c66da7470fd0123866639e7ef3582add176331534983e110842aaa"
+  },
+  "generator": {
+    "name": "ts-json-schema-generator",
+    "version": "2.9.0",
+    "typescriptVersion": "5.9.3"
+  },
+  "validator": {
+    "name": "Ajv standalone",
+    "version": "8.20.0"
+  },
+  "bundler": {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "format": "esm"
+  }
+}

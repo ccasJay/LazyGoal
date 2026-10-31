@@ -5,10 +5,9 @@ import {
     type ModelContextEpochState,
     type StepRecord,
 } from "../../runtime/src/domain";
-import type { ToolDefinition } from "../../tool-core/src/index";
+import type { AnyBoundToolDefinition } from "../../tool-core/src/index";
 import type { WorkingMemory } from "../../working-memory/src/index";
 import { canUpdateGoalPlan } from "../../runtime/src/run-mode-capabilities";
-import { compileJsonSchema } from "../../contracts/src/index";
 import type { ContextLookupResult } from "../../runtime/src/context-retrieval";
 import type {
     ModelConversationMessage,
@@ -65,7 +64,7 @@ export class ModelInferenceProjector {
      */
     project(
         goal: Goal,
-        tools: readonly ToolDefinition[] = [],
+        tools: readonly AnyBoundToolDefinition[] = [],
         workingMemory?: WorkingMemory,
         trajectoryContext?: ModelTrajectoryContext,
         contextLookupResult?: ContextLookupResult,
@@ -387,7 +386,7 @@ function projectMessageSource(source: GoalMessageSource): ModelMessageSource {
 }
 
 function projectTools(
-    tools: readonly ToolDefinition[],
+    tools: readonly AnyBoundToolDefinition[],
     omitInputSchema = false,
 ): readonly ModelToolDefinition[] {
     const seen = new Set<string>();
@@ -405,9 +404,7 @@ function projectTools(
             };
         }
 
-        const { $schema: _schema, ...inputSchema } = compileJsonSchema(
-            tool.inputContract,
-        );
+        const { $schema: _schema, ...inputSchema } = tool.inputBinding.modelProjection().schema;
 
         return {
             id: tool.id,

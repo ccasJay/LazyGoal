@@ -1,0 +1,23 @@
+{
+  "contractId": "tool.find_files.input",
+  "version": 1,
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "source": {
+    "path": "packages/tools/src/find-files.ts#FindFilesInput",
+    "sha256": "80f5bdf08a2e52c3d89c073b6b165e1e0edcf17df8f81081379abd54ca8ef7b4"
+  },
+  "generator": {
+    "name": "ts-json-schema-generator",
+    "version": "2.9.0",
+    "typescriptVersion": "5.9.3"
+  },
+  "validator": {
+    "name": "Ajv standalone",
+    "version": "8.20.0"
+  },
+  "bundler": {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "format": "esm"
+  }
+}

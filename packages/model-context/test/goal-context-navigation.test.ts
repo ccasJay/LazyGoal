@@ -1,10 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { contract } from "../../contracts/src/index";
 import { createGoal } from "../../runtime/src/domain";
 import type { Goal, GoalMessage, RunStageState } from "../../runtime/src/domain";
-import type { ToolDefinition } from "../../tool-core/src/index";
+import { createTestToolDefinition, objectInputSchema } from "../../tool-core/test/binding-fixtures";
 import { createEmptyWorkingMemory } from "../../working-memory/src/index";
 import {
     ModelInferenceProjector,
@@ -39,12 +38,9 @@ const sampleProfile = {
     instructions: ["Follow user instructions"],
     toolIds: ["sample_tool"],
 };
-const sampleTool: ToolDefinition = {
-    id: "sample_tool",
-    description: "Sample tool for testing",
-    inputContract: contract.object({ key: contract.string() }),
-    isReadOnly: true,
-};
+const sampleTool = createTestToolDefinition("sample_tool", objectInputSchema({
+    key: { type: "string" },
+}), { description: "Sample tool for testing", isReadOnly: true });
 
 function createRunningGoal(options: {
     currentStage?: RunStageState;

@@ -1,0 +1,23 @@
+{
+  "contractId": "tool.process_read.input",
+  "version": 1,
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "source": {
+    "path": "packages/tools/src/process-tools.ts#ProcessReadInput",
+    "sha256": "e11e8c997d489e278b92f839b72669e40b682f812ccdf8b2dc29c81bbd5d3383"
+  },
+  "generator": {
+    "name": "ts-json-schema-generator",
+    "version": "2.9.0",
+    "typescriptVersion": "5.9.3"
+  },
+  "validator": {
+    "name": "Ajv standalone",
+    "version": "8.20.0"
+  },
+  "bundler": {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "format": "esm"
+  }
+}

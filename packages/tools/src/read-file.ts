@@ -1,17 +1,14 @@
 import { open, readdir, stat } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 
-import type {
-    Tool,
-    ToolDefinition,
-    ToolExecutionRequest,
-    ToolObservation,
-    ToolValidationResult,
-} from "../../tool-core/src/index";
 import {
-    contract,
-    type InferContract,
-} from "../../contracts/src/index";
+    type BoundTool,
+    type Tool,
+    type BoundToolDefinition,
+    type ToolExecutionRequest,
+    type ToolObservation,
+    type ToolValidationResult,
+} from "../../tool-core/src/index";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,
@@ -31,6 +28,7 @@ import {
     type DomainFailureMessages,
     type WorkspaceSandbox,
 } from "../../sandbox/src/index";
+import { readFileInputBinding } from "./generated/read-file/binding";
 
 /** `ReadFileTool` 在 Profile 中使用的稳定标识。 */
 export const READ_FILE_TOOL_ID = "read_file";
@@ -65,19 +63,43 @@ const READ_FILE_DOMAIN_FAILURES: DomainFailureMessages = {
 };
 
 /** Read File Tool 的输入 Contract。 */
-export const READ_FILE_INPUT_CONTRACT = contract.object({
-    path: contract.string(),
-    startLine: contract.optional(contract.integer({ minimum: 1 })),
-    endLine: contract.optional(contract.integer({ minimum: 1 })),
-    maxChars: contract.optional(contract.integer({
-        minimum: 1,
-        maximum: READ_FILE_MAX_CHARS_LIMIT,
-    })),
-    cursor: contract.optional(contract.string()),
-});
 
-/** ReadFile 输入类型。 */
-export type ReadFileInput = InferContract<typeof READ_FILE_INPUT_CONTRACT>;
+/**
+ * `read_file` 的结构化输入。
+ *
+ * @remarks
+ * `startLine` 与 `endLine` 为 1 起始的闭区间；`maxChars` 限制单次返回字符数，`cursor` 用于续读。
+ */
+export interface ReadFileInput {
+    /** 工作区相对文件路径。 */
+    readonly path: string;
+    /**
+     * 起始行号（1 起始）。
+     * @asType integer
+     * @minimum 1
+     * @maximum 9007199254740991
+     */
+    readonly startLine?: number;
+    /**
+     * 结束行号（1 起始，包含）。
+     * @asType integer
+     * @minimum 1
+     * @maximum 9007199254740991
+     */
+    readonly endLine?: number;
+    /**
+     * 单次最多返回的字符数。
+     * @asType integer
+     * @minimum 1
+     * @maximum 50000
+     */
+    readonly maxChars?: number;
+    /** 上一页返回的续读游标。 */
+    readonly cursor?: string;
+}
+
+/** `read_file` 的生成输入绑定。 */
+export { readFileInputBinding };
 
 /** ReadFile 成功输出结构。 */
 export interface ReadFileOutput {
@@ -122,11 +144,11 @@ interface ReadFileCursorPayload {
  * });
  * ```
  */
-export class ReadFileTool implements Tool<typeof READ_FILE_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof READ_FILE_INPUT_CONTRACT> = {
+export class ReadFileTool implements BoundTool<ReadFileInput> {
+    readonly definition: BoundToolDefinition<ReadFileInput> = {
         id: READ_FILE_TOOL_ID,
         description: "Read UTF-8 text from a file in workspaceRoot with line range and pagination support.",
-        inputContract: READ_FILE_INPUT_CONTRACT,
+        inputBinding: readFileInputBinding,
         isReadOnly: true,
     };
 

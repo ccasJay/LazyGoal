@@ -10,7 +10,7 @@ import type {
 } from "./domain";
 import type { WorkingMemory } from "../../working-memory/src/index";
 import type { ContextLookupResult } from "./context-retrieval";
-import type { ToolDefinition } from "../../tool-core/src/index";
+import type { AnyBoundToolDefinition } from "../../tool-core/src/index";
 import type { ExecutionControl } from "../../execution-control/src/index";
 import type { ExecutionStreamPublisher } from "../../execution-stream/src/index";
 import type { ModelContextFramePayload, TrajectoryEvent } from "./trajectory";
@@ -224,8 +224,8 @@ export interface ThinkStageResult {
 export interface StepExecutionInput {
     /** 当前处于 executing 的完整 Goal 快照。 */
     readonly goal: Goal;
-    /** 当前 Profile 白名单与 Registry 的交集 Tool 描述。 */
-    readonly authorizedTools: readonly ToolDefinition[];
+    /** 当前 Profile 白名单与 Registry 的交集 Tool 描述与输入绑定。 */
+    readonly authorizedTools: readonly AnyBoundToolDefinition[];
     /** 当前 Run 累积的可见 Tool ID；Runtime 仅投影其与授权工具的交集。 */
     readonly exposedToolIds?: readonly string[];
     /** 当前 structured@1 协议的临时 Working Memory。 */

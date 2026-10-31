@@ -1,0 +1,23 @@
+{
+  "contractId": "model.output.tool-call-action",
+  "version": 1,
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "source": {
+    "path": "packages/model-contracts/src/model-output/schema-types.ts#ToolCallActionEnvelope",
+    "sha256": "2bdda2ba6b73ae086b66792cabb273874fcb170f6bcc7052eac797db7f5714fb"
+  },
+  "generator": {
+    "name": "ts-json-schema-generator",
+    "version": "2.9.0",
+    "typescriptVersion": "5.9.3"
+  },
+  "validator": {
+    "name": "Ajv standalone",
+    "version": "8.20.0"
+  },
+  "bundler": {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "format": "esm"
+  }
+}

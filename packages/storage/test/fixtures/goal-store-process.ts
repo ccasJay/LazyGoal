@@ -1,7 +1,8 @@
 import { JsonFileGoalStore } from "../../src/index";
 import { Runner, createStepExecutor } from "../../../runtime/src/index";
 import { contract } from "../../../contracts/src/index";
-import { createToolRegistration, type Tool, type ToolRegistration } from "../../../tool-core/src/index";
+import { type BoundTool, type ToolRegistration } from "../../../tool-core/src/index";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../../tool-core/test/binding-fixtures";
 import type {
     Goal,
     GoalStore,
@@ -9,11 +10,12 @@ import type {
     StepExecutor,
 } from "../../../runtime/src/index";
 import {
-    READ_FILE_INPUT_CONTRACT,
     READ_FILE_TOOL_ID,
     ReadFileTool,
+    type ReadFileInput,
 } from "../../../tools/src/index";
 import { InMemoryTrajectoryStore, trajectoryStoreFor } from "../../../runtime/test/current-fixtures";
+import { createTestToolRegistration } from "../../../tool-core/test/helpers";
 
 const [
     mode,
@@ -58,7 +60,7 @@ async function main(): Promise<void> {
         }
 
         const tool = new ReadFileTool(workspaceRoot);
-        const baseRegistration = createToolRegistration(tool);
+        const baseRegistration = createTestToolRegistration(tool);
         let prepareCalls = 0;
         const registration: ToolRegistration = {
             ...baseRegistration,
@@ -128,7 +130,7 @@ async function main(): Promise<void> {
         };
         const tool = new ReadFileTool(workspaceRoot);
         const observedActionIds: string[] = [];
-        const recordingTool: Tool<typeof READ_FILE_INPUT_CONTRACT> = {
+        const recordingTool: BoundTool<ReadFileInput> = {
             definition: tool.definition,
             replayPolicy: tool.replayPolicy,
             validate: (input) => tool.validate(input),
@@ -165,7 +167,7 @@ async function main(): Promise<void> {
             toolRegistry: {
                 get(id) {
                     return id === READ_FILE_TOOL_ID
-                        ? createToolRegistration(recordingTool)
+                        ? createTestToolRegistration(recordingTool)
                         : undefined;
                 },
             },
@@ -182,12 +184,12 @@ async function main(): Promise<void> {
 
         let toolCalls = 0;
         let executorCalls = 0;
-        const MANUAL_INPUT_CONTRACT = contract.record(contract.string());
-        const tool: Tool<typeof MANUAL_INPUT_CONTRACT> = {
+        const MANUAL_INPUT_SCHEMA = openObjectSchema();
+        const tool: BoundTool<Readonly<Record<string, string>>> = {
             definition: {
                 id: "manual_tool",
                 description: "需要人工确认的 Tool",
-                inputContract: MANUAL_INPUT_CONTRACT,
+                inputBinding: createTestBinding("test.manual_tool", MANUAL_INPUT_SCHEMA),
                 isReadOnly: false,
             },
             replayPolicy: "manual",
@@ -197,7 +199,7 @@ async function main(): Promise<void> {
                 return { kind: "success", output: "不应执行", summary: "不应执行" };
             },
         };
-        const baseRegistration = createToolRegistration(tool);
+        const baseRegistration = createTestToolRegistration(tool);
         let prepareCalls = 0;
         const registration: ToolRegistration = {
             ...baseRegistration,
@@ -260,7 +262,7 @@ async function main(): Promise<void> {
 
                     const base = new ReadFileTool(workspaceRoot);
 
-                    const decorated: Tool<typeof READ_FILE_INPUT_CONTRACT> = {
+                    const decorated: BoundTool<ReadFileInput> = {
                         definition: base.definition,
                         replayPolicy: base.replayPolicy,
                         validate: (input) => base.validate(input),
@@ -269,7 +271,7 @@ async function main(): Promise<void> {
                             return base.execute(request, control);
                         },
                     };
-                    return createToolRegistration(decorated);
+                    return createTestToolRegistration(decorated);
                 },
             },
         });

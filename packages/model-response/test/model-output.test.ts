@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { contract } from "../../contracts/src/index";
-import { createModelOutputContractBundle } from "../../model-contracts/src/index";
+import { createBoundModelOutputContractBundle, modelOutputBindings } from "../../model-contracts/src/index";
+import { createTestToolDefinition, objectInputSchema } from "../../tool-core/test/binding-fixtures";
 import {
     LLM_RESPONSE_PROTOCOL_ERROR_CODE,
     LLMResponseProtocolError,
@@ -12,32 +12,29 @@ import {
     parseModelOutput,
 } from "../src/index";
 
-const TEST_TOOL_INPUT_CONTRACT = contract.object({
-    query: contract.string(),
-    limit: contract.optional(contract.number()),
-});
+const searchDocsTool = createTestToolDefinition("search_docs", objectInputSchema({
+    query: { type: "string" },
+    limit: { type: "number" },
+}, ["query"]));
 
-const executingWithToolBundle = createModelOutputContractBundle({
+const executingWithToolBundle = createBoundModelOutputContractBundle({
     kind: "executing",
-    authorizedTools: [{
-        id: "search_docs",
-        inputContract: TEST_TOOL_INPUT_CONTRACT,
-    }],
-});
+    authorizedTools: [searchDocsTool],
+}, modelOutputBindings);
 
-const executingNoToolBundle = createModelOutputContractBundle({
+const executingNoToolBundle = createBoundModelOutputContractBundle({
     kind: "executing",
-});
+}, modelOutputBindings);
 
-const unapprovedBundle = createModelOutputContractBundle({
+const unapprovedBundle = createBoundModelOutputContractBundle({
     kind: "executing",
     taskPresent: false,
     planMode: true,
-});
+}, modelOutputBindings);
 
-const checkpointBundle = createModelOutputContractBundle({
+const checkpointBundle = createBoundModelOutputContractBundle({
     kind: "checkpoint",
-});
+}, modelOutputBindings);
 
 test("extractJsonPayload 接受裸 JSON 与完整 fenced code block，严格拒绝正文夹带与空白", () => {
     assert.equal(extractJsonPayload("{\"result\": 1}"), "{\"result\": 1}");
@@ -145,6 +142,7 @@ test("parseModelOutput 成功解析各类请求的合法结果并还原 optional
                     limit: null,
                 },
             },
+            contextNotes: null,
             memoryPatch: {
                 protocolVersion: 1,
                 operations: [{
@@ -259,7 +257,7 @@ test("parseModelOutput 拦截结构缺失、类型错误和多余字段，并保
         },
     );
 
-    // 联合分支均不匹配时报告 union_no_match
+    // 不可用判别值时报告 invalid_enum_value
     const noBranchMatch = JSON.stringify({
         result: {
             kind: "unknown_kind",
@@ -270,14 +268,14 @@ test("parseModelOutput 拦截结构缺失、类型错误和多余字段，并保
         (err: unknown) => {
             assert.ok(err instanceof LLMResponseProtocolError);
             assert.equal(err.code, LLM_RESPONSE_PROTOCOL_ERROR_CODE);
-            const issue = err.issues?.find((i) => i.code === "union_no_match");
-            assert.ok(issue, "应有针对 result 的 union_no_match issue");
-            assert.deepEqual(issue.path, ["result"]);
+            const issue = err.issues?.find((i) => i.code === "invalid_enum_value");
+            assert.ok(issue, "应有针对 result.kind 的 invalid_enum_value issue");
+            assert.deepEqual(issue.path, ["result", "kind"]);
             return true;
         },
     );
 
-    // 单一对象结构中包含多余字段（在 checkpointBundle 中验证）
+    // 未知字段在模型输出边界剥离，并通过诊断旁路报告路径
     const extraField = JSON.stringify({
         result: {
             kind: "context_checkpoint",
@@ -285,17 +283,12 @@ test("parseModelOutput 拦截结构缺失、类型错误和多余字段，并保
             unauthorizedKey: "malicious",
         },
     });
-    assert.throws(
-        () => parseModelOutput(extraField, checkpointBundle),
-        (err: unknown) => {
-            assert.ok(err instanceof LLMResponseProtocolError);
-            assert.equal(err.code, LLM_RESPONSE_PROTOCOL_ERROR_CODE);
-            const issue = err.issues?.find((i) => i.path.join(".") === "result.unauthorizedKey");
-            assert.ok(issue, "应有针对 result.unauthorizedKey 的 extra_field issue");
-            assert.equal(issue.code, "extra_field");
-            return true;
-        },
-    );
+    const diagnostics: string[] = [];
+    const decodedExtra = parseModelOutput(extraField, checkpointBundle, {
+        onDiagnostic: diagnostic => diagnostics.push(...diagnostic.paths),
+    });
+    assert.deepEqual(decodedExtra, { kind: "context_checkpoint" });
+    assert.deepEqual(diagnostics, ["/result/unauthorizedKey"]);
 
     // 单一对象结构中字段类型错误（在 checkpointBundle 中验证）
     const wrongType = JSON.stringify({

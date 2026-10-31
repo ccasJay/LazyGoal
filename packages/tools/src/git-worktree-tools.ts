@@ -1,15 +1,19 @@
 import { existsSync } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
-import { contract, type InferContract } from "../../contracts/src/index";
 import type {
+    BoundTool,
     Tool,
-    ToolDefinition,
+    BoundToolDefinition,
     ToolExecutionRequest,
     ToolObservation,
     ToolValidationResult,
 } from "../../tool-core/src/index";
 import { throwIfAborted, type ExecutionControl } from "../../execution-control/src/index";
+import { gitWorktreeAddInputBinding } from "./generated/git-worktree-add/binding";
+export { gitWorktreeAddInputBinding };
+import { gitWorktreeRemoveInputBinding } from "./generated/git-worktree-remove/binding";
+export { gitWorktreeRemoveInputBinding };
 import { invalidInput } from "./internal/invalid-input";
 import {
     createWorkspaceSandbox,
@@ -44,14 +48,20 @@ export const GIT_WORKTREE_REMOVE_TOOL_ID = "git_worktree_remove";
 /**
  * `git_worktree_add` 输入契约。
  */
-export const GIT_WORKTREE_ADD_INPUT_CONTRACT = contract.object({
-    path: contract.string(),
-    branch: contract.optional(contract.string()),
-    commit: contract.optional(contract.string()),
-    repoPath: contract.optional(contract.string()),
-});
 
-export type GitWorktreeAddInput = InferContract<typeof GIT_WORKTREE_ADD_INPUT_CONTRACT>;
+/**
+ * `git_worktree_add` 的结构化输入。
+ */
+export interface GitWorktreeAddInput {
+    /** 新 worktree 的目标路径。 */
+    readonly path: string;
+    /** 可选的检出分支。 */
+    readonly branch?: string;
+    /** 可选的检出提交。 */
+    readonly commit?: string;
+    /** 可选的目标仓库路径。 */
+    readonly repoPath?: string;
+}
 
 /**
  * `git_worktree_add` 执行成功输出结构。
@@ -70,12 +80,16 @@ export interface GitWorktreeAddOutput {
 /**
  * `git_worktree_remove` 输入契约。
  */
-export const GIT_WORKTREE_REMOVE_INPUT_CONTRACT = contract.object({
-    path: contract.string(),
-    repoPath: contract.optional(contract.string()),
-});
 
-export type GitWorktreeRemoveInput = InferContract<typeof GIT_WORKTREE_REMOVE_INPUT_CONTRACT>;
+/**
+ * `git_worktree_remove` 的结构化输入。
+ */
+export interface GitWorktreeRemoveInput {
+    /** 要移除的 worktree 路径。 */
+    readonly path: string;
+    /** 可选的目标仓库路径。 */
+    readonly repoPath?: string;
+}
 
 /**
  * `git_worktree_remove` 执行成功输出结构。
@@ -154,11 +168,11 @@ async function resolveRepoDirectory(
  * const res = await tool.execute({ actionId: "act-wt-add", input: { path: "trees/feat-x", branch: "feat-x" } });
  * ```
  */
-export class GitWorktreeAddTool implements Tool<typeof GIT_WORKTREE_ADD_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof GIT_WORKTREE_ADD_INPUT_CONTRACT> = {
+export class GitWorktreeAddTool implements BoundTool<GitWorktreeAddInput> {
+    readonly definition: BoundToolDefinition<GitWorktreeAddInput> = {
         id: GIT_WORKTREE_ADD_TOOL_ID,
         description: "Create a new linked Git worktree at authorized target directory without using force.",
-        inputContract: GIT_WORKTREE_ADD_INPUT_CONTRACT,
+        inputBinding: gitWorktreeAddInputBinding,
         isReadOnly: false,
     };
 
@@ -402,11 +416,11 @@ export class GitWorktreeAddTool implements Tool<typeof GIT_WORKTREE_ADD_INPUT_CO
  * const res = await tool.execute({ actionId: "act-wt-rm", input: { path: "trees/feat-x" } });
  * ```
  */
-export class GitWorktreeRemoveTool implements Tool<typeof GIT_WORKTREE_REMOVE_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof GIT_WORKTREE_REMOVE_INPUT_CONTRACT> = {
+export class GitWorktreeRemoveTool implements BoundTool<GitWorktreeRemoveInput> {
+    readonly definition: BoundToolDefinition<GitWorktreeRemoveInput> = {
         id: GIT_WORKTREE_REMOVE_TOOL_ID,
         description: "Safely remove an authorized linked Git worktree without force and protecting user files.",
-        inputContract: GIT_WORKTREE_REMOVE_INPUT_CONTRACT,
+        inputBinding: gitWorktreeRemoveInputBinding,
         isReadOnly: false,
     };
 

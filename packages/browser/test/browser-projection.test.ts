@@ -1161,9 +1161,9 @@ test("创建与 Plan Mode 路由拒绝非法 wire 输入并要求稳定身份", 
         body,
     });
 
-    const extraField = await send(JSON.stringify({ goalId: "goal-create-1", inputId: "input-1", intent: "检查", profileId: "admin" }));
-    assert.equal(extraField.status, 400);
-    assert.deepEqual(await extraField.json(), { error: "invalid_goal_input" });
+    const invalidModelId = await send(JSON.stringify({ goalId: "goal-create-1", inputId: "input-1", intent: "检查", modelId: "" }));
+    assert.equal(invalidModelId.status, 400);
+    assert.deepEqual(await invalidModelId.json(), { error: "invalid_goal_input" });
     const emptyIntent = await send(JSON.stringify({ goalId: "goal-create-1", inputId: "input-1", intent: "  " }));
     assert.equal(emptyIntent.status, 400);
     const missingInputId = await send(JSON.stringify({ goalId: "goal-create-1", intent: "检查" }));
@@ -1205,7 +1205,7 @@ test("创建与 Plan Mode 路由拒绝非法 wire 输入并要求稳定身份", 
     const invalidPlanCommand = await routes.request("http://localhost/api/goals/goal-create-2/plan-mode", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ runId: "run-current", intent: "unexpected" }),
+        body: JSON.stringify({ runId: "" }),
     });
     assert.equal(invalidPlanCommand.status, 400);
     assert.equal(planModes.length, 1);

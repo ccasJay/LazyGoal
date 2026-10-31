@@ -25,6 +25,8 @@ import {
     createToolRegistration,
     type Tool,
 } from "../../packages/tool-core/src/index.js";
+import type { JsonValue } from "../../packages/contracts/src/index.js";
+import { createTestBinding, objectInputSchema } from "../../packages/tool-core/test/binding-fixtures.js";
 import { InMemoryGoalStore } from "../../packages/storage/src/index.js";
 import {
     HeadlessCompositionRoot,
@@ -35,6 +37,7 @@ import {
     type BenchmarkTaskDescriptor,
     type HeadlessCompositionRootDependencies,
 } from "../src/headless-composition-root.js";
+import { createTestToolRegistration } from "../../packages/tool-core/test/helpers";
 
 const profile: AgentProfile = {
     id: "fake-profile",
@@ -42,14 +45,14 @@ const profile: AgentProfile = {
     instructions: ["Use the available tools."],
     toolIds: ["benchmark_evidence"],
 };
-const EMPTY_INPUT_CONTRACT = contract.object({});
+const EMPTY_INPUT_SCHEMA = objectInputSchema();
 
 const evidenceTool: Tool = {
     definition: {
         id: "benchmark_evidence",
         description: "Produce a committed benchmark fact.",
+        inputBinding: createTestBinding<JsonValue>("test.benchmark_evidence", EMPTY_INPUT_SCHEMA),
         isReadOnly: true,
-        inputContract: EMPTY_INPUT_CONTRACT,
     },
     replayPolicy: "safe",
     validate: () => ({ ok: true }),
@@ -59,7 +62,7 @@ const evidenceTool: Tool = {
         summary: "benchmark evidence recorded",
     }),
 };
-const evidenceRegistration = createToolRegistration(evidenceTool);
+const evidenceRegistration = createTestToolRegistration(evidenceTool);
 
 class InMemoryTrajectoryStore implements TrajectoryStore {
     readonly events: TrajectoryEvent[] = [];

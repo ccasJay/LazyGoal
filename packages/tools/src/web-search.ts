@@ -1,14 +1,11 @@
-import type {
-    Tool,
-    ToolDefinition,
-    ToolExecutionRequest,
-    ToolObservation,
-    ToolValidationResult,
-} from "../../tool-core/src/index";
 import {
-    contract,
-    type InferContract,
-} from "../../contracts/src/index";
+    type BoundTool,
+    type Tool,
+    type BoundToolDefinition,
+    type ToolExecutionRequest,
+    type ToolObservation,
+    type ToolValidationResult,
+} from "../../tool-core/src/index";
 import {
     ExecutionAbortedError,
     throwIfAborted,
@@ -21,6 +18,7 @@ import {
     createDuckDuckGoSearchBackend,
     WebSearchUnrecognizedResponseError,
 } from "./web/search-duckduckgo";
+import { webSearchInputBinding } from "./generated/web-search/binding";
 
 /** `WebSearchTool` 在 Profile 中使用的稳定标识。 */
 export const WEB_SEARCH_TOOL_ID = "web_search";
@@ -88,18 +86,24 @@ export type WebSearchBackend = (
 ) => Promise<readonly WebSearchResult[]>;
 
 /** Web Search Tool 的唯一输入 Contract。 */
-export const WEB_SEARCH_INPUT_CONTRACT = contract.object({
-    query: contract.string(),
-    maxResults: contract.optional(
-        contract.integer({
-            minimum: 1,
-            maximum: WEB_SEARCH_MAX_RESULTS_LIMIT,
-        }),
-    ),
-});
 
-/** Web Search 输入类型。 */
-export type WebSearchInput = InferContract<typeof WEB_SEARCH_INPUT_CONTRACT>;
+/**
+ * `web_search` 的结构化输入。
+ */
+export interface WebSearchInput {
+    /** 搜索查询。 */
+    readonly query: string;
+    /**
+     * 最多返回的结果数。
+     * @asType integer
+     * @minimum 1
+     * @maximum 20
+     */
+    readonly maxResults?: number;
+}
+
+/** `web_search` 的生成输入绑定。 */
+export { webSearchInputBinding };
 
 /**
  * 宿主代理网页搜索 Tool。
@@ -124,11 +128,11 @@ export type WebSearchInput = InferContract<typeof WEB_SEARCH_INPUT_CONTRACT>;
  * });
  * ```
  */
-export class WebSearchTool implements Tool<typeof WEB_SEARCH_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof WEB_SEARCH_INPUT_CONTRACT> = {
+export class WebSearchTool implements BoundTool<WebSearchInput> {
+    readonly definition: BoundToolDefinition<WebSearchInput> = {
         id: WEB_SEARCH_TOOL_ID,
         description: "Search information online and return bounded title, URL, and snippet lists.",
-        inputContract: WEB_SEARCH_INPUT_CONTRACT,
+        inputBinding: webSearchInputBinding,
         isReadOnly: true,
     };
 

@@ -1,8 +1,22 @@
-import { BASH_INPUT_CONTRACT, READ_FILE_INPUT_CONTRACT, WRITE_FILE_INPUT_CONTRACT, EDIT_FILE_INPUT_CONTRACT } from "../../tools/src/index";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { contract } from "../../contracts/src/index";
-import { createModelOutputContractBundle } from "../../model-contracts/src/index";
+import { bashInputBinding, editFileInputBinding, readFileInputBinding, writeFileInputBinding } from "../../tools/src/index";
+import {
+    createBoundModelOutputContractBundle,
+    modelOutputBindings,
+    type AgentDecision,
+    type BoundModelOutputRequest,
+    type CompletionReviewResult,
+    type DecideOutput,
+    type ModelOutputBundle,
+} from "../../model-contracts/src/index";
+import { createTestToolDefinition, objectInputSchema } from "../../tool-core/test/binding-fixtures";
+
+function createModelOutputContractBundle<Result extends DecideOutput | CompletionReviewResult = AgentDecision>(
+    request: BoundModelOutputRequest,
+): ModelOutputBundle<Result> {
+    return createBoundModelOutputContractBundle<Result>(request, modelOutputBindings);
+}
 
 import { ExecutionAbortedError, TransientModelRequestFailure } from "../../execution-control/src/index";
 import { Gemini, GeminiIncompleteResponseError } from "../src/index";
@@ -38,19 +52,19 @@ test("Gemini SDK preserves unified executing and checkpoint schemas", async () =
                 kind: "executing" as const,
                 taskPresent: false,
                 authorizedTools: [
-                    { id: "bash", inputContract: BASH_INPUT_CONTRACT },
-                    { id: "read_file", inputContract: READ_FILE_INPUT_CONTRACT },
-                    { id: "write_file", inputContract: WRITE_FILE_INPUT_CONTRACT },
-                    { id: "edit_file", inputContract: EDIT_FILE_INPUT_CONTRACT },
+                    { id: "bash", description: "Bash", inputBinding: bashInputBinding },
+                    { id: "read_file", description: "Read file", inputBinding: readFileInputBinding },
+                    { id: "write_file", description: "Write file", inputBinding: writeFileInputBinding },
+                    { id: "edit_file", description: "Edit file", inputBinding: editFileInputBinding },
                 ],
             },
             {
                 kind: "executing" as const,
                 authorizedTools: [
-                    { id: "bash", inputContract: BASH_INPUT_CONTRACT },
-                    { id: "read_file", inputContract: READ_FILE_INPUT_CONTRACT },
-                    { id: "write_file", inputContract: WRITE_FILE_INPUT_CONTRACT },
-                    { id: "edit_file", inputContract: EDIT_FILE_INPUT_CONTRACT },
+                    { id: "bash", description: "Bash", inputBinding: bashInputBinding },
+                    { id: "read_file", description: "Read file", inputBinding: readFileInputBinding },
+                    { id: "write_file", description: "Write file", inputBinding: writeFileInputBinding },
+                    { id: "edit_file", description: "Edit file", inputBinding: editFileInputBinding },
                 ],
             },
             { kind: "checkpoint" as const },
@@ -159,7 +173,7 @@ test("Gemini preserves and rejects invalid completion evidence formats", async (
         kind: "executing",
         taskPresent: true,
         planMode: true,
-        authorizedTools: [{ id: "read_file", inputContract: contract.object({ path: contract.string() }) }],
+        authorizedTools: [{ id: "read_file", description: "Read file", inputBinding: readFileInputBinding }],
     });
     const adapter = createAdapter("strict");
     let responseValue: unknown;
@@ -193,7 +207,7 @@ test("Gemini preserves and rejects invalid completion evidence formats", async (
 test("Gemini rejects non-placeholder completion evidence on tool calls", async () => {
     const bundle = createModelOutputContractBundle({
         kind: "executing",
-        authorizedTools: [{ id: "read_file", inputContract: contract.object({ path: contract.string() }) }],
+        authorizedTools: [{ id: "read_file", description: "Read file", inputBinding: readFileInputBinding }],
     });
     const adapter = createAdapter("strict");
     const responseValue = {
@@ -216,7 +230,7 @@ test("Gemini rejects non-placeholder completion evidence on tool calls", async (
 test("Gemini normalizes tool call and removes extraneous summary field", async () => {
     const bundle = createModelOutputContractBundle({
         kind: "executing",
-        authorizedTools: [{ id: "read_file", inputContract: contract.object({ path: contract.string() }) }],
+        authorizedTools: [{ id: "read_file", description: "Read file", inputBinding: readFileInputBinding }],
     });
     const adapter = createAdapter("strict");
     const responseValue = {
@@ -541,11 +555,11 @@ test("Gemini native adapter applies configured output limit unless request overr
 
 
 test("Gemini preserves executing Working Memory updates and rejects task-planning-only operations", async () => {
-    const bundle = createModelOutputContractBundle({ kind: "executing", authorizedTools: [{ id: "bash", inputContract: BASH_INPUT_CONTRACT }] });
+    const bundle = createModelOutputContractBundle({ kind: "executing", authorizedTools: [{ id: "bash", description: "Bash", inputBinding: bashInputBinding }] });
     const result = { kind: "tool_call", action: { actionId: "a", toolId: "bash", input: { command: "true", timeoutMs: null, sandboxAccess: null } },
         memoryPatch: { protocolVersion: 1, operations: [{ type: "upsert_fact", fact: {
             subject: "test", predicate: "status", value: "passed", stability: "stable", evidenceSequences: [5], scope: null,
-        } }] } };
+        } }] }, contextNotes: null };
     const text = JSON.stringify({ result });
     const adapter = createAdapter("strict");
     (adapter as any).client = { models: { generateContent: async () => ({ text }) } };
@@ -573,7 +587,7 @@ test("Gemini strict Schema generates nullable required properties and unconstrai
             kind: "executing",
             taskPresent: true,
             planMode: true,
-            authorizedTools: [{ id: "read_file", inputContract: contract.object({ path: contract.string() }) }],
+            authorizedTools: [{ id: "read_file", description: "Read file", inputBinding: readFileInputBinding }],
         });
         const adapter = createAdapter("strict");
         await adapter.generate({
@@ -614,7 +628,7 @@ test("Gemini restores response and strips null properties for all branches", asy
         kind: "executing",
         taskPresent: true,
         planMode: true,
-        authorizedTools: [{ id: "read_file", inputContract: contract.object({ path: contract.string() }) }],
+        authorizedTools: [{ id: "read_file", description: "Read file", inputBinding: readFileInputBinding }],
     });
     const adapter = createAdapter("strict");
 
@@ -661,7 +675,7 @@ test("Gemini restores response and strips null properties for all branches", asy
 test("Gemini strips ask_user residue from a tool_call before restoring sentinels", async () => {
     const bundle = createModelOutputContractBundle({
         kind: "executing",
-        authorizedTools: [{ id: "submit_answer", inputContract: contract.object({ answer: contract.string() }) }],
+        authorizedTools: [{ id: "submit_answer", description: "Submit answer", inputBinding: createTestToolDefinition("submit_answer", objectInputSchema({ answer: { type: "string" } })).inputBinding }],
     });
     const adapter = createAdapter("strict");
     const modelResponse = {
@@ -690,7 +704,7 @@ test("Gemini strips ask_user residue from a tool_call before restoring sentinels
 test("Gemini does not rollback on evidence sentinel and keeps corrupted output transparent", async () => {
     const bundle = createModelOutputContractBundle({
         kind: "executing",
-        authorizedTools: [{ id: "read_file", inputContract: contract.object({ path: contract.string() }) }],
+        authorizedTools: [{ id: "read_file", description: "Read file", inputBinding: readFileInputBinding }],
     });
     const adapter = createAdapter("strict");
 
@@ -739,7 +753,7 @@ test("Gemini restores a normal completion with request_think field residue", asy
         kind: "executing",
         planMode: false,
         allowThink: true,
-        authorizedTools: [{ id: "bash", inputContract: BASH_INPUT_CONTRACT }],
+        authorizedTools: [{ id: "bash", description: "Bash", inputBinding: bashInputBinding }],
     });
     const adapter = createAdapter("two_stage");
     const text = JSON.stringify({
@@ -770,7 +784,8 @@ test("Gemini preserves authorized Tool calls in Plan Mode before task approval",
         planMode: true,
         authorizedTools: [{
             id: "bash",
-            inputContract: BASH_INPUT_CONTRACT,
+            description: "Bash",
+            inputBinding: bashInputBinding,
         }],
     });
     const text = JSON.stringify({
@@ -798,7 +813,8 @@ test("Gemini strips evidenceSequences residue from a tool_call in normal mode", 
         planMode: false,
         authorizedTools: [{
             id: "read_file",
-            inputContract: contract.object({ path: contract.string() }),
+            description: "Read file",
+            inputBinding: readFileInputBinding,
         }],
     });
     const text = JSON.stringify({

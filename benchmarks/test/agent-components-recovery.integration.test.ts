@@ -9,6 +9,8 @@ import { contract } from "../../packages/contracts/src/index.js";
 import type { AgentProfile } from "../../packages/runtime/src/index.js";
 import type { Tool } from "../../packages/tool-core/src/index.js";
 import { createToolRegistration } from "../../packages/tool-core/src/index.js";
+import type { JsonValue } from "../../packages/contracts/src/index.js";
+import { createTestBinding, objectInputSchema } from "../../packages/tool-core/test/binding-fixtures.js";
 import { HeadlessCompositionRoot } from "../src/headless-composition-root.js";
 import { JsonFileBenchmarkPersistenceAdapter } from "../src/file-persistence-adapter.js";
 import type {
@@ -16,6 +18,7 @@ import type {
     BenchmarkPersistenceAdapter,
     HeadlessCompositionRootDependencies,
 } from "../src/headless-composition-root.js";
+import { createTestToolRegistration } from "../../packages/tool-core/test/helpers";
 
 const profile: AgentProfile = {
     id: "recovery-profile",
@@ -24,13 +27,13 @@ const profile: AgentProfile = {
     toolIds: [],
 };
 
-const EMPTY_INPUT_CONTRACT = contract.object({});
+const EMPTY_INPUT_SCHEMA = objectInputSchema();
 
 const evidenceTool: Tool = {
     definition: {
         id: "recovery_evidence",
         description: "Record deterministic evidence",
-        inputContract: EMPTY_INPUT_CONTRACT,
+        inputBinding: createTestBinding<JsonValue>("test.recovery_evidence", EMPTY_INPUT_SCHEMA),
         isReadOnly: true,
     },
     replayPolicy: "safe",
@@ -41,7 +44,7 @@ const evidenceTool: Tool = {
         summary: "evidence recorded",
     }),
 };
-const evidenceRegistration = createToolRegistration(evidenceTool);
+const evidenceRegistration = createTestToolRegistration(evidenceTool);
 
 interface FakeTask {
     readonly id: string;

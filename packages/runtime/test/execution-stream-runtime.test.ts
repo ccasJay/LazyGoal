@@ -21,8 +21,11 @@ import {
     type ExecutionStreamPublisher,
 } from "../../execution-stream/src/index";
 import { BaseTestStepExecutor, currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
+import type { JsonValue } from "../../contracts/src/index";
+import { createTestBinding, openObjectSchema } from "../../tool-core/test/binding-fixtures";
 
-const inputContract = contract.record(contract.string());
+const inputBinding = createTestBinding<JsonValue>("test.stream", openObjectSchema());
 
 function createStreamGoal(): Goal {
     const created = withDiscoveredProfileTools(createGoal({
@@ -72,11 +75,11 @@ class StreamDecisionExecutor extends BaseTestStepExecutor {
     }
 }
 
-function createStreamingTool(): Tool<typeof inputContract> {
+function createStreamingTool(): Tool {
     const definition = {
         id: "stream-tool",
         description: "stream test",
-        inputContract,
+        inputBinding,
         isReadOnly: true,
     } as const;
     return {
@@ -115,7 +118,7 @@ test("Runner 映射 Step/Tool 生命周期并在提交边界发布 step_committe
     const runner = new Runner({
         store,
         executor: new StreamDecisionExecutor(),
-        toolRegistry: { get: () => createToolRegistration(createStreamingTool()) },
+        toolRegistry: { get: () => createTestToolRegistration(createStreamingTool()) },
         trajectoryStore: trajectoryStoreFor(store),
         executionStream: publisher,
     });
@@ -151,7 +154,7 @@ test("Runner 发布执行流失败时不改变执行结果", async () => {
     const runner = new Runner({
         store,
         executor: new StreamDecisionExecutor(),
-        toolRegistry: { get: () => createToolRegistration(createStreamingTool()) },
+        toolRegistry: { get: () => createTestToolRegistration(createStreamingTool()) },
         trajectoryStore: trajectoryStoreFor(store),
         executionStream: failingPublisher,
     });

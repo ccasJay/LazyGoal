@@ -1,7 +1,8 @@
 import { isExecutionAbortedError, type ExecutionControl } from "../../execution-control/src/index";
 import "dotenv/config";
 import { pathToFileURL } from "node:url";
-import { contract } from "../../contracts/src/index";
+import type { JsonValue } from "../../contracts/src/index";
+import { createTestBinding, objectInputSchema } from "../../tool-core/test/binding-fixtures";
 import {
     GoalCoordinator, InlineScheduler, Runner, TrajectoryCheckpointCommitter,
     launch,
@@ -26,6 +27,7 @@ import {
 } from "../../context-budget/src/index";
 import { readLLMConfig } from "../../config/src/index";
 import { createLlmAdapter } from "../src/index";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 /**
  * 用显式模型配置验证统一执行、任务审批及工具执行链；仅使用内存存储。
@@ -52,10 +54,10 @@ export async function runAgentSmoke(
     });
     const checkpointCommitter = new TrajectoryCheckpointCommitter({ store, trajectoryStore });
     let toolCalls = 0;
-    const inputContract = contract.object({});
-    const tool: Tool<typeof inputContract> = {
+    const inputBinding = createTestBinding<JsonValue>("test.smoke_evidence", objectInputSchema());
+    const tool: Tool = {
         definition: {
-            id: "smoke_evidence", description: "Return a fixed observation to verify the model/tool loop. Call once with empty input.", inputContract, isReadOnly: true,
+            id: "smoke_evidence", description: "Return a fixed observation to verify the model/tool loop. Call once with empty input.", inputBinding, isReadOnly: true,
         },
         replayPolicy: "safe",
         validate: () => ({ ok: true }),
@@ -64,7 +66,7 @@ export async function runAgentSmoke(
             return { kind: "success", output: { evidence: "smoke-observation" }, summary: "Smoke observation recorded" };
         },
     };
-    const toolRegistry = new InMemoryToolRegistry([createToolRegistration(tool)]);
+    const toolRegistry = new InMemoryToolRegistry([createTestToolRegistration(tool)]);
     const dependencies = { adapter, renderer, contextCompactor, trajectoryContextAssembler };
     const runner = new Runner({
         store, trajectoryStore, checkpointCommitter, toolRegistry,

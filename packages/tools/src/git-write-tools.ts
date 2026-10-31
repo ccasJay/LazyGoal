@@ -1,13 +1,21 @@
 import { resolve } from "node:path";
-import { contract, type InferContract } from "../../contracts/src/index";
 import type {
+    BoundTool,
     Tool,
-    ToolDefinition,
+    BoundToolDefinition,
     ToolExecutionRequest,
     ToolObservation,
     ToolValidationResult,
 } from "../../tool-core/src/index";
 import type { ExecutionControl } from "../../execution-control/src/index";
+import { gitAddInputBinding } from "./generated/git-add/binding";
+export { gitAddInputBinding };
+import { gitBranchCreateInputBinding } from "./generated/git-branch-create/binding";
+export { gitBranchCreateInputBinding };
+import { gitBranchSwitchInputBinding } from "./generated/git-branch-switch/binding";
+export { gitBranchSwitchInputBinding };
+import { gitCommitInputBinding } from "./generated/git-commit/binding";
+export { gitCommitInputBinding };
 import { invalidInput } from "./internal/invalid-input";
 import {
     createGitSandboxAuthorization,
@@ -41,12 +49,16 @@ export const GIT_BRANCH_SWITCH_TOOL_ID = "git_branch_switch";
 /**
  * `git_add` 输入契约。
  */
-export const GIT_ADD_INPUT_CONTRACT = contract.object({
-    paths: contract.array(contract.string()),
-    repoPath: contract.optional(contract.string()),
-});
 
-export type GitAddInput = InferContract<typeof GIT_ADD_INPUT_CONTRACT>;
+/**
+ * `git_add` 的结构化输入。
+ */
+export interface GitAddInput {
+    /** 要暂存的工作区相对或仓库相对路径列表。 */
+    readonly paths: readonly string[];
+    /** 可选的目标仓库路径。 */
+    readonly repoPath?: string;
+}
 
 /**
  * `git_add` 执行成功输出结构。
@@ -59,23 +71,30 @@ export interface GitAddOutput {
 }
 
 /**
- * `git_commit` 作者信息契约。
+ * `git_commit` 的结构化输入。
  */
-export const GIT_COMMIT_AUTHOR_CONTRACT = contract.object({
-    name: contract.string(),
-    email: contract.string(),
-});
 
 /**
- * `git_commit` 输入契约。
+ * `git_commit` 的结构化输入。
  */
-export const GIT_COMMIT_INPUT_CONTRACT = contract.object({
-    message: contract.string(),
-    repoPath: contract.optional(contract.string()),
-    author: contract.optional(GIT_COMMIT_AUTHOR_CONTRACT),
-});
+export interface GitCommitInput {
+    /** 提交说明。 */
+    readonly message: string;
+    /** 可选的目标仓库路径。 */
+    readonly repoPath?: string;
+    /** 可选的提交作者覆盖。 */
+    readonly author?: GitCommitAuthorInput;
+}
 
-export type GitCommitInput = InferContract<typeof GIT_COMMIT_INPUT_CONTRACT>;
+/**
+ * `git_commit` 的提交作者覆盖。
+ */
+export interface GitCommitAuthorInput {
+    /** 作者姓名。 */
+    readonly name: string;
+    /** 作者邮箱。 */
+    readonly email: string;
+}
 
 /**
  * `git_commit` 执行成功输出结构。
@@ -94,13 +113,18 @@ export interface GitCommitOutput {
 /**
  * `git_branch_create` 输入契约。
  */
-export const GIT_BRANCH_CREATE_INPUT_CONTRACT = contract.object({
-    branch: contract.string(),
-    repoPath: contract.optional(contract.string()),
-    startPoint: contract.optional(contract.string()),
-});
 
-export type GitBranchCreateInput = InferContract<typeof GIT_BRANCH_CREATE_INPUT_CONTRACT>;
+/**
+ * `git_branch_create` 的结构化输入。
+ */
+export interface GitBranchCreateInput {
+    /** 要创建的分支名。 */
+    readonly branch: string;
+    /** 可选的目标仓库路径。 */
+    readonly repoPath?: string;
+    /** 可选的创建起点。 */
+    readonly startPoint?: string;
+}
 
 /**
  * `git_branch_create` 执行成功输出结构。
@@ -117,13 +141,18 @@ export interface GitBranchCreateOutput {
 /**
  * `git_branch_switch` 输入契约。
  */
-export const GIT_BRANCH_SWITCH_INPUT_CONTRACT = contract.object({
-    branch: contract.string(),
-    repoPath: contract.optional(contract.string()),
-    createIfNotExists: contract.optional(contract.boolean()),
-});
 
-export type GitBranchSwitchInput = InferContract<typeof GIT_BRANCH_SWITCH_INPUT_CONTRACT>;
+/**
+ * `git_branch_switch` 的结构化输入。
+ */
+export interface GitBranchSwitchInput {
+    /** 要切换到的分支名。 */
+    readonly branch: string;
+    /** 可选的目标仓库路径。 */
+    readonly repoPath?: string;
+    /** 分支不存在时是否创建。 */
+    readonly createIfNotExists?: boolean;
+}
 
 /**
  * `git_branch_switch` 执行成功输出结构。
@@ -203,11 +232,11 @@ async function resolveRepoDirectory(
  * const res = await tool.execute({ actionId: "act-add", input: { paths: ["src/index.ts"] } });
  * ```
  */
-export class GitAddTool implements Tool<typeof GIT_ADD_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof GIT_ADD_INPUT_CONTRACT> = {
+export class GitAddTool implements BoundTool<GitAddInput> {
+    readonly definition: BoundToolDefinition<GitAddInput> = {
         id: GIT_ADD_TOOL_ID,
         description: "Stage specified workspace files into the Git index using literal paths.",
-        inputContract: GIT_ADD_INPUT_CONTRACT,
+        inputBinding: gitAddInputBinding,
         isReadOnly: false,
     };
 
@@ -346,11 +375,11 @@ export class GitAddTool implements Tool<typeof GIT_ADD_INPUT_CONTRACT> {
  * const res = await tool.execute({ actionId: "act-commit", input: { message: "feat: add feature" } });
  * ```
  */
-export class GitCommitTool implements Tool<typeof GIT_COMMIT_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof GIT_COMMIT_INPUT_CONTRACT> = {
+export class GitCommitTool implements BoundTool<GitCommitInput> {
+    readonly definition: BoundToolDefinition<GitCommitInput> = {
         id: GIT_COMMIT_TOOL_ID,
         description: "Commit staged changes to current branch with required message and optional author.",
-        inputContract: GIT_COMMIT_INPUT_CONTRACT,
+        inputBinding: gitCommitInputBinding,
         isReadOnly: false,
     };
 
@@ -532,11 +561,11 @@ export class GitCommitTool implements Tool<typeof GIT_COMMIT_INPUT_CONTRACT> {
  * const res = await tool.execute({ actionId: "act-branch-new", input: { branch: "feat-x" } });
  * ```
  */
-export class GitBranchCreateTool implements Tool<typeof GIT_BRANCH_CREATE_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof GIT_BRANCH_CREATE_INPUT_CONTRACT> = {
+export class GitBranchCreateTool implements BoundTool<GitBranchCreateInput> {
+    readonly definition: BoundToolDefinition<GitBranchCreateInput> = {
         id: GIT_BRANCH_CREATE_TOOL_ID,
         description: "Create a new local Git branch without switching to it.",
-        inputContract: GIT_BRANCH_CREATE_INPUT_CONTRACT,
+        inputBinding: gitBranchCreateInputBinding,
         isReadOnly: false,
     };
 
@@ -702,11 +731,11 @@ export class GitBranchCreateTool implements Tool<typeof GIT_BRANCH_CREATE_INPUT_
  * const res = await tool.execute({ actionId: "act-branch-sw", input: { branch: "main" } });
  * ```
  */
-export class GitBranchSwitchTool implements Tool<typeof GIT_BRANCH_SWITCH_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof GIT_BRANCH_SWITCH_INPUT_CONTRACT> = {
+export class GitBranchSwitchTool implements BoundTool<GitBranchSwitchInput> {
+    readonly definition: BoundToolDefinition<GitBranchSwitchInput> = {
         id: GIT_BRANCH_SWITCH_TOOL_ID,
         description: "Switch current working tree branch safely without overwriting uncommitted changes.",
-        inputContract: GIT_BRANCH_SWITCH_INPUT_CONTRACT,
+        inputBinding: gitBranchSwitchInputBinding,
         isReadOnly: false,
     };
 

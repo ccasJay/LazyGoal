@@ -1,25 +1,20 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { z } from "zod";
 
 import type { ModelPreference, ModelPreferenceStore } from "../../runtime/src/model-preference";
+import { modelPreferenceFileBinding } from "./generated/model-preference-binding";
+import type { ModelPreferenceFile } from "./model-preference-file";
 import { atomicWriteJson } from "./json-file-write";
 import { KeyedSerialQueue } from "./keyed-serial-queue";
 
 const MODEL_PREFERENCE_KEY = "model-preference";
-
-const ModelPreferenceRecordSchema = z.object({
-    version: z.literal(1),
-    profileId: z.string().min(1).optional(),
-    modelId: z.string().min(1),
-}).strict();
 
 /**
  * 工作区私有模型偏好文件存储。
  *
  * @remarks
  * 文件损坏时读取和写入均失败，避免覆盖用户偏好；同一实例的写入按提交顺序串行化。
- * 临时文件以私有权限写入，并通过重命名原子替换。
+ * 临时文件以私有权限写入，并通过重命名原子替换。读取使用 Catalog 生成的严格绑定。
  *
  * @example
  * ```ts
@@ -67,8 +62,8 @@ export class JsonFileModelPreferenceStore implements ModelPreferenceStore {
         } catch {
             throw new Error("Model preference file contains invalid JSON.");
         }
-        const result = ModelPreferenceRecordSchema.safeParse(parsed);
-        if (!result.success) throw new Error("Model preference file has an invalid or unsupported version.");
+        const result = modelPreferenceFileBinding.read(parsed, "reject");
+        if (!result.ok) throw new Error("Model preference file has an invalid or unsupported version.");
         return {
             ...(result.data.profileId === undefined ? {} : { profileId: result.data.profileId }),
             modelId: result.data.modelId,

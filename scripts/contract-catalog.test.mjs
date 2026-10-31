@@ -13,43 +13,48 @@ import {
     validateContractCatalog,
 } from "./contract-catalog.mjs";
 
-test("catalog covers the inventory baseline and keeps one enabled contract", async () => {
+test("catalog covers the inventory baseline and current enabled contracts", async () => {
     const catalog = await loadContractCatalog();
     const counts = catalog.reconciliation.inventoryCounts;
     assert.equal(catalog.inventorySource.branch, "codex/contract-inventory");
     assert.equal(catalog.inventorySource.commit, "676015c6");
     assert.deepEqual(counts, {
-        "web.md": 286,
-        "model-tools.md": 308,
-        "durable-cross-process.md": 288,
+        "web.md": 341,
+        "model-tools.md": 339,
+        "durable-cross-process.md": 299,
+        "model-contracts-migration-additions": 92,
     });
-    assert.equal(catalog.entries.length, 882);
+    assert.equal(catalog.entries.length, 1071);
     assert.equal(catalog.entries.length, Object.values(counts).reduce((sum, value) => sum + value, 0));
-    assert.equal(collectEnabledContractEntries(catalog).length, 1);
+    assert.equal(collectEnabledContractEntries(catalog).length, 134);
     assert.equal(catalog.entries.filter(entry => entry.status === "moved").length, 2);
     assert.equal(catalog.reconciliation.moved.length, 2);
-    assert.equal(catalog.entries.filter(entry => entry.status === "deleted").length, 0);
+    assert.equal(catalog.entries.filter(entry => entry.status === "deleted").length, catalog.reconciliation.deleted.length);
+    assert.equal(catalog.reconciliation.deleted.length, 402);
+    assert.ok(catalog.reconciliation.deleted.length > 0);
     assert.equal(catalog.boundaries.length, 18);
-    assert.equal(catalog.dynamicCompositions.length, 2);
+    assert.equal(catalog.dynamicCompositions.length, 4);
 });
 
 test("catalog query locates web, model, tools, snapshot and dynamic composition entries", async () => {
     const catalog = await loadContractCatalog();
 
-    const web = queryContractCatalog(catalog, "browserActivityPositionContract");
+    const web = queryContractCatalog(catalog, "BrowserActivityPosition");
     assert.ok(web.some(entry => entry.key === "web-contracts/src/contracts/activity#browserActivityPositionContract"));
     assert.ok(web.some(entry => entry.key === "web-contracts/src/activity#BrowserActivityPosition"));
 
     const provider = queryContractCatalog(catalog, "web.providers.models.success");
-    assert.ok(provider.some(entry => entry.key === "web-contracts/src/provider-settings#BrowserProviderModels"));
-    assert.equal(provider.find(entry => entry.key === "web-contracts/src/provider-settings#BrowserProviderModels").generation.state, "enabled");
+    assert.ok(provider.some(entry => entry.key === "web-contracts/src/wire#BrowserProviderModels"));
+    assert.equal(provider.find(entry => entry.key === "web-contracts/src/wire#BrowserProviderModels").generation.state, "enabled");
 
     const tools = queryContractCatalog(catalog, "READ_FILE_INPUT_CONTRACT");
     assert.ok(tools.some(entry => entry.key === "tools/src/read-file#READ_FILE_INPUT_CONTRACT"));
 
-    const snapshot = queryContractCatalog(catalog, "GoalSnapshotV1Schema");
-    assert.ok(snapshot.some(entry => entry.key === "storage/src/goal-snapshot#GoalSnapshotV1Schema"));
+    const snapshot = queryContractCatalog(catalog, "GoalSnapshotV1");
+    assert.ok(snapshot.some(entry => entry.key === "storage/src/goal-snapshot#GoalSnapshotV1"));
     assert.ok(snapshot.some(entry => entry.role === "boundary-root"));
+    assert.ok(snapshot.some(entry => entry.key === "storage/src/goal-snapshot#GoalSnapshotV1Schema"
+        && entry.status === "deleted"));
 
     const dynamic = catalog.dynamicCompositions.find(entry => entry.key.startsWith("model-contracts/"));
     assert.deepEqual(dynamic.components, ["ModelOutputRequest", "AuthorizedToolContract", "ModelOutputContractBundle"]);
@@ -176,11 +181,17 @@ test("catalog rejects missing sources, invalid counts and unsupported enabled re
 test("catalog artifact paths are unique and repository-relative", async () => {
     const catalog = await loadContractCatalog();
     const enabled = collectEnabledContractEntries(catalog);
-    assert.equal(enabled.length, 1);
-    const paths = contractArtifactPaths(enabled[0]);
+    assert.equal(enabled.length, 134);
+    const paths = enabled.flatMap(contractArtifactPaths);
     assert.equal(new Set(paths).size, paths.length);
     assert.ok(paths.every(item => !path.isAbsolute(item) && !item.split("/").includes("..")));
     assert.ok(paths.includes("packages/web-contracts/src/generated/provider-models-reader.ts"));
+    assert.ok(paths.includes("packages/web-contracts/src/generated/goal-list-binding.ts"));
+    assert.ok(paths.includes("packages/storage/src/generated/goal-snapshot-binding.ts"));
+    assert.ok(paths.includes("packages/storage/src/generated/agent-profile-file-binding.ts"));
+    assert.ok(paths.includes("packages/storage/src/generated/context-retrieval-index-sidecar-binding.ts"));
+    assert.ok(paths.includes("packages/tools/src/generated/write-file/binding.ts"));
+    assert.ok(paths.includes("packages/model-contracts/src/generated/system-ask-user-input/binding.ts"));
 });
 
 async function createCatalogFixture() {

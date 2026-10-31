@@ -1,0 +1,23 @@
+{
+  "contractId": "web.goals.item",
+  "version": 1,
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "source": {
+    "path": "packages/web-contracts/src/wire.ts#BrowserGoalListItem,BrowserRunStatus,BrowserGoalExecution,BrowserExecutionState",
+    "sha256": "e07c3043179ce87cc1ac13227b4629651b25d7cbfbf46a3fc5a2893841580406"
+  },
+  "generator": {
+    "name": "ts-json-schema-generator",
+    "version": "2.9.0",
+    "typescriptVersion": "5.9.3"
+  },
+  "validator": {
+    "name": "Ajv standalone",
+    "version": "8.20.0"
+  },
+  "bundler": {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "format": "esm"
+  }
+}

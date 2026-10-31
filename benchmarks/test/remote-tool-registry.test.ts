@@ -16,6 +16,7 @@ import {
 } from "../../packages/runtime/src/index.js";
 import { contract } from "../../packages/contracts/src/index.js";
 import { InMemoryGoalStore } from "../../packages/storage/src/index.js";
+import { createTestBinding, objectInputSchema } from "../../packages/tool-core/test/binding-fixtures.js";
 import {
     currentProtocols,
     InMemoryTrajectoryStore,
@@ -92,11 +93,12 @@ test("remote ToolRegistration 的 prepare 阶段绝不向 Worker 发送 execute 
     });
     const client = new ToolRpcClient({ stream: pipe.hostStream });
 
+    const dummyInput = objectInputSchema();
     const dummyTool = {
         id: "dummy",
         description: "dummy tool",
         isReadOnly: true,
-        inputContract: contract.object({}),
+        inputBinding: createTestBinding("test.dummy", dummyInput),
     };
 
     let workerExecutionCount = 0;

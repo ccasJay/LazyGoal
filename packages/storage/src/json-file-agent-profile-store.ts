@@ -7,18 +7,19 @@ import type {
 } from "../../runtime/src/index";
 import {
     AgentProfileConfigurationError,
-    AgentProfileFileSchema,
     PROFILE_ID_PATTERN,
 } from "./agent-profile-file";
+import { agentProfileFileBinding } from "./generated/agent-profile-file-binding";
 
 /**
  * 按当前生效的 Profile ID 从 LazyGoal Home 的全局 Agent Profile 目录加载单个 Profile。
  *
  * @remarks
  * 每次 `load` 只访问 `<directory>/<profileId>.json`，不会扫描目录或校验其它
- * Profile。文件缺失返回 `undefined`；文件存在但 JSON、Schema 或 ID 不匹配时
- * 抛出 {@link AgentProfileConfigurationError}。加载结果不包含 Tool 实例，Tool
- * ID 与当前 Tool Registry 的关联由 Composition Root 在装配时校验。
+ * Profile。文件缺失返回 `undefined`；文件存在但 JSON 无效、生成绑定拒绝或 ID
+ * 不匹配时抛出 {@link AgentProfileConfigurationError}。读取使用生成绑定的
+ * `reject` 策略，未知字段不会被剥离或忽略。加载结果不包含 Tool 实例，Tool ID
+ * 与当前 Tool Registry 的关联由 Composition Root 在装配时校验。
  *
  * @example
  * ```ts
@@ -38,7 +39,7 @@ export class JsonFileAgentProfileStore implements AgentProfileStore {
      * @param profileId - 用于定位 `<profileId>.json` 的安全稳定 ID。
      * @returns 加载后的 Profile；文件不存在时返回 `undefined`。
      * @throws `AgentProfileConfigurationError` 当 ID 不安全、文件读取失败、
-     *   JSON 无效、Schema 不匹配或文件内 ID 不一致时抛出。
+     *   JSON 无效、生成绑定拒绝或文件内 ID 不一致时抛出。
      */
     async load(profileId: string): Promise<AgentProfile | undefined> {
         const filePath = this.filePath(profileId);
@@ -63,23 +64,25 @@ export class JsonFileAgentProfileStore implements AgentProfileStore {
 
         try {
             parsed = JSON.parse(text) as unknown;
-        } catch (error: unknown) {
+        } catch {
             throw new AgentProfileConfigurationError(
                 profileId,
                 filePath,
                 "Profile 文件不是合法 JSON",
-                { cause: error },
             );
         }
 
-        const result = AgentProfileFileSchema.safeParse(parsed);
+        const result = agentProfileFileBinding.read(parsed, "reject");
 
-        if (!result.success) {
+        if (!result.ok) {
             throw new AgentProfileConfigurationError(
                 profileId,
                 filePath,
                 "Profile 文件不符合 Schema",
-                { issues: result.error.issues },
+                {
+                    issues: result.issues,
+                    truncated: result.truncated,
+                },
             );
         }
 

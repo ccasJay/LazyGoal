@@ -1,14 +1,19 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { safeParse } from "../../contracts/src/index";
 import {
-    AgentDecisionContract,
-    ContextNoteProposalContract,
-    ContextNoteCategoryContract,
+    modelOutputBindings,
     type ContextNoteProposal,
 } from "../src/index";
 
-test("2.1: ContextNoteProposal contract decodes valid decision and user_emphasis notes", () => {
+function readNotes(notes: readonly ContextNoteProposal[]) {
+    return modelOutputBindings.executing.wait.read({
+        kind: "wait",
+        reason: "等待用户确认",
+        contextNotes: notes,
+    }, "reject");
+}
+
+test("2.1: 生成决策绑定接受合法 decision 与 user_emphasis ContextNote", () => {
     // 1. 合法用户强调信息
     const validEmphasis: ContextNoteProposal = {
         category: "user_emphasis",
@@ -21,17 +26,6 @@ test("2.1: ContextNoteProposal contract decodes valid decision and user_emphasis
             summary: "保持接口兼容",
         },
     };
-    const parsedEmphasis = safeParse(ContextNoteProposalContract, validEmphasis);
-    assert.equal(parsedEmphasis.success, true);
-    if (parsedEmphasis.success) {
-        assert.equal(parsedEmphasis.data.category, "user_emphasis");
-        assert.equal(parsedEmphasis.data.content, "用户要求保留现有接口不发生破坏性改动");
-        assert.equal(parsedEmphasis.data.source.kind, "user_message");
-        if (parsedEmphasis.data.source.kind === "user_message") {
-            assert.equal(parsedEmphasis.data.source.verbatimSnippet, "不要破坏现有接口");
-            assert.equal(parsedEmphasis.data.source.messageId, "msg-1");
-        }
-    }
 
     // 2. 合法决策记录（用户决定）
     const validUserDecision: ContextNoteProposal = {
@@ -43,12 +37,6 @@ test("2.1: ContextNoteProposal contract decodes valid decision and user_emphasis
             messageId: "msg-2",
         },
     };
-    const parsedUserDecision = safeParse(ContextNoteProposalContract, validUserDecision);
-    assert.equal(parsedUserDecision.success, true);
-    if (parsedUserDecision.success) {
-        assert.equal(parsedUserDecision.data.category, "decision");
-        assert.equal(parsedUserDecision.data.source.kind, "user_decision");
-    }
 
     // 3. 合法决策记录（Agent 方案）
     const validAgentDecision: ContextNoteProposal = {
@@ -62,38 +50,27 @@ test("2.1: ContextNoteProposal contract decodes valid decision and user_emphasis
         },
         supersedesNoteId: "note-old-1",
     };
-    const parsedAgentDecision = safeParse(ContextNoteProposalContract, validAgentDecision);
-    assert.equal(parsedAgentDecision.success, true);
-    if (parsedAgentDecision.success) {
-        assert.equal(parsedAgentDecision.data.source.kind, "agent_decision");
-        assert.equal(parsedAgentDecision.data.supersedesNoteId, "note-old-1");
-    }
 
-    // 4. 作为决策的附加字段挂载在常规决策（如 tool_call）上
-    const toolCallWithNotes = {
-        kind: "tool_call",
-        action: {
-            actionId: "act-1",
-            toolId: "read_file",
-            input: { path: "README.md" },
-        },
-        contextNotes: [validEmphasis, validAgentDecision],
-    };
-    const parsedToolCall = safeParse(AgentDecisionContract, toolCallWithNotes);
-    assert.equal(parsedToolCall.success, true);
+    const parsed = readNotes([validEmphasis, validUserDecision, validAgentDecision]);
+    assert.equal(parsed.ok, true);
+    if (!parsed.ok) return;
+    assert.equal(parsed.data.contextNotes?.[0]?.category, "user_emphasis");
+    assert.equal(parsed.data.contextNotes?.[0]?.content, "用户要求保留现有接口不发生破坏性改动");
+    assert.equal(parsed.data.contextNotes?.[0]?.source.kind, "user_message");
+    assert.equal(parsed.data.contextNotes?.[1]?.category, "decision");
+    assert.equal(parsed.data.contextNotes?.[2]?.supersedesNoteId, "note-old-1");
 });
 
-test("2.2 & 2.3: ContextNoteProposal rejects invalid category, missing sources, or invalid revision", () => {
+test("2.2 & 2.3: 生成绑定拒绝非法分类、缺失来源或非法修订号", () => {
     // 1. 非法分类
-    const invalidCategory = {
+    assert.equal(readNotes([{
         category: "unknown_category",
         content: "内容",
         source: { kind: "user_decision" },
-    };
-    assert.equal(safeParse(ContextNoteProposalContract, invalidCategory).success, false);
+    } as unknown as ContextNoteProposal]).ok, false);
 
     // 2. user_emphasis 缺少 verbatimSnippet 原文片段
-    const missingSnippet = {
+    assert.equal(readNotes([{
         category: "user_emphasis",
         content: "用户要求",
         source: {
@@ -101,11 +78,10 @@ test("2.2 & 2.3: ContextNoteProposal rejects invalid category, missing sources, 
             messageId: "msg-1",
             summary: "摘要",
         },
-    };
-    assert.equal(safeParse(ContextNoteProposalContract, missingSnippet).success, false);
+    } as unknown as ContextNoteProposal]).ok, false);
 
     // 3. user_emphasis 缺少 messageId
-    const missingMessageId = {
+    assert.equal(readNotes([{
         category: "user_emphasis",
         content: "用户要求",
         source: {
@@ -113,16 +89,14 @@ test("2.2 & 2.3: ContextNoteProposal rejects invalid category, missing sources, 
             verbatimSnippet: "原文",
             summary: "摘要",
         },
-    };
-    assert.equal(safeParse(ContextNoteProposalContract, missingMessageId).success, false);
+    } as unknown as ContextNoteProposal]).ok, false);
 
     // 4. baseRevision 非法（<= 0）
-    const invalidBaseRevision = {
+    assert.equal(readNotes([{
         category: "decision",
         content: "决定",
         noteId: "note-1",
         baseRevision: 0,
         source: { kind: "user_decision" },
-    };
-    assert.equal(safeParse(ContextNoteProposalContract, invalidBaseRevision).success, false);
+    }]).ok, false);
 });

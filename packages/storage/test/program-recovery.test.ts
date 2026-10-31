@@ -19,11 +19,13 @@ import {
     createToolRegistration,
     InMemoryToolRegistry,
 } from "../../tool-core/src/index";
+import { createTestBinding, objectInputSchema } from "../../tool-core/test/binding-fixtures";
 import { currentProtocols } from "../../runtime/test/current-fixtures";
 import { isSeatbeltSupported } from "../../sandbox/src/index";
 import { BashTool, createExecuteProgramRegistration, ReadFileTool, WriteFileTool } from "../../tools/src/index";
 import { JsonFileGoalStore } from "../src/goal-store";
 import { JsonFileTrajectoryStore } from "../src/json-file-trajectory-store";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 test("PTC restores committed reads and waits for a write with an unknown result", {
     skip: !isSeatbeltSupported(),
@@ -70,13 +72,13 @@ test("PTC restores committed reads and waits for a write with an unknown result"
         await createStores().store.save(goal);
         let readCalls = 0;
         let writeCalls = 0;
-        const readInput = contract.object({ path: contract.string() });
-        const writeInput = contract.object({ path: contract.string(), content: contract.string() });
+        const readInput = objectInputSchema({ path: { type: "string" } });
+        const writeInput = objectInputSchema({ path: { type: "string" }, content: { type: "string" } });
         const registry = new InMemoryToolRegistry([
             createExecuteProgramRegistration(),
-            createToolRegistration({
+            createTestToolRegistration({
                 definition: {
-                    id: "read_file", description: "Read", inputContract: readInput, isReadOnly: true,
+                    id: "read_file", description: "Read", inputBinding: createTestBinding("test.fixture", readInput), isReadOnly: true,
                 },
                 replayPolicy: "safe",
                 validate: () => ({ ok: true }),
@@ -85,9 +87,9 @@ test("PTC restores committed reads and waits for a write with an unknown result"
                     return { kind: "success", output: "old", summary: "Read" };
                 },
             }),
-            createToolRegistration({
+            createTestToolRegistration({
                 definition: {
-                    id: "write_file", description: "Write", inputContract: writeInput, isReadOnly: false,
+                    id: "write_file", description: "Write", inputBinding: createTestBinding("test.fixture", writeInput), isReadOnly: false,
                 },
                 replayPolicy: "safe",
                 validate: () => ({ ok: true }),
@@ -258,9 +260,9 @@ test("PTC resumes a reviewed real write, runs Bash, and returns one parent resul
         };
         const registry = new InMemoryToolRegistry([
             createExecuteProgramRegistration(),
-            createToolRegistration(new ReadFileTool(workspace)),
-            createToolRegistration(new WriteFileTool(workspace)),
-            createToolRegistration(new BashTool(workspace)),
+            createTestToolRegistration(new ReadFileTool(workspace)),
+            createTestToolRegistration(new WriteFileTool(workspace)),
+            createTestToolRegistration(new BashTool(workspace)),
         ]);
         const dependencies = {
             executor, toolRegistry: registry, workspaceRoot: workspace,

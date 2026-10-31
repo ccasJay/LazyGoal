@@ -158,7 +158,7 @@ async function runBrowserRequest(socket, { cancel = false, throwDiagnostic = fal
         const originalDebug = console.debug;
         console.debug = ${throwDiagnostic
             ? "() => { throw new Error('diagnostic sink failed'); }"
-            : "(...args) => diagnostics.push(args)"};
+            : "(...args) => { if (typeof args[0] === 'string' && args[0].startsWith('[vite]')) return; diagnostics.push(args); }"};
         try {
             const { browserApi } = await import('/src/api.ts');
             const controller = new AbortController();

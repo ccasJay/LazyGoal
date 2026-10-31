@@ -36,12 +36,11 @@ import {
     trajectoryStoreFor,
     withDiscoveredProfileTools,
 } from "./current-fixtures";
+import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 /** 受控写入 Tool 的输入契约；字段级错误由 Tool Contract 负责。 */
-export const WRITE_INPUT_CONTRACT = contract.object({
-    path: contract.string(),
-    content: contract.string(),
-});
+const WRITE_INPUT_SCHEMA = objectInputSchema({ path: { type: "string" }, content: { type: "string" } });
 
 /** 受控写入 Tool 的输入形状。 */
 export interface WriteToolInput {
@@ -67,12 +66,12 @@ export function createControlledWriteTool(
         readonly replayPolicy?: "safe" | "manual";
         readonly throws?: (input: WriteToolInput) => boolean;
     } = {},
-): Tool<typeof WRITE_INPUT_CONTRACT> {
+): Tool<any> {
     return {
         definition: {
             id: "write_file",
             description: "受控写入 Tool",
-            inputContract: WRITE_INPUT_CONTRACT,
+            inputBinding: createTestBinding("test.tool", WRITE_INPUT_SCHEMA),
             isReadOnly: false,
         },
         replayPolicy: options.replayPolicy ?? "manual",
@@ -127,7 +126,7 @@ export async function createApprovalFixture(
     const sandboxGrantStore = new JsonFileSandboxGrantStore(workspaceRoot);
     const calls: CapturedToolCall[] = [];
     const registry = new InMemoryToolRegistry([
-        createToolRegistration(createControlledWriteTool(calls, {
+        createTestToolRegistration(createControlledWriteTool(calls, {
             ...(options.throws === undefined ? {} : { throws: options.throws }),
         })),
     ]);
