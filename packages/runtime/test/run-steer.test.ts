@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-
 import {
     createGoal,
     GoalCoordinator,
@@ -13,7 +12,6 @@ import {
     type GoalMessage,
     type StepExecutor,
 } from "../src/index";
-import { contract } from "../../contracts/src/index";
 import { createToolRegistration, type Tool } from "../../tool-core/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";

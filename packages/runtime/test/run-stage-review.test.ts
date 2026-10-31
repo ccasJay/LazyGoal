@@ -8,7 +8,6 @@ import {
     type Goal,
 } from "../src/index";
 import { createToolRegistration, InMemoryToolRegistry } from "../../tool-core/src/index";
-import { contract } from "../../contracts/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { currentProtocols, InMemoryTrajectoryStore } from "./current-fixtures";
 

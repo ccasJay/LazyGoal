@@ -4,8 +4,6 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-
-import { contract } from "../../packages/contracts/src/index.js";
 import type { AgentProfile } from "../../packages/runtime/src/index.js";
 import type { Tool } from "../../packages/tool-core/src/index.js";
 import { createToolRegistration } from "../../packages/tool-core/src/index.js";

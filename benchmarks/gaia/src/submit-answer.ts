@@ -7,7 +7,6 @@ import type {
     ToolObservation,
     ToolValidationResult,
 } from "../../../packages/tool-core/src/index.js";
-import { contract } from "../../../packages/contracts/src/index.js";
 import {
     throwIfAborted,
     type ExecutionControl,
@@ -18,8 +17,6 @@ export { submitAnswerInputBinding };
 
 /** `SubmitAnswerTool` 在 Profile 中使用的稳定标识。 */
 export const SUBMIT_ANSWER_TOOL_ID = "submit_answer";
-
-/** Submit Answer Tool 的唯一输入 Contract。 */
 
 /**
  * `submit_answer` 的结构化输入。

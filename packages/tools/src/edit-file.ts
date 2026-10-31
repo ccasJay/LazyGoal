@@ -49,8 +49,6 @@ const EDIT_FILE_DOMAIN_FAILURES: DomainFailureMessages = {
     },
 };
 
-/** Edit File Tool 的唯一输入 Contract（过渡期供模型线消费）。 */
-
 /**
  * `edit_file` 的结构化输入。
  *

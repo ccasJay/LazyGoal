@@ -18,7 +18,6 @@ import { alfworldStepInputBinding } from "./generated/alfworld-step/binding.js";
 export { alfworldStepInputBinding };
 import type { JsonValue } from "../../../packages/contracts/src/index.js";
 type JsonObject = { readonly [key: string]: JsonValue };
-import { contract } from "../../../packages/contracts/src/index.js";
 import { BashTool, ReadFileTool } from "../../../packages/tools/src/index.js";
 import {
     SidecarAbortedError,
@@ -31,10 +30,6 @@ import {
 
 export const ALFWORLD_RESET_TOOL_ID = "alfworld_reset";
 export const ALFWORLD_STEP_TOOL_ID = "alfworld_step";
-
-/** ALFWorld Reset Tool 的唯一输入 Contract。 */
-
-/** ALFWorld Step Tool 的唯一输入 Contract。 */
 
 /**
  * `alfworld_reset` 的结构化输入。

@@ -1,8 +1,7 @@
 import { JsonFileModelInputStore, JsonFileModelPreferenceStore } from "../../../packages/storage/src/index";
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
-
-import { contract, type JsonValue } from "../../../packages/contracts/src/index";
+import type { JsonValue } from "../../../packages/contracts/src/index";
 import { createTestBinding, objectInputSchema } from "../../../packages/tool-core/test/binding-fixtures";
 import type { LLMAdapter, LLMRequest, LLMResponse } from "../../../packages/llm-core/src/index";
 import { toolResponseFixture } from "../../../packages/agent/test/tool-response-fixture";

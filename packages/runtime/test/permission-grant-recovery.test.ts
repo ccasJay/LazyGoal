@@ -3,7 +3,6 @@ import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-
 import {
     createGoal as createUnexposedGoal,
     createRun,
@@ -27,7 +26,6 @@ import {
     type ToolObservation,
     type ToolValidationResult,
 } from "../../tool-core/src/index";
-import { contract } from "../../contracts/src/index";
 import {
     InMemoryGoalStore,
     JsonFileSandboxGrantStore,

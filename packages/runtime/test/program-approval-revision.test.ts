@@ -3,8 +3,6 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-
-import { contract } from "../../contracts/src/index";
 import { isSeatbeltSupported } from "../../sandbox/src/index";
 import { createExecuteProgramRegistration } from "../../tools/src/index";
 import {

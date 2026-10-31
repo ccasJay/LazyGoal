@@ -4,7 +4,6 @@ import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-
 import type { LLMAdapter } from "../../../packages/llm-core/src/index";
 import { toolCallResponse } from "../../../packages/llm-core/test/response-fixtures";
 import type { LLMRequest, LLMResponse } from "../../../packages/llm-core/src/index";
@@ -25,7 +24,7 @@ import {
     InMemoryToolRegistry,
     type Tool,
 } from "../../../packages/tool-core/src/index";
-import { contract, type JsonValue } from "../../../packages/contracts/src/index";
+import type { JsonValue } from "../../../packages/contracts/src/index";
 import { createTestBinding, objectInputSchema } from "../../../packages/tool-core/test/binding-fixtures";
 import { createRuntimeComposition } from "../src/runtime/index";
 import { createTestToolRegistration } from "../../../packages/tool-core/test/helpers";

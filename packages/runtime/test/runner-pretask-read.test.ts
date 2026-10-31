@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-
 import {
     GoalCoordinator,
     InlineScheduler,
@@ -22,7 +21,6 @@ import {
 } from "../../tool-core/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { BaseTestStepExecutor, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
-import { contract } from "../../contracts/src/index";
 import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 

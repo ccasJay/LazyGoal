@@ -1,23 +1,14 @@
-# 通用契约
+# 通用 JSON 原语
 
-无出站依赖的 Contract AST、解析与 JSON Schema 编译。本文描述当前实现、使用边界与限制；[公开入口](../src/index.ts)。
-
+零出站依赖的确定性 JSON 原语、JSON 静态类型与共享契约校验诊断。本文描述当前实现、使用边界与限制；[公开入口](../src/index.ts)。
 
 ## 职责
 
-`@lazygoal/contracts` 提供零出站依赖的核心 Contract AST、运行时 Parser、确定性 JSON Schema 2020-12 编译器、统一只读节点检查器与确定性 JSON 原语（canonical JSON、对象守卫、深冻结）。开放节点只用于受信任的 Web wire 或显式开放 JSON 载荷；模型输出与 Tool 输入推导必须拒绝它们。它只描述通用的结构约束与数据验证规则，不包含具体应用领域的模型交互或业务协议，不执行 Tool、不读取 Goal、不拥有审批或持久化状态。
-
-## 核心 DSL 与 AST
-
-- `contract`：用于构造基础标量、枚举、字面量、严格对象、开放对象、任意 JSON、数组、Record、联合及递归节点的冻结 AST。
-- `safeParse` / `parse`：对输入数据执行契约校验与深复制隔离，返回确定性结果或结构化 `ContractValidationError`。
-- `contract.unknown()` 与 `contract.openObject(shape)`：前者接受任意 JSON 并推导为 `unknown`，后者校验声明字段、保留额外 JSON 且只暴露声明字段。二者的载荷遍历使用独立显式栈，不消耗 `MAX_DEPTH` 的合同结构预算；循环引用、非 JSON 值与类实例仍被拒绝。
-- `compileJsonSchema`：将 Contract 节点编译为确定性且符合 JSON Schema 2020-12 规范的纯数据对象。
-- `inspectContractNode`：跨包安全识别核心 AST 节点类别（`"contract"` 或 `"optional-property"`）及只读节点引用，避免调用方依赖内部品牌 Symbol。
+`@lazygoal/contracts` 拥有全仓共享的 canonical JSON、对象守卫、深冻结、代码单元比较、JSON 类型与 `ContractValidationError`。它只依赖 ECMAScript 内建对象，浏览器构建与 Node 运行时使用同一实现；不包含 Contract DSL、AST、Parser、Schema 编译器、节点检查或具体业务协议，不执行 Tool、不读取 Goal、不拥有审批或持久化状态。
 
 ## 确定性 JSON 原语
 
-[`json.ts`](../src/json.ts) 是全仓 canonical JSON、通用对象守卫与深冻结的唯一实现，只依赖 ECMAScript 内建对象，不导入 `node:` 模块，浏览器与 Node 运行时共用同一算法。
+[`json.ts`](../src/json.ts) 是 canonical JSON、通用对象守卫与深冻结的唯一实现，不导入 `node:` 模块。
 
 - `canonicalizeJson`：递归复制 JSON 值并按 UTF-16 code unit 顺序重排自有可枚举字符串键；数组保序，标量原样返回，输入不被修改。自有 `"__proto__"` 键按普通自有键复制，不改变任何对象的原型。
 - `canonicalJson`：对规范化结果调用 `JSON.stringify`，省略缩进时输出紧凑 JSON，`{ indent: 2 }` 输出两空格缩进；顶层不可序列化值返回字符串 `"null"`，其余标量、`toJSON` 与 `BigInt` 语义继承 `JSON.stringify`。
@@ -27,13 +18,14 @@
 
 `@lazygoal/context-budget` 的 `stableJson` 是保留在该包的公开入口，内部委托 `canonicalJson(value, { indent: 2 })`；算法实现不在消费包内重复。确定性测试 [`single-implementation.test.ts`](../test/single-implementation.test.ts) 静态守护 allowlist 之外的重复定义。
 
-## Tool 输入契约基础
+## 类型与校验诊断
 
-模型与工具边界已迁移到 TS 单源和生成 `ContractBinding`：Tool 输入由工具线绑定声明唯一事实源，模型请求与 Runtime 校验使用同源生成制品。共享 Contract AST 仍服务尚未迁移的 Web、Storage 与其他边界，最终删除由独立方向处理。
+[`types.ts`](../src/types.ts) 定义 `JsonScalar`、`JsonValue`、`JsonSchemaValue` 与 `JsonSchema202012`，供工具、模型、Runtime、Storage、Web 与 benchmark 的 JSON 边界共享静态形状；这些类型不承诺运行时已经完成有限数字、普通对象原型、无循环引用或具体 Schema 方言校验。
+
+[`errors.ts`](../src/errors.ts) 定义 `ContractIssueCode`、`ContractIssue` 与 `ContractValidationError`。模型输出生成绑定解码、语义校验与 system tool 参数校验使用该错误携带有序、可截断诊断；`code`、`path`、`message`、`issues` 与 `truncated` 是调用方可依赖的形状。本包不执行结构校验，接受范围由产生错误的边界拥有。
 
 ## 相关入口
 
-- [AST 与 Parser](../src)：Contract 构造器、输入契约、递归节点与运行时错误。
-- [JSON Schema 编译器](../src/json-schema.ts)：确定性 JSON Schema 生成器。
-- [只读节点检查器](../src/node-inspection.ts)：跨包 AST 节点识别入口。
 - [确定性 JSON 原语](../src/json.ts)：canonical JSON、`isRecord`、`deepFreeze` 与 `compareCodeUnits`。
+- [JSON 类型](../src/types.ts)：JSON 标量、值、Schema 值与 Schema 根类型。
+- [校验诊断](../src/errors.ts)：共享 issue 分类与 `ContractValidationError`。

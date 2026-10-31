@@ -36,7 +36,7 @@ Catalog 启用项从 TS 文件 DTO 生成 JSON Schema、Ajv 校验器、Manifest
 
 结构 Schema 覆盖字段类型、封闭对象、版本常量与可由 JSDoc 表达的非空和数组约束；其余字段级规则、摘要格式、跨字段不变量、身份绑定、版本校验和错误映射仍在 Store 或 Codec。读取失败不迁移、不回退旧 Schema、不写回。
 
-Retrieval Index Sidecar 顶层已使用生成绑定；嵌套文档、倒排索引与查询缓存结果仍由 `context-retrieval` 的索引重建与查询缓存校验执行，因为这些 DTO 依赖旧 Contract AST 推导的 `ContextLookupResult`，待模型数据契约迁移提供 TS 单源后再收紧为生成结构。Goal Context Index 的 Note 来源与类别以 Storage 文件表示显式声明，不引用旧 AST 推导类型。Agent Profile 的标量字段与数组元素共用 TS 具名 `NonEmptyString`，空数组合法，含空字符串的数组元素由生成绑定拒绝。
+Retrieval Index Sidecar 顶层已使用生成绑定；嵌套文档、倒排索引与查询缓存结果仍由 `context-retrieval` 的索引重建与查询缓存校验执行。Goal Context Index 的 Note 来源与类别以 Storage 文件表示显式声明。Agent Profile 的标量字段与数组元素共用 TS 具名 `NonEmptyString`，空数组合法，含空字符串的数组元素由生成绑定拒绝。
 
 ## 生命周期与错误
 

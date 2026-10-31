@@ -1,7 +1,6 @@
 import { ExecutionAbortedError } from "../../execution-control/src/index";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { contract } from "../../contracts/src/index";
 import { isSeatbeltSupported } from "../../sandbox/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { createExecuteProgramRegistration } from "../../tools/src/index";

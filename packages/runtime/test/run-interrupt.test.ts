@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-
 import {
     createGoal,
     type Goal,
@@ -14,7 +13,6 @@ import {
     type StepExecutor,
 } from "../src/index";
 import { ExecutionAbortedError } from "../../execution-control/src/index";
-import { contract } from "../../contracts/src/index";
 import { createToolRegistration, type Tool } from "../../tool-core/src/index";
 import { InMemoryGoalStore, goalSnapshotCodec } from "../../storage/src/index";
 import { hasPendingSessionInputs } from "../src/index";

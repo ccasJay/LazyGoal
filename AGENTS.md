@@ -27,7 +27,7 @@ prompt-evaluation/ External prompt optimization integrations
   gepa/            Official GEPA adapter for LazyGoal Prompt Evaluation
   harness2/        Standalone Harness2 Propose-Probe-Compose framework and prompt optimizer
 packages/        Private `@lazygoal/*` workspaces
-  contracts/      Contract AST builders and static type inference core
+  contracts/      Deterministic JSON primitives, shared JSON types, and validation diagnostics
   contract-binding/ Type-safe runtime binding for generated TS data contracts
   context-budget/ Model input metering, budget allocation, unit selection, and stable serialization
   execution-control/ Process-local cancellation primitives and transient model failure protocols

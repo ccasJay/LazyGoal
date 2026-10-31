@@ -54,7 +54,6 @@ const FORBIDDEN_HELPER_NAMES = new Set([
 
 const HELPER_ALLOWLIST = new Set([
     "packages/contracts/src/json.ts",
-    "packages/contracts/src/internal.ts",
     "packages/context-budget/src/stable-json.ts",
     "packages/context-retrieval/src/score-rounding.ts",
     "packages/storage/src/path-segment.ts",

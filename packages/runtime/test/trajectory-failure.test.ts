@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-
 import {
     Runner,
     TrajectoryAppendError,
@@ -14,7 +13,6 @@ import {
     createToolRegistration,
     type Tool,
 } from "../../tool-core/src/index";
-import { contract } from "../../contracts/src/index";
 import type {
     AgentProfile,
     Goal,

@@ -1,21 +1,17 @@
 /**
- * 核心 Contract AST、解析器、JSON Schema 编译器与确定性 JSON 原语。
+ * 全仓共享的确定性 JSON 原语、JSON 静态类型与契约校验诊断。
  *
  * @remarks
- * 提供强类型的契约定义 DSL、运行时安全校验器以及确定性的 JSON Schema 2020-12 编译器。
- * 作为全仓无出站依赖的核心契约基础包，它还拥有共享的 canonical JSON、对象守卫与
- * 深冻结实现，不包含具体应用领域的模型交互或业务协议。
+ * 本包保持零出站依赖，浏览器与 Node 运行时使用同一实现。它拥有 canonical JSON、
+ * 对象守卫、深冻结、代码单元比较与共享校验错误，不包含 Contract DSL、解析器、
+ * AST、Schema 编译器或具体业务协议。
  *
  * @example
  * ```ts
- * import { contract, safeParse } from "@lazygoal/contracts";
+ * import { canonicalJson, isRecord } from "@lazygoal/contracts";
  *
- * const User = contract.object({
- *     name: contract.string(),
- *     age: contract.optional(contract.integer()),
- * });
- *
- * const result = safeParse(User, { name: "Alice" });
+ * const text = canonicalJson({ b: 1, a: 2 });
+ * // '{"a":2,"b":1}'
  * ```
  *
  * @packageDocumentation
@@ -30,48 +26,15 @@ export {
 } from "./json";
 export type { CanonicalJsonOptions } from "./json";
 export {
-    contract,
-} from "./contract";
-export {
-    parse,
-    safeParse,
-} from "./parser";
-export {
-    compileJsonSchema,
-} from "./json-schema";
-export {
-    inspectContractNode,
-    type ContractNodeInspection,
-} from "./node-inspection";
-export {
-    ContractDefinitionError,
     ContractValidationError,
 } from "./errors";
 export type {
     ContractIssue,
     ContractIssueCode,
-    ContractDefinitionReasonCode,
 } from "./errors";
 export type {
-    ArrayOptions,
-    Contract,
-    ContractBuilders,
-    ContractKind,
-    InferContract,
     JsonScalar,
-    JsonValue,
-    LiteralContract,
-    NumberOptions,
-    ObjectContract,
-    ObjectProperty,
-    ObjectShape,
-    OpenObjectContract,
-    OptionalProperty,
-    StringOptions,
-    UnknownContract,
-} from "./types";
-export type { SafeParseResult } from "./parser";
-export type {
     JsonSchema202012,
     JsonSchemaValue,
-} from "./json-schema";
+    JsonValue,
+} from "./types";

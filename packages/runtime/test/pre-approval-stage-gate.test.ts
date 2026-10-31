@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { contract } from "../../contracts/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { createToolRegistration, InMemoryToolRegistry } from "../../tool-core/src/index";
 import { createGoal, createInitialRunStage, Runner, type StepExecutor } from "../src/index";

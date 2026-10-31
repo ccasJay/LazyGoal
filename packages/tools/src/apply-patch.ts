@@ -41,8 +41,6 @@ export const APPLY_PATCH_MAX_TOTAL_BYTES = 32 * 1024 * 1024;
 /** 单个文件最大允许字节数 (8 MiB)。 */
 export const APPLY_PATCH_MAX_SINGLE_FILE_BYTES = 8 * 1024 * 1024;
 
-/** Apply Patch Tool 的输入契约（过渡期供模型线消费）。 */
-
 /**
  * `apply_patch` 的结构化输入。
  *

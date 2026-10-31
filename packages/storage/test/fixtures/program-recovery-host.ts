@@ -1,6 +1,5 @@
 import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
-import { contract } from "../../../contracts/src/index";
 import {
     createGoal,
     Runner,

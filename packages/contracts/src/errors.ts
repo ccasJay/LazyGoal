@@ -1,9 +1,17 @@
 /**
- * Parser 可产生的稳定 issue code。
+ * 生成绑定与模型输出契约共享的校验诊断。
  *
  * @remarks
- * 调用方应根据 code 和 path 分类错误，不应解析 message。递归输入使用对应的 issue code；
- * Contract 定义错误使用独立的 `reasonCode`，不混入输入校验 issue。
+ * 本模块只定义稳定的失败分类、路径与错误容器；它不执行结构解析，也不拥有具体
+ * 边界的接受范围。调用方应根据 `code` 与 `path` 分类错误，不应解析 `message`。
+ */
+
+/**
+ * 契约校验可产生的稳定 issue code。
+ *
+ * @remarks
+ * 生成绑定解码与模型输出语义校验使用其中的相关分类；未使用的分类保留为共享
+ * 诊断词汇，避免调用方按错误消息分支。
  */
 export type ContractIssueCode =
     | "invalid_type"
@@ -25,21 +33,12 @@ export type ContractIssueCode =
     | "cyclic_value"
     | "max_depth_exceeded";
 
-/** Contract AST 图检查失败时用于稳定分类的原因。 */
-export type ContractDefinitionReasonCode =
-    | "INVALID_NODE"
-    | "INVALID_OPTIONAL_POSITION"
-    | "INVALID_RECURSIVE_NAME"
-    | "DUPLICATE_RECURSIVE_NAME"
-    | "DANGLING_RECURSIVE_REFERENCE"
-    | "UNGUARDED_RECURSION";
-
 /**
- * 一条定位到输入路径的 Contract 校验诊断。
+ * 一条定位到输入路径的契约校验诊断。
  *
  * @remarks
  * `path` 从根输入的空数组开始，对象字段使用字符串、数组元素使用数字。实例及其
- * path 均由 Parser 独立创建，调用方修改原始输入不会改变诊断内容。
+ * path 由产生诊断的边界独立创建，调用方修改原始输入不会改变诊断内容。
  *
  * @example
  * ```ts
@@ -60,16 +59,16 @@ export interface ContractIssue {
 }
 
 /**
- * `parse` 在输入不符合 Contract 时抛出的校验错误。
+ * 契约校验失败时抛出的共享错误。
  *
  * @remarks
- * `issues` 与 `safeParse` 的失败结果使用相同的 code、path、message 和顺序；Contract
- * 配置错误不使用此错误类型。
+ * 模型输出生成绑定解码、语义校验与工具参数校验使用该错误携带全部诊断；`issues`
+ * 的顺序与产生边界一致，`truncated` 表示诊断被有界截断。契约配置错误不使用此类型。
  *
  * @example
  * ```ts
  * try {
- *     parse(contract.object({ name: contract.string() }), {});
+ *     decode(value);
  * } catch (error) {
  *     if (error instanceof ContractValidationError) {
  *         console.log(error.issues[0]?.path);
@@ -94,50 +93,6 @@ export class ContractValidationError extends Error {
         this.name = "ContractValidationError";
         this.issues = Object.freeze([...issues]);
         this.truncated = truncated;
-        Object.setPrototypeOf(this, new.target.prototype);
-    }
-}
-
-/**
- * Contract AST 在消费前未通过完整定义检查时抛出的配置错误。
- *
- * @remarks
- * `code` 用于识别错误类别，`reasonCode` 用于区分节点、递归引用和递归保护问题；此错误
- * 不代表某个输入值校验失败。
- *
- * @example
- * ```ts
- * try {
- *     safeParse(contract.recursive("Node", (self) => self), null);
- * } catch (error) {
- *     if (error instanceof ContractDefinitionError) {
- *         console.log(error.reasonCode);
- *     }
- * }
- * ```
- */
-export class ContractDefinitionError extends Error {
-    /** Contract 定义错误的顶层标识。 */
-    readonly code = "INVALID_CONTRACT_DEFINITION" as const;
-    /** 用于稳定分类的定义错误原因。 */
-    readonly reasonCode: ContractDefinitionReasonCode;
-    /** 定义图中检测到问题的路径。 */
-    readonly path: readonly (string | number)[];
-
-    /**
-     * @param reasonCode - 稳定的定义错误原因。
-     * @param message - 面向诊断展示的英文消息。
-     * @param path - 从根 Contract 到问题节点的路径。
-     */
-    constructor(
-        reasonCode: ContractDefinitionReasonCode,
-        message: string,
-        path: readonly (string | number)[] = [],
-    ) {
-        super(message);
-        this.name = "ContractDefinitionError";
-        this.reasonCode = reasonCode;
-        this.path = Object.freeze([...path]);
         Object.setPrototypeOf(this, new.target.prototype);
     }
 }
