@@ -91,6 +91,7 @@ function toolCallEnvelopeBinding(): ContractBinding<ToolCallDecisionEnvelope> {
     const contractId = "test.model.tool-call";
     const projection = {
         schema,
+        localConstraints: [],
         decode(value: unknown): ContractReadResult<ToolCallDecisionEnvelope> {
             const copied = clone(value);
             if (copied === undefined) {
@@ -580,6 +581,7 @@ test("Provider 无法表达的本地约束在解码时强制", () => {
                     required: ["path"],
                     additionalProperties: false,
                 },
+                localConstraints: [],
                 decode: (value: unknown) => localBinding.read(value, "strip"),
             };
         },
