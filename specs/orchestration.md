@@ -19,7 +19,7 @@
 | [AgentProfile 文件契约迁移](../ts-agent-profile-file-contract/spec.md) | `specs/ts-agent-profile-file-contract/` | 已批准（2026-10-31 用户确认纳入编排） | 执行者 G / `feat/ts-agent-profile-file-contract` / `.worktrees/ts-agent-profile-file-contract` | 独立完成（HEAD `aab67b03`；passed/current；完整 `npm test` 通过）；已合入集成分支 |
 | [在线模型查询输入迁移](../ts-provider-model-query-contract/spec.md) | `specs/ts-provider-model-query-contract/` | 已批准（2026-10-31 用户确认纳入编排） | 执行者 H（由 Web 线执行）/ `feat/ts-web-contract-migration` | 已由 Web 线实现并记录（TODO 1 已勾选，Latest Result passed/current）；随 Web 合入集成分支 |
 | [Provider 连接测试结果迁移](../ts-provider-profile-test-contract/spec.md) | `specs/ts-provider-profile-test-contract/` | 已批准（2026-10-31 用户确认纳入编排） | 执行者 I（由 Web 线执行）/ `feat/ts-web-contract-migration` | 已由 Web 线实现并记录（TODO 1 已勾选，Latest Result passed/current）；随 Web 合入集成分支 |
-| [删除旧 Contract AST](../remove-legacy-contract-ast/spec.md) | `specs/remove-legacy-contract-ast/` | 已批准（2026-10-31 用户确认） | 执行者 J / `feat/remove-legacy-contract-ast` / `.worktrees/remove-legacy-contract-ast` | 执行中（subagent J，基线 `80110d57`） |
+| [删除旧 Contract AST](../remove-legacy-contract-ast/spec.md) | `specs/remove-legacy-contract-ast/` | 已批准（2026-10-31 用户确认） | 执行者 J / `feat/remove-legacy-contract-ast` / `.worktrees/remove-legacy-contract-ast` | 独立完成（HEAD `0f405a62`；passed/current；已合并 `dev` `7fd0c8ff`；Spec 已标记 delivered `5acaa025`；worktree 已移除） |
 
 ## 依赖关系与执行顺序
 
