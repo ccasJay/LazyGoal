@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { test } from "node:test";
 
 import {
@@ -92,6 +93,95 @@ test("Catalog generation emits unions, recursion, open JSON, arrays and constrai
     const manifest = JSON.parse(artifact(artifacts, "generated/sample/sample-envelope-manifest.json"));
     assert.equal(manifest.contractId, "sample.envelope");
     assert.equal(manifest.version, 1);
+});
+
+test("generated binding reads union, recursive and open JSON values end to end", async t => {
+    const fixture = await createFixture();
+    t.after(() => rm(fixture.root, { recursive: true, force: true }));
+
+    const { artifacts } = await generateContractArtifacts(fixture.options);
+    await writeArtifacts(fixture.root, artifacts);
+    const generated = await import(
+        pathToFileURL(path.join(fixture.root, "generated/sample/sample-envelope-binding.ts")).href
+    ) as {
+        readonly sampleEnvelopeBinding: {
+            read(value: unknown, policy: "strip" | "reject"): {
+                readonly ok: boolean;
+                readonly data?: unknown;
+                readonly diagnostic?: { readonly paths: readonly string[] };
+                readonly issues?: readonly { readonly path: string; readonly code: string }[];
+            };
+        };
+    };
+    const binding = generated.sampleEnvelopeBinding;
+    const input = {
+        name: "abc",
+        count: 5,
+        nullable: null,
+        union: {
+            kind: "alpha",
+            label: "leaf",
+            nested: { label: "ok", debug: "nested-secret" },
+            debug: "union-secret",
+        },
+        tree: {
+            value: "root",
+            debug: "root-secret",
+            children: [{ value: "child", children: [], debug: "child-secret" }],
+        },
+        json: { open: [1, { deep: "value" }] },
+        metadata: { arbitrary: [true, null] },
+        payload: { anything: "goes" },
+        items: [{ kind: "beta", count: 2, debug: "item-secret" }],
+    };
+    const original = structuredClone(input);
+
+    const stripped = binding.read(input, "strip");
+    assert.equal(stripped.ok, true);
+    if (!stripped.ok) return;
+    assert.deepEqual(stripped.data, {
+        name: "abc",
+        count: 5,
+        nullable: null,
+        union: { kind: "alpha", label: "leaf", nested: { label: "ok" } },
+        tree: {
+            value: "root",
+            children: [{ value: "child", children: [] }],
+        },
+        json: { open: [1, { deep: "value" }] },
+        metadata: { arbitrary: [true, null] },
+        payload: { anything: "goes" },
+        items: [{ kind: "beta", count: 2 }],
+    });
+    assert.deepEqual(
+        [...(stripped.diagnostic?.paths ?? [])].sort(),
+        [
+            "/items/0/debug",
+            "/tree/children/0/debug",
+            "/tree/debug",
+            "/union/debug",
+            "/union/nested/debug",
+        ],
+    );
+    assert.deepEqual(input, original);
+    assert.equal(JSON.stringify(stripped).includes("secret"), false);
+
+    const rejected = binding.read(input, "reject");
+    assert.equal(rejected.ok, false);
+    if (rejected.ok) return;
+    assert.ok(rejected.issues?.some(issue => issue.path === "/union/debug" && issue.code === "unknown"));
+
+    const invalidName = binding.read({ ...input, name: "A" }, "strip");
+    assert.equal(invalidName.ok, false);
+    if (!invalidName.ok) {
+        assert.ok(invalidName.issues?.some(issue => issue.path === "/name" && issue.code === "pattern"));
+    }
+
+    const invalidCount = binding.read({ ...input, count: 0 }, "strip");
+    assert.equal(invalidCount.ok, false);
+    if (!invalidCount.ok) {
+        assert.ok(invalidCount.issues?.some(issue => issue.path === "/count" && issue.code === "range"));
+    }
 });
 
 test("Catalog generation rejects types omitted from declaredTypes", async t => {
@@ -218,4 +308,12 @@ function artifact(artifacts: ReadonlyMap<string, string>, key: string): string {
     const value = artifacts.get(key);
     assert.ok(value, key);
     return value;
+}
+
+async function writeArtifacts(root: string, artifacts: ReadonlyMap<string, string>) {
+    for (const [relativePath, content] of artifacts) {
+        const absolutePath = path.join(root, relativePath);
+        await mkdir(path.dirname(absolutePath), { recursive: true });
+        await writeFile(absolutePath, content);
+    }
 }
