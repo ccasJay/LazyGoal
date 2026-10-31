@@ -32,7 +32,6 @@ export type {
     ModelGoalPlanItem,
     ModelHypothesis,
     ModelInferenceView,
-    ModelJsonValue,
     ModelMemoryEntryBase,
     ModelMemoryProtocol,
     ModelPendingAction,

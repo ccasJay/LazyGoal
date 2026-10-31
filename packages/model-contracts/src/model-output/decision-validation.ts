@@ -1,12 +1,10 @@
 import {
     ContractValidationError,
+    isJsonValue,
     isRecord,
     type ContractIssueCode,
 } from "../../../contracts/src/index";
-import type {
-    ContractBinding,
-    JsonValue,
-} from "../../../contract-binding/src/index";
+import type { ContractBinding } from "../../../contract-binding/src/index";
 import { readFailureToValidationError } from "./binding-issues";
 import type { AgentDecision } from "./schema-types";
 import type { ModelOutputBindingSet } from "./bindings";
@@ -125,17 +123,6 @@ function decodeWithBinding<T>(binding: ContractBinding<T>, value: unknown): T {
     const decoded = binding.read(value, "reject");
     if (!decoded.ok) throw readFailureToValidationError(decoded, []);
     return decoded.data;
-}
-
-function isJsonValue(value: unknown): value is JsonValue {
-    if (value === null) return true;
-    if (typeof value === "string" || typeof value === "boolean") return true;
-    if (typeof value === "number") return Number.isFinite(value);
-    if (Array.isArray(value)) return value.every(isJsonValue);
-    if (!isRecord(value)) return false;
-    const prototype = Object.getPrototypeOf(value);
-    return (prototype === Object.prototype || prototype === null)
-        && Object.values(value).every(isJsonValue);
 }
 
 function validationError(

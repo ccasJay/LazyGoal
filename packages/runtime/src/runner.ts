@@ -69,7 +69,7 @@ import {
     type ContextLookupPort,
     type ContextLookupResult,
 } from "./context-retrieval";
-import { canonicalJson, isRecord } from "../../contracts/src/index";
+import { canonicalJson, isJsonValue, isRecord } from "../../contracts/src/index";
 import {
     decodeBoundAgentDecision,
     modelOutputBindings,
@@ -477,35 +477,6 @@ function hasOnlyKeys(
 
 function isNonEmptyText(value: unknown): value is string {
     return typeof value === "string" && value.trim().length > 0;
-}
-
-function isJsonValue(value: unknown): value is JsonValue {
-    if (value === null) {
-        return true;
-    }
-
-    if (typeof value === "string" || typeof value === "boolean") {
-        return true;
-    }
-
-    if (typeof value === "number") {
-        return Number.isFinite(value);
-    }
-
-    if (Array.isArray(value)) {
-        return value.every((item) => isJsonValue(item));
-    }
-
-    if (!isRecord(value)) {
-        return false;
-    }
-
-    const prototype = Object.getPrototypeOf(value);
-
-    return (
-        (prototype === Object.prototype || prototype === null)
-        && Object.values(value).every((item) => isJsonValue(item))
-    );
 }
 
 function invalidAgentDecision(message: string): never {

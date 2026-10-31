@@ -2,11 +2,28 @@
 export type JsonScalar = null | boolean | number | string;
 
 /**
+ * 数据边界可见的只读 JSON 对象。
+ *
+ * @remarks
+ * 值类型为 `JsonValue`，嵌套值因此同样是只读视图。该类型只描述静态形状，不承诺
+ * 运行时是普通对象、无访问器或无循环引用；需要这些保证的边界须执行 `isJsonValue`。
+ *
+ * @example
+ * ```ts
+ * const input: JsonObject = { path: "src/index.ts" };
+ * ```
+ */
+export interface JsonObject {
+    readonly [key: string]: JsonValue;
+}
+
+/**
  * 数据边界可见的 JSON 值。
  *
  * @remarks
  * 数组与对象均以只读形式表示；该类型只描述静态形状，不承诺运行时已校验有限数字、
- * 普通对象原型或无循环引用。需要这些保证的边界仍须执行各自的读取规则。
+ * 普通对象原型或访问器，也不承诺无循环引用。需要这些保证的边界须执行
+ * `isJsonValue`。
  *
  * @example
  * ```ts
@@ -16,7 +33,7 @@ export type JsonScalar = null | boolean | number | string;
 export type JsonValue =
     | JsonScalar
     | readonly JsonValue[]
-    | { readonly [key: string]: JsonValue };
+    | JsonObject;
 
 /**
  * JSON Schema 文档中的 JSON 兼容值。

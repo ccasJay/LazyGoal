@@ -37,6 +37,7 @@ export interface BoundaryFinding {
 
 const FORBIDDEN_HELPER_NAMES = new Set([
     "isRecord",
+    "isJsonValue",
     "isObject",
     "isObjectRecord",
     "isJsonObject",

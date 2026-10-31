@@ -3,8 +3,8 @@
  *
  * @remarks
  * 该模块只依赖 ECMAScript 内建对象，不导入 `node:` 模块，因此浏览器构建与 Node
- * 运行时使用同一实现。它拥有三类算法：按代码单元顺序的 canonical JSON、
- * 通用对象守卫与环安全深冻结；消费包不得保留第二份实现。
+ * 运行时使用同一实现。它拥有四类算法：按代码单元顺序的 canonical JSON、通用对象
+ * 守卫、JSON 值判定与环安全深冻结；消费包不得保留第二份实现。
  *
  * @example
  * ```ts
@@ -83,6 +83,78 @@ export function compareCodeUnits(a: string, b: string): number {
  */
 export function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * 判断值是否可以无损表示为 JSON 数据。
+ *
+ * @remarks
+ * 接受 JSON 标量、数组与普通对象；拒绝 `undefined`、函数、`Symbol`、`BigInt`、
+ * 非有限数、类实例、符号键对象与循环引用。对象只按自有可枚举字符串键遍历，访问器
+ * 属性会被读取，因此需要排除访问器或额外数组属性的调用点还须自行检查自有属性描述符。
+ * 遍历使用显式栈，不消耗宿主调用栈；该判定不做结构深度预算或 Schema 校验。
+ *
+ * @param value - 待判断的运行时值。
+ * @returns 值可由 JSON 无损表示时为 `true`。
+ *
+ * @example
+ * ```ts
+ * if (isJsonValue(payload)) console.log(canonicalJson(payload));
+ * ```
+ */
+export function isJsonValue(value: unknown): value is JsonValue {
+    const ancestors = new WeakSet<object>();
+    const pending: Array<
+        | { readonly kind: "visit"; readonly value: unknown }
+        | { readonly kind: "leave"; readonly value: object }
+    > = [{ kind: "visit", value }];
+
+    while (pending.length > 0) {
+        const task = pending.pop()!;
+        if (task.kind === "leave") {
+            ancestors.delete(task.value);
+            continue;
+        }
+
+        const current = task.value;
+        if (current === null
+            || typeof current === "string"
+            || typeof current === "boolean") {
+            continue;
+        }
+        if (typeof current === "number") {
+            if (!Number.isFinite(current)) return false;
+            continue;
+        }
+        if (typeof current !== "object") return false;
+        if (ancestors.has(current)) return false;
+
+        if (Array.isArray(current)) {
+            ancestors.add(current);
+            pending.push({ kind: "leave", value: current });
+            for (const item of current) {
+                pending.push({ kind: "visit", value: item });
+            }
+            continue;
+        }
+
+        const prototype = Object.getPrototypeOf(current);
+        if (prototype !== Object.prototype && prototype !== null) return false;
+        for (const key of Reflect.ownKeys(current)) {
+            if (typeof key !== "string") return false;
+        }
+
+        ancestors.add(current);
+        pending.push({ kind: "leave", value: current });
+        for (const key of Object.keys(current)) {
+            pending.push({
+                kind: "visit",
+                value: (current as Record<string, unknown>)[key],
+            });
+        }
+    }
+
+    return true;
 }
 
 /**

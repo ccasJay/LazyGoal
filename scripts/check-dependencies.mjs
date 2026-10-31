@@ -53,7 +53,7 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
     contracts: [],
     "contract-binding": ["contracts"],
     "context-budget": ["contracts"],
-    "model-view": ["context-budget", "model-contracts", "context-retrieval"],
+    "model-view": ["context-budget", "model-contracts", "context-retrieval", "contracts"],
     "model-context": ["context-budget", "model-view", "runtime", "contracts", "model-contracts", "tool-core", "working-memory", "context-retrieval", "execution-control"],
     "prompt-renderer": ["model-view", "context-budget"],
     "prompt-bundle": ["prompt-renderer", "model-view", "runtime", "working-memory"],

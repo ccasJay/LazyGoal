@@ -16,7 +16,7 @@
 | 读取结果 | 成功返回隔离数据与可选诊断；失败只返回契约身份、版本与有界问题。 | [契约运行时绑定](../README.md) | [公共类型](../src/types.ts) |
 | 安全诊断 | 只含契约身份、版本和有界 JSON Pointer 路径，不含字段值或原始载荷；未声明属性名与开放对象键名替换为 `*`，只保留已声明属性名和数组下标；校验器 `instancePath` 按同一规则映射。 | [契约运行时绑定](../README.md) | [读取实现](../src/binding.ts)、[Schema 遍历](../src/schema.ts) |
 | 本地 Schema | 构建器从 TS 类型生成的 JSON Schema；绑定不维护第二份字段表。 | [契约运行时绑定](../README.md) | [公共类型](../src/types.ts)、[生成器](../../../scripts/generate-contracts.mjs)、[构建期 Catalog](../../../contracts/README.md) |
-| JSON 隔离 | 读取前验证 JSON 形状并创建不共享引用的副本。 | [契约运行时绑定](../README.md) | [JSON 原语](../src/json.ts) |
+| JSON 隔离 | 读取前验证 JSON 形状并创建不共享引用的副本；值判定委托 `@lazygoal/contracts`，属性形状与副本由本包执行。 | [契约运行时绑定](../README.md) | [JSON 原语](../src/json.ts) |
 | 模型投影 | 从同源本地 Schema 派生 Provider wire Schema、本地约束清单与 canonical 解码器。 | [契约运行时绑定](../README.md) | [投影实现](../src/projection.ts)、[模块说明](./overview.md) |
 | Wire Schema | 封闭、required-nullable、内联引用、联合为 `anyOf` 的 draft-07 Schema。 | [契约运行时绑定](../README.md) | [投影实现](../src/projection.ts) |
 | 本地约束标识 | wire 省略的字符串约束以 JSON Pointer 和关键字列表提供给模型装配，由解码强制验证。 | [契约运行时绑定](../README.md) | [投影类型](../src/projection.ts) |

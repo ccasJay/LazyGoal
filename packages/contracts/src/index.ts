@@ -3,8 +3,8 @@
  *
  * @remarks
  * 本包保持零出站依赖，浏览器与 Node 运行时使用同一实现。它拥有 canonical JSON、
- * 对象守卫、深冻结、代码单元比较与共享校验错误，不包含 Contract DSL、解析器、
- * AST、Schema 编译器或具体业务协议。
+ * 对象守卫、JSON 值判定、深冻结、代码单元比较与共享校验错误，不包含 Contract DSL、
+ * 解析器、AST、Schema 编译器或具体业务协议。
  *
  * @example
  * ```ts
@@ -22,6 +22,7 @@ export {
     canonicalJson,
     compareCodeUnits,
     deepFreeze,
+    isJsonValue,
     isRecord,
 } from "./json";
 export type { CanonicalJsonOptions } from "./json";
@@ -33,6 +34,7 @@ export type {
     ContractIssueCode,
 } from "./errors";
 export type {
+    JsonObject,
     JsonScalar,
     JsonSchema202012,
     JsonSchemaValue,

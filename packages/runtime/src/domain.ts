@@ -1,4 +1,5 @@
 import type { AgentProfile } from "./agent-profile";
+import type { JsonValue } from "../../contracts/src/index";
 import { randomUUID } from "node:crypto";
 import type {
     AgentDecision,
@@ -331,29 +332,13 @@ export function isContextRetrievalProtocol(
 
 
 /**
- * Tool 输入和 Observation 输出使用的递归 JSON 对象。
+ * Tool 输入与 Observation 输出使用的 JSON 形状。
  *
  * @remarks
- * 该边界排除函数、`undefined`、`bigint` 和循环引用，保证 Action/Observation
- * 能随 Goal 快照稳定序列化。
- *
- * @example
- * ```ts
- * const input: JsonObject = { path: "src/index.ts" };
- * ```
+ * 静态形状由 `@lazygoal/contracts` 拥有，此处按 Runtime 领域词汇重新导出；运行时
+ * 接受范围由动作边界执行 `isJsonValue` 判定，不由类型表达。
  */
-export interface JsonObject {
-    readonly [key: string]: JsonValue;
-}
-
-/** Tool 输入与 Observation 输出允许的 JSON 值。 */
-export type JsonValue =
-    | null
-    | boolean
-    | number
-    | string
-    | readonly JsonValue[]
-    | JsonObject;
+export type { JsonObject, JsonValue } from "../../contracts/src/index";
 
 /**
  * 正式消息的稳定来源分类。

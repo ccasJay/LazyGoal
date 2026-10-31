@@ -1,6 +1,7 @@
 import type { ContextLookupFilters, ContextLookupOperation } from "../../model-contracts/src/index";
 import type { ContextLookupMatchedField } from "../../context-retrieval/src/index";
 import type { ModelContextBudgetPlan } from "../../context-budget/src/index";
+import type { JsonValue } from "../../contracts/src/index";
 import type { ModelExecutionUnitProjection, WarmCompactEntry } from "./model-history-view";
 
 
@@ -290,21 +291,12 @@ export interface ModelMemoryEntryBase {
     readonly updatedAtSequence: number;
 }
 
-/** 模型输入边界允许的递归 JSON 值。 */
-export type ModelJsonValue =
-    | null
-    | boolean
-    | number
-    | string
-    | readonly ModelJsonValue[]
-    | { readonly [key: string]: ModelJsonValue };
-
 /** 模型可见的实体化 Fact 投影。 */
 export interface ModelFact extends ModelMemoryEntryBase {
     readonly kind: "fact";
     readonly subject: string;
     readonly predicate: string;
-    readonly value: ModelJsonValue;
+    readonly value: JsonValue;
     readonly stability: "stable" | "last_observed";
     readonly evidenceSequences: readonly number[];
     readonly reinforcementCount: number;
