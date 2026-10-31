@@ -1,0 +1,23 @@
+{
+  "contractId": "model.output.context-checkpoint",
+  "version": 1,
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "source": {
+    "path": "packages/model-contracts/src/model-output/schema-types.ts#ModelContextCheckpointResult,BlockerCreate,BlockerUpdate,FactProposal,FactScalar,FactStability,FactValue,HypothesisCreate,HypothesisUpdate,MemoryEntryScope,MemoryEntryStatus,MemoryPatchOperation,NonNegativeInteger,RetireFactProposal,WorkingMemoryPatch",
+    "sha256": "7309d456d91a2fc68a4ff4986a3cbcfb7935a888d2de58eac9511c3faed47f97"
+  },
+  "generator": {
+    "name": "ts-json-schema-generator",
+    "version": "2.9.0",
+    "typescriptVersion": "5.9.3"
+  },
+  "validator": {
+    "name": "Ajv standalone",
+    "version": "8.20.0"
+  },
+  "bundler": {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "format": "esm"
+  }
+}

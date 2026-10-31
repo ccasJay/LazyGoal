@@ -1,6 +1,8 @@
 import type { ContractValidationError } from "../../contracts/src/index";
 import type {
     AgentDecision,
+    ModelContractDecodeOptions,
+    ModelOutputBundle,
     ModelOutputContractBundle,
 } from "../../model-contracts/src/index";
 import {
@@ -90,6 +92,7 @@ export function parseJson(content: string): unknown {
  *
  * @param content - Adapter 返回的原始模型文本。
  * @param bundle - 当前请求绑定的模型输出契约包。
+ * @param options - 可选的未知字段剥离诊断观察参数；不改变接受范围。
  * @returns 通过校验并解码后的规范领域结果。
  * @throws {@link LLMResponseProtocolError} 格式、结构或基础语义不符时抛出。
  *
@@ -101,13 +104,14 @@ export function parseJson(content: string): unknown {
  */
 export function parseModelOutput<Result>(
     content: string,
-    bundle: ModelOutputContractBundle<Result>,
+    bundle: ModelOutputBundle<Result>,
+    options?: ModelContractDecodeOptions,
 ): Result {
     const rawJson = parseJson(content);
 
     let decoded: Result;
     try {
-        decoded = bundle.decode(rawJson);
+        decoded = bundle.decode(rawJson, options);
     } catch (error) {
         const validationError = error as ContractValidationError;
         if (Array.isArray(validationError?.issues)) {

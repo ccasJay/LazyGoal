@@ -70,6 +70,8 @@ Retrieval Index Sidecar 的顶层文件结构已生成绑定；嵌套文档、�
 
 其他登记项保留真实现状：Contract AST 与 Zod 在运行时校验，Tool 输入 Schema 在注册期内存编译，模型输出联合在请求期动态组合；它们不产生本步的静态 Schema、Reader 或 Manifest。新增启用项必须在 Catalog 中显式登记生成策略，并先扩展共享读取器的受支持子集。
 
+模型迁移的 35 个根契约已按 `typescript-binding` 启用，生成 Schema、Ajv standalone 校验器、Manifest 与绑定；`ToolCallAgentDecision` 因开放 `JsonValue` 输入需要复制共享 JSON 原语而保留未生成，组合使用封闭的 `ToolCallDecisionEnvelope` 加工具绑定。生成制品不构成生产切换证据，联合切换仍待工具线实际绑定与 Runtime 接入。
+
 ## 维护边界
 
 Catalog 是盘点后的当前源码索引，不是自动同步的第二个字段表。声明移动、删除或改变时，应在同一改动中更新对应登记与 `reconciliation`；生成策略、协议身份和制品路径变化还必须通过 `contracts:generate -- --check`。盘点提交本身不是构建输入。
