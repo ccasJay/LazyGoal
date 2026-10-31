@@ -11,9 +11,9 @@
 | Spec | 路径 | 批准状态 | 执行者 / 分支 / worktree | 进度与证据 |
 |---|---|---|---|---|
 | [TS 契约生成能力](../ts-contract-generation-capabilities/spec.md) | `specs/ts-contract-generation-capabilities/` | 已批准（2026-10-31 用户确认） | 执行者 A / `feat/ts-contract-generation-capabilities` / `.worktrees/ts-contract-generation-capabilities` | 执行中（subagent A，基线 `e3926377`） |
-| [工具输入契约迁移](../ts-tool-input-migration/spec.md) | `specs/ts-tool-input-migration/` | 已批准（2026-10-31 用户确认） | 执行者 B / `feat/ts-tool-input-migration` / `.worktrees/ts-tool-input-migration` | 执行中（subagent B，独立准备；联合切换待集成） |
+| [工具输入契约迁移](../ts-tool-input-migration/spec.md) | `specs/ts-tool-input-migration/` | 已批准（2026-10-31 用户确认） | 执行者 B / `feat/ts-tool-input-migration` / `.worktrees/ts-tool-input-migration` | 独立准备完成（HEAD `98c50aca`；TODO 3 待联合集成；Feature Verification 标记 blocked/pending-integration） |
 | [模型数据契约迁移](../ts-model-contract-migration/spec.md) | `specs/ts-model-contract-migration/` | 已批准（2026-10-31 用户确认） | 执行者 C / `feat/ts-model-contract-migration` / `.worktrees/ts-model-contract-migration` | 执行中（subagent C，独立准备；联合切换待集成） |
-| [Web 数据契约迁移](../ts-web-contract-migration/spec.md) | `specs/ts-web-contract-migration/` | 已批准（2026-10-31 用户确认） | 执行者 D / `feat/ts-web-contract-migration` / `.worktrees/ts-web-contract-migration` | 已就绪，待并发名额释放 |
+| [Web 数据契约迁移](../ts-web-contract-migration/spec.md) | `specs/ts-web-contract-migration/` | 已批准（2026-10-31 用户确认） | 执行者 D / `feat/ts-web-contract-migration` / `.worktrees/ts-web-contract-migration` | 执行中（subagent D） |
 | [Storage 数据契约迁移](../ts-storage-contract-migration/spec.md) | `specs/ts-storage-contract-migration/` | 已批准（2026-10-31 用户确认） | 执行者 E / `feat/ts-storage-contract-migration` / `.worktrees/ts-storage-contract-migration` | 已就绪，待并发名额释放 |
 | [其他数据边界契约迁移](../ts-other-boundaries-migration/spec.md) | `specs/ts-other-boundaries-migration/` | 已批准（2026-10-31 用户确认） | 执行者 F / `feat/ts-other-boundaries-migration` / `.worktrees/ts-other-boundaries-migration` | 已就绪，待并发名额释放 |
 | [删除旧 Contract AST](../remove-legacy-contract-ast/spec.md) | `specs/remove-legacy-contract-ast/` | 已批准（2026-10-31 用户确认） | 执行者 G / `feat/remove-legacy-contract-ast` / `.worktrees/remove-legacy-contract-ast` | 未就绪；等待前六方向真实交付与联合验收 |
@@ -21,7 +21,7 @@
 ## 依赖关系与执行顺序
 
 - 生成能力线独立执行，产出经 Feature Verification 验证并固定的生成器、绑定和模型投影提交。前六方向需要新生成能力的部分，以该固定提交及当前验证为就绪条件。
-- 工具线与模型线不设置循环的先完成依赖：各自先完成可独立准备的类型、绑定和局部替身验证；随后由协调者从双方固定提交建立集成 worktree，完成全部工具与 system tools 的统一切换和联合验证。联合验证完成前，任一分支不得作为独立生产切换合入。
+- 工具线与模型线不设置循环的先完成依赖：各自先完成可独立准备的类型、绑定和局部替身验证；随后由协调者从双方固定提交建立集成 worktree，完成全部工具与 system tools 的统一切换和联合验证。联合验证完成前，任一分支不得作为独立生产切换合入。工具线当前有 12 个整数约束契约等待生成能力线支持 `@asType integer` 或等价映射。
 - Web、Storage 和其他边界线按各自真实依赖独立推进。只使用现有生成能力即可完成的部分不等待生成能力线整体完成；确需新能力时，从生成能力线的固定已验证提交建立堆叠分支，并记录上游依赖和验证新鲜度。
 - 删除 AST 是最后阶段：只有前六方向真实消费者迁移、跨 Spec 联合验收和交付证据齐全，且固定实际基线后，才派发删除执行者。仍存在必要 AST 消费者时停止删除并报告。
 - 已批准的 Provider 查询输入、Provider 测试结果和 AgentProfile 小 Spec 保持各自范围与验收，不因本编排获得新的批准或假设。涉及其接入方案的实质变化回到相应 Spec 处理。
