@@ -1,6 +1,70 @@
 import type { JsonValue } from "../../../contracts/src/index";
 
 /**
+ * 无边界 JSON 整数。
+ *
+ * @remarks
+ * 用于 Context Lookup sequence 两端等只要求整数、不声明范围的字段。
+ *
+ * @asType integer
+ *
+ * @example
+ * ```ts
+ * const value: JsonInteger = 3;
+ * ```
+ */
+export type JsonInteger = number;
+
+/**
+ * 非负 JSON 整数。
+ *
+ * @remarks
+ * 用于索引、位置、序列和 revision 等以 0 为下界的字段或数组元素。
+ *
+ * @asType integer
+ * @minimum 0
+ *
+ * @example
+ * ```ts
+ * const index: NonNegativeInteger = 0;
+ * ```
+ */
+export type NonNegativeInteger = number;
+
+/**
+ * 正 JSON 整数。
+ *
+ * @remarks
+ * 用于基础修订号等从 1 开始的字段或数组元素。
+ *
+ * @asType integer
+ * @minimum 1
+ *
+ * @example
+ * ```ts
+ * const revision: PositiveInteger = 1;
+ * ```
+ */
+export type PositiveInteger = number;
+
+/**
+ * 上下文查询的返回数量上限。
+ *
+ * @remarks
+ * 限制在 1 到 50 之间，避免目录查询扫描无界候选集。
+ *
+ * @asType integer
+ * @minimum 1
+ * @maximum 50
+ *
+ * @example
+ * ```ts
+ * const limit: ContextLookupPageSize = 10;
+ * ```
+ */
+export type ContextLookupPageSize = number;
+
+/**
  * 完成条件声明的预期结果。
  *
  * @remarks
@@ -90,7 +154,11 @@ export interface GoalTask {
 export interface RunPlanRouteStageCandidate {
     /** 阶段目标。 */
     readonly target: string;
-    /** 阶段验收条件；至少包含一项。 */
+    /**
+     * 阶段验收条件；至少包含一项。
+     *
+     * @minItems 1
+     */
     readonly acceptanceCriteria: readonly string[];
 }
 
@@ -108,7 +176,11 @@ export interface RunPlanRouteStageCandidate {
  * ```
  */
 export interface RunPlanRouteCandidate {
-    /** 有序候选阶段；至少包含一个阶段。 */
+    /**
+     * 有序候选阶段；至少包含一个阶段。
+     *
+     * @minItems 1
+     */
     readonly stages: readonly RunPlanRouteStageCandidate[];
 }
 
@@ -140,10 +212,8 @@ export interface GoalPlanAddOperation {
     readonly content: string;
     /**
      * 期望插入位置，从 0 开始。
-     *
-     * @minimum 0
      */
-    readonly position?: number;
+    readonly position?: NonNegativeInteger;
 }
 
 /**
@@ -167,7 +237,7 @@ export interface GoalPlanUpdateOperation {
     /** 新状态。 */
     readonly status?: GoalPlanStatus;
     /** 完成时引用的当前 Run 证据序列。 */
-    readonly evidenceSequences?: readonly number[];
+    readonly evidenceSequences?: readonly NonNegativeInteger[];
 }
 
 /**
@@ -185,10 +255,8 @@ export interface GoalPlanReorderOperation {
     readonly id: string;
     /**
      * 目标位置，从 0 开始。
-     *
-     * @minimum 0
      */
-    readonly position: number;
+    readonly position: NonNegativeInteger;
 }
 
 /**
@@ -243,9 +311,9 @@ export type ContextLookupNeed = "conversation_history" | "historical_execution" 
  */
 export interface ContextLookupSequenceRange {
     /** 区间起点。 */
-    readonly from: number;
+    readonly from: JsonInteger;
     /** 区间终点。 */
-    readonly to: number;
+    readonly to: JsonInteger;
 }
 
 /**
@@ -260,19 +328,47 @@ export interface ContextLookupSequenceRange {
  * ```
  */
 export interface ContextLookupFilters {
-    /** 事件类型过滤。 */
+    /**
+     * 事件类型过滤；最多 16 项。
+     *
+     * @maxItems 16
+     */
     readonly eventTypes?: readonly string[];
-    /** 工具 ID 过滤。 */
+    /**
+     * 工具 ID 过滤；最多 16 项。
+     *
+     * @maxItems 16
+     */
     readonly toolIds?: readonly string[];
-    /** Action ID 过滤。 */
+    /**
+     * Action ID 过滤；最多 16 项。
+     *
+     * @maxItems 16
+     */
     readonly actionIds?: readonly string[];
-    /** Step 索引过滤。 */
-    readonly stepIndexes?: readonly number[];
-    /** 路径过滤。 */
+    /**
+     * Step 索引过滤；最多 16 项。
+     *
+     * @maxItems 16
+     */
+    readonly stepIndexes?: readonly NonNegativeInteger[];
+    /**
+     * 路径过滤；最多 16 项。
+     *
+     * @maxItems 16
+     */
     readonly paths?: readonly string[];
-    /** 错误码过滤。 */
+    /**
+     * 错误码过滤；最多 16 项。
+     *
+     * @maxItems 16
+     */
     readonly errorCodes?: readonly string[];
-    /** 对象 ID 过滤。 */
+    /**
+     * 对象 ID 过滤；最多 16 项。
+     *
+     * @maxItems 16
+     */
     readonly objectIds?: readonly string[];
     /** Sequence 区间过滤。 */
     readonly sequenceRange?: ContextLookupSequenceRange;
@@ -316,21 +412,16 @@ export interface ContextLookupRequest {
     readonly cursor?: string;
     /**
      * 返回数量上限。
-     *
-     * @minimum 1
-     * @maximum 50
      */
-    readonly limit?: number;
+    readonly limit?: ContextLookupPageSize;
     /** 目录类别。 */
     readonly category?: string;
     /** 直接展开的来源引用。 */
     readonly sourceRef?: string;
     /**
      * 展开偏移。
-     *
-     * @minimum 0
      */
-    readonly offset?: number;
+    readonly offset?: NonNegativeInteger;
 }
 
 /**
@@ -380,12 +471,10 @@ export interface RequestThink {
 export interface CompletionEvidence {
     /**
      * Task 完成条件索引。
-     *
-     * @minimum 0
      */
-    readonly criterionIndex: number;
+    readonly criterionIndex: NonNegativeInteger;
     /** 支撑该条件的已提交 Trajectory sequence。 */
-    readonly evidenceSequences: readonly number[];
+    readonly evidenceSequences: readonly NonNegativeInteger[];
 }
 
 /**
@@ -477,8 +566,12 @@ export interface FactProposal {
     readonly value: FactValue;
     /** 持续性稳定性。 */
     readonly stability: FactStability;
-    /** 支撑证据序列；至少包含一项。 */
-    readonly evidenceSequences: readonly number[];
+    /**
+     * 支撑证据序列；至少包含一项。
+     *
+     * @minItems 1
+     */
+    readonly evidenceSequences: readonly NonNegativeInteger[];
     /** 可选作用域。 */
     readonly scope?: MemoryEntryScope;
 }
@@ -494,8 +587,12 @@ export interface FactProposal {
 export interface RetireFactProposal {
     /** 目标 Fact ID。 */
     readonly id: string;
-    /** 支撑证据序列；至少包含一项。 */
-    readonly evidenceSequences: readonly number[];
+    /**
+     * 支撑证据序列；至少包含一项。
+     *
+     * @minItems 1
+     */
+    readonly evidenceSequences: readonly NonNegativeInteger[];
 }
 
 /**
@@ -690,10 +787,8 @@ export interface ContextNoteProposal {
     readonly noteId?: string;
     /**
      * 被修订记录的基础修订号。
-     *
-     * @minimum 1
      */
-    readonly baseRevision?: number;
+    readonly baseRevision?: PositiveInteger;
     /** 被替代记录 ID。 */
     readonly supersedesNoteId?: string;
     /** 记录来源。 */
@@ -720,10 +815,8 @@ export interface GoalPlanUpdateAgentDecision {
     readonly kind: "goal_plan_update";
     /**
      * 当前 GoalPlan 修订号。
-     *
-     * @minimum 0
      */
-    readonly baseRevision: number;
+    readonly baseRevision: NonNegativeInteger;
     /** 原子操作列表。 */
     readonly operations: readonly GoalPlanPatchOperation[];
     /** 可选的 Working Memory Patch。 */
@@ -830,7 +923,7 @@ export interface NormalCompleteAgentDecision {
     /** 面向用户的完整交付内容。 */
     readonly summary: string;
     /** 当前 Run 证据序列。 */
-    readonly evidenceSequences: readonly number[];
+    readonly evidenceSequences: readonly NonNegativeInteger[];
     /** 可选的 Working Memory Patch。 */
     readonly memoryPatch?: WorkingMemoryPatch;
     /** 可选的重要信息提议。 */
@@ -922,10 +1015,8 @@ export interface RunStageUpdateAgentDecision {
     readonly stageId?: string;
     /**
      * 被修订阶段基础修订号。
-     *
-     * @minimum 1
      */
-    readonly baseRevision?: number;
+    readonly baseRevision?: PositiveInteger;
     /** 修订原因。 */
     readonly reason?: string;
     /** 阶段目标。 */
@@ -959,7 +1050,7 @@ export interface RunStageCompleteAgentDecision {
     /** 阶段完成摘要。 */
     readonly summary: string;
     /** 当前 Run 证据序列。 */
-    readonly evidenceSequences?: readonly number[];
+    readonly evidenceSequences?: readonly NonNegativeInteger[];
     /** 可选的 Working Memory Patch。 */
     readonly memoryPatch?: WorkingMemoryPatch;
     /** 可选的重要信息提议。 */
@@ -1002,7 +1093,12 @@ export interface AskUserQuestionInput {
     readonly header: string;
     /** 具体问题描述。 */
     readonly question: string;
-    /** 候选选项；2 至 3 项。 */
+    /**
+     * 候选选项；2 至 3 项。
+     *
+     * @minItems 2
+     * @maxItems 3
+     */
     readonly options: readonly AskUserOptionInput[];
     /** 是否允许多选。 */
     readonly multiSelect: boolean;
@@ -1030,7 +1126,12 @@ export interface AskUserQuestionInput {
 export interface AskUserAgentDecision {
     /** 决策判别值。 */
     readonly kind: "ask_user";
-    /** 问题列表；1 至 3 项。 */
+    /**
+     * 问题列表；1 至 3 项。
+     *
+     * @minItems 1
+     * @maxItems 3
+     */
     readonly questions: readonly AskUserQuestionInput[];
     /** 可选的 Working Memory Patch。 */
     readonly memoryPatch?: WorkingMemoryPatch;
@@ -1086,10 +1187,8 @@ export interface RunPlanRouteUpdateAgentDecision {
     readonly kind: "run_plan_route_update";
     /**
      * 当前路线基础修订号。
-     *
-     * @minimum 1
      */
-    readonly baseRevision: number;
+    readonly baseRevision: PositiveInteger;
     /** 修订理由。 */
     readonly reason: string;
     /** 完整候选路线。 */
@@ -1320,7 +1419,7 @@ export interface SystemCompleteRunInput {
     /** 面向用户的完整交付内容。 */
     readonly summary: string;
     /** 当前 Run 证据序列。 */
-    readonly evidenceSequences: readonly number[];
+    readonly evidenceSequences: readonly NonNegativeInteger[];
     /** 可选的 Working Memory Patch。 */
     readonly memoryPatch?: WorkingMemoryPatch;
 }
@@ -1393,11 +1492,8 @@ export interface ContextLookupDirectoryBrowseInput {
     readonly cursor?: string;
     /**
      * 返回数量上限。
-     *
-     * @minimum 1
-     * @maximum 50
      */
-    readonly limit?: number;
+    readonly limit?: ContextLookupPageSize;
     /** 目录类别。 */
     readonly category?: string;
 }
@@ -1419,11 +1515,8 @@ export interface ContextLookupDirectorySearchInput {
     readonly cursor?: string;
     /**
      * 返回数量上限。
-     *
-     * @minimum 1
-     * @maximum 50
      */
-    readonly limit?: number;
+    readonly limit?: ContextLookupPageSize;
     /** 目录类别。 */
     readonly category?: string;
 }
@@ -1443,16 +1536,12 @@ export interface ContextLookupSourceExpandInput {
     readonly sourceRef: string;
     /**
      * 展开偏移。
-     *
-     * @minimum 0
      */
-    readonly offset?: number;
+    readonly offset?: NonNegativeInteger;
     /**
      * 返回数量上限。
-     *
-     * @minimum 1
      */
-    readonly limit?: number;
+    readonly limit?: PositiveInteger;
 }
 
 /**
@@ -1557,7 +1646,12 @@ export interface SystemRequestThinkInput {
  * ```
  */
 export interface SystemAskUserInput {
-    /** 问题列表；1 至 3 项。 */
+    /**
+     * 问题列表；1 至 3 项。
+     *
+     * @minItems 1
+     * @maxItems 3
+     */
     readonly questions: readonly AskUserQuestionInput[];
     /** 可选的 Working Memory Patch。 */
     readonly memoryPatch?: WorkingMemoryPatch;
@@ -1577,10 +1671,8 @@ export interface SystemAskUserInput {
 export interface SystemUpdateGoalPlanInput {
     /**
      * 当前 GoalPlan 修订号。
-     *
-     * @minimum 0
      */
-    readonly baseRevision: number;
+    readonly baseRevision: NonNegativeInteger;
     /** 原子操作列表。 */
     readonly operations: readonly GoalPlanPatchOperation[];
     /** 可选的 Working Memory Patch。 */
@@ -1601,7 +1693,11 @@ export interface SystemUpdateGoalPlanInput {
 export interface SystemStartRunStageInput {
     /** 阶段目标。 */
     readonly target: string;
-    /** 阶段验收条件；至少包含一项。 */
+    /**
+     * 阶段验收条件；至少包含一项。
+     *
+     * @minItems 1
+     */
     readonly acceptanceCriteria: readonly string[];
 }
 
@@ -1623,7 +1719,11 @@ export interface SystemStartRunStageInput {
 export interface SystemReviseRunStageInput {
     /** 阶段目标。 */
     readonly target: string;
-    /** 阶段验收条件；至少包含一项。 */
+    /**
+     * 阶段验收条件；至少包含一项。
+     *
+     * @minItems 1
+     */
     readonly acceptanceCriteria: readonly string[];
     /** 修订原因。 */
     readonly reason: string;
@@ -1644,7 +1744,7 @@ export interface SystemCompleteRunStageInput {
     /** 阶段完成摘要。 */
     readonly summary: string;
     /** 当前 Run 证据序列。 */
-    readonly evidenceSequences: readonly number[];
+    readonly evidenceSequences: readonly NonNegativeInteger[];
 }
 
 /**
@@ -1662,10 +1762,8 @@ export interface SystemCompleteRunStageInput {
 export interface SystemUpdatePlanRouteInput {
     /**
      * 当前路线基础修订号。
-     *
-     * @minimum 1
      */
-    readonly baseRevision: number;
+    readonly baseRevision: PositiveInteger;
     /** 修订理由。 */
     readonly reason: string;
     /** 完整候选路线。 */
