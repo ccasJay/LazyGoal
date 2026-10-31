@@ -19,7 +19,7 @@ import {
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const defaultRepositoryRoot = path.resolve(scriptDirectory, "..");
 const defaultCatalogPath = "contracts/catalog.json";
-const supportedStrategy = "typescript-json-schema";
+const supportedStrategies = new Set(["typescript-json-schema", "typescript-binding"]);
 const expectedDialect = "http://json-schema.org/draft-07/schema#";
 const supportedSchemaKeywords = new Set([
     "$schema",
@@ -34,6 +34,10 @@ const supportedSchemaKeywords = new Set([
     "pattern",
     "const",
     "enum",
+    "minimum",
+    "maximum",
+    "minLength",
+    "maxLength",
     "description",
     "title",
 ]);
@@ -47,6 +51,7 @@ const documentationTags = new Set([
     "see",
     "throws",
 ]);
+const constraintTags = new Set(["pattern", "minimum", "maximum", "minLength", "maxLength"]);
 
 const require = createRequire(import.meta.url);
 const generatorRequire = createRequire(require.resolve("ts-json-schema-generator"));
@@ -74,10 +79,12 @@ export async function generateContractArtifacts({
     const artifacts = new Map();
 
     for (const entry of enabled) {
-        if (entry.generation.strategy !== supportedStrategy) {
+        if (!supportedStrategies.has(entry.generation.strategy)) {
             throw new Error(`Unsupported generation strategy: ${String(entry.generation.strategy)} (${entry.key})`);
         }
-        const generated = await generateTypeScriptJsonSchemaContract(entry, { repositoryRoot: absoluteRoot });
+        const generated = entry.generation.strategy === "typescript-json-schema"
+            ? await generateTypeScriptJsonSchemaContract(entry, { repositoryRoot: absoluteRoot })
+            : await generateTypeScriptBindingContract(entry, { repositoryRoot: absoluteRoot });
         for (const [relativePath, content] of generated) {
             if (artifacts.has(relativePath)) {
                 throw new Error(`Duplicate generated artifact path: ${relativePath}`);
@@ -138,7 +145,7 @@ export function assertSupportedSchema(schema, rootType) {
     visitSchema(schema, schema, "#", new Set());
 }
 
-async function generateTypeScriptJsonSchemaContract(entry, { repositoryRoot }) {
+async function generateSchemaArtifacts(entry, { repositoryRoot, removeAdditional }) {
     const contractFile = path.resolve(repositoryRoot, entry.source.path);
     if (!isInside(repositoryRoot, contractFile)) {
         throw new Error(`Contract source escapes the repository: ${entry.key}`);
@@ -164,7 +171,7 @@ async function generateTypeScriptJsonSchemaContract(entry, { repositoryRoot }) {
     const ajv = new Ajv({
         strict: true,
         allErrors: true,
-        removeAdditional: "all",
+        removeAdditional,
         coerceTypes: false,
         useDefaults: false,
         code: { source: true },
@@ -174,7 +181,7 @@ async function generateTypeScriptJsonSchemaContract(entry, { repositoryRoot }) {
     const bundled = await build({
         stdin: {
             contents: validatorCode,
-            resolveDir: repositoryRoot,
+            resolveDir: defaultRepositoryRoot,
             sourcefile: `${entry.generation.rootType}-validator.cjs`,
             loader: "js",
         },
@@ -214,16 +221,41 @@ async function generateTypeScriptJsonSchemaContract(entry, { repositoryRoot }) {
         },
     };
 
+    return { schema, metadata, validator };
+}
+
+async function generateTypeScriptJsonSchemaContract(entry, { repositoryRoot }) {
+    const { schema, metadata, validator } = await generateSchemaArtifacts(entry, {
+        repositoryRoot,
+        removeAdditional: "all",
+    });
+    const { names } = entry.generation.reader;
     const outputDirectory = entry.generation.outputDirectory;
     const artifactPath = name => path.posix.join(outputDirectory, name);
-    const generated = new Map([
-        [artifactPath(entry.generation.artifacts.schemaModule), renderSchemaModule(entry, schema, metadata)],
+    return new Map([
+        [artifactPath(entry.generation.artifacts.schemaModule), renderSchemaModule(schema, metadata, names)],
         [artifactPath(entry.generation.artifacts.manifest), `${JSON.stringify(metadata, null, 2)}\n`],
         [artifactPath(entry.generation.artifacts.validator), validator],
-        [artifactPath(entry.generation.artifacts.validatorTypes), renderValidatorTypes(entry)],
+        [artifactPath(entry.generation.artifacts.validatorTypes), renderValidatorTypes(names.validator)],
         [artifactPath(entry.generation.artifacts.reader), renderReaderModule(entry)],
     ]);
-    return generated;
+}
+
+async function generateTypeScriptBindingContract(entry, { repositoryRoot }) {
+    const { schema, metadata, validator } = await generateSchemaArtifacts(entry, {
+        repositoryRoot,
+        removeAdditional: false,
+    });
+    const { names } = entry.generation.binding;
+    const outputDirectory = entry.generation.outputDirectory;
+    const artifactPath = name => path.posix.join(outputDirectory, name);
+    return new Map([
+        [artifactPath(entry.generation.artifacts.schemaModule), renderSchemaModule(schema, metadata, names)],
+        [artifactPath(entry.generation.artifacts.manifest), `${JSON.stringify(metadata, null, 2)}\n`],
+        [artifactPath(entry.generation.artifacts.validator), validator],
+        [artifactPath(entry.generation.artifacts.validatorTypes), renderValidatorTypes(names.validator)],
+        [artifactPath(entry.generation.artifacts.binding), renderBindingModule(entry)],
+    ]);
 }
 
 function inspectContractSource(contractFile, source, declaredTypes) {
@@ -237,7 +269,7 @@ function inspectContractSource(contractFile, source, declaredTypes) {
         declarations.push(matches[0]);
     }
 
-    const supportedTags = new Set([...documentationTags, "pattern"]);
+    const supportedTags = new Set([...documentationTags, ...constraintTags]);
     const patternTags = [];
     for (const declaration of declarations) {
         inspectTags(sourceFile, declaration, declaration.name.text, supportedTags);
@@ -268,20 +300,68 @@ function inspectContractSource(contractFile, source, declaredTypes) {
 }
 
 function inspectTags(sourceFile, node, owner, supportedTags) {
+    const seen = new Map();
     for (const tag of ts.getJSDocTags(node)) {
         const name = tag.tagName.text;
         if (!supportedTags.has(name)) {
             const { line } = sourceFile.getLineAndCharacterOfPosition(tag.getStart(sourceFile));
             throw new Error(`Unsupported JSDoc tag @${name} on ${owner} at line ${line + 1}`);
         }
-        if (name === "pattern") {
-            if (!ts.isPropertySignature(node) || node.type?.kind !== ts.SyntaxKind.StringKeyword) {
-                throw new Error(`JSDoc @pattern is supported only on string fields in ${owner}`);
-            }
-            if (readTagComment(tag).length === 0) {
-                throw new Error(`JSDoc @pattern requires a regular expression in ${owner}`);
-            }
+        if (!constraintTags.has(name)) continue;
+        seen.set(name, (seen.get(name) ?? 0) + 1);
+        if (seen.get(name) > 1) {
+            throw new Error(`Duplicate JSDoc @${name} on ${owner}`);
         }
+        validateConstraintTag(node, name, owner);
+    }
+    validateConstraintOrder(node, owner);
+}
+
+function validateConstraintTag(node, name, owner) {
+    if (!ts.isPropertySignature(node)) {
+        throw new Error(`JSDoc @${name} is supported only on fields in ${owner}`);
+    }
+    if (name === "pattern") {
+        if (node.type?.kind !== ts.SyntaxKind.StringKeyword) {
+            throw new Error(`JSDoc @pattern is supported only on string fields in ${owner}`);
+        }
+        const pattern = readTagComment(ts.getJSDocTags(node).find(tag => tag.tagName.text === "pattern"));
+        if (pattern.length === 0) throw new Error(`JSDoc @pattern requires a regular expression in ${owner}`);
+        try {
+            new RegExp(pattern);
+        } catch {
+            throw new Error(`Invalid JSDoc @pattern in ${owner}`);
+        }
+        return;
+    }
+    if (name === "minimum" || name === "maximum") {
+        if (node.type?.kind !== ts.SyntaxKind.NumberKeyword) {
+            throw new Error(`JSDoc @${name} is supported only on number fields in ${owner}`);
+        }
+        const value = Number(readTagComment(ts.getJSDocTags(node).find(tag => tag.tagName.text === name)));
+        if (!Number.isFinite(value)) throw new Error(`JSDoc @${name} requires a finite number in ${owner}`);
+        return;
+    }
+    if (node.type?.kind !== ts.SyntaxKind.StringKeyword) {
+        throw new Error(`JSDoc @${name} is supported only on string fields in ${owner}`);
+    }
+    const value = Number(readTagComment(ts.getJSDocTags(node).find(tag => tag.tagName.text === name)));
+    if (!Number.isInteger(value) || value < 0) {
+        throw new Error(`JSDoc @${name} requires a non-negative integer in ${owner}`);
+    }
+}
+
+function validateConstraintOrder(node, owner) {
+    const tags = new Map(ts.getJSDocTags(node).map(tag => [tag.tagName.text, readTagComment(tag)]));
+    const minimum = tags.get("minimum");
+    const maximum = tags.get("maximum");
+    if (minimum !== undefined && maximum !== undefined && Number(minimum) > Number(maximum)) {
+        throw new Error(`JSDoc @minimum must not exceed @maximum in ${owner}`);
+    }
+    const minLength = tags.get("minLength");
+    const maxLength = tags.get("maxLength");
+    if (minLength !== undefined && maxLength !== undefined && Number(minLength) > Number(maxLength)) {
+        throw new Error(`JSDoc @minLength must not exceed @maxLength in ${owner}`);
     }
 }
 
@@ -418,6 +498,24 @@ function visitSchema(root, schema, schemaPath, visitedRefs) {
             throw new Error(`JSON Schema enum must contain JSON scalars at ${schemaPath}`);
         }
     }
+    for (const key of ["minimum", "maximum"]) {
+        if (schema[key] === undefined) continue;
+        if ((schema.type !== "number" && schema.type !== "integer") || typeof schema[key] !== "number" || !Number.isFinite(schema[key])) {
+            throw new Error(`JSON Schema ${key} requires a finite numeric bound at ${schemaPath}`);
+        }
+    }
+    if (schema.minimum !== undefined && schema.maximum !== undefined && schema.minimum > schema.maximum) {
+        throw new Error(`JSON Schema minimum must not exceed maximum at ${schemaPath}`);
+    }
+    for (const key of ["minLength", "maxLength"]) {
+        if (schema[key] === undefined) continue;
+        if (schema.type !== "string" || !Number.isInteger(schema[key]) || schema[key] < 0) {
+            throw new Error(`JSON Schema ${key} requires a non-negative integer on a string at ${schemaPath}`);
+        }
+    }
+    if (schema.minLength !== undefined && schema.maxLength !== undefined && schema.minLength > schema.maxLength) {
+        throw new Error(`JSON Schema minLength must not exceed maxLength at ${schemaPath}`);
+    }
     for (const key of ["description", "title"]) {
         if (schema[key] !== undefined && typeof schema[key] !== "string") {
             throw new Error(`JSON Schema ${key} must be a string at ${schemaPath}`);
@@ -426,11 +524,10 @@ function visitSchema(root, schema, schemaPath, visitedRefs) {
 }
 
 function isJsonScalar(value) {
-    return value === null || value === undefined || typeof value === "string" || typeof value === "boolean" || typeof value === "number";
+    return value === null || typeof value === "string" || typeof value === "boolean" || typeof value === "number";
 }
 
-function renderSchemaModule(entry, schema, metadata) {
-    const { names } = entry.generation.reader;
+function renderSchemaModule(schema, metadata, names) {
     const serialized = JSON.stringify(schema);
     return [
         "/** Generated by scripts/generate-contracts.mjs from contracts/catalog.json. Do not edit. */",
@@ -440,11 +537,30 @@ function renderSchemaModule(entry, schema, metadata) {
     ].join("\n");
 }
 
-function renderValidatorTypes(entry) {
-    const { names } = entry.generation.reader;
+function renderValidatorTypes(validatorName) {
     return [
-        `declare const ${names.validator}: (value: unknown) => boolean;`,
-        `export default ${names.validator};`,
+        `declare const ${validatorName}: (value: unknown) => boolean;`,
+        `export default ${validatorName};`,
+        "",
+    ].join("\n");
+}
+
+function renderBindingModule(entry) {
+    const { binding } = entry.generation;
+    const schemaModule = basenameWithoutTypeScriptExtension(entry.generation.artifacts.schemaModule);
+    return [
+        "/** Generated by scripts/generate-contracts.mjs from contracts/catalog.json. Do not edit. */",
+        `import { createContractBinding, type ContractSchemaNode } from "${binding.module}";`,
+        `import { ${binding.names.metadata}, ${binding.names.schema} } from "./${schemaModule}";`,
+        `import ${binding.names.validator} from "./${entry.generation.artifacts.validator}";`,
+        `import type { ${binding.dataType} } from "${binding.dataTypeModule}";`,
+        "",
+        `export const ${binding.exportName} = createContractBinding<${binding.dataType}>({`,
+        `    contractId: ${binding.names.metadata}.contractId,`,
+        `    version: ${binding.names.metadata}.version,`,
+        `    schema: ${binding.names.schema} as ContractSchemaNode,`,
+        `    validate: ${binding.names.validator},`,
+        "});",
         "",
     ].join("\n");
 }
