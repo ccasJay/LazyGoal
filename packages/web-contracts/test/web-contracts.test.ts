@@ -578,6 +578,7 @@ test("isTrajectoryPage and isTrajectoryDetail validate trajectory wire DTOs", ()
     };
     assert.equal(isTrajectoryRun(validRun), true);
     assert.equal(isTrajectoryRuns({ runs: [validRun], nextOffset: null }), true);
+    assert.equal(isTrajectoryRuns({ runs: [validRun], nextOffset: 1.5 }), false);
 
     const validEntry = {
         eventId: "e-1",
@@ -603,6 +604,20 @@ test("isTrajectoryPage and isTrajectoryDetail validate trajectory wire DTOs", ()
             locatedSequence: null,
         }),
         true,
+    );
+
+    assert.equal(
+        isTrajectoryPage({
+            goalId: "goal-1",
+            run: validRun,
+            entries: [validEntry],
+            total: 1,
+            committedCount: 1,
+            previousCursor: null,
+            nextCursor: 1.5,
+            locatedSequence: null,
+        }),
+        false,
     );
 
     assert.equal(

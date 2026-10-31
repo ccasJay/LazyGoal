@@ -12,7 +12,7 @@ var require_BrowserTrajectoryPage_validator = __commonJS({
   "BrowserTrajectoryPage-validator.cjs"(exports, module) {
     module.exports = validate10;
     module.exports.default = validate10;
-    var schema12 = { "type": "object", "properties": { "goalId": { "type": "string", "pattern": "\\S" }, "run": { "$ref": "#/definitions/BrowserTrajectoryRun" }, "entries": { "type": "array", "items": { "$ref": "#/definitions/BrowserTrajectoryEntry" } }, "total": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "committedCount": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "previousCursor": { "type": ["number", "null"] }, "nextCursor": { "type": ["number", "null"] }, "locatedSequence": { "type": ["number", "null"] } }, "required": ["goalId", "run", "entries", "total", "committedCount", "previousCursor", "nextCursor", "locatedSequence"], "additionalProperties": false, "description": "\u8F68\u8FF9\u5206\u9875\u67E5\u8BE2\u54CD\u5E94\u9875\u3002" };
+    var schema12 = { "type": "object", "properties": { "goalId": { "type": "string", "pattern": "\\S" }, "run": { "$ref": "#/definitions/BrowserTrajectoryRun" }, "entries": { "type": "array", "items": { "$ref": "#/definitions/BrowserTrajectoryEntry" } }, "total": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "committedCount": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "previousCursor": { "type": ["number", "null"], "maximum": 9007199254740991, "minimum": 0 }, "nextCursor": { "type": ["number", "null"], "maximum": 9007199254740991, "minimum": 0 }, "locatedSequence": { "type": ["number", "null"], "maximum": 9007199254740991, "minimum": 0 } }, "required": ["goalId", "run", "entries", "total", "committedCount", "previousCursor", "nextCursor", "locatedSequence"], "additionalProperties": false, "description": "\u8F68\u8FF9\u5206\u9875\u67E5\u8BE2\u54CD\u5E94\u9875\u3002" };
     var schema15 = { "type": "object", "properties": { "eventId": { "type": "string", "pattern": "\\S" }, "sequence": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "occurredAt": { "type": "string" }, "eventType": { "type": "string" }, "category": { "type": "string", "enum": ["lifecycle", "decision", "memory", "action", "tool", "observation", "terminal", "commit"] }, "executionUnitId": { "type": "string", "pattern": "\\S" }, "stepIndex": { "type": "integer", "maximum": 9007199254740991 }, "actionId": { "type": "string", "pattern": "\\S" }, "programId": { "type": "string", "pattern": "\\S" }, "callIndex": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "parentActionId": { "type": "string", "pattern": "\\S" }, "title": { "type": "string" }, "preview": { "type": "string" }, "previewTruncated": { "type": "boolean" }, "inputPreview": { "type": "string" }, "resultPreview": { "type": "string" }, "modelCallId": { "type": "string" }, "modelStage": { "type": "string", "enum": ["think", "decide"] } }, "required": ["eventId", "sequence", "occurredAt", "eventType", "category", "title", "preview", "previewTruncated"], "additionalProperties": false, "description": "\u5355\u6761\u8F68\u8FF9\u4E8B\u4EF6\u5217\u8868\u6761\u76EE\u3002" };
     var pattern0 = new RegExp("\\S", "u");
     var schema14 = { "type": "string", "enum": ["created", "running", "waiting", "completed", "failed", "cancelled"], "description": "Run \u751F\u547D\u5468\u671F\u72B6\u6001\u3002" };
@@ -793,37 +793,97 @@ var require_BrowserTrajectoryPage_validator = __commonJS({
             }
             errors++;
           }
+          if (typeof data24 == "number" && isFinite(data24)) {
+            if (data24 > 9007199254740991 || isNaN(data24)) {
+              const err59 = { instancePath: instancePath + "/previousCursor", schemaPath: "#/properties/previousCursor/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
+              if (vErrors === null) {
+                vErrors = [err59];
+              } else {
+                vErrors.push(err59);
+              }
+              errors++;
+            }
+            if (data24 < 0 || isNaN(data24)) {
+              const err60 = { instancePath: instancePath + "/previousCursor", schemaPath: "#/properties/previousCursor/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
+              if (vErrors === null) {
+                vErrors = [err60];
+              } else {
+                vErrors.push(err60);
+              }
+              errors++;
+            }
+          }
         }
         if (data.nextCursor !== void 0) {
           let data25 = data.nextCursor;
           if (!(typeof data25 == "number" && isFinite(data25)) && data25 !== null) {
-            const err59 = { instancePath: instancePath + "/nextCursor", schemaPath: "#/properties/nextCursor/type", keyword: "type", params: { type: schema12.properties.nextCursor.type }, message: "must be number,null" };
+            const err61 = { instancePath: instancePath + "/nextCursor", schemaPath: "#/properties/nextCursor/type", keyword: "type", params: { type: schema12.properties.nextCursor.type }, message: "must be number,null" };
             if (vErrors === null) {
-              vErrors = [err59];
+              vErrors = [err61];
             } else {
-              vErrors.push(err59);
+              vErrors.push(err61);
             }
             errors++;
+          }
+          if (typeof data25 == "number" && isFinite(data25)) {
+            if (data25 > 9007199254740991 || isNaN(data25)) {
+              const err62 = { instancePath: instancePath + "/nextCursor", schemaPath: "#/properties/nextCursor/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
+              if (vErrors === null) {
+                vErrors = [err62];
+              } else {
+                vErrors.push(err62);
+              }
+              errors++;
+            }
+            if (data25 < 0 || isNaN(data25)) {
+              const err63 = { instancePath: instancePath + "/nextCursor", schemaPath: "#/properties/nextCursor/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
+              if (vErrors === null) {
+                vErrors = [err63];
+              } else {
+                vErrors.push(err63);
+              }
+              errors++;
+            }
           }
         }
         if (data.locatedSequence !== void 0) {
           let data26 = data.locatedSequence;
           if (!(typeof data26 == "number" && isFinite(data26)) && data26 !== null) {
-            const err60 = { instancePath: instancePath + "/locatedSequence", schemaPath: "#/properties/locatedSequence/type", keyword: "type", params: { type: schema12.properties.locatedSequence.type }, message: "must be number,null" };
+            const err64 = { instancePath: instancePath + "/locatedSequence", schemaPath: "#/properties/locatedSequence/type", keyword: "type", params: { type: schema12.properties.locatedSequence.type }, message: "must be number,null" };
             if (vErrors === null) {
-              vErrors = [err60];
+              vErrors = [err64];
             } else {
-              vErrors.push(err60);
+              vErrors.push(err64);
             }
             errors++;
           }
+          if (typeof data26 == "number" && isFinite(data26)) {
+            if (data26 > 9007199254740991 || isNaN(data26)) {
+              const err65 = { instancePath: instancePath + "/locatedSequence", schemaPath: "#/properties/locatedSequence/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
+              if (vErrors === null) {
+                vErrors = [err65];
+              } else {
+                vErrors.push(err65);
+              }
+              errors++;
+            }
+            if (data26 < 0 || isNaN(data26)) {
+              const err66 = { instancePath: instancePath + "/locatedSequence", schemaPath: "#/properties/locatedSequence/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
+              if (vErrors === null) {
+                vErrors = [err66];
+              } else {
+                vErrors.push(err66);
+              }
+              errors++;
+            }
+          }
         }
       } else {
-        const err61 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+        const err67 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
         if (vErrors === null) {
-          vErrors = [err61];
+          vErrors = [err67];
         } else {
-          vErrors.push(err61);
+          vErrors.push(err67);
         }
         errors++;
       }

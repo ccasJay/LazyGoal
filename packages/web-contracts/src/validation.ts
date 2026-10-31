@@ -55,6 +55,7 @@ import {
     isJsonValue,
     isLiveEventStructure,
     isMetricValues as hasValidMetricValues,
+    isNullableSafeInteger,
     isPlanRoute,
     isRecord,
     isTrajectoryDetail as hasValidTrajectoryDetail,
@@ -721,7 +722,8 @@ export function isTrajectoryRun(value: unknown): value is BrowserTrajectoryRun {
  * ```
  */
 export function isTrajectoryRuns(value: unknown): value is BrowserTrajectoryRuns {
-    return accepts(browserTrajectoryRunsBinding, value);
+    const result = browserTrajectoryRunsBinding.read(value, "strip");
+    return result.ok && isNullableSafeInteger(result.data.nextOffset);
 }
 
 /**
@@ -751,7 +753,11 @@ export function isTrajectoryEntry(value: unknown): value is BrowserTrajectoryEnt
  * ```
  */
 export function isTrajectoryPage(value: unknown): value is BrowserTrajectoryPage {
-    return accepts(browserTrajectoryPageBinding, value);
+    const result = browserTrajectoryPageBinding.read(value, "strip");
+    return result.ok
+        && isNullableSafeInteger(result.data.previousCursor)
+        && isNullableSafeInteger(result.data.nextCursor)
+        && isNullableSafeInteger(result.data.locatedSequence);
 }
 
 /**
@@ -812,7 +818,8 @@ export function isSessionMessage(value: unknown): value is BrowserSessionMessage
  * ```
  */
 export function isModelInputs(value: unknown): value is BrowserModelInputs {
-    return accepts(browserModelInputsBinding, value);
+    const result = browserModelInputsBinding.read(value, "strip");
+    return result.ok && isNullableSafeInteger(result.data.nextOffset);
 }
 
 /**

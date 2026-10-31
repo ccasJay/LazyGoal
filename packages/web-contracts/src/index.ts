@@ -160,6 +160,8 @@ export {
 
 export * from "./bindings";
 
+export { isNullableSafeInteger } from "./invariants";
+
 export type {
     ContractBinding,
     ContractDiagnostic,
@@ -168,8 +170,7 @@ export type {
 
 export {
     isRecord,
-    isNonEmptyString,
-    isJsonValue,
+    isNonEmptyString,    isJsonValue,
     isRunStatus,
     isOkResponse,
     isAcceptedCommand,

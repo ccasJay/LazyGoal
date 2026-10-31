@@ -42132,7 +42132,7 @@
       "declaration": "BrowserTrajectoryRun",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 2186
+        "line": 2190
       },
       "status": "present",
       "disposition": null,
@@ -42194,7 +42194,7 @@
       "declaration": "BrowserTrajectoryEntry",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 2198
+        "line": 2202
       },
       "status": "present",
       "disposition": null,
@@ -42255,7 +42255,7 @@
       "declaration": "BrowserTrajectoryRuns",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 2352
+        "line": 2368
       },
       "status": "present",
       "disposition": null,
@@ -42318,7 +42318,7 @@
       "declaration": "BrowserTrajectoryPage",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 2241
+        "line": 2245
       },
       "status": "present",
       "disposition": null,
@@ -42382,7 +42382,7 @@
       "declaration": "BrowserTrajectoryDetail",
       "source": {
         "path": "packages/web-contracts/src/wire.ts",
-        "line": 2361
+        "line": 2381
       },
       "status": "present",
       "disposition": null,

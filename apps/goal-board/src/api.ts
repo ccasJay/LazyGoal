@@ -27,6 +27,7 @@ import {
   browserTrajectoryRunsBinding,
   browserWorkspaceContextBinding,
   isOkResponse,
+  isNullableSafeInteger,
   isRecord,
   readBrowserProviderModels,
   sessionMetricsSnapshotBinding,
@@ -163,17 +164,20 @@ export const browserApi = {
   },
 
   modelInputs(goalId: string, runId: string, offset = 0, signal?: AbortSignal, query = ""): Promise<BrowserModelInputs> {
-    return requestContract(`/api/goals/${encodeURIComponent(goalId)}/model-inputs?runId=${encodeURIComponent(runId)}&offset=${offset}&q=${encodeURIComponent(query)}`, browserModelInputsBinding, signal);
+    return requestContract(`/api/goals/${encodeURIComponent(goalId)}/model-inputs?runId=${encodeURIComponent(runId)}&offset=${offset}&q=${encodeURIComponent(query)}`, browserModelInputsBinding, signal, {}, undefined, data => isNullableSafeInteger(data.nextOffset));
   },
   modelInput(goalId: string, runId: string, callId: string, signal?: AbortSignal): Promise<BrowserModelInputDetail> {
     return requestContract(`/api/goals/${encodeURIComponent(goalId)}/model-inputs?runId=${encodeURIComponent(runId)}&callId=${encodeURIComponent(callId)}`, browserModelInputDetailBinding, signal);
   },
   trajectoryRuns(goalId: string, offset = 0, signal?: AbortSignal): Promise<BrowserTrajectoryRuns> {
-    return requestContract(`/api/goals/${encodeURIComponent(goalId)}/trajectory/runs?offset=${offset}`, browserTrajectoryRunsBinding, signal);
+    return requestContract(`/api/goals/${encodeURIComponent(goalId)}/trajectory/runs?offset=${offset}`, browserTrajectoryRunsBinding, signal, {}, undefined, data => isNullableSafeInteger(data.nextOffset));
   },
 
   trajectory(goalId: string, query: URLSearchParams, signal?: AbortSignal): Promise<BrowserTrajectoryPage> {
-    return requestContract(`/api/goals/${encodeURIComponent(goalId)}/trajectory?${query}`, browserTrajectoryPageBinding, signal);
+    return requestContract(`/api/goals/${encodeURIComponent(goalId)}/trajectory?${query}`, browserTrajectoryPageBinding, signal, {}, undefined,
+      data => isNullableSafeInteger(data.previousCursor)
+        && isNullableSafeInteger(data.nextCursor)
+        && isNullableSafeInteger(data.locatedSequence));
   },
 
   trajectoryDetail(goalId: string, runId: string, sequence: number, signal?: AbortSignal): Promise<BrowserTrajectoryDetail> {
@@ -474,6 +478,7 @@ async function requestContract<T>(
   signal?: AbortSignal,
   init: RequestInit = {},
   precheck?: (value: unknown) => boolean,
+  postRead?: (data: T) => boolean,
 ): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -485,6 +490,7 @@ async function requestContract<T>(
   if (precheck !== undefined && !precheck(value)) throw new Error("invalid_api_response");
   const result = binding.read(value, "strip");
   if (!result.ok) throw new Error("invalid_api_response");
+  if (postRead !== undefined && !postRead(result.data)) throw new Error("invalid_api_response");
   reportWireDiagnostic(result.diagnostic);
   return result.data;
 }

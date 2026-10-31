@@ -2179,6 +2179,10 @@ export interface BrowserModelInputs {
      * @maximum 9007199254740991
      * @minimum 0 */
     readonly total: number;
+    /**
+     * @maximum 9007199254740991
+     * @minimum 0
+     */
     readonly nextOffset: number | null;
 }
 
@@ -2251,8 +2255,20 @@ export interface BrowserTrajectoryPage {
      * @maximum 9007199254740991
      * @minimum 0 */
     readonly committedCount: number;
+    /**
+     * @maximum 9007199254740991
+     * @minimum 0
+     */
     readonly previousCursor: number | null;
+    /**
+     * @maximum 9007199254740991
+     * @minimum 0
+     */
     readonly nextCursor: number | null;
+    /**
+     * @maximum 9007199254740991
+     * @minimum 0
+     */
     readonly locatedSequence: number | null;
 }
 
@@ -2351,6 +2367,10 @@ export interface BrowserTrajectoryToolFinished {
 /** 轨迹 Run 列表响应。 */
 export interface BrowserTrajectoryRuns {
     readonly runs: readonly BrowserTrajectoryRun[];
+    /**
+     * @maximum 9007199254740991
+     * @minimum 0
+     */
     readonly nextOffset: number | null;
 }
 

@@ -12,7 +12,7 @@ var require_BrowserTrajectoryRuns_validator = __commonJS({
   "BrowserTrajectoryRuns-validator.cjs"(exports, module) {
     module.exports = validate10;
     module.exports.default = validate10;
-    var schema12 = { "type": "object", "properties": { "runs": { "type": "array", "items": { "$ref": "#/definitions/BrowserTrajectoryRun" } }, "nextOffset": { "type": ["number", "null"] } }, "required": ["runs", "nextOffset"], "additionalProperties": false, "description": "\u8F68\u8FF9 Run \u5217\u8868\u54CD\u5E94\u3002" };
+    var schema12 = { "type": "object", "properties": { "runs": { "type": "array", "items": { "$ref": "#/definitions/BrowserTrajectoryRun" } }, "nextOffset": { "type": ["number", "null"], "maximum": 9007199254740991, "minimum": 0 } }, "required": ["runs", "nextOffset"], "additionalProperties": false, "description": "\u8F68\u8FF9 Run \u5217\u8868\u54CD\u5E94\u3002" };
     var schema14 = { "type": "string", "enum": ["created", "running", "waiting", "completed", "failed", "cancelled"], "description": "Run \u751F\u547D\u5468\u671F\u72B6\u6001\u3002" };
     var pattern0 = new RegExp("\\S", "u");
     function validate12(data, { instancePath = "", parentData, parentDataProperty, rootData = data } = {}) {
@@ -228,13 +228,33 @@ var require_BrowserTrajectoryRuns_validator = __commonJS({
             }
             errors++;
           }
+          if (typeof data2 == "number" && isFinite(data2)) {
+            if (data2 > 9007199254740991 || isNaN(data2)) {
+              const err5 = { instancePath: instancePath + "/nextOffset", schemaPath: "#/properties/nextOffset/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
+              if (vErrors === null) {
+                vErrors = [err5];
+              } else {
+                vErrors.push(err5);
+              }
+              errors++;
+            }
+            if (data2 < 0 || isNaN(data2)) {
+              const err6 = { instancePath: instancePath + "/nextOffset", schemaPath: "#/properties/nextOffset/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
+              if (vErrors === null) {
+                vErrors = [err6];
+              } else {
+                vErrors.push(err6);
+              }
+              errors++;
+            }
+          }
         }
       } else {
-        const err5 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+        const err7 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
         if (vErrors === null) {
-          vErrors = [err5];
+          vErrors = [err7];
         } else {
-          vErrors.push(err5);
+          vErrors.push(err7);
         }
         errors++;
       }

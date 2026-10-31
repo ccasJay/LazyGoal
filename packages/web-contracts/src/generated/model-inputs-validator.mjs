@@ -12,7 +12,7 @@ var require_BrowserModelInputs_validator = __commonJS({
   "BrowserModelInputs-validator.cjs"(exports, module) {
     module.exports = validate10;
     module.exports.default = validate10;
-    var schema12 = { "type": "object", "properties": { "calls": { "type": "array", "items": { "$ref": "#/definitions/BrowserModelInputSummary" } }, "total": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "nextOffset": { "type": ["number", "null"] } }, "required": ["calls", "total", "nextOffset"], "additionalProperties": false, "description": "\u6A21\u578B\u8F93\u5165\u5217\u8868\u54CD\u5E94\u3002" };
+    var schema12 = { "type": "object", "properties": { "calls": { "type": "array", "items": { "$ref": "#/definitions/BrowserModelInputSummary" } }, "total": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "nextOffset": { "type": ["number", "null"], "maximum": 9007199254740991, "minimum": 0 } }, "required": ["calls", "total", "nextOffset"], "additionalProperties": false, "description": "\u6A21\u578B\u8F93\u5165\u5217\u8868\u54CD\u5E94\u3002" };
     var schema13 = { "type": "object", "properties": { "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "callId": { "type": "string", "pattern": "\\S" }, "executionUnitId": { "type": "string", "pattern": "\\S" }, "stepIndex": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "stage": { "type": "string", "enum": ["think", "decide", "completion_review"] }, "occurredAt": { "type": "string" }, "systemVersion": { "type": "string" }, "systemChanged": { "type": "boolean" }, "firstSystem": { "type": "boolean" }, "previousCallId": { "type": ["string", "null"], "pattern": "\\S" }, "messages": { "type": "array", "items": { "$ref": "#/definitions/BrowserModelInputPreviewMessage" } }, "omittedMessageCount": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 } }, "required": ["goalId", "runId", "callId", "stepIndex", "stage", "occurredAt", "systemVersion", "systemChanged", "firstSystem", "previousCallId", "messages", "omittedMessageCount"], "additionalProperties": false, "description": "\u6A21\u578B\u8F93\u5165\u6458\u8981\u4F20\u8F93\u5BF9\u8C61\uFF08\u7528\u4E8E\u8C03\u7528\u5217\u8868\u5C55\u793A\uFF09\u3002" };
     var schema14 = { "type": "object", "properties": { "role": { "type": "string", "enum": ["system", "user", "assistant", "tool"] }, "source": { "type": "string", "enum": ["system", "conversation", "section", "working_context", "stage", "request", "native_history"] }, "index": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "preview": { "type": "string" }, "truncated": { "type": "boolean" } }, "required": ["role", "source", "index", "preview", "truncated"], "additionalProperties": false, "description": "\u6A21\u578B\u8F93\u5165\u9884\u89C8\u6D88\u606F\u3002" };
     var func2 = Object.prototype.hasOwnProperty;
@@ -676,13 +676,33 @@ var require_BrowserModelInputs_validator = __commonJS({
             }
             errors++;
           }
+          if (typeof data3 == "number" && isFinite(data3)) {
+            if (data3 > 9007199254740991 || isNaN(data3)) {
+              const err9 = { instancePath: instancePath + "/nextOffset", schemaPath: "#/properties/nextOffset/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
+              if (vErrors === null) {
+                vErrors = [err9];
+              } else {
+                vErrors.push(err9);
+              }
+              errors++;
+            }
+            if (data3 < 0 || isNaN(data3)) {
+              const err10 = { instancePath: instancePath + "/nextOffset", schemaPath: "#/properties/nextOffset/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
+              if (vErrors === null) {
+                vErrors = [err10];
+              } else {
+                vErrors.push(err10);
+              }
+              errors++;
+            }
+          }
         }
       } else {
-        const err9 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+        const err11 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
         if (vErrors === null) {
-          vErrors = [err9];
+          vErrors = [err11];
         } else {
-          vErrors.push(err9);
+          vErrors.push(err11);
         }
         errors++;
       }
