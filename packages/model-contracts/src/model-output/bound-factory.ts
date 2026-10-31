@@ -23,7 +23,7 @@ import type {
     CompletionReviewResult,
     DecideOutput,
     RequestThink,
-    ToolCallAgentDecision,
+    ToolCallDecisionEnvelope,
 } from "./schema-types";
 import type {
     AuthorizedToolBinding,
@@ -259,9 +259,13 @@ export function createBoundModelOutputContractBundle<
                         "Tool call is unknown or not authorized for this request",
                     );
                 }
-                const decodedEnvelope = decodeBranch<ToolCallAgentDecision>(
+                if (!("input" in action)) {
+                    throw validationError("missing_field", ["result", "action", "input"], "Tool call input is required");
+                }
+                const { input: rawInput, ...actionEnvelope } = action;
+                const decodedEnvelope = decodeBranch<ToolCallDecisionEnvelope>(
                     branch,
-                    result,
+                    { ...result, action: actionEnvelope },
                     ["result"],
                     options,
                 );
@@ -269,7 +273,7 @@ export function createBoundModelOutputContractBundle<
                 if (tool === undefined) {
                     throw new ModelOutputContractDefinitionError("tool_call branch is missing its tool binding", ["tool_call"]);
                 }
-                const decodedInput = tool.binding.modelProjection().decode(decodedEnvelope.action.input);
+                const decodedInput = tool.inputBinding.modelProjection().decode(rawInput);
                 if (!decodedInput.ok) {
                     throw readFailureToValidationError(decodedInput, ["result", "action", "input"]);
                 }
@@ -362,10 +366,18 @@ function buildToolCallBranch(
     bindings: ExecutingDecisionBindings,
 ): ExecutingBranch {
     const envelope = clonedObjectSchema(bindings.toolCall.modelProjection().schema, ["tool_call"]);
-    const action = readRecord(envelope.properties, ["tool_call", "properties"]).action;
-    const actionProperties = readRecord(readRecord(action, ["tool_call", "action"]).properties, ["tool_call", "action", "properties"]);
+    const action = readRecord(readRecord(envelope.properties, ["tool_call", "properties"]).action, ["tool_call", "action"]);
+    const actionProperties = readRecord(action.properties, ["tool_call", "action", "properties"]);
     actionProperties.toolId = { const: tool.id };
-    actionProperties.input = stripRootDialect(tool.binding.modelProjection().schema);
+    actionProperties.input = stripRootDialect(tool.inputBinding.modelProjection().schema);
+    const required = action.required;
+    if (!Array.isArray(required) || required.some((entry) => typeof entry !== "string")) {
+        throw new ModelOutputContractDefinitionError(
+            "tool_call binding must declare action.required",
+            ["tool_call", "action", "required"],
+        );
+    }
+    action.required = [...required, "input"];
     const wireSchema = normalizeProjectionNode(envelope, ["tool_call"]);
     const isolated = assertPortableModelSchema(wireSchema);
     return {
@@ -617,6 +629,14 @@ function normalizeProjectionNode(
         };
     }
 
+    if (Array.isArray(schema.enum)) {
+        return {
+            ...description,
+            ...(typeof type === "string" ? { type } : {}),
+            enum: [...schema.enum],
+        };
+    }
+
     if (type === "object") {
         const properties = readRecord(schema.properties, [...path, "properties"]);
         const required = schema.required;
@@ -683,10 +703,6 @@ function normalizeProjectionNode(
         return { ...description, type };
     }
 
-    if (Array.isArray(schema.enum)) {
-        return { ...description, enum: schema.enum };
-    }
-
     throw new ModelOutputContractDefinitionError(
         "Open or untyped schema nodes must be replaced by a concrete tool binding before Provider projection",
         path,
@@ -742,7 +758,7 @@ export function createBoundSystemToolDeclaration<Args, Result, Id extends string
  * 将业务授权工具绑定包装为原生工具声明。
  *
  * @param tool - 工具线提供的授权工具绑定。
- * @param description - 面向模型的工具说明；默认只说明工具身份。
+ * @param description - 面向模型的工具说明；默认复用授权绑定中的工具说明。
  * @returns 参数 Schema 来自工具输入投影、解码后生成 tool_call 决策的声明。
  * @example
  * ```ts
@@ -751,9 +767,9 @@ export function createBoundSystemToolDeclaration<Args, Result, Id extends string
  */
 export function createBoundBusinessToolDeclaration(
     tool: AuthorizedToolBinding,
-    description = `Execute authorized tool ${tool.id}`,
+    description = tool.description,
 ): SystemToolDeclaration<AgentDecision> {
-    const projection: ModelProjection<unknown> = tool.binding.modelProjection();
+    const projection: ModelProjection<unknown> = tool.inputBinding.modelProjection();
     const parametersSchema = assertPortableModelSchema(
         normalizeProjectionNode(clonedObjectSchema(projection.schema, [tool.id]), [tool.id]),
     );

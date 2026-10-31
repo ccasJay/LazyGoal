@@ -26,7 +26,7 @@ import { parse } from "@babel/parser";
  * 每个 package 允许的出站目标（from -> allowed target packages）。
  *
  * contract-binding、contracts、execution-stream 与 execution-control 是无出站依赖的基础包；其它 package 可以单向依赖它们。
- * model-contracts 承载模型输出与对话协议，仅单向依赖 contracts。
+ * model-contracts 承载模型输出与对话协议，单向依赖 contracts 与 contract-binding。
  * tool-core 提供通用工具抽象，仅依赖 contracts、execution-control、sandbox。
  * config 是应用配置与 Home 路径包，单向依赖 llm-core 的共享模型契约；
  * llm-core 承载供应商无关调用契约与共享模型配置，仅依赖 contracts、model-contracts 与 execution-control；

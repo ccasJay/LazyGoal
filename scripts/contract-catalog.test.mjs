@@ -22,9 +22,9 @@ test("catalog covers the inventory baseline and keeps one enabled contract", asy
         "web.md": 286,
         "model-tools.md": 308,
         "durable-cross-process.md": 288,
-        "model-contracts-migration-additions": 90,
+        "model-contracts-migration-additions": 92,
     });
-    assert.equal(catalog.entries.length, 972);
+    assert.equal(catalog.entries.length, 974);
     assert.equal(catalog.entries.length, Object.values(counts).reduce((sum, value) => sum + value, 0));
     assert.equal(collectEnabledContractEntries(catalog).length, 1);
     assert.equal(catalog.entries.filter(entry => entry.status === "moved").length, 2);

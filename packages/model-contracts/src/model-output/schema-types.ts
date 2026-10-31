@@ -717,6 +717,51 @@ export interface ModelContextCheckpointResult {
 }
 
 /**
+ * Tool 调用决策的固定外壳 Action 字段。
+ *
+ * @remarks
+ * 动态 `input` 由当前授权工具绑定提供，不属于固定外壳；Provider Schema 组合时再插入。
+ *
+ * @example
+ * ```ts
+ * const action: ToolCallActionEnvelope = { actionId: "a1", toolId: "read_file" };
+ * ```
+ */
+export interface ToolCallActionEnvelope {
+    /** Action 的稳定标识。 */
+    readonly actionId: string;
+    /** 被调用的工具 ID。 */
+    readonly toolId: string;
+}
+
+/**
+ * Tool 调用决策的生成绑定外壳。
+ *
+ * @remarks
+ * 该类型只覆盖模型线固定的 envelope 字段；`action.input` 由工具线绑定在组合时插入并
+ * 单独校验，避免把开放 JSON 放入生成投影。最终 canonical 结果仍使用
+ * `ToolCallAgentDecision`。
+ *
+ * @example
+ * ```ts
+ * const envelope: ToolCallDecisionEnvelope = {
+ *     kind: "tool_call",
+ *     action: { actionId: "a1", toolId: "read_file" },
+ * };
+ * ```
+ */
+export interface ToolCallDecisionEnvelope {
+    /** 决策判别值。 */
+    readonly kind: "tool_call";
+    /** 固定 Action 字段；不含动态输入。 */
+    readonly action: ToolCallActionEnvelope;
+    /** 可选的 Working Memory Patch。 */
+    readonly memoryPatch?: WorkingMemoryPatch;
+    /** 可选的重要信息提议。 */
+    readonly contextNotes?: readonly ContextNoteProposal[];
+}
+
+/**
  * Tool 调用决策。
  *
  * @example

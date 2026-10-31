@@ -30,7 +30,7 @@ import type {
     AgentDecision,
     CompletionReviewAccept,
     CompletionReviewReject,
-    ToolCallAgentDecision,
+    ToolCallDecisionEnvelope,
 } from "../src/model-output/schema-types";
 
 const draftDialect = "http://json-schema.org/draft-07/schema#";
@@ -62,7 +62,7 @@ function binding<T>(contractId: string, schema: Record<string, unknown>): Contra
     });
 }
 
-function toolCallEnvelopeBinding(): ContractBinding<ToolCallAgentDecision> {
+function toolCallEnvelopeBinding(): ContractBinding<ToolCallDecisionEnvelope> {
     const schema = {
         $schema: draftDialect,
         type: "object",
@@ -73,9 +73,8 @@ function toolCallEnvelopeBinding(): ContractBinding<ToolCallAgentDecision> {
                 properties: {
                     actionId: { type: "string" },
                     toolId: { type: "string" },
-                    input: { type: "object", additionalProperties: true },
                 },
-                required: ["actionId", "toolId", "input"],
+                required: ["actionId", "toolId"],
                 additionalProperties: false,
             },
             memoryPatch: {
@@ -91,7 +90,7 @@ function toolCallEnvelopeBinding(): ContractBinding<ToolCallAgentDecision> {
     const contractId = "test.model.tool-call";
     const projection = {
         schema,
-        decode(value: unknown): ContractReadResult<ToolCallAgentDecision> {
+        decode(value: unknown): ContractReadResult<ToolCallDecisionEnvelope> {
             const copied = clone(value);
             if (copied === undefined) {
                 return {
@@ -111,7 +110,7 @@ function toolCallEnvelopeBinding(): ContractBinding<ToolCallAgentDecision> {
         contractId,
         version: 1,
         schema: schema as ContractSchemaNode,
-        read(value: unknown): ContractReadResult<ToolCallAgentDecision> {
+        read(value: unknown): ContractReadResult<ToolCallDecisionEnvelope> {
             return projection.decode(value);
         },
         modelProjection() {
@@ -120,9 +119,9 @@ function toolCallEnvelopeBinding(): ContractBinding<ToolCallAgentDecision> {
     };
 }
 
-function clone(value: unknown): ToolCallAgentDecision | undefined {
+function clone(value: unknown): ToolCallDecisionEnvelope | undefined {
     if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
-    return JSON.parse(JSON.stringify(value)) as ToolCallAgentDecision;
+    return JSON.parse(JSON.stringify(value)) as ToolCallDecisionEnvelope;
 }
 
 const memoryPatchSchema = {
@@ -356,7 +355,8 @@ function modelBindings(): ModelOutputBindingSet {
 function readTool(id: string): AuthorizedToolBinding {
     return {
         id,
-        binding: binding(`${id}.input`, {
+        description: `Read with ${id}`,
+        inputBinding: binding(`${id}.input`, {
             type: "object",
             properties: { path: { type: "string" } },
             required: ["path"],
@@ -369,7 +369,8 @@ function readTool(id: string): AuthorizedToolBinding {
 function writeTool(id: string): AuthorizedToolBinding {
     return {
         id,
-        binding: binding(`${id}.input`, {
+        description: `Write with ${id}`,
+        inputBinding: binding(`${id}.input`, {
             type: "object",
             properties: {
                 path: { type: "string" },
@@ -504,7 +505,11 @@ test("空 ID 与重复 ID 在组合前拒绝", () => {
     assert.throws(
         () => createBoundModelOutputContractBundle({
             kind: "executing",
-            authorizedTools: [{ id: "  ", binding: readTool("x").binding }],
+            authorizedTools: [{
+                id: "  ",
+                description: "Blank id",
+                inputBinding: readTool("x").inputBinding,
+            }],
         }, bindings),
         (error: unknown) => error instanceof ModelOutputContractDefinitionError,
     );
@@ -531,7 +536,8 @@ test("optional null 消除，业务 null 与已知字段错误保持", () => {
 
     const nullTool: AuthorizedToolBinding = {
         id: "null_value",
-        binding: binding("null_value.input", {
+        description: "Accept a business null",
+        inputBinding: binding("null_value.input", {
             type: "object",
             properties: { value: { enum: [null, "text"] } },
             required: ["value"],
@@ -705,4 +711,9 @@ test("组合 Schema 与工具参数落在 Provider 严格可移植子集内", ()
     const readDeclaration = declarations.find((declaration) => declaration.id === "read_file");
     assert.ok(readDeclaration !== undefined);
     assert.equal(new Ajv2020({ strict: true }).compile(readDeclaration!.parametersSchema)({ path: "a.ts" }), true);
+
+    const review = createBoundCompletionReviewDeclaration(bindings);
+    const resultSchema = (review.parametersSchema.properties as Record<string, unknown>).result as Record<string, unknown>;
+    const kindSchema = (resultSchema.properties as Record<string, unknown>).kind as Record<string, unknown>;
+    assert.deepEqual(kindSchema.enum, ["accept", "reject"]);
 });

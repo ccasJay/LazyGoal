@@ -31,7 +31,7 @@ import type {
     SystemUpdatePlanRouteInput,
     SystemWaitForInputInput,
     TaskProposalAgentDecision,
-    ToolCallAgentDecision,
+    ToolCallDecisionEnvelope,
     ToolDiscoveryDecision,
     WaitAgentDecision,
 } from "./schema-types";
@@ -40,15 +40,16 @@ import type {
  * 工具线交给模型线的单个授权工具绑定。
  *
  * @remarks
- * `id` 是 Runtime 与 Profile 使用的稳定工具身份；`binding` 是该工具输入类型的生成绑定，
- * 模型线只消费其 wire 投影、读取和未知字段策略，不拥有工具权限或执行语义。
- * 同一请求中的 `id` 必须非空且唯一。
+ * `id`、`description` 与 `isReadOnly` 对应工具注册定义的模型可见元数据；
+ * `inputBinding` 是该工具输入类型的生成绑定。模型线只消费其 wire 投影、读取和未知字段
+ * 策略，不拥有工具权限或执行语义。同一请求中的 `id` 必须非空且唯一。
  *
  * @example
  * ```ts
  * const tool: AuthorizedToolBinding = {
  *     id: "read_file",
- *     binding: ReadFileInputBinding,
+ *     description: "Read a workspace file",
+ *     inputBinding: readFileInputBinding,
  *     isReadOnly: true,
  * };
  * ```
@@ -56,8 +57,10 @@ import type {
 export interface AuthorizedToolBinding {
     /** 工具的稳定唯一标识。 */
     readonly id: string;
+    /** 面向模型的工具用途说明。 */
+    readonly description: string;
     /** 工具输入类型的生成绑定。 */
-    readonly binding: ContractBinding<unknown>;
+    readonly inputBinding: ContractBinding<unknown>;
     /** 工具是否为只读；不决定模型暴露或 Runtime 授权。 */
     readonly isReadOnly?: boolean;
 }
@@ -67,8 +70,8 @@ export interface AuthorizedToolBinding {
  *
  * @remarks
  * 每个绑定对应一个 canonical 决策分支；组合器按 Run 模式、任务批准状态和授权工具集合
- * 选择分支，不把全部绑定一次性暴露。`toolCall` 的 `input` 必须是开放 JSON，具体工具输入
- * 由 `AuthorizedToolBinding` 再校验。
+ * 选择分支，不把全部绑定一次性暴露。`toolCall` 只绑定固定 envelope 字段；具体工具输入
+ * 由 `AuthorizedToolBinding` 提供并在组合时插入。
  *
  * @example
  * ```ts
@@ -76,8 +79,8 @@ export interface AuthorizedToolBinding {
  * ```
  */
 export interface ExecutingDecisionBindings {
-    /** tool_call 决策外壳绑定；`action.input` 为开放 JSON。 */
-    readonly toolCall: ContractBinding<ToolCallAgentDecision>;
+    /** tool_call 决策固定外壳绑定；不包含动态 `action.input`。 */
+    readonly toolCall: ContractBinding<ToolCallDecisionEnvelope>;
     /** 普通 Run 完成决策。 */
     readonly normalComplete: ContractBinding<NormalCompleteAgentDecision>;
     /** 获批 Plan Run 逐条件完成决策。 */

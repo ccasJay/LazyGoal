@@ -1,5 +1,4 @@
 import { ContractValidationError } from "../../../contracts/src/index";
-import type { SystemToolBindingSet } from "./bindings";
 import { validateCompletionReviewResult } from "./completion-review";
 import type {
     AgentDecision,
@@ -48,8 +47,6 @@ export interface SystemToolSpec<Args, Result, Id extends string = string> {
     readonly id: Id;
     /** 面向模型的英文功能说明。 */
     readonly description: string;
-    /** 该规范消费的生成绑定语义键；业务工具规范由调用方直接提供绑定。 */
-    readonly bindingKey?: keyof SystemToolBindingSet;
     /** 将以绑定校验后的参数转换为领域结果。 */
     build(args: Args): Result;
 }
@@ -70,7 +67,6 @@ export type AnySystemToolSpec<Result = unknown> = SystemToolSpec<any, Result>;
 /** 完成审查工具规范；不接受业务工具或 Runtime 状态转换。 */
 export const SystemCompletionReviewSpec: SystemToolSpec<SystemCompletionReviewInput, CompletionReviewResult> = {
     id: "system_review_completion",
-    bindingKey: "completionReview",
     description: "Accept only a complete, supported user-facing deliverable. Otherwise reject with the concrete missing deliverable or evidence and what needs correction. Do not rewrite the answer or execute tools.",
     build: (args) => validateCompletionReviewResult(args.result),
 };
@@ -78,7 +74,6 @@ export const SystemCompletionReviewSpec: SystemToolSpec<SystemCompletionReviewIn
 /** 逐条件完成任务工具规范。 */
 export const SystemCompleteTaskSpec: SystemToolSpec<SystemCompleteTaskInput, AgentDecision> = {
     id: "system_complete_task",
-    bindingKey: "completeTask",
     description: "Submit a completion candidate only after every approved criterion is satisfied. summary is the full user-facing answer or deliverable, including requested findings, supporting details and recommendations, not a status recap. Cite committed Tool/Observation evidence; partial progress or unverified results are not completion.",
     build: (args) => ({
         kind: "complete",
@@ -91,7 +86,6 @@ export const SystemCompleteTaskSpec: SystemToolSpec<SystemCompleteTaskInput, Age
 /** 普通 Run 完成任务工具规范。 */
 export const SystemCompleteRunSpec: SystemToolSpec<SystemCompleteRunInput, AgentDecision> = {
     id: "system_complete_task",
-    bindingKey: "completeRun",
     description: "Submit a completion candidate for the current Run's user request. summary is the full user-facing answer or deliverable, not a recap that analysis was performed. Include requested findings, supporting details and recommendations; keep simple answers brief. Cite current Run committed Tool/Observation evidence when available; do not cite user answers or historical facts.",
     build: (args) => ({
         kind: "complete",
@@ -104,7 +98,6 @@ export const SystemCompleteRunSpec: SystemToolSpec<SystemCompleteRunInput, Agent
 /** 等待用户输入工具规范。 */
 export const SystemWaitForInputSpec: SystemToolSpec<SystemWaitForInputInput, AgentDecision> = {
     id: "system_wait_for_input",
-    bindingKey: "waitForInput",
     description: "Pause when external intervention or an authorization change is required and no useful authorized work can proceed. State the blocker and what must change to resume. This does not schedule polling or wakeups; use ask_user for a concrete question.",
     build: (args) => ({
         kind: "wait",
@@ -116,7 +109,6 @@ export const SystemWaitForInputSpec: SystemToolSpec<SystemWaitForInputInput, Age
 /** 任务失败工具规范。 */
 export const SystemFailGoalSpec: SystemToolSpec<SystemFailGoalInput, AgentDecision> = {
     id: "system_fail_goal",
-    bindingKey: "failGoal",
     description: "Declare failure only when observed evidence establishes that the task cannot be completed and no reasonable recovery path remains. A single tool failure, missing information or a temporary dependency is insufficient.",
     build: (args) => ({
         kind: "fail",
@@ -128,7 +120,6 @@ export const SystemFailGoalSpec: SystemToolSpec<SystemFailGoalInput, AgentDecisi
 /** 上下文查询工具规范。 */
 export const SystemContextLookupSpec: SystemToolSpec<SystemContextLookupInput, AgentDecision> = {
     id: "system_context_lookup",
-    bindingKey: "contextLookup",
     description: "Recover necessary historical execution, user decisions or rationale from trajectory or conversation records. Place exactly one operation object inside request: history_search requires need and question; directory_browse accepts cursor, limit and category; directory_search requires query and accepts cursor, limit and category; source_expand requires sourceRef and accepts offset and limit. Do not mix fields across operations. Workspace files are not searched. No match does not prove a repository object is absent. Lookup events are not direct Fact or completion evidence. Use authorized file tools when requested repository contents are missing. Results do not establish current external state; use authorized tools for that. Filters are optional; omit sequenceRange unless targeting known event sequences.",
     build: (args) => ({ kind: "context_lookup", ...args.request }),
 };
@@ -136,7 +127,6 @@ export const SystemContextLookupSpec: SystemToolSpec<SystemContextLookupInput, A
 /** 工具目录查询工具规范。 */
 export const SystemFindToolsSpec: SystemToolSpec<SystemFindToolsInput, AgentDecision> = {
     id: "system_find_tools",
-    bindingKey: "findTools",
     description: "Search the currently authorized tool catalog for tools relevant to the task. This only reveals matching schemas for later decisions; it does not grant permission to execute them.",
     build: (args) => ({ kind: "tool_discovery", query: args.query }),
 };
@@ -144,7 +134,6 @@ export const SystemFindToolsSpec: SystemToolSpec<SystemFindToolsInput, AgentDeci
 /** AskUser 工具规范。 */
 export const SystemAskUserSpec: SystemToolSpec<SystemAskUserInput, AskUserAgentDecision, "ask_user"> = {
     id: "ask_user",
-    bindingKey: "askUser",
     description: "Ask 1 to 3 focused structured questions when information must come from the user and materially affects scope, correctness or authorization. Do not ask for routine confirmation or facts available through tools. Users can choose options or provide free-form Other text.",
     build: (args) => ({
         kind: "ask_user",
@@ -156,7 +145,6 @@ export const SystemAskUserSpec: SystemToolSpec<SystemAskUserInput, AskUserAgentD
 /** 任务提案工具规范。 */
 export const SystemProposeTaskPlanSpec: SystemToolSpec<SystemProposeTaskPlanInput, AgentDecision> = {
     id: "system_propose_task_plan",
-    bindingKey: "proposeTaskPlan",
     description: "After collecting missing information that materially affects scope, correctness or authorization, submit one approval proposal containing the task objective, verifiable completion criteria, and the complete ordered stage route. Use one stage for one coherent outcome; use multiple stages for independently verifiable deliverables, real dependencies, or distinct verification gates. Do not split by expected Step, Tool call, duration or token counts. Each route stage needs a target and acceptance criteria. Do not add routine confirmation questions. Task criterion acceptance is optional and should only reference authorized business tools; never use system functions as expectToolId.",
     build: (args) => ({
         kind: "task_proposal",
@@ -170,7 +158,6 @@ export const SystemProposeTaskPlanSpec: SystemToolSpec<SystemProposeTaskPlanInpu
 /** 完整路线修订工具规范。 */
 export const SystemUpdatePlanRouteSpec: SystemToolSpec<SystemUpdatePlanRouteInput, RunPlanRouteUpdateAgentDecision> = {
     id: "system_update_plan_route",
-    bindingKey: "updatePlanRoute",
     description: "After new evidence changes the approved route, submit the complete revised route and a concrete reason. Preserve accepted stages exactly. Omit approvalRequest only when the revision stays within the approved task scope and promised outcomes. Include approvalRequest when it expands scope or changes promised outcomes; Runtime will pause for a user decision before applying it.",
     build: (args) => ({
         kind: "run_plan_route_update",
@@ -185,7 +172,6 @@ export const SystemUpdatePlanRouteSpec: SystemToolSpec<SystemUpdatePlanRouteInpu
 /** 上下文检查点工具规范。 */
 export const SystemContextCheckpointSpec: SystemToolSpec<SystemContextCheckpointInput, AgentDecision> = {
     id: "system_context_checkpoint",
-    bindingKey: "contextCheckpoint",
     description: "When checkpointRequired is true, make this the only call, ahead of all ordinary actions and system decisions. Preserve supported durable memory updates; Runtime owns checkpoint metadata.",
     build: (args) => ({
         kind: "context_checkpoint",
@@ -196,7 +182,6 @@ export const SystemContextCheckpointSpec: SystemToolSpec<SystemContextCheckpoint
 /** GoalPlan 更新工具规范。 */
 export const SystemUpdateGoalPlanSpec: SystemToolSpec<SystemUpdateGoalPlanInput, AgentDecision> = {
     id: "system_update_goal_plan",
-    bindingKey: "updateGoalPlan",
     description: "Update the GoalPlan only when the current mode authorizes plan writing, using an atomic patch with the current revision. Runtime allocates Todo IDs, validates completion evidence, and checks all transitions. Plan updates do not replace execution or verification.",
     build: (args) => ({
         kind: "goal_plan_update",
@@ -209,7 +194,6 @@ export const SystemUpdateGoalPlanSpec: SystemToolSpec<SystemUpdateGoalPlanInput,
 /** 开始新阶段工具规范。 */
 export const SystemStartRunStageSpec: SystemToolSpec<SystemStartRunStageInput, AgentDecision> = {
     id: "system_start_run_stage",
-    bindingKey: "startRunStage",
     description: "Start a stage with a non-blank target and non-empty, verifiable acceptance criteria. Runtime allocates its identity and version. Do not supply stageId, baseRevision, reason, or memoryPatch.",
     build: (args) => ({
         kind: "run_stage_update",
@@ -234,7 +218,6 @@ export function SystemReviseRunStageSpec(
 ): SystemToolSpec<SystemReviseRunStageInput, AgentDecision> {
     return {
         id: "system_revise_run_stage",
-        bindingKey: "reviseRunStage",
         description: "Replace the current stage target and all acceptance criteria, with a non-blank reason. Runtime binds the current identity and version. Do not supply stageId, baseRevision, or memoryPatch. Preserve the user's requirements.",
         build: (args) => ({
             kind: "run_stage_update",
@@ -260,7 +243,6 @@ export function SystemCompleteRunStageSpec(
 ): SystemToolSpec<SystemCompleteRunStageInput, AgentDecision> {
     return {
         id: "system_complete_run_stage",
-        bindingKey: "completeRunStage",
         description: "Submit a completion candidate for the current stage for review. Provide the summary and committed evidenceSequences (an array). This does not finish the Run. Do not supply stageId, baseRevision, or memoryPatch.",
         build: (args) => ({
             kind: "run_stage_complete",
@@ -289,7 +271,6 @@ export function SystemStartNextRunStageSpec(
     const approvedCriteria = [...acceptanceCriteria];
     return {
         id: "system_start_run_stage",
-        bindingKey: "startNextRunStage",
         description: "Start the next pending stage of the approved Plan route. Pass an empty object; Runtime supplies its approved target, criteria, identity, and version.",
         build: () => ({
             kind: "run_stage_update",
@@ -302,7 +283,6 @@ export function SystemStartNextRunStageSpec(
 /** 请求 Think 阶段工具规范。 */
 export const SystemRequestThinkSpec: SystemToolSpec<SystemRequestThinkInput, RequestThink> = {
     id: "system_request_think",
-    bindingKey: "requestThink",
     description: "Request a separate Think stage for one explicit reasoning objective. This does not execute a business tool or change runtime state.",
     build: (args) => {
         const goal = args.goal.trim();
