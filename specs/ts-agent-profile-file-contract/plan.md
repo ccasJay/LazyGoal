@@ -26,6 +26,13 @@
 
 ### Latest Result
 
-- 状态：未执行
-- 验证时间：-
-- 验证摘要：尚未开始执行。
+- 状态：passed
+- 新鲜度：current
+- 验证时间：2026-10-31 14:13 CST
+- 被测提交：`7e9ece83`（TODO 1 `61222b85`、TODO 2 `20254ca2`、Catalog 元数据与说明修正 `7e9ece83`）；本记录只更新 `plan.md`。
+- 范围与隔离：在 `.worktrees/ts-agent-profile-file-contract` 独立 worktree 执行；该 worktree 从基线 `8bfb4cef` 新建且无既有 `node_modules`，按 CI 对根目录及存在的 `packages/*`、`apps/*`、`benchmarks` lockfile 执行 `npm ci`。最终验证未先执行 `--write`。未合并 `dev`、未修改 `specs/orchestration.md`、未写 `project-memory/`。
+- [1.1/1.5] TS 单源与生成：`npm run contracts:generate -- --check` -> `Contract artifacts are current.`；`node --test scripts/contract-catalog.test.mjs` -> 5/5 pass。`agent-profile-file-manifest.json` 记录 `storage.agent-profile.file` v1，来源为 `NonEmptyString,AgentProfileFile`；生成 Schema 中 `NonEmptyString` 为 `type: string` + `minLength: 1`，四个标量字段与两个数组的 `items` 均引用 `#/definitions/NonEmptyString`。生成器临时源漂移与缺失制品测试（scripts 测试段）通过；`grep -rn AgentProfileFileSchema --include="*.ts" packages apps benchmarks scripts bin` 无生产或脚本消费者；Catalog 将旧 `NonEmptyStringSchema` 与 `AgentProfileFileSchema` 标记为 `deleted` 并记录处置。
+- [1.2/1.3/1.4] 严格读取与错误：`npx tsx --test packages/storage/test/agent-profile-store.test.ts packages/storage/test/agent-profile-file-binding.test.ts` -> 10/10 pass。真实临时文件覆盖合法文件、空数组、空标量、空数组元素、未知字段、错误版本、缺失字段、错误类型、非法 JSON、文件 ID 不匹配、缺失文件和不安全 ID。`JsonFileAgentProfileStore.load` 使用 `agentProfileFileBinding.read(parsed, "reject")`；文件缺失仍返回 `undefined`；不安全路径、非法 JSON、生成绑定拒绝和 ID 不一致仍抛 `AgentProfileConfigurationError`（`INVALID_AGENT_PROFILE`）。错误保留 Profile ID、文件路径与有界 `path`/`code` 问题，不含字段值或正文；非法 JSON 不再保留可能回显正文的解析异常。空数组继续接受，成功结果与输入隔离。
+- [1.3/1.5] 集成与回归：`npm test` -> 全部通过（GEPA adapter 通过；TS `2748` pass / `0` fail、suites `19`；scripts `98` pass / `0` fail；含生成检查、`tsc --noEmit`、文档、依赖与完整测试段）。单独复核：`npm run check:docs` -> 47 个模块、171 份当前说明；`npm run check:dependencies` -> 481 个源文件；`git diff --check` -> 无输出。真实读取后的 Runtime Profile 映射与既有 Goal Snapshot 持久化测试通过；生成制品已提交，`--check` 不依赖预生成或未提交文件。
+- 未解决问题：无。Goal Snapshot、其他 Storage 契约和 Runtime Profile 未迁移，属于本 Spec 明确范围外。
+- 证据入口：`packages/storage/test/agent-profile-file-binding.test.ts`、`packages/storage/test/agent-profile-store.test.ts`、`packages/storage/src/generated/agent-profile-file-*`、`scripts/contract-catalog.test.mjs`。
