@@ -60,7 +60,7 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
     "model-response": ["llm-core", "contracts", "model-contracts"],
     "model-call": ["llm-core", "runtime", "model-response", "execution-control", "execution-stream", "contracts"],
     "model-execution": ["context-budget", "model-view", "model-context", "prompt-renderer", "model-request", "model-response", "model-call", "llm-core", "runtime", "model-contracts", "execution-control"],
-    "model-contracts": ["contracts"],
+    "model-contracts": ["contracts", "contract-binding"],
     "execution-stream": [],
     "execution-control": [],
     "context-retrieval": ["contracts", "model-contracts"],

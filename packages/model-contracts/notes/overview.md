@@ -6,6 +6,12 @@
 
 [公开入口](../src/index.ts) 导出决策、完成审查、工作记忆及上下文检索的结构契约，以及 Wire 与 Canonical 输出之间的投影。结构化 Provider Schema 由这些契约编译；调用方仍需校验模型的实际响应，不把 Schema 约束当作完成证据。
 
+## TS 单源与生成绑定（迁移准备）
+
+[TS 契约类型](../src/model-output/schema-types.ts) 是模型 canonical 输出与全部 system tool 输入字段、可选性和约束的迁移目标单源；[绑定集合接口](../src/model-output/bindings.ts) 固定模型线从生成能力线接收的 `ContractBinding` 边界。Catalog 已登记这些声明，但真实生成尚未启用：生成能力线仍需支持判别联合、可递归 JSON、整数区分、数组长度与元素约束，之后才能以 `typescript-binding` 生成根绑定与模型投影。启用前生产仍消费现有 Contract AST，组合能力以隔离替身验证，不构成联合切换。
+
+[绑定组合器](../src/model-output/bound-factory.ts) 按请求阶段、Run 模式、任务批准状态与授权工具集合组合 Provider Schema、原生工具声明和解码。业务工具输入来自工具线提供的同一绑定；模型线不维护工具字段表。未知字段在分支确定后剥离，并通过可选 `onDiagnostic` 回报契约身份与有界路径；已知字段、判别值、未授权工具和领域约束错误直接拒绝，不返回部分数据。
+
 ## 对话续接
 
 [模型消息协议](../src/model-conversation.ts) 区分 system、user、assistant 和配对 tool 消息。原生续接身份包含 provider、端点、模型和协议；只有身份一致且响应已被 Runtime 接受并提交时，才可回放续接字段。Gemini 原始 Part 顺序和不透明签名不能改写；不支持的多模态 Part 在供应商边界拒绝。

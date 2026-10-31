@@ -148,6 +148,7 @@ export {
 } from "./model-output/wire";
 
 export {
+    assertPortableModelSchema,
     buildShapeGuide,
     compileModelOutputSchema,
     SHAPE_GUIDE_PREFIX,
@@ -160,9 +161,19 @@ export {
 
 export type {
     AuthorizedToolContract,
+    ModelOutputBundle,
     ModelOutputContractBundle,
     ModelOutputRequest,
 } from "./model-output/factory";
+
+export type { ModelContractDecodeOptions } from "./model-output/decode-options";
+
+export type {
+    AuthorizedToolBinding,
+    ExecutingDecisionBindings,
+    ModelOutputBindingSet,
+    SystemToolBindingSet,
+} from "./model-output/bindings";
 
 export {
     SystemCompletionReviewDeclaration,

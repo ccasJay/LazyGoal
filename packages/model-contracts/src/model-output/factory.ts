@@ -29,6 +29,7 @@ import {
     RunStageCompleteAgentDecisionContract,
 } from "./canonical";
 import { ModelOutputContractDefinitionError } from "./errors";
+import type { ModelContractDecodeOptions } from "./decode-options";
 import { CompletionReviewResultContract, validateCompletionReviewResult, type CompletionReviewResult } from "./completion-review";
 import { buildShapeGuide, compileModelOutputSchema } from "./provider-schema";
 import {
@@ -112,11 +113,42 @@ export type ModelOutputRequest =
     | { readonly kind: "completion_review" };
 
 /**
- * 请求级模型输出契约包。
+ * 请求级模型输出契约包的消费面。
  *
  * @remarks
- * 统一提供面向 Provider 的 Wire 契约、面向 Runtime 的 Canonical 契约、严格模式 JSON Schema、
- * Prompt-only 紧凑 Shape Guide，以及确定性的 Wire-to-Canonical 解码器。
+ * 只包含请求渲染和响应解码共同依赖的能力；字段来源可以是 Contract AST，也可以是
+ * 生成绑定组合。`decode` 失败不返回部分数据，未知字段诊断只通过可选回调观察。
+ *
+ * @example
+ * ```ts
+ * const bundle: ModelOutputBundle<AgentDecision> = createModelOutputContractBundle({ kind: "executing" });
+ * const result = bundle.decode(rawWireJson);
+ * ```
+ */
+export interface ModelOutputBundle<Result> {
+    /** 契约包唯一名称。 */
+    readonly name: string;
+    /** 供 strict 模式使用的共用 JSON Schema（不含根 $schema）。 */
+    readonly jsonSchema: JsonSchema202012;
+    /** 注入 Prompt 消息的紧凑响应结构指引。 */
+    readonly shapeGuide: string;
+    /**
+     * 将模型原始输出解码为通过校验的领域对象。
+     *
+     * @param value - 模型的原始 JSON 输出。
+     * @param options - 可选的未知字段剥离诊断观察参数；不改变解码结果。
+     * @returns 解码并通过校验的领域只读对象。
+     * @throws 校验不通过时抛出 `ContractValidationError`。
+     */
+    decode(value: unknown, options?: ModelContractDecodeOptions): Result;
+}
+
+/**
+ * 基于 Contract AST 的请求级模型输出契约包。
+ *
+ * @remarks
+ * 在 {@link ModelOutputBundle} 之上保留 Wire/Canonical 契约节点，供迁移期间的
+ * 定义检查和诊断使用；Runtime 消费方只依赖 {@link ModelOutputBundle}。
  *
  * @example
  * ```ts
@@ -124,29 +156,11 @@ export type ModelOutputRequest =
  * const result = bundle.decode(rawWireJson);
  * ```
  */
-export interface ModelOutputContractBundle<Result> {
-    /** 契约包唯一名称。 */
-    readonly name: string;
+export interface ModelOutputContractBundle<Result> extends ModelOutputBundle<Result> {
     /** 面向模型调用的带 `result` envelope 的 Wire 契约。 */
     readonly wireContract: Contract<unknown>;
     /** 阶段专用的规范领域结果契约。 */
     readonly canonicalContract: Contract<Result>;
-    /** 编译出的共用 JSON Schema 2020-12（不含根 $schema）。 */
-    readonly jsonSchema: JsonSchema202012;
-    /** 注入 Prompt 消息的紧凑响应结构指引。 */
-    readonly shapeGuide: string;
-    /**
-     * 将符合 Wire 契约的模型原始输出解码为通过 Canonical 校验的领域对象。
-     *
-     * @remarks
-     * 失败输入的 kind 与授权 toolId 唯一确定 executing 分支时，报告该分支的字段错误；
-     * 无法唯一定位时保留完整契约的诊断。诊断细化不修正输入，也不放宽接受范围。
-     *
-     * @param value - 模型的原始 JSON 输出。
-     * @returns 解码并通过校验的领域只读对象。
-     * @throws 校验不通过时抛出 `ContractValidationError`。
-     */
-    decode(value: unknown): Result;
 }
 
 /**
@@ -375,7 +389,7 @@ export function createModelOutputContractBundle<Result extends DecideOutput | Co
         canonicalContract: canonicalContract as Contract<Result>,
         jsonSchema,
         shapeGuide,
-        decode(value: unknown): Result {
+        decode(value: unknown, _options?: ModelContractDecodeOptions): Result {
             const wireParsed = safeParse(wireContract, value);
             if (!wireParsed.success) {
                 if (isRecord(value) && isRecord(value.result)) {

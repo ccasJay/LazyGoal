@@ -168,9 +168,29 @@ export function compileModelOutputSchema<C extends Contract<unknown>>(
     const rawSchema = compileJsonSchema(wireContract);
     const { $schema, ...cleanSchema } = rawSchema as Record<string, JsonSchemaValue>;
 
-    const isolatedCopy = JSON.parse(JSON.stringify(cleanSchema)) as Record<string, JsonSchemaValue>;
-    assertPortableSchemaNode(isolatedCopy, [], true);
+    return assertPortableModelSchema(cleanSchema);
+}
 
+/**
+ * 校验已生成的 Wire Schema 是否落在 OpenAI 与 Gemini 共用的可移植子集内。
+ *
+ * @remarks
+ * 输入必须是已经完成 wire 归一化的独立 JSON Schema 对象；本函数会深复制并冻结结果，
+ * 不修改调用方对象。开放对象、递归引用、字符串长度/正则约束与 `const` 等不可移植
+ * 关键字都会在此失败，调用方应在模型请求构造前处理。
+ *
+ * @param schema - 待校验的 JSON Schema 根对象。
+ * @returns 深复制并冻结的可移植 Schema。
+ * @throws 根不是对象或包含不可移植结构时抛出 `ModelOutputContractDefinitionError`。
+ *
+ * @example
+ * ```ts
+ * const portable = assertPortableModelSchema(binding.modelProjection().schema);
+ * ```
+ */
+export function assertPortableModelSchema(schema: Readonly<Record<string, unknown>>): JsonSchema202012 {
+    const isolatedCopy = JSON.parse(JSON.stringify(schema)) as Record<string, JsonSchemaValue>;
+    assertPortableSchemaNode(isolatedCopy, [], true);
     return Object.freeze(isolatedCopy);
 }
 

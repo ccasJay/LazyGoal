@@ -29,11 +29,37 @@ import {
     RunPlanRouteUpdateAgentDecisionContract,
     AskUserQuestionInputContract,
 } from "./canonical";
+import { generateBusinessActionId } from "./action-id";
 import { ModelOutputContractDefinitionError } from "./errors";
-import { CompletionReviewResultContract, validateCompletionReviewResult, type CompletionReviewResult } from "./completion-review";
+import { CompletionReviewResultContract, type CompletionReviewResult } from "./completion-review";
+import type { ModelContractDecodeOptions } from "./decode-options";
 import { compileModelOutputSchema } from "./provider-schema";
 import { deriveWireContract } from "./wire";
 import type { AuthorizedToolContract } from "./factory";
+import {
+    SystemAskUserSpec,
+    SystemCompleteRunSpec,
+    SystemCompleteRunStageSpec,
+    SystemCompleteTaskSpec,
+    SystemCompletionReviewSpec,
+    SystemContextCheckpointSpec,
+    SystemContextLookupSpec,
+    SystemFailGoalSpec,
+    SystemFindToolsSpec,
+    SystemProposeTaskPlanSpec,
+    SystemRequestThinkSpec,
+    SystemReviseRunStageSpec,
+    SystemStartNextRunStageSpec,
+    SystemStartRunStageSpec,
+    SystemUpdateGoalPlanSpec,
+    SystemUpdatePlanRouteSpec,
+    SystemWaitForInputSpec,
+    type RunStageToolContext,
+    type SystemToolSpec,
+} from "./system-tool-specs";
+import type { AgentDecision as NativeAgentDecision, AskUserAgentDecision as NativeAskUserAgentDecision, RequestThink as NativeRequestThink } from "./schema-types";
+
+export type { RunStageToolContext } from "./system-tool-specs";
 
 /**
  * 原生 Function Calling 工具声明契约。
@@ -63,10 +89,11 @@ export interface SystemToolDeclaration<TResult = unknown> {
      * 将模型返回的原始参数校验并解码为强类型领域对象。
      *
      * @param rawArguments - 已经 JSON.parse 的参数对象。
+     * @param options - 可选的未知字段剥离诊断观察参数；不改变解码结果。
      * @returns 解码并通过校验的领域对象。
      * @throws {@link ContractValidationError} 参数不符合契约时抛出。
      */
-    readonly decode: (rawArguments: unknown) => TResult;
+    readonly decode: (rawArguments: unknown, options?: ModelContractDecodeOptions) => TResult;
 }
 
 /**
@@ -81,7 +108,7 @@ export interface SystemToolDeclaration<TResult = unknown> {
  * const tool: AskUserTool = SystemAskUserDeclaration;
  * ```
  */
-export interface AskUserTool extends SystemToolDeclaration<AskUserAgentDecision> {
+export interface AskUserTool extends SystemToolDeclaration<NativeAskUserAgentDecision> {
     /** 与现有问答交互对应的唯一工具标识。 */
     readonly id: "ask_user";
 }
@@ -165,27 +192,29 @@ function decodeArgumentsNode(
 
 /**
  * 为任意 Object Contract 构建标准 Tool 声明。
+ *
+ * @remarks
+ * 工具身份、说明和解码后转换来自共享规范；本路径仍使用 AST 作为字段来源，
+ * 生成绑定路径复用同一规范，避免两条路径维护不同描述。
  */
 function buildDeclaration<TArgs, TResult, TId extends string>(
-    id: TId,
-    description: string,
+    spec: SystemToolSpec<TArgs, TResult, TId>,
     inputContract: ObjectContract<ObjectShape>,
-    transform: (validatedArgs: TArgs) => TResult,
 ): SystemToolDeclaration<TResult> & { readonly id: TId } {
     const wireContract = deriveWireContract(inputContract);
     const parametersSchema = compileModelOutputSchema(wireContract);
 
     return {
-        id,
-        description,
+        id: spec.id,
+        description: spec.description,
         parametersSchema,
-        decode: (rawArguments: unknown): TResult => {
+        decode: (rawArguments: unknown, _options?: ModelContractDecodeOptions): TResult => {
             const decodedArgs = decodeArgumentsNode(inputContract, rawArguments);
             const parsed = safeParse(inputContract, decodedArgs);
             if (!parsed.success) {
                 throw new ContractValidationError(parsed.issues, parsed.truncated);
             }
-            return transform(parsed.data as TArgs);
+            return spec.build(parsed.data as TArgs);
         },
     };
 }
@@ -321,66 +350,33 @@ export const SystemUpdatePlanRouteInputContract = contract.object({
 
 /** 完成审查专用声明；不授予业务工具或 Runtime 状态转换能力。 */
 export const SystemCompletionReviewDeclaration: SystemToolDeclaration<CompletionReviewResult> = buildDeclaration(
-    "system_review_completion",
-    "Accept only a complete, supported user-facing deliverable. Otherwise reject with the concrete missing deliverable or evidence and what needs correction. Do not rewrite the answer or execute tools.",
+    SystemCompletionReviewSpec,
     contract.object({ result: CompletionReviewResultContract }),
-    (args: { result: CompletionReviewResult }): CompletionReviewResult => validateCompletionReviewResult(args.result),
 );
 
 export const SystemCompleteTaskDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
-    "system_complete_task",
-    "Submit a completion candidate only after every approved criterion is satisfied. summary is the full user-facing answer or deliverable, including requested findings, supporting details and recommendations, not a status recap. Cite committed Tool/Observation evidence; partial progress or unverified results are not completion.",
+    SystemCompleteTaskSpec,
     SystemCompleteTaskInputContract,
-    (args: { summary: string; completionEvidence: CompletionEvidence[]; memoryPatch?: unknown }): AgentDecision => ({
-        kind: "complete",
-        summary: args.summary,
-        completionEvidence: args.completionEvidence,
-        ...(args.memoryPatch !== undefined ? { memoryPatch: args.memoryPatch as any } : {}),
-    }),
 );
 
 export const SystemCompleteRunDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
-    "system_complete_task",
-    "Submit a completion candidate for the current Run's user request. summary is the full user-facing answer or deliverable, not a recap that analysis was performed. Include requested findings, supporting details and recommendations; keep simple answers brief. Cite current Run committed Tool/Observation evidence when available; do not cite user answers or historical facts.",
+    SystemCompleteRunSpec,
     SystemCompleteRunInputContract,
-    (args: { summary: string; evidenceSequences: number[]; memoryPatch?: unknown }): AgentDecision => ({
-        kind: "complete",
-        summary: args.summary,
-        evidenceSequences: args.evidenceSequences,
-        ...(args.memoryPatch !== undefined ? { memoryPatch: args.memoryPatch as any } : {}),
-    }),
 );
 
 export const SystemWaitForInputDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
-    "system_wait_for_input",
-    "Pause when external intervention or an authorization change is required and no useful authorized work can proceed. State the blocker and what must change to resume. This does not schedule polling or wakeups; use ask_user for a concrete question.",
+    SystemWaitForInputSpec,
     SystemWaitForInputInputContract,
-    (args: { reason: string; memoryPatch?: unknown }): AgentDecision => ({
-        kind: "wait",
-        reason: args.reason,
-        ...(args.memoryPatch !== undefined ? { memoryPatch: args.memoryPatch as any } : {}),
-    }),
 );
 
 export const SystemFailGoalDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
-    "system_fail_goal",
-    "Declare failure only when observed evidence establishes that the task cannot be completed and no reasonable recovery path remains. A single tool failure, missing information or a temporary dependency is insufficient.",
+    SystemFailGoalSpec,
     SystemFailGoalInputContract,
-    (args: { error: string; memoryPatch?: unknown }): AgentDecision => ({
-        kind: "fail",
-        error: args.error,
-        ...(args.memoryPatch !== undefined ? { memoryPatch: args.memoryPatch as any } : {}),
-    }),
 );
 
 export const SystemContextLookupDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
-    "system_context_lookup",
-    "Recover necessary historical execution, user decisions or rationale from trajectory or conversation records. Place exactly one operation object inside request: history_search requires need and question; directory_browse accepts cursor, limit and category; directory_search requires query and accepts cursor, limit and category; source_expand requires sourceRef and accepts offset and limit. Do not mix fields across operations. Workspace files are not searched. No match does not prove a repository object is absent. Lookup events are not direct Fact or completion evidence. Use authorized file tools when requested repository contents are missing. Results do not establish current external state; use authorized tools for that. Filters are optional; omit sequenceRange unless targeting known event sequences.",
+    SystemContextLookupSpec,
     SystemContextLookupInputContract,
-    (args: { request: ContextLookupOperationInput }) => ({
-        kind: "context_lookup" as const,
-        ...args.request,
-    }),
 );
 
 /**
@@ -410,13 +406,8 @@ export type SystemFindToolsInput = InferContract<typeof SystemFindToolsInputCont
  * ```
  */
 export const SystemFindToolsDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
-    "system_find_tools",
-    "Search the currently authorized tool catalog for tools relevant to the task. This only reveals matching schemas for later decisions; it does not grant permission to execute them.",
+    SystemFindToolsSpec,
     SystemFindToolsInputContract,
-    (args: SystemFindToolsInput): AgentDecision => ({
-        kind: "tool_discovery",
-        query: args.query,
-    }),
 );
 
 /**
@@ -432,27 +423,13 @@ export const SystemFindToolsDeclaration: SystemToolDeclaration<AgentDecision> = 
  */
 //TODO: 后续模式接入 AskUserTool 时按模式授权暴露，复用现有 ask_user 等待与回答流程。
 export const SystemAskUserDeclaration: AskUserTool = buildDeclaration(
-    "ask_user",
-    "Ask 1 to 3 focused structured questions when information must come from the user and materially affects scope, correctness or authorization. Do not ask for routine confirmation or facts available through tools. Users can choose options or provide free-form Other text.",
+    SystemAskUserSpec,
     SystemAskUserInputContract,
-    (args: { questions: any; memoryPatch?: unknown }): AskUserAgentDecision => ({
-        kind: "ask_user",
-        questions: args.questions,
-        ...(args.memoryPatch !== undefined ? { memoryPatch: args.memoryPatch as any } : {}),
-    }),
 );
 
 export const SystemProposeTaskPlanDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
-    "system_propose_task_plan",
-    "After collecting missing information that materially affects scope, correctness or authorization, submit one approval proposal containing the task objective, verifiable completion criteria, and the complete ordered stage route. Use one stage for one coherent outcome; use multiple stages for independently verifiable deliverables, real dependencies, or distinct verification gates. Do not split by expected Step, Tool call, duration or token counts. Each route stage needs a target and acceptance criteria. Do not add routine confirmation questions. Task criterion acceptance is optional and should only reference authorized business tools; never use system functions as expectToolId.",
+    SystemProposeTaskPlanSpec,
     SystemProposeTaskPlanInputContract,
-    (args: { task: any; planRoute: RunPlanRouteCandidate; approvalRequest: string; memoryPatch?: unknown }): AgentDecision => ({
-        kind: "task_proposal",
-        task: args.task,
-        planRoute: args.planRoute,
-        approvalRequest: args.approvalRequest,
-        ...(args.memoryPatch !== undefined ? { memoryPatch: args.memoryPatch as any } : {}),
-    }),
 );
 
 /**
@@ -472,33 +449,13 @@ export const SystemProposeTaskPlanDeclaration: SystemToolDeclaration<AgentDecisi
  * ```
  */
 export const SystemUpdatePlanRouteDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
-    "system_update_plan_route",
-    "After new evidence changes the approved route, submit the complete revised route and a concrete reason. Preserve accepted stages exactly. Omit approvalRequest only when the revision stays within the approved task scope and promised outcomes. Include approvalRequest when it expands scope or changes promised outcomes; Runtime will pause for a user decision before applying it.",
+    SystemUpdatePlanRouteSpec,
     SystemUpdatePlanRouteInputContract,
-    (args: {
-        baseRevision: number;
-        reason: string;
-        route: RunPlanRouteCandidate;
-        approvalRequest?: string;
-        memoryPatch?: unknown;
-    }): RunPlanRouteUpdateAgentDecision => ({
-        kind: "run_plan_route_update",
-        baseRevision: args.baseRevision,
-        reason: args.reason,
-        route: args.route,
-        ...(args.approvalRequest !== undefined ? { approvalRequest: args.approvalRequest } : {}),
-        ...(args.memoryPatch !== undefined ? { memoryPatch: args.memoryPatch as any } : {}),
-    }),
 );
 
 export const SystemContextCheckpointDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
-    "system_context_checkpoint",
-    "When checkpointRequired is true, make this the only call, ahead of all ordinary actions and system decisions. Preserve supported durable memory updates; Runtime owns checkpoint metadata.",
+    SystemContextCheckpointSpec,
     SystemContextCheckpointInputContract,
-    (args: { checkpointSummary?: string; memoryPatch?: unknown }): AgentDecision => ({
-        kind: "context_checkpoint",
-        ...(args.memoryPatch !== undefined ? { memoryPatch: args.memoryPatch as any } : {}),
-    }),
 );
 
 /**
@@ -517,53 +474,14 @@ export const SystemContextCheckpointDeclaration: SystemToolDeclaration<AgentDeci
  * ```
  */
 export const SystemUpdateGoalPlanDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
-    "system_update_goal_plan",
-    "Update the GoalPlan only when the current mode authorizes plan writing, using an atomic patch with the current revision. Runtime allocates Todo IDs, validates completion evidence, and checks all transitions. Plan updates do not replace execution or verification.",
+    SystemUpdateGoalPlanSpec,
     SystemUpdateGoalPlanInputContract,
-    (args: { baseRevision: number; operations: GoalPlanPatchOperation[]; memoryPatch?: unknown }): AgentDecision => ({
-        kind: "goal_plan_update",
-        baseRevision: args.baseRevision,
-        operations: args.operations,
-        ...(args.memoryPatch !== undefined ? { memoryPatch: args.memoryPatch as any } : {}),
-    }),
 );
 
 export const SystemStartRunStageDeclaration: SystemToolDeclaration<AgentDecision> = buildDeclaration(
-    "system_start_run_stage",
-    "Start a stage with a non-blank target and non-empty, verifiable acceptance criteria. Runtime allocates its identity and version. Do not supply stageId, baseRevision, reason, or memoryPatch.",
+    SystemStartRunStageSpec,
     SystemStartRunStageInputContract,
-    (args: { target: string; acceptanceCriteria: string[] }): AgentDecision => ({
-        kind: "run_stage_update",
-        ...validateStageDescription(args),
-    }),
 );
-
-function validateStageDescription<T extends { target: string; acceptanceCriteria: string[]; reason?: string }>(args: T): T {
-    const issues: { code: "string_min_length"; path: (string | number)[]; message: string }[] = [];
-    if (args.target.trim().length === 0) issues.push({ code: "string_min_length", path: ["target"], message: "Use a non-blank target." });
-    args.acceptanceCriteria.forEach((criterion, index) => {
-        if (criterion.trim().length === 0) issues.push({ code: "string_min_length", path: ["acceptanceCriteria", index], message: "Use a non-blank acceptance criterion." });
-    });
-    if (args.reason !== undefined && args.reason.trim().length === 0) issues.push({ code: "string_min_length", path: ["reason"], message: "Use a non-blank revision reason." });
-    if (issues.length > 0) throw new ContractValidationError(issues, false);
-    return args;
-}
-
-/**
- * 本次请求可操作的阶段状态，不向模型要求回填身份或版本。
- * @remarks 调用方从权威 Run 快照投影；工具解码闭包固定使用该次请求的值，不读取更新后的状态。
- * @example `createRunStageToolDeclarations({ currentStage: { stageId: "stage-1", revision: 1, status: "executing" } });`
- */
-export interface RunStageToolContext {
-    /** 请求构造时的阶段身份、版本及状态；accepted 阶段允许开始下一阶段。 */
-    readonly currentStage?: { readonly stageId: string; readonly revision: number; readonly status: "executing" | "accepted" };
-    /** 已批准的完整路线；开始操作只激活游标对应的 pending 阶段。 */
-    readonly planRoute?: {
-        readonly revision: number;
-        readonly nextStageIndex: number;
-        readonly stages: readonly { readonly target: string; readonly acceptanceCriteria: readonly string[]; readonly status: "pending" | "executing" | "accepted" }[];
-    };
-}
 
 /**
  * 按请求快照生成唯一合法的阶段工具集合。
@@ -574,31 +492,24 @@ export interface RunStageToolContext {
 export function createRunStageToolDeclarations(context: RunStageToolContext): readonly SystemToolDeclaration<AgentDecision>[] {
     const current = context.currentStage;
     if (current?.status === "executing") {
-        const { stageId, revision } = current;
         return [
-            buildDeclaration("system_revise_run_stage",
-                "Replace the current stage target and all acceptance criteria, with a non-blank reason. Runtime binds the current identity and version. Do not supply stageId, baseRevision, or memoryPatch. Preserve the user's requirements.",
+            buildDeclaration(
+                SystemReviseRunStageSpec(current.stageId, current.revision),
                 SystemReviseRunStageInputContract,
-                (args: { target: string; acceptanceCriteria: string[]; reason: string }): AgentDecision => ({
-                    kind: "run_stage_update", stageId, baseRevision: revision, ...validateStageDescription(args),
-                })),
-            buildDeclaration("system_complete_run_stage",
-                "Submit a completion candidate for the current stage for review. Provide the summary and committed evidenceSequences (an array). This does not finish the Run. Do not supply stageId, baseRevision, or memoryPatch.",
+            ),
+            buildDeclaration(
+                SystemCompleteRunStageSpec(current.stageId),
                 SystemCompleteRunStageInputContract,
-                (args: { summary: string; evidenceSequences: number[] }): AgentDecision => ({
-                    kind: "run_stage_complete", stageId, ...args,
-                })),
+            ),
         ];
     }
     if (context.planRoute !== undefined) {
         const next = context.planRoute.stages[context.planRoute.nextStageIndex];
         if (next?.status !== "pending") return [];
-        const target = next.target;
-        const acceptanceCriteria = [...next.acceptanceCriteria];
-        return [buildDeclaration("system_start_run_stage",
-            "Start the next pending stage of the approved Plan route. Pass an empty object; Runtime supplies its approved target, criteria, identity, and version.",
+        return [buildDeclaration(
+            SystemStartNextRunStageSpec(next.target, next.acceptanceCriteria),
             contract.object({}),
-            (): AgentDecision => ({ kind: "run_stage_update", target, acceptanceCriteria: [...acceptanceCriteria] }))];
+        )];
     }
     return [SystemStartRunStageDeclaration];
 }
@@ -618,16 +529,8 @@ export function createRunStageToolDeclarations(context: RunStageToolContext): re
  * ```
  */
 export const SystemRequestThinkDeclaration: SystemToolDeclaration<RequestThink> = buildDeclaration(
-    "system_request_think",
-    "Request a separate Think stage for one explicit reasoning objective. This does not execute a business tool or change runtime state.",
+    SystemRequestThinkSpec,
     SystemRequestThinkInputContract,
-    (args: { goal: string }): RequestThink => {
-        const goal = args.goal.trim();
-        if (goal.length === 0) {
-            throw new Error("request_think.goal must contain non-whitespace text");
-        }
-        return { kind: "request_think", goal };
-    },
 );
 
 // =========================================================================
@@ -637,13 +540,6 @@ export const SystemRequestThinkDeclaration: SystemToolDeclaration<RequestThink> 
 /**
  * 将业务授权工具包装为 Executing 阶段原生 Tool 声明。
  */
-let businessActionCounter = 0;
-
-function generateActionId(toolId: string): string {
-    businessActionCounter = (businessActionCounter + 1) % 1_000_000;
-    return `action-${toolId}-${Date.now().toString(36)}-${businessActionCounter}`;
-}
-
 export function createExecutingBusinessToolDeclaration(
     tool: AuthorizedToolContract,
     description = `Execute authorized tool ${tool.id}`,
@@ -654,18 +550,21 @@ export function createExecutingBusinessToolDeclaration(
             [tool.id],
         );
     }
-    return buildDeclaration(
-        tool.id,
+    const spec: SystemToolSpec<unknown, AgentDecision, string> = {
+        id: tool.id,
         description,
-        tool.inputContract as ObjectContract<ObjectShape>,
-        (input): AgentDecision => ({
+        build: (input) => ({
             kind: "tool_call",
             action: {
-                actionId: generateActionId(tool.id),
+                actionId: generateBusinessActionId(tool.id),
                 toolId: tool.id,
                 input: input as any,
             },
         }),
+    };
+    return buildDeclaration(
+        spec,
+        tool.inputContract as ObjectContract<ObjectShape>,
     );
 }
 
@@ -804,6 +703,7 @@ export function createCheckpointToolDeclarations(): readonly SystemToolDeclarati
  * @param declarations - 当前阶段允许的工具声明集合。
  * @param toolId - 模型请求调用的工具名称。
  * @param rawArguments - 模型传递的原始入参对象。
+ * @param options - 可选的未知字段剥离诊断观察参数；不改变解码结果。
  * @returns 校验并通过类型转换的领域结果。
  * @throws {@link ContractValidationError} 参数不符合工具契约时抛出。
  * @throws 尝试调用未声明或未授权的工具时抛出异常。
@@ -817,6 +717,7 @@ export function decodePhaseToolCall<TResult>(
     declarations: readonly SystemToolDeclaration<TResult>[],
     toolId: string,
     rawArguments: unknown,
+    options?: ModelContractDecodeOptions,
 ): TResult {
     const decl = declarations.find(d => d.id === toolId);
     if (decl === undefined) {
@@ -831,5 +732,5 @@ export function decodePhaseToolCall<TResult>(
             false,
         );
     }
-    return decl.decode(rawArguments);
+    return decl.decode(rawArguments, options);
 }

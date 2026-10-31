@@ -38,6 +38,7 @@ import type {
     AgentDecision,
     DecideOutput,
     AuthorizedToolContract,
+    ModelOutputBundle,
     ModelOutputContractBundle,
     SystemToolDeclaration,
 } from "../../model-contracts/src/index";
@@ -144,7 +145,7 @@ export function createStageMessages(
  * 绑定单轮 LLM 请求与对应响应解析契约包的请求计划。
  *
  * @remarks
- * 请求计划成对提供渲染后的 {@link LLMRequest} 与专门用于解析其响应的 {@link ModelOutputContractBundle}，
+ * 请求计划成对提供渲染后的 {@link LLMRequest} 与专门用于解析其响应的 {@link ModelOutputBundle}，
  * 确保已授权工具以及 Context Checkpoint 在请求与解析两端保持绝对一致。
  *
  * @example
@@ -158,7 +159,7 @@ export interface ModelOutputRequestPlan<Result = AgentDecision> {
     /** 渲染完成且计入预算的单轮 LLM 请求。 */
     readonly request: LLMRequest;
     /** 专门用于解析该响应的契约包。 */
-    readonly bundle: ModelOutputContractBundle<Result>;
+    readonly bundle: ModelOutputBundle<Result>;
     /** 与请求中 `tools` 完全一致、用于解码原生工具调用的声明集合。 */
     readonly toolDeclarations: readonly SystemToolDeclaration<unknown>[];
     /** 本次实际请求的阶段与新 Section 更新；仅在模型响应成功后随 Snapshot 一起提交。 */
@@ -402,7 +403,7 @@ export async function buildStepRequest<Result extends DecideOutput = AgentDecisi
 function renderFinalRequest<Result = AgentDecision>(
     view: ModelInferenceView,
     renderer: PromptBundleRenderer,
-    initialBundle: ModelOutputContractBundle<Result>,
+    initialBundle: ModelOutputBundle<Result>,
     initialToolDeclarations: readonly SystemToolDeclaration<unknown>[],
     modelCapabilities?: ModelCapabilities,
     structuredOutputMode: StructuredOutputMode = "strict",
@@ -418,7 +419,7 @@ function renderFinalRequest<Result = AgentDecision>(
 
     const render = (
         targetView: ModelInferenceView,
-        bundle: ModelOutputContractBundle<Result>,
+        bundle: ModelOutputBundle<Result>,
     ): LLMRequest => {
         sectionPlan = planDynamicSectionUpdates(
             renderer.dynamicSectionIdentities(),
@@ -463,7 +464,7 @@ function renderFinalRequest<Result = AgentDecision>(
 
     const finalizePlan = (
         req: LLMRequest,
-        bundle: ModelOutputContractBundle<Result>,
+        bundle: ModelOutputBundle<Result>,
         toolDeclarations: readonly SystemToolDeclaration<unknown>[],
         targetView: ModelInferenceView,
     ): ModelOutputRequestPlan<Result> => ({

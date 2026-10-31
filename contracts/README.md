@@ -53,6 +53,8 @@ node scripts/contract-catalog.mjs query GoalSnapshotV1Schema
 
 其他登记项保留真实现状：Contract AST 与 Zod 在运行时校验，Tool 输入 Schema 在注册期内存编译，模型输出联合在请求期动态组合；它们不产生本步的静态 Schema、Reader 或 Manifest。新增启用项必须在 Catalog 中显式登记生成策略，并先扩展共享读取器的受支持子集。
 
+模型迁移新增的 `model-contracts/src/model-output/schema-types#*` 项以 `generation.state: "none"` 登记 TS 单源与拟用 `typescript-binding` 生成意图。真实启用仍待生成能力支持判别联合、可递归 JSON、整数区分及数组长度/元素约束；在此之前这些项不产生绑定，也不作为生产切换证据。
+
 ## 维护边界
 
 Catalog 是盘点后的当前源码索引，不是自动同步的第二个字段表。声明移动、删除或改变时，应在同一改动中更新对应登记与 `reconciliation`；生成策略、协议身份和制品路径变化还必须通过 `contracts:generate -- --check`。盘点提交本身不是构建输入。
