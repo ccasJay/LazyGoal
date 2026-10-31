@@ -14,7 +14,7 @@
   - 实施目标与场景：通过临时 Catalog 和 TS 样例生成或装配 Schema、Reader 与绑定，字段及支持的约束只来源于 TS/JSDoc；从生成绑定读取合法、缺字段、枚举错误及数值越界样本。不支持的类型或约束、错误注解和缺少制品明确失败；保留现有生产生成链和消费方式。
   - 基本验证：运行隔离生成测试、类型检查和 `npm run contracts:generate -- --check`；验证样例约束修改导致读取结果或生成检查变化。
 
-- [ ] //TODO 3. 提供模型 wire 投影与 canonical 解码的成对能力
+- [x] //TODO 3. 提供模型 wire 投影与 canonical 解码的成对能力
   - 落实标准：[1.1](./spec.md#spec-req-1-1)、[1.2](./spec.md#spec-req-1-2)、[1.4](./spec.md#spec-req-1-4)、[1.5](./spec.md#spec-req-1-5)、[1.6](./spec.md#spec-req-1-6)。
   - 实施目标与场景：以 TS 样例从同源绑定获得模型可用的 wire Schema 与解码器；覆盖必需字段、可选字段及嵌套数据，将约定的 wire 占位值解码为正确 canonical 结果。验证可移植限制与本地约束；无法无损表达、无法解码或不支持的结构明确失败，不回退 AST。
   - 基本验证：运行模型投影定向测试，对照 wire Schema 和解码结果；检查基础模块不依赖模型业务模块或旧 AST。

@@ -1,4 +1,5 @@
 import { cloneJsonValue, hasJsonPropertyShape, isJsonValue } from "./json";
+import { createModelProjection, type ModelProjection } from "./projection";
 import { escapePointerSegment, findUnknownPaths, stripUnknownFields } from "./schema";
 import type {
     ContractIssue,
@@ -71,6 +72,13 @@ export interface ContractBinding<T> {
      * @returns 隔离后的类型化数据，或不含部分数据的失败问题。
      */
     read(value: unknown, policy: UnknownFieldPolicy): ContractReadResult<T>;
+    /**
+     * 从同源本地 Schema 派生模型 wire Schema 与 canonical 解码器。
+     *
+     * @returns 已成对验证的模型投影能力。
+     * @throws 本地 Schema 无法无损转换为 Provider wire 形式时抛出 `ContractProjectionError`。
+     */
+    modelProjection(): ModelProjection<T>;
 }
 
 /**
@@ -85,14 +93,20 @@ export interface ContractBinding<T> {
  * ```
  */
 export function createContractBinding<T>(definition: ContractBindingDefinition<T>): ContractBinding<T> {
-    return {
+    let projection: ModelProjection<T> | undefined;
+    const binding: ContractBinding<T> = {
         contractId: definition.contractId,
         version: definition.version,
         schema: definition.schema,
         read(value: unknown, policy: UnknownFieldPolicy): ContractReadResult<T> {
             return readContractValue(value, definition, policy);
         },
+        modelProjection(): ModelProjection<T> {
+            projection ??= createModelProjection(binding);
+            return projection;
+        },
     };
+    return binding;
 }
 
 function readContractValue<T>(

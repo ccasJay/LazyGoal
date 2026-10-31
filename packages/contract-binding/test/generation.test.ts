@@ -19,9 +19,15 @@ type RuntimeReadResult =
     | { readonly ok: true; readonly data: unknown; readonly diagnostic?: { readonly paths: readonly string[] } }
     | { readonly ok: false; readonly issues: readonly RuntimeIssue[] };
 
+interface RuntimeProjection {
+    readonly schema: Record<string, unknown>;
+    decode(value: unknown): RuntimeReadResult;
+}
+
 interface RuntimeBinding {
     readonly contractId: string;
     read(value: unknown, policy: "strip" | "reject"): RuntimeReadResult;
+    modelProjection(): RuntimeProjection;
 }
 
 interface EntryOptions {
@@ -136,6 +142,30 @@ test("Catalog generates isolated tool, model, web and strict-config bindings", a
         nested: { label: "nested", optionalLabel: "optional" },
         metadata: "meta",
     });
+
+    const projection = modelBinding.modelSampleBinding.modelProjection();
+    const projectionProperties = projection.schema.properties as Record<string, Record<string, unknown>>;
+    assert.deepEqual(projectionProperties.metadata?.type, ["string", "null"]);
+    const decoded = projection.decode({
+        message: "hello",
+        nested: { label: "nested", optionalLabel: null, debug: "nested-wire-secret" },
+        metadata: null,
+        debug: "wire-secret",
+    });
+    assert.equal(decoded.ok, true);
+    if (!decoded.ok) return;
+    assert.deepEqual(decoded.data, {
+        message: "hello",
+        nested: { label: "nested" },
+    });
+    assert.ok(decoded.diagnostic);
+    assert.deepEqual([...decoded.diagnostic.paths].sort(), ["/debug", "/nested/debug"]);
+    assert.equal(JSON.stringify(decoded).includes("wire-secret"), false);
+
+    assert.throws(
+        () => configBinding.configSampleBinding.modelProjection(),
+        /Unsupported local schema keyword "(minLength|maxLength)"/,
+    );
 
     const webResult = webBinding.webSampleBinding.read({
         query: "q",

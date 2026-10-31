@@ -22,6 +22,15 @@ export type {
     ContractBindingDefinition,
     ContractValidator,
 } from "./binding";
+export {
+    ContractProjectionError,
+    createModelProjection,
+    deriveModelWireSchema,
+} from "./projection";
+export type {
+    ModelProjection,
+    ModelWireSchema,
+} from "./projection";
 export type {
     ContractDiagnostic,
     ContractIssue,
