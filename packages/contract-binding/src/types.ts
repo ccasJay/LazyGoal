@@ -33,7 +33,9 @@ export type UnknownFieldPolicy = "strip" | "reject";
  *
  * @remarks
  * 只描述生成器实际产出的本地 Schema；读取器不维护字段表，也不把该类型当作新的
- * 字段 DSL。模型投影会进一步限制可移植子集。
+ * 字段 DSL。`anyOf` 表示联合，`type` 数组表示标量联合或可空字段，
+ * `additionalProperties` 为 `true` 或 Schema 时表示开放对象。模型投影会进一步限制
+ * 可移植子集。
  *
  * @example
  * ```ts
@@ -50,11 +52,12 @@ export interface ContractSchemaNode {
     readonly $id?: string;
     readonly $ref?: string;
     readonly definitions?: Readonly<Record<string, ContractSchemaNode>>;
-    readonly type?: ContractSchemaType;
+    readonly type?: ContractSchemaType | readonly ContractSchemaType[];
     readonly properties?: Readonly<Record<string, ContractSchemaNode>>;
     readonly required?: readonly string[];
-    readonly additionalProperties?: false;
+    readonly additionalProperties?: boolean | ContractSchemaNode;
     readonly items?: ContractSchemaNode;
+    readonly anyOf?: readonly ContractSchemaNode[];
     readonly pattern?: string;
     readonly const?: JsonScalar;
     readonly enum?: readonly JsonScalar[];
@@ -80,6 +83,7 @@ export type ContractIssueCode =
     | "range"
     | "length"
     | "pattern"
+    | "union"
     | "constraint"
     | "unknown";
 

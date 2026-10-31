@@ -31,6 +31,7 @@ const supportedSchemaKeywords = new Set([
     "required",
     "additionalProperties",
     "items",
+    "anyOf",
     "pattern",
     "const",
     "enum",
@@ -41,6 +42,7 @@ const supportedSchemaKeywords = new Set([
     "description",
     "title",
 ]);
+const unionOnlySchemaKeywords = new Set(["anyOf"]);
 const supportedSchemaTypes = new Set(["object", "array", "string", "boolean", "number", "integer", "null"]);
 const documentationTags = new Set([
     "deprecated",
@@ -52,6 +54,8 @@ const documentationTags = new Set([
     "throws",
 ]);
 const constraintTags = new Set(["pattern", "minimum", "maximum", "minLength", "maxLength"]);
+const typeOverrideTags = new Set(["asType"]);
+const supportedTypeOverrides = new Set(["integer"]);
 
 const require = createRequire(import.meta.url);
 const generatorRequire = createRequire(require.resolve("ts-json-schema-generator"));
@@ -130,7 +134,7 @@ export async function findStaleContractArtifacts(options = {}) {
  *
  * @param schema - ts-json-schema-generator 生成的根 Schema。
  * @param rootType - 启用契约的根类型名。
- * @throws 出现联合、开放对象、元组、外部引用或未支持约束时抛出异常。
+ * @throws 出现元组、外部引用、非联合组合关键字或未支持约束时抛出异常。
  *
  * @example
  * ```ts
@@ -139,10 +143,40 @@ export async function findStaleContractArtifacts(options = {}) {
  */
 export function assertSupportedSchema(schema, rootType) {
     const root = resolveRootSchema(schema);
-    if (root.type !== "object") {
-        throw new Error(`Root contract type must be an object: ${rootType}`);
+    if (root.type !== "object" && root.anyOf === undefined) {
+        throw new Error(`Root contract type must be an object or union: ${rootType}`);
     }
     visitSchema(schema, schema, "#", new Set());
+}
+
+function assertReaderSupportedSchema(schema) {
+    visitReaderSchema(schema, schema, "#", new Set());
+}
+
+function visitReaderSchema(root, schema, schemaPath, visitedRefs) {
+    if (schema === null || typeof schema !== "object" || Array.isArray(schema)) {
+        throw new Error(`JSON Schema node must be an object at ${schemaPath}`);
+    }
+    if (schema.$ref !== undefined) {
+        if (visitedRefs.has(schema.$ref)) return;
+        visitedRefs.add(schema.$ref);
+        visitReaderSchema(root, resolveSchemaPointer(root, schema.$ref), `${schemaPath} -> ${schema.$ref}`, visitedRefs);
+    }
+    if (schema.anyOf !== undefined) {
+        throw new Error(`Union schemas are not supported by the shared reader strategy at ${schemaPath}`);
+    }
+    if (schema.additionalProperties !== undefined && schema.additionalProperties !== false) {
+        throw new Error(`Open object schemas are not supported by the shared reader strategy at ${schemaPath}`);
+    }
+    for (const definition of Object.values(schema.definitions ?? {})) {
+        visitReaderSchema(root, definition, `${schemaPath}/definitions`, visitedRefs);
+    }
+    for (const [name, property] of Object.entries(schema.properties ?? {})) {
+        visitReaderSchema(root, property, `${schemaPath}/properties/${name}`, visitedRefs);
+    }
+    if (schema.items !== undefined && !Array.isArray(schema.items)) {
+        visitReaderSchema(root, schema.items, `${schemaPath}/items`, visitedRefs);
+    }
 }
 
 async function generateSchemaArtifacts(entry, { repositoryRoot, removeAdditional }) {
@@ -151,7 +185,11 @@ async function generateSchemaArtifacts(entry, { repositoryRoot, removeAdditional
         throw new Error(`Contract source escapes the repository: ${entry.key}`);
     }
     const source = await readFile(contractFile, "utf8");
-    const { sourceFingerprint, patterns } = inspectContractSource(contractFile, source, entry.generation.declaredTypes);
+    const { sourceFingerprint, constraints, integerTypes } = inspectContractSource(
+        contractFile,
+        source,
+        entry.generation.declaredTypes,
+    );
     const generator = createGenerator({
         path: contractFile,
         tsconfig: path.join(repositoryRoot, "tsconfig.json"),
@@ -165,11 +203,16 @@ async function generateSchemaArtifacts(entry, { repositoryRoot, removeAdditional
     }
     schema.$id = `urn:lazygoal:contracts:${entry.protocol.identity.value}:v${String(entry.protocol.version.value)}`;
     assertSupportedSchema(schema, entry.generation.rootType);
+    if (entry.generation.strategy === "typescript-json-schema") {
+        assertReaderSupportedSchema(schema);
+    }
     assertDeclaredSchemaTypes(schema, entry);
-    assertGeneratedPatterns(schema, entry.generation.rootType, patterns);
+    assertGeneratedConstraints(schema, constraints);
+    assertGeneratedIntegerTypes(schema, integerTypes);
 
     const ajv = new Ajv({
         strict: true,
+        allowUnionTypes: true,
         allErrors: true,
         removeAdditional,
         coerceTypes: false,
@@ -263,30 +306,37 @@ function inspectContractSource(contractFile, source, declaredTypes) {
     const declarations = [];
     for (const typeName of declaredTypes) {
         const matches = sourceFile.statements.filter(statement =>
-            ts.isInterfaceDeclaration(statement) && statement.name.text === typeName);
-        if (matches.length === 0) throw new Error(`Missing native TypeScript interface ${typeName}`);
-        if (matches.length > 1) throw new Error(`Duplicate native TypeScript interface ${typeName}`);
+            (ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement))
+            && statement.name.text === typeName);
+        if (matches.length === 0) throw new Error(`Missing native TypeScript declaration ${typeName}`);
+        if (matches.length > 1) throw new Error(`Duplicate native TypeScript declaration ${typeName}`);
         declarations.push(matches[0]);
     }
 
-    const supportedTags = new Set([...documentationTags, ...constraintTags]);
-    const patternTags = [];
+    const supportedTags = new Set([...documentationTags, ...constraintTags, ...typeOverrideTags]);
+    const constraints = [];
+    const integerTypes = [];
     for (const declaration of declarations) {
-        inspectTags(sourceFile, declaration, declaration.name.text, supportedTags);
-        for (const member of declaration.members) {
-            inspectTags(sourceFile, member, declaration.name.text, supportedTags);
-            if (!ts.isPropertySignature(member)) continue;
-            const fieldName = member.name.getText(sourceFile);
-            const tags = ts.getJSDocTags(member).filter(tag => tag.tagName.text === "pattern");
-            if (tags.length === 0) continue;
-            if (tags.length > 1) throw new Error(`Duplicate JSDoc @pattern on ${declaration.name.text}.${fieldName}`);
-            const pattern = readTagComment(tags[0]);
-            try {
-                new RegExp(pattern);
-            } catch {
-                throw new Error(`Invalid JSDoc @pattern on ${declaration.name.text}.${fieldName}`);
+        const owner = declaration.name.text;
+        for (const node of declarationNodes(declaration)) {
+            if (ts.getJSDocTags(node).length === 0) continue;
+            inspectTags(sourceFile, node, owner, supportedTags);
+            if (!ts.isPropertySignature(node)) continue;
+            const fieldName = node.name.getText(sourceFile);
+            for (const tag of ts.getJSDocTags(node)) {
+                const keyword = tag.tagName.text;
+                if (typeOverrideTags.has(keyword)) {
+                    integerTypes.push({ typeName: owner, fieldName });
+                    continue;
+                }
+                if (!constraintTags.has(keyword)) continue;
+                constraints.push({
+                    typeName: owner,
+                    fieldName,
+                    keyword,
+                    value: keyword === "pattern" ? readTagComment(tag) : Number(readTagComment(tag)),
+                });
             }
-            patternTags.push({ typeName: declaration.name.text, fieldName, pattern });
         }
     }
 
@@ -295,8 +345,19 @@ function inspectContractSource(contractFile, source, declaredTypes) {
         .join("\n\n");
     return {
         sourceFingerprint: createHash("sha256").update(declarationText, "utf8").digest("hex"),
-        patterns: patternTags,
+        constraints,
+        integerTypes,
     };
+}
+
+function declarationNodes(declaration) {
+    const nodes = [];
+    const visit = node => {
+        nodes.push(node);
+        ts.forEachChild(node, visit);
+    };
+    visit(declaration);
+    return nodes;
 }
 
 function inspectTags(sourceFile, node, owner, supportedTags) {
@@ -306,6 +367,14 @@ function inspectTags(sourceFile, node, owner, supportedTags) {
         if (!supportedTags.has(name)) {
             const { line } = sourceFile.getLineAndCharacterOfPosition(tag.getStart(sourceFile));
             throw new Error(`Unsupported JSDoc tag @${name} on ${owner} at line ${line + 1}`);
+        }
+        if (typeOverrideTags.has(name)) {
+            seen.set(name, (seen.get(name) ?? 0) + 1);
+            if (seen.get(name) > 1) {
+                throw new Error(`Duplicate JSDoc @${name} on ${owner}`);
+            }
+            validateTypeOverrideTag(node, name, owner);
+            continue;
         }
         if (!constraintTags.has(name)) continue;
         seen.set(name, (seen.get(name) ?? 0) + 1);
@@ -317,12 +386,34 @@ function inspectTags(sourceFile, node, owner, supportedTags) {
     validateConstraintOrder(node, owner);
 }
 
+function validateTypeOverrideTag(node, name, owner) {
+    if (!ts.isPropertySignature(node)) {
+        throw new Error(`JSDoc @${name} is supported only on fields in ${owner}`);
+    }
+    const value = readTagComment(ts.getJSDocTags(node).find(tag => tag.tagName.text === name));
+    if (!supportedTypeOverrides.has(value)) {
+        throw new Error(
+            `Unsupported JSDoc @${name} value "${value}" in ${owner}; only integer is supported`,
+        );
+    }
+    if (!isPlainNumberType(node.type)) {
+        throw new Error(`JSDoc @${name} integer is supported only on number fields in ${owner}`);
+    }
+}
+
+function isPlainNumberType(typeNode) {
+    if (typeNode === undefined) return false;
+    if (ts.isParenthesizedTypeNode(typeNode)) return isPlainNumberType(typeNode.type);
+    return typeNode.kind === ts.SyntaxKind.NumberKeyword;
+}
+
 function validateConstraintTag(node, name, owner) {
     if (!ts.isPropertySignature(node)) {
         throw new Error(`JSDoc @${name} is supported only on fields in ${owner}`);
     }
+    const target = constraintTargetKind(node.type);
     if (name === "pattern") {
-        if (node.type?.kind !== ts.SyntaxKind.StringKeyword) {
+        if (target !== "string") {
             throw new Error(`JSDoc @pattern is supported only on string fields in ${owner}`);
         }
         const pattern = readTagComment(ts.getJSDocTags(node).find(tag => tag.tagName.text === "pattern"));
@@ -335,20 +426,42 @@ function validateConstraintTag(node, name, owner) {
         return;
     }
     if (name === "minimum" || name === "maximum") {
-        if (node.type?.kind !== ts.SyntaxKind.NumberKeyword) {
+        if (target !== "number") {
             throw new Error(`JSDoc @${name} is supported only on number fields in ${owner}`);
         }
         const value = Number(readTagComment(ts.getJSDocTags(node).find(tag => tag.tagName.text === name)));
         if (!Number.isFinite(value)) throw new Error(`JSDoc @${name} requires a finite number in ${owner}`);
         return;
     }
-    if (node.type?.kind !== ts.SyntaxKind.StringKeyword) {
+    if (target !== "string") {
         throw new Error(`JSDoc @${name} is supported only on string fields in ${owner}`);
     }
     const value = Number(readTagComment(ts.getJSDocTags(node).find(tag => tag.tagName.text === name)));
     if (!Number.isInteger(value) || value < 0) {
         throw new Error(`JSDoc @${name} requires a non-negative integer in ${owner}`);
     }
+}
+
+function constraintTargetKind(typeNode) {
+    if (typeNode === undefined) return undefined;
+    const kinds = constraintTypeKinds(typeNode).filter(kind =>
+        kind !== ts.SyntaxKind.NullKeyword && kind !== ts.SyntaxKind.UndefinedKeyword);
+    if (kinds.length !== 1) return undefined;
+    if (kinds[0] === ts.SyntaxKind.StringKeyword) return "string";
+    if (kinds[0] === ts.SyntaxKind.NumberKeyword) return "number";
+    return undefined;
+}
+
+function constraintTypeKinds(typeNode) {
+    if (ts.isParenthesizedTypeNode(typeNode)) return constraintTypeKinds(typeNode.type);
+    if (ts.isUnionTypeNode(typeNode)) return typeNode.types.flatMap(constraintTypeKinds);
+    if (ts.isLiteralTypeNode(typeNode)) {
+        const literal = typeNode.literal;
+        if (literal.kind === ts.SyntaxKind.NullKeyword || literal.kind === ts.SyntaxKind.UndefinedKeyword) {
+            return [literal.kind];
+        }
+    }
+    return [typeNode.kind];
 }
 
 function validateConstraintOrder(node, owner) {
@@ -382,25 +495,60 @@ function assertDeclaredSchemaTypes(schema, entry) {
     }
 }
 
-function assertGeneratedPatterns(schema, rootType, patterns) {
-    for (const { typeName, fieldName, pattern } of patterns) {
-        const definition = typeDefinition(schema, rootType, typeName);
-        const property = definition.properties?.[fieldName];
-        if (property === undefined) {
-            throw new Error(`Generated schema is missing ${typeName}.${fieldName}`);
-        }
-        const resolved = property.$ref === undefined ? property : resolveSchemaPointer(schema, property.$ref);
-        if (resolved.pattern !== pattern) {
-            throw new Error(`Generated schema must apply the JSDoc @pattern constraint to ${typeName}.${fieldName}`);
+function assertGeneratedConstraints(schema, constraints) {
+    const properties = collectSchemaProperties(schema);
+    for (const { typeName, fieldName, keyword, value } of constraints) {
+        const candidates = properties.get(fieldName) ?? [];
+        const found = candidates.some(property => {
+            const resolved = property.$ref === undefined ? property : resolveSchemaPointer(schema, property.$ref);
+            return resolved[keyword] === value;
+        });
+        if (!found) {
+            throw new Error(
+                `Generated schema must apply the JSDoc @${keyword} constraint to ${typeName}.${fieldName}`,
+            );
         }
     }
 }
 
-function typeDefinition(schema, rootType, typeName) {
-    if (typeName === rootType) return resolveRootSchema(schema);
-    const definition = schema.definitions?.[typeName];
-    if (definition === undefined) throw new Error(`Generated schema is missing definition ${typeName}`);
-    return definition;
+function assertGeneratedIntegerTypes(schema, integerTypes) {
+    const properties = collectSchemaProperties(schema);
+    for (const { typeName, fieldName } of integerTypes) {
+        const candidates = properties.get(fieldName) ?? [];
+        const found = candidates.some(property => {
+            const resolved = property.$ref === undefined ? property : resolveSchemaPointer(schema, property.$ref);
+            return resolved.type === "integer";
+        });
+        if (!found) {
+            throw new Error(
+                `Generated schema must apply JSDoc @asType integer to ${typeName}.${fieldName}`,
+            );
+        }
+    }
+}
+
+function collectSchemaProperties(schema) {
+    const properties = new Map();
+    const pending = [schema];
+    while (pending.length > 0) {
+        const node = pending.pop();
+        if (node === null || typeof node !== "object" || Array.isArray(node)) continue;
+        for (const [name, property] of Object.entries(node.properties ?? {})) {
+            const current = properties.get(name);
+            if (current === undefined) properties.set(name, [property]);
+            else current.push(property);
+            pending.push(property);
+        }
+        if (node.items !== undefined && !Array.isArray(node.items)) pending.push(node.items);
+        if (node.additionalProperties !== undefined
+            && node.additionalProperties !== false
+            && node.additionalProperties !== true) {
+            pending.push(node.additionalProperties);
+        }
+        for (const branch of node.anyOf ?? []) pending.push(branch);
+        for (const definition of Object.values(node.definitions ?? {})) pending.push(definition);
+    }
+    return properties;
 }
 
 function resolveRootSchema(schema) {
@@ -448,13 +596,40 @@ function visitSchema(root, schema, schemaPath, visitedRefs) {
             visitSchema(root, definition, `${schemaPath}/definitions/${name}`, visitedRefs);
         }
     }
+    if (schema.anyOf !== undefined) {
+        if (!Array.isArray(schema.anyOf) || schema.anyOf.length === 0) {
+            throw new Error(`JSON Schema anyOf must be a non-empty array at ${schemaPath}`);
+        }
+        for (const key of Object.keys(schema)) {
+            if (!unionOnlySchemaKeywords.has(key)
+                && key !== "$schema"
+                && key !== "$id"
+                && key !== "$ref"
+                && key !== "definitions"
+                && key !== "description"
+                && key !== "title") {
+                throw new Error(`JSON Schema anyOf must not combine with "${key}" at ${schemaPath}`);
+            }
+        }
+        for (let index = 0; index < schema.anyOf.length; index += 1) {
+            visitSchema(root, schema.anyOf[index], `${schemaPath}/anyOf/${index}`, visitedRefs);
+        }
+    }
     if (schema.type !== undefined) {
-        if (Array.isArray(schema.type) || !supportedSchemaTypes.has(schema.type)) {
-            throw new Error(`Unsupported JSON Schema type at ${schemaPath}: ${String(schema.type)}`);
+        const types = Array.isArray(schema.type) ? schema.type : [schema.type];
+        if (types.length === 0 || new Set(types).size !== types.length) {
+            throw new Error(`JSON Schema type must list unique types at ${schemaPath}`);
+        }
+        for (const type of types) {
+            if (!supportedSchemaTypes.has(type)) {
+                throw new Error(`Unsupported JSON Schema type at ${schemaPath}: ${String(type)}`);
+            }
         }
     }
     if (schema.properties !== undefined) {
-        if (schema.type !== "object") throw new Error(`JSON Schema properties require an object type at ${schemaPath}`);
+        if (!hasSchemaType(schema, "object")) {
+            throw new Error(`JSON Schema properties require an object type at ${schemaPath}`);
+        }
         if (schema.properties === null || typeof schema.properties !== "object" || Array.isArray(schema.properties)) {
             throw new Error(`JSON Schema properties must be an object at ${schemaPath}`);
         }
@@ -463,25 +638,28 @@ function visitSchema(root, schema, schemaPath, visitedRefs) {
         }
     }
     if (schema.required !== undefined) {
-        if (schema.type !== "object" || !Array.isArray(schema.required) || schema.required.some(item => typeof item !== "string")) {
+        if (!hasSchemaType(schema, "object") || !Array.isArray(schema.required) || schema.required.some(item => typeof item !== "string")) {
             throw new Error(`JSON Schema required must be a string array on an object at ${schemaPath}`);
         }
     }
     if (schema.additionalProperties !== undefined) {
-        if (schema.additionalProperties !== false) {
-            throw new Error(`Open object schemas are not supported at ${schemaPath}`);
+        if (schema.additionalProperties !== false && schema.additionalProperties !== true) {
+            if (schema.additionalProperties === null || typeof schema.additionalProperties !== "object" || Array.isArray(schema.additionalProperties)) {
+                throw new Error(`JSON Schema additionalProperties must be a boolean or schema at ${schemaPath}`);
+            }
+            visitSchema(root, schema.additionalProperties, `${schemaPath}/additionalProperties`, visitedRefs);
         }
     }
-    if (schema.type === "object" && schema.additionalProperties !== false) {
-        throw new Error(`Object schemas must close additional properties at ${schemaPath}`);
+    if (hasSchemaType(schema, "object") && schema.additionalProperties === undefined) {
+        throw new Error(`Object schemas must declare additional properties at ${schemaPath}`);
     }
     if (schema.items !== undefined) {
-        if (schema.type !== "array") throw new Error(`JSON Schema items require an array type at ${schemaPath}`);
+        if (!hasSchemaType(schema, "array")) throw new Error(`JSON Schema items require an array type at ${schemaPath}`);
         if (Array.isArray(schema.items)) throw new Error(`Tuple JSON Schema items are not supported at ${schemaPath}`);
         visitSchema(root, schema.items, `${schemaPath}/items`, visitedRefs);
     }
     if (schema.pattern !== undefined) {
-        if (schema.type !== "string" || typeof schema.pattern !== "string") {
+        if (!hasSchemaType(schema, "string") || typeof schema.pattern !== "string") {
             throw new Error(`JSON Schema pattern requires a string type at ${schemaPath}`);
         }
         try {
@@ -500,7 +678,9 @@ function visitSchema(root, schema, schemaPath, visitedRefs) {
     }
     for (const key of ["minimum", "maximum"]) {
         if (schema[key] === undefined) continue;
-        if ((schema.type !== "number" && schema.type !== "integer") || typeof schema[key] !== "number" || !Number.isFinite(schema[key])) {
+        if ((!hasSchemaType(schema, "number") && !hasSchemaType(schema, "integer"))
+            || typeof schema[key] !== "number"
+            || !Number.isFinite(schema[key])) {
             throw new Error(`JSON Schema ${key} requires a finite numeric bound at ${schemaPath}`);
         }
     }
@@ -509,7 +689,7 @@ function visitSchema(root, schema, schemaPath, visitedRefs) {
     }
     for (const key of ["minLength", "maxLength"]) {
         if (schema[key] === undefined) continue;
-        if (schema.type !== "string" || !Number.isInteger(schema[key]) || schema[key] < 0) {
+        if (!hasSchemaType(schema, "string") || !Number.isInteger(schema[key]) || schema[key] < 0) {
             throw new Error(`JSON Schema ${key} requires a non-negative integer on a string at ${schemaPath}`);
         }
     }
@@ -521,6 +701,11 @@ function visitSchema(root, schema, schemaPath, visitedRefs) {
             throw new Error(`JSON Schema ${key} must be a string at ${schemaPath}`);
         }
     }
+}
+
+function hasSchemaType(schema, type) {
+    if (schema.type === undefined) return false;
+    return Array.isArray(schema.type) ? schema.type.includes(type) : schema.type === type;
 }
 
 function isJsonScalar(value) {
