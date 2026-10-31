@@ -29,12 +29,12 @@
 
 ### Latest Result
 
-- 状态：blocked（仅外部 GEPA/LLM 回归阻塞；联合切换与等价过滤套件通过）
-- 验证时间：2026-10-31 CST
-- 测试提交：`7171291a`（集成分支 `feat/contract-migration-integration`；集成分支提交 `a4dc3a23`、`739ac9d7`、`22d3d55b`、`7171291a`）
+- 状态：passed
+- 新鲜度：current
+- 验证时间：2026-10-31（集成分支完整回归）
+- 测试提交：`ff11f027`（集成分支 `feat/contract-migration-integration`；代码与合并提交 `a4dc3a23`、`739ac9d7`、`22d3d55b`、`7171291a`；本记录仅更新 plan.md）
 - 验证摘要：
   - 完整工具清单与生成：passed。30 个工具输入全部消费 Catalog 生成的 `typescript-binding`；`ToolDefinition.inputContract`、`ToolInputContract`、工具输入 AST 常量、`createTransitionalToolInputBinding` 和测试夹具过渡绑定均已删除。对 `packages/`、`benchmarks/`、`apps/` 的 `inputContract|ToolInputContract|transitional-binding` 扫描无匹配；`contracts:generate -- --check` 通过并重新生成固定制品。
   - 准备、权限及进程：passed。注册与 `prepare` 只读取 `BoundToolDefinition.inputBinding`；未知字段剥离诊断、语义校验、授权/审批/沙箱/取消/恢复和 Worker describe 保持原语义。`tool-core`、`tools`、`runtime`、`storage`、`goal-server` 与 benchmark 测试通过；Tool RPC 与远程 Tool Registry 测试验证 Worker 声明使用绑定 Schema。
-  - 联合集成及回归：passed（等价过滤套件）/ blocked（外部依赖）。新增 `packages/model-execution/test/model-runtime-tool-integration.test.ts`，覆盖 strict 与 prompt-only 的 Model → Runtime → Tool、授权声明、重复身份拒绝、审批等待与跨 Runner 恢复、无效输入纠错。`npx tsc --noEmit`、`contracts:generate -- --check`、`check:dependencies`、`check:docs`、`git diff --check` 通过；排除 `benchmarks/test/prompt-evaluation/reflection-bridge*.test.ts` 后等价 TypeScript 套件 2672/2672 通过，scripts 98/98、GEPA adapter 通过。
-  - 外部阻塞：完整 `npm test` 在 `benchmarks/test/prompt-evaluation/reflection-bridge*.test.ts` 的外部 GEPA Reflection LLM 调用处以 HTTP 429 重试后转为 HTTP 500；单独重跑 180 秒仍未结束并终止。未将该结果标为 passed，也未修改外部服务或测试阈值。
-- 未解决问题：外部 GEPA Reflection LLM 可用后需重跑完整 `npm test` 刷新证据；Web、Storage、其他边界尚未合入集成候选，旧共享 Contract AST 的最终删除仍由独立方向负责。
+  - 联合集成及回归：passed。新增 `packages/model-execution/test/model-runtime-tool-integration.test.ts`，覆盖 strict 与 prompt-only 的 Model → Runtime → Tool、授权声明、重复身份拒绝、审批等待与跨 Runner 恢复、无效输入纠错。合并 Web、Storage、AgentProfile 与其他边界后，定向跨 Spec 测试 70/70 通过；完整 `npm test` 在集成 worktree 通过（TypeScript 2736/2736、scripts 98/98、GEPA adapter 通过），`npx tsc --noEmit`、`contracts:generate -- --check`、`check:dependencies`、`check:docs`、`git diff --check` 通过。
+- 未解决问题：旧共享 Contract AST 的最终删除由独立方向负责；Retrieval Index Sidecar 嵌套 `ContextLookupResult` 的归属需在删除方向复核。

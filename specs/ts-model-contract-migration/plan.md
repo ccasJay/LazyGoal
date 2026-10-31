@@ -36,12 +36,12 @@
 
 ### Latest Result
 
-- 状态：blocked（仅外部 GEPA/LLM 回归阻塞；联合切换与等价过滤套件通过）
-- 验证时间：2026-10-31 CST
-- 验证提交：`7171291a`（集成分支 `feat/contract-migration-integration`；代码提交 `a4dc3a23`、`739ac9d7`、`22d3d55b`）
+- 状态：passed
+- 新鲜度：current
+- 验证时间：2026-10-31（集成分支完整回归）
+- 验证提交：`ff11f027`（集成分支 `feat/contract-migration-integration`；代码提交 `a4dc3a23`、`739ac9d7`、`22d3d55b`；本记录仅更新 plan.md）
 - 验证摘要：
   - 模型类型及生成：passed。TS 单源、35 个根契约生成绑定与 `modelOutputBindings` 继续作为唯一生产来源；模型 canonical/wire AST、旧工厂、旧 system tool 声明和范围索引导出已删除。Runtime 决策校验改用 `decodeBoundAgentDecision`，工具输入由实际 Tool 绑定校验。
   - 授权与动态组合：passed。`buildStepRequest`、原生工具声明、`model-context` 投影和授权集合都读取工具线 `BoundToolDefinition.inputBinding`；空集合、重复身份、未知/未授权工具和阶段分支继续按原规则处理。新增联合测试覆盖 strict/prompt-only、审批等待与恢复、失败纠错和重复身份拒绝。
-  - Provider 及整体链路：passed（等价过滤套件）/ blocked（外部依赖）。Gemini Adapter 已改为从生成分支 Schema 选择并清理跨分支字段，不再维护按 `kind` 的字段表；未知字段剥离诊断接入 `model_output_diagnostic` Trace。`npx tsc --noEmit`、`contracts:generate -- --check`、`check:dependencies`、`check:docs`、`git diff --check` 与排除外部 reflection 的 TypeScript 套件 2672/2672 通过；scripts 98/98、GEPA adapter 通过。
-  - 外部阻塞：完整 `npm test` 在 `benchmarks/test/prompt-evaluation/reflection-bridge*.test.ts` 的外部 GEPA Reflection LLM 调用处 HTTP 429/500 重试后超时；未将其标为 passed，也未修改测试阈值。
-- 未解决问题：外部 GEPA Reflection LLM 可用后重跑完整 `npm test`；Web、Storage、其他边界尚未合入，共享旧 Contract AST 的最终删除由独立方向处理。
+  - Provider 及整体链路：passed。Gemini Adapter 已改为从生成分支 Schema 选择并清理跨分支字段，不再维护按 `kind` 的字段表；未知字段剥离诊断接入 `model_output_diagnostic` Trace。合并 Web、Storage、AgentProfile 与其他边界后，定向跨 Spec 测试 70/70 通过；完整 `npm test` 在集成 worktree 通过（TypeScript 2736/2736、scripts 98/98、GEPA adapter 通过），`npx tsc --noEmit`、`contracts:generate -- --check`、`check:dependencies`、`check:docs`、`git diff --check` 通过。
+- 未解决问题：旧共享 Contract AST 的最终删除由独立方向处理；Retrieval Index Sidecar 嵌套 `ContextLookupResult` 的归属需在删除方向复核。
