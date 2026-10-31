@@ -562,6 +562,62 @@ test("optional null 消除，业务 null 与已知字段错误保持", () => {
     }
 });
 
+test("Provider 无法表达的本地约束在解码时强制", () => {
+    const localBinding = binding("absolute_path.input", {
+        type: "object",
+        properties: { path: { type: "string", pattern: "^/" } },
+        required: ["path"],
+        additionalProperties: false,
+    });
+    const absolutePathBinding: ContractBinding<unknown> = {
+        ...localBinding,
+        modelProjection() {
+            return {
+                schema: {
+                    $schema: draftDialect,
+                    type: "object",
+                    properties: { path: { type: "string" } },
+                    required: ["path"],
+                    additionalProperties: false,
+                },
+                decode: (value: unknown) => localBinding.read(value, "strip"),
+            };
+        },
+    };
+    const absolutePathTool: AuthorizedToolBinding = {
+        id: "absolute_path",
+        description: "Require an absolute path",
+        inputBinding: absolutePathBinding,
+    };
+    const bundle = createBoundModelOutputContractBundle({
+        kind: "executing",
+        authorizedTools: [absolutePathTool],
+    }, modelBindings());
+    const serialized = JSON.stringify(bundle.jsonSchema);
+    assert.equal(serialized.includes("pattern"), false);
+
+    assert.throws(
+        () => bundle.decode({
+            result: {
+                kind: "tool_call",
+                action: { actionId: "a1", toolId: "absolute_path", input: { path: "relative" } },
+                memoryPatch: null,
+            },
+        }),
+        (error: unknown) => error instanceof ContractValidationError
+            && error.issues.some((issue) => issue.path.join(".") === "result.action.input.path"),
+    );
+
+    const decoded = bundle.decode({
+        result: {
+            kind: "tool_call",
+            action: { actionId: "a1", toolId: "absolute_path", input: { path: "/tmp/file" } },
+            memoryPatch: null,
+        },
+    });
+    assert.equal(decoded.kind, "tool_call");
+});
+
 test("Checkpoint 与 Completion Review 使用独立分支集合", () => {
     const bindings = modelBindings();
     const checkpoint = createBoundModelOutputContractBundle({ kind: "checkpoint" }, bindings);
