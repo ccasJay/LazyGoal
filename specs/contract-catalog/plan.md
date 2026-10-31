@@ -32,6 +32,19 @@
 
 ### Latest Result
 
-- 状态：未执行
-- 验证时间：-
-- 验证摘要：尚未开始执行。
+- 状态：passed
+- 新鲜度：current
+- 验证时间：2026-10-31 08:51:34 +0800
+- 测试提交：`83bae30208be42d9afee5f4f1917a54d7593b79e`
+- 工作树：`.worktrees/contract-catalog`；验证时仅有本地 `.execution-progress.md` 未提交。随后只更新本报告，不改变被测代码。
+- 契约修订：盘点基线 `8da11ece`，盘点分册提交 `676015c6`；`contracts/catalog.json` SHA-256 `1a059535a9e190f0e2eb1754565c542c7a77ace5f377568e9aded99a3a96a779`。
+- 验证摘要：
+
+| 验收项 | 结果 | 实际检查与证据 |
+| --- | --- | --- |
+| 全量登记与现状 | passed | Catalog 登记 882 项（Web 286、模型与工具 308、持久化与跨进程 288）；查询可定位 Web AST、模型动态组合、Tool 输入、Snapshot Schema 与边界入口；无已删除声明，两个 Reader 辅助类型记录为 `moved`。`node --test scripts/contract-catalog.test.mjs` 5 项通过。 |
+| 生成与失败 | passed | `node --test scripts/provider-models-contract-generation.test.mjs` 4 项通过，覆盖重复生成、制品漂移/缺失、重复内部键、重复身份与版本、重复制品路径、缺失来源、无效登记、错误注解和不支持结构。`npm run contracts:generate -- --check` 返回 current；`--check` 前后全部生成制品 SHA-256 完全一致，确认无写入。 |
+| Reader 与真实消费 | passed | `npx tsx --test packages/web-contracts/test/provider-models.test.ts` 6 项通过，覆盖接受、拒绝、深复制、未知字段剥离、非 JSON 值、原型键与有界诊断。真实 Chrome 本地假 API 端到端测试通过，覆盖成功、无效字段、HTTP 错误与取消；`npm run build:web` 通过。 |
+| 干净检出与完整回归 | passed | 在提交 `83bae302` 的临时检出按 CI 安装根与各包依赖，未预生成即通过 `npm run contracts:generate -- --check`、目标测试、真实浏览器测试与 `npm run build:web`；该检出执行 `npm test` 98 项全部通过，`npm run check:docs`（46 个模块、166 份说明）、`npm run check:dependencies`（314 个源文件）与 `git diff --check` 均通过。 |
+
+- 未解决项：无。Web 构建保留既有 chunk size 警告，不影响退出码或产物消费。
