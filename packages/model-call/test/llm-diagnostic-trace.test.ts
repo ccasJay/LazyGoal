@@ -339,6 +339,29 @@ test("invalid native arguments retain correlated response, sent schema and valid
 });
 
 
+test("unknown tool fields are stripped with a bounded diagnostic trace record", async () => {
+    const traceSink = new CaptureTraceSink();
+    const identity = { provider: "google" as const, endpoint: "https://example.test", model: "fixture", protocol: "gemini-content" as const };
+    const args = { summary: "Done", completionEvidence: [], memoryPatch: null, debugField: "PRIVATE_VALUE" };
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "strict", nativeConversationIdentity: identity,
+        async generate() {
+            return { blocks: [{ index: 0, type: "tool_call", callId: "extra-call", toolId: "system_complete_task", argumentsJson: JSON.stringify(args) }],
+                continuation: { identity, parts: [{ functionCall: { name: "system_complete_task", args, id: "extra-call" } }] } };
+        },
+    };
+    const result = await new LLMStepExecutor({ adapter, renderer, contextCompactor, traceSink,
+        trajectoryContextAssembler: createCurrentContextAssembler() }).execute({
+        goal: createGoalForPhase(), authorizedTools: [], workingMemory: currentWorkingMemory,
+    });
+    assert.equal(result.kind, "complete");
+    const diagnostic = (traceSink.records as { kind: string; payload: any }[])
+        .find(record => record.kind === "model_output_diagnostic")!;
+    assert.equal(diagnostic.payload.toolId, "system_complete_task");
+    assert.deepEqual(diagnostic.payload.diagnostics[0].paths, ["/debugField"]);
+    assert.equal(JSON.stringify(diagnostic.payload).includes("PRIVATE_VALUE"), false);
+});
+
 test("malformed JSON and undeclared tools do not produce a declared shape", async () => {
     for (const call of [{ toolId: "system_complete_task", argumentsJson: "not-json" }, { toolId: "unknown_tool", argumentsJson: '{"summary":"PRIVATE_VALUE"}' }]) {
         const adapter: LLMAdapter = { structuredOutputMode: "strict", generate: async () => ({ blocks: [{ index: 0, type: "tool_call", callId: "bad", ...call }] }) };

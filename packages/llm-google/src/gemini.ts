@@ -676,8 +676,9 @@ function restoreGeminiResponseProjection(content: string, schema: JsonSchema2020
     if (isRecord(value) && isRecord(value.result)) {
         const result = value.result;
 
-        // 1. 若具有有效的 action 对象，确认为 tool_call，清理非当前分支的字段
-        if (result.action !== undefined && result.action !== null && typeof result.action === "object") {
+        // 1. 若具有有效的 action 对象，确认为 tool_call；否则按摘要恢复 complete。
+        // 2. 依据同源生成分支 Schema 删除跨分支字段，不再维护 kind 字段表。
+        if (isRecord(result.action)) {
             result.kind = "tool_call";
             delete result.type;
         } else if (result.action === null || result.action === undefined) {
@@ -686,44 +687,66 @@ function restoreGeminiResponseProjection(content: string, schema: JsonSchema2020
                 result.kind = "complete";
             }
         }
-
-        // 2. 根据确定或纠正后的 kind 清理多余跨分支字段与哨兵值
-        if (result.kind !== "complete") {
-            if (result.completionEvidence === GEMINI_ABSENT_SENTINEL || result.completionEvidence === null) {
-                delete result.completionEvidence;
-            }
-            delete result.evidenceSequences;
-            delete result.summary;
-        } else if (result.completionEvidence === GEMINI_ABSENT_SENTINEL) {
-            delete result.completionEvidence;
-        }
-        if (result.kind !== "tool_call") {
-            delete result.action;
-        }
-        if (result.kind !== "wait") {
-            delete result.reason;
-        }
-        if (result.kind !== "fail") {
-            delete result.error;
-        }
-        if (result.kind !== "context_lookup") {
-            delete result.need;
-            delete result.question;
-            delete result.filters;
-        }
-        if (result.kind !== "ask_user") {
-            delete result.questions;
-        }
-        if (result.kind !== "task_proposal") {
-            delete result.task;
-        }
-        if (result.kind !== "request_think") {
-            delete result.goal;
-        }
+        const branch = selectResponseBranch(schema, result);
+        if (branch !== undefined) stripCrossBranchFields(result, branch);
     }
 
     restoreGeminiProjectedValue(value, schema);
     return JSON.stringify(value);
+}
+
+/** 从显示 Schema 中按判别值和工具身份选择当前响应分支。 */
+function selectResponseBranch(
+    schema: JsonSchema202012,
+    result: Record<string, unknown>,
+): JsonSchema202012 | undefined {
+    const resultSchema = isRecord(schema.properties)
+        ? schema.properties.result as JsonSchema202012 | undefined
+        : undefined;
+    if (resultSchema === undefined) return undefined;
+    if (!Array.isArray(resultSchema.anyOf)) return resultSchema;
+
+    const kind = typeof result.kind === "string" ? result.kind : undefined;
+    const action = isRecord(result.action) ? result.action : undefined;
+    const toolId = typeof action?.toolId === "string" ? action.toolId : undefined;
+    const branches = resultSchema.anyOf as readonly JsonSchema202012[];
+    const sameKind = branches.filter(branch => branchKind(branch) === kind);
+    if (sameKind.length <= 1) return sameKind[0];
+    if (toolId !== undefined) {
+        const matchedTool = sameKind.find(branch => branchToolId(branch) === toolId);
+        if (matchedTool !== undefined) return matchedTool;
+    }
+    return sameKind[0];
+}
+
+function branchKind(branch: JsonSchema202012): string | undefined {
+    const kind = isRecord(branch.properties)
+        ? branch.properties.kind as JsonSchema202012 | undefined
+        : undefined;
+    return Array.isArray(kind?.enum) && typeof kind.enum[0] === "string" ? kind.enum[0] : undefined;
+}
+
+function branchToolId(branch: JsonSchema202012): string | undefined {
+    if (!isRecord(branch.properties) || !isRecord(branch.properties.action)) return undefined;
+    const properties = branch.properties.action.properties;
+    if (!isRecord(properties) || !isRecord(properties.toolId)) return undefined;
+    const toolId = properties.toolId as JsonSchema202012;
+    return Array.isArray(toolId.enum) && typeof toolId.enum[0] === "string" ? toolId.enum[0] : undefined;
+}
+
+function stripCrossBranchFields(
+    result: Record<string, unknown>,
+    branch: JsonSchema202012,
+): void {
+    if (!isRecord(branch.properties)) return;
+    const allowed = new Set(Object.keys(branch.properties));
+    for (const key of Object.keys(result)) {
+        if (allowed.has(key)) continue;
+        if (key === "completionEvidence"
+            && result[key] !== GEMINI_ABSENT_SENTINEL
+            && result[key] !== null) continue;
+        delete result[key];
+    }
 }
 
 /** 只沿唯一匹配的 Wire 联合分支恢复 nullable 字段和紧凑 completion evidence。 */
@@ -759,6 +782,11 @@ function restoreGeminiProjectedValue(value: unknown, schema: JsonSchema202012): 
         }
         if (value[key] === GEMINI_NULL_SENTINEL && schemaAllowsNull(propertySchema)) {
             value[key] = null;
+            changed = true;
+            continue;
+        }
+        if (key === "completionEvidence" && value[key] === GEMINI_ABSENT_SENTINEL) {
+            delete value[key];
             changed = true;
             continue;
         }
@@ -801,7 +829,8 @@ function matchesKnownSchemaShape(value: unknown, schema: JsonSchema202012): bool
                 properties[key] === undefined
                     || (key === "completionEvidence"
                         && properties[key]!.type === "array"
-                        && parseGeminiCompletionEvidence(propertyValue) !== undefined)
+                        && (propertyValue === GEMINI_ABSENT_SENTINEL
+                            || parseGeminiCompletionEvidence(propertyValue) !== undefined))
                     || matchesKnownSchemaShape(propertyValue, properties[key]!));
         }
         default:

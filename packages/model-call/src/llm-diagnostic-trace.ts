@@ -42,6 +42,7 @@ type LlmTraceKind =
     | "model_tool_schema"
     | "model_request"
     | "model_response"
+    | "model_output_diagnostic"
     | "model_error"
     | "model_context_soft_overflow";
 
