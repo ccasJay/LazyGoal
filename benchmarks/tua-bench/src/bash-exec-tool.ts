@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
-import { contract } from "../../../packages/contracts/src/index.js";
 import {
     type BoundTool,
     type Tool,
@@ -30,8 +29,6 @@ export const BASH_EXEC_MAX_OUTPUT_BYTES = 100 * 1024;
 
 /** SIGTERM 后等待进程组退出的优雅宽限期（毫秒）。 */
 const TERMINATION_GRACE_MS = 2_000;
-
-/** `bash_exec` 工具的输入 Contract。 */
 
 /**
  * `bash_exec` 的结构化输入。

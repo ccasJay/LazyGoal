@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { contract } from "../../contracts/src/index";
 import { createToolRegistration } from "../../tool-core/src/index";
 import { createExecuteProgramRegistration, EXECUTE_PROGRAM_DEFINITION } from "../../tools/src/execute-program";
 import { createGoal } from "../src/domain";

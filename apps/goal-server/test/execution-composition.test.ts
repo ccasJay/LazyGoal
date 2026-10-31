@@ -3,7 +3,6 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-
 import {
     allocateImmutableEvent,
     createGoal,
@@ -23,7 +22,7 @@ import {
     InMemoryToolRegistry,
     type Tool,
 } from "../../../packages/tool-core/src/index";
-import { contract, type JsonValue } from "../../../packages/contracts/src/index";
+import type { JsonValue } from "../../../packages/contracts/src/index";
 import { createTestBinding, objectInputSchema } from "../../../packages/tool-core/test/binding-fixtures";
 import {
     InMemoryGoalStore,

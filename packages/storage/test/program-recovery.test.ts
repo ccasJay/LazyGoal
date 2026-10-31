@@ -6,7 +6,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { contract } from "../../contracts/src/index";
 import {
     createGoal,
     GoalCoordinator,

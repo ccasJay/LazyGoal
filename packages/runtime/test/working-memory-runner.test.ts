@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-
 import {
     Runner,
     allocateImmutableEvent,
@@ -14,7 +13,6 @@ import {
     type ToolRegistry,
 } from "../../tool-core/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
-import { contract } from "../../contracts/src/index";
 import { currentProtocols } from "./current-fixtures";
 import type {
     AgentDecision,

@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-
 import {
     GoalCoordinator,
     Runner,
@@ -15,7 +14,6 @@ import {
     type Tool,
     type ToolRegistration,
 } from "../../tool-core/src/index";
-import { contract } from "../../contracts/src/index";
 import type {
     AgentDecision,
     AgentProfile,

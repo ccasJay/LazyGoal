@@ -14,7 +14,6 @@ import {
     type StepExecutionInput,
     type StepExecutor,
 } from "../../packages/runtime/src/index.js";
-import { contract } from "../../packages/contracts/src/index.js";
 import { InMemoryGoalStore } from "../../packages/storage/src/index.js";
 import { createTestBinding, objectInputSchema } from "../../packages/tool-core/test/binding-fixtures.js";
 import {

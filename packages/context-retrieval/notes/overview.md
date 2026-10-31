@@ -5,7 +5,7 @@
 
 ## 职责
 
-`@lazygoal/context-retrieval` 是历史上下文检索的独立算法与索引核心。它仅依赖 `@lazygoal/contracts`（用于请求定义与过滤类型），不反向依赖 `packages/runtime` 或 `packages/storage`，不执行文件 I/O、不感知 Goal/Run 状态机，亦不直接访问持久化存储。
+`@lazygoal/context-retrieval` 是历史上下文检索的独立算法与索引核心。它仅依赖 `@lazygoal/contracts`（共享 JSON 原语与类型）和 `@lazygoal/model-contracts`（请求与过滤类型），不反向依赖 `packages/runtime` 或 `packages/storage`，不执行文件 I/O、不感知 Goal/Run 状态机，亦不直接访问持久化存储。
 
 ## 核心组件与两层接口
 

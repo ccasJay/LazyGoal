@@ -1,7 +1,6 @@
 import { ExecutionAbortedError, ModelRequestFailure, TransientModelRequestFailure } from "../../execution-control/src/index";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-
 import {
     computeActionRecoveryRef,
     createGoal,
@@ -22,7 +21,6 @@ import {
     type ToolRegistration,
     type ToolRegistry,
 } from "../../tool-core/src/index";
-import { contract, type InferContract } from "../../contracts/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { bindMessagesToRun, currentProtocols, InMemoryTrajectoryStore, messageOutline, trajectoryStoreFor, testUserMessage, testAssistantMessage } from "./current-fixtures";
 import type {

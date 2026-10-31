@@ -4,7 +4,7 @@
 
 ## 输入契约
 
-每个工具的输入以源码中的 TS interface 与 JSDoc 定义，并在 [Catalog](../../../contracts/catalog.json) 登记 `typescript-binding` 身份、版本和生成制品。`contracts/catalog.json` 是生成登记的唯一来源；生成绑定位于各源文件旁的 `generated/` 目录，不由工具代码维护第二份字段表。全部实际注册工具输入已启用生成并消费真实 `ContractBinding`；联合切换前旧输入 AST 仍供模型线消费，工具注册与 `prepare` 的绑定消费在 Tool Core 接缝完成。
+每个工具的输入以源码中的 TS interface 与 JSDoc 定义，并在 [Catalog](../../../contracts/catalog.json) 登记 `typescript-binding` 身份、版本和生成制品。`contracts/catalog.json` 是生成登记的唯一来源；生成绑定位于各源文件旁的 `generated/` 目录，不由工具代码维护第二份字段表。全部实际注册工具输入已启用生成并消费真实 `ContractBinding`；工具注册、`prepare` 与模型声明在 Tool Core 接缝消费同一绑定。
 
 ## 执行边界
 

@@ -92,8 +92,6 @@ export type WebFetchHandler = (
     control?: ExecutionControl,
 ) => Promise<string | { text: string; isHtml?: boolean }>;
 
-/** Web Fetch Tool 的唯一输入 Contract。 */
-
 /**
  * `web_fetch` 的结构化输入。
  *

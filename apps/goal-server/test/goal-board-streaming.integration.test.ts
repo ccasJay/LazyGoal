@@ -3,8 +3,7 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-
-import { contract, type JsonValue } from "../../../packages/contracts/src/index";
+import type { JsonValue } from "../../../packages/contracts/src/index";
 import { createTestBinding, objectInputSchema } from "../../../packages/tool-core/test/binding-fixtures";
 import type { LLMAdapter, LLMRequest, LLMResponse } from "../../../packages/llm-core/src/index";
 import { toolResponseFixture } from "../../../packages/agent/test/tool-response-fixture";

@@ -5,12 +5,11 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-
 import { OpenAICompatible } from "../../../packages/llm-openai/src/index";
 import { readToolCalls } from "../../../packages/llm-core/src/index";
 import { toolCallResponse } from "../../../packages/llm-core/test/response-fixtures";
 import { createToolRegistration, InMemoryToolRegistry, type Tool } from "../../../packages/tool-core/src/index";
-import { contract, type JsonValue } from "../../../packages/contracts/src/index";
+import type { JsonValue } from "../../../packages/contracts/src/index";
 import { createTestBinding, objectInputSchema } from "../../../packages/tool-core/test/binding-fixtures";
 import type { AgentProfile } from "../../../packages/runtime/src/index";
 import { createRuntimeComposition } from "../src/runtime/index";

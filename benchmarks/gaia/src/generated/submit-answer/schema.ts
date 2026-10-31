@@ -6,7 +6,7 @@ export const submitAnswerInputMetadata = {
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
     "path": "benchmarks/gaia/src/submit-answer.ts#SubmitAnswerInput",
-    "sha256": "e69c2102fb5b71511e8c5d864dafe569af9362b4487d4b78200adb36682be766"
+    "sha256": "61d8a3d537d7ed4a68d0d86578e89f54dc1f37ba1f262082e6dc4ff07d380ac4"
   },
   "generator": {
     "name": "ts-json-schema-generator",

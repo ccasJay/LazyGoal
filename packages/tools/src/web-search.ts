@@ -85,8 +85,6 @@ export type WebSearchBackend = (
     control?: ExecutionControl,
 ) => Promise<readonly WebSearchResult[]>;
 
-/** Web Search Tool 的唯一输入 Contract。 */
-
 /**
  * `web_search` 的结构化输入。
  */

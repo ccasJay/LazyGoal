@@ -62,8 +62,6 @@ const READ_FILE_DOMAIN_FAILURES: DomainFailureMessages = {
     },
 };
 
-/** Read File Tool 的输入 Contract。 */
-
 /**
  * `read_file` 的结构化输入。
  *

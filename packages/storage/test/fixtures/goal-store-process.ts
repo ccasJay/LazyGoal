@@ -1,6 +1,5 @@
 import { JsonFileGoalStore } from "../../src/index";
 import { Runner, createStepExecutor } from "../../../runtime/src/index";
-import { contract } from "../../../contracts/src/index";
 import { type BoundTool, type ToolRegistration } from "../../../tool-core/src/index";
 import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../../tool-core/test/binding-fixtures";
 import type {

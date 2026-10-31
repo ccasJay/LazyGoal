@@ -3,7 +3,6 @@ import { test } from "node:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-
 import {
     createGoal as createUnexposedGoal,
     Runner,
@@ -22,7 +21,6 @@ import {
     type ToolObservation,
     type ToolValidationResult,
 } from "../../tool-core/src/index";
-import { contract } from "../../contracts/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import type { SandboxExecutionPlan } from "../../sandbox/src/index";
 import { BaseTestStepExecutor, currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";

@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-
 import { createGoal, Runner, type AgentProfile, type Goal, type StepExecutor } from "../src/index";
-import { contract } from "../../contracts/src/index";
 import { createToolRegistration, type ToolRegistry } from "../../tool-core/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";

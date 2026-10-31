@@ -1,13 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-
 import {
     createGoal,
     Runner,
     type AgentProfile,
     type StepExecutor,
 } from "../src/index";
-import { contract } from "../../contracts/src/index";
 import { ExecutionAbortedError } from "../../execution-control/src/index";
 import { createToolRegistration, type ToolRegistry } from "../../tool-core/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";

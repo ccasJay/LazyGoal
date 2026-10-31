@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-
-import { contract } from "../../contracts/src/index";
 import { ExecutionAbortedError, TransientModelRequestFailure } from "../../execution-control/src/index";
 import type { LLMAdapter, LLMToolCall } from "../../llm-core/src/index";
 import type { LLMRequest, LLMResponse, LLMStreamEvent } from "../../llm-core/src/index";

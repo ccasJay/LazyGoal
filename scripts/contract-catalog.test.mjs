@@ -33,7 +33,7 @@ test("catalog covers the inventory baseline and current enabled contracts", asyn
     assert.equal(catalog.reconciliation.deleted.length, 402);
     assert.ok(catalog.reconciliation.deleted.length > 0);
     assert.equal(catalog.boundaries.length, 18);
-    assert.equal(catalog.dynamicCompositions.length, 4);
+    assert.equal(catalog.dynamicCompositions.length, 3);
 });
 
 test("catalog query locates web, model, tools, snapshot and dynamic composition entries", async () => {
@@ -56,11 +56,17 @@ test("catalog query locates web, model, tools, snapshot and dynamic composition 
     assert.ok(snapshot.some(entry => entry.key === "storage/src/goal-snapshot#GoalSnapshotV1Schema"
         && entry.status === "deleted"));
 
-    const dynamic = catalog.dynamicCompositions.find(entry => entry.key.startsWith("model-contracts/"));
-    assert.deepEqual(dynamic.components, ["ModelOutputRequest", "AuthorizedToolContract", "ModelOutputContractBundle"]);
-    assert.equal(dynamic.conditions.length, 5);
+    const dynamic = catalog.dynamicCompositions.find(entry =>
+        entry.key === "model-contracts/model-output/bound-factory#createBoundModelOutputContractBundle");
+    assert.deepEqual(dynamic.components, [
+        "BoundModelOutputRequest",
+        "AuthorizedToolBinding",
+        "ModelOutputBindingSet",
+        "ModelOutputBundle",
+    ]);
+    assert.equal(dynamic.conditions.length, 4);
 
-    const dynamicMatches = queryContractCatalogIndex(catalog, "createModelOutputContractBundle");
+    const dynamicMatches = queryContractCatalogIndex(catalog, "createBoundModelOutputContractBundle");
     assert.ok(dynamicMatches.dynamicCompositions.some(entry => entry.key === dynamic.key));
 
     const boundaryMatches = queryContractCatalogIndex(catalog, "Goal Snapshot");

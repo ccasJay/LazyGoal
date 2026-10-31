@@ -1,7 +1,6 @@
 import { ExecutionAbortedError, throwIfAborted } from "../../execution-control/src/index";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-
 import {
     createGoal,
     createRun,
@@ -14,7 +13,6 @@ import {
     createToolRegistration,
     type Tool,
 } from "../../tool-core/src/index";
-import { contract } from "../../contracts/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import {
     currentProtocols,

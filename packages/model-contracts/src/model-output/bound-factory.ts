@@ -59,7 +59,7 @@ import {
  * 按生成绑定动态组合的模型输出请求。
  *
  * @remarks
- * 与 Contract AST 请求语义一致；`authorizedTools` 改为工具线提供的生成绑定。
+ * 与既有请求语义一致；`authorizedTools` 改为工具线提供的生成绑定。
  * 业务工具输入由各工具绑定校验，模型线只负责按阶段和模式组合分支。
  *
  * @example

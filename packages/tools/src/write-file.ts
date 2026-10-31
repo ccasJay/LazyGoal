@@ -51,8 +51,6 @@ const WRITE_FILE_DOMAIN_FAILURES: DomainFailureMessages = {
     },
 };
 
-/** Write File Tool 的唯一输入 Contract（过渡期供模型线消费）。 */
-
 /**
  * `write_file` 的结构化输入。
  *

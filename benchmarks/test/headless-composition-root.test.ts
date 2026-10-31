@@ -3,8 +3,6 @@ import { readToolCalls } from "../../packages/llm-core/src/index";
 import { blockResponse, textResponse, toolCallResponse } from "../../packages/llm-core/test/response-fixtures";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-
-import { contract } from "../../packages/contracts/src/index.js";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,

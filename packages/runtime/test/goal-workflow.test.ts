@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-
 import {
     GoalCoordinator,
     InlineScheduler,
@@ -12,7 +11,6 @@ import {
     InMemoryToolRegistry,
     type Tool,
 } from "../../tool-core/src/index";
-import { contract } from "../../contracts/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { BaseTestStepExecutor, trajectoryStoreFor } from "./current-fixtures";
 import type {

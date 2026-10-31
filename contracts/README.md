@@ -1,6 +1,6 @@
 # 构建期契约 Catalog
 
-`contracts/catalog.json` 是项目数据契约的构建期索引，登记具名 TS 声明、Contract AST、Zod Schema 及其派生关系。它不拥有执行契约、运行时状态或持久化数据；这些语义仍由所属模块的源码与说明定义。
+`contracts/catalog.json` 是项目数据契约的构建期索引，登记具名 TS 声明、历史 Contract AST 与 Zod 迁移项、生成制品及其派生关系。它不拥有执行契约、运行时状态或持久化数据；这些语义仍由所属模块的源码与说明定义。
 
 Catalog 以 `codex/contract-inventory` 的 `676015c6` 盘点为基线，`inventorySource` 记录该分支、提交与三个分册；分册声明的源码基线为 `8da11ece`。当前共登记 1071 项：Web 341 项（含 157 项已删除的旧 AST 与 56 个生成绑定根）、模型与工具 339 项（含 30 个工具输入）、持久化与跨进程 299 项，以及模型线新增的 92 项模型契约登记。400 个被替代的旧 AST、Zod 与派生声明标记为 `deleted` 并逐项记录处置；两个 Provider Reader 辅助类型继续记录在 `reconciliation.moved`。行号、消费者、协议身份与生成能力均按当前源码登记。
 
@@ -9,7 +9,7 @@ Catalog 以 `codex/contract-inventory` 的 `676015c6` 盘点为基线，`invento
 - `key`：仅用于 Catalog 内部定位的稳定键，格式为 `模块/源码相对路径#声明名`；它不冒充对外协议身份或版本。
 - `source`：声明路径与行号。`status` 为 `moved` 时使用 `source.currentPath`；`deleted` 项必须带 `disposition`。
 - `owner`、`module`、`boundary`、`section`：声明归属与盘点边界。
-- `definition`、`definitionKind`、`relations`：原生 TS、Contract AST、Zod、派生或外部 SDK 定义，以及可见的派生/引用关系。
+- `definition`、`definitionKind`、`relations`：原生 TS、历史 Contract AST、Zod、派生或外部 SDK 定义，以及可见的派生/引用关系。
 - `consumers`：生产源码中的引用方；无法静态定位时使用 `consumerNote` 说明。
 - `protocol`：`declared`、`undeclared`、`not-applicable` 或 `unknown`。盘点中的边界标签不会自动成为协议身份。
 - `generation`：`enabled`、`none`、`runtime`、`external`、`dynamic` 或 `unknown`。只有 `enabled` 项由构建生成制品。
@@ -67,11 +67,11 @@ Storage 文件族使用 `typescript-binding` 策略，从 TS 文件 DTO 生成�
 | Goal Context Index | `GoalContextIndexSnapshotFile` | [`JsonFileGoalContextIndexStore`](../packages/storage/src/goal-context-index-store.ts) |
 | Retrieval Index Sidecar | `ContextRetrievalIndexSidecarFile` | [`JsonFileContextRetrievalIndexStore`](../packages/storage/src/context-retrieval-index-sidecar.ts) |
 
-Retrieval Index Sidecar 的顶层文件结构已生成绑定；嵌套文档、倒排索引与查询缓存结果仍依赖 `context-retrieval` 的领域校验，因为其 DTO 使用旧 Contract AST 推导的 `ContextLookupResult`。Goal Context Index 已使用 Storage 文件 DTO 生成绑定。边界说明见 [Storage 文件契约清单](../packages/storage/notes/file-contracts.md)。
+Retrieval Index Sidecar 的顶层文件结构已生成绑定；嵌套文档、倒排索引与查询缓存结果由 `context-retrieval` 的领域校验执行。Goal Context Index 已使用 Storage 文件 DTO 生成绑定。边界说明见 [Storage 文件契约清单](../packages/storage/notes/file-contracts.md)。
 
-其他登记项保留真实现状：Contract AST 与 Zod 在运行时校验，Tool 输入 Schema 在注册期内存编译，模型输出联合在请求期动态组合；它们不产生本步的静态 Schema、Reader 或 Manifest。新增启用项必须在 Catalog 中显式登记生成策略，并先扩展共享读取器的受支持子集。
+其他登记项保留真实现状：历史 Contract AST 与 Zod 项只作为已删除盘点记录存在；未启用生成的 TS 声明不产生静态 Schema、Reader 或 Manifest。新增启用项必须在 Catalog 中显式登记生成策略，并先扩展共享读取器的受支持子集。
 
-模型迁移的 35 个根契约已按 `typescript-binding` 启用，生成 Schema、Ajv standalone 校验器、Manifest 与绑定；`ToolCallAgentDecision` 因开放 `JsonValue` 输入需要复制共享 JSON 原语而保留未生成，组合使用封闭的 `ToolCallDecisionEnvelope` 加工具绑定。生成制品不构成生产切换证据，联合切换仍待工具线实际绑定与 Runtime 接入。
+模型迁移的根契约已按 `typescript-binding` 启用，生成 Schema、Ajv standalone 校验器、Manifest 与绑定；`ToolCallAgentDecision` 因开放 `JsonValue` 输入不生成单一静态根，组合使用封闭的 `ToolCallDecisionEnvelope` 加动态工具绑定。生成制品由模型请求构建与 Runtime 解码链实际消费。
 
 ## 维护边界
 

@@ -3,7 +3,6 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-
 import {
     computeApprovalInputId,
     computeContentHash,
@@ -25,7 +24,6 @@ import {
 } from "../../tool-core/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { JsonFileGoalStore, JsonFileToolGrantStore } from "../../storage/src/index";
-import { contract } from "../../contracts/src/index";
 import { currentProtocols, InMemoryTrajectoryStore, trajectoryStoreFor, withDiscoveredProfileTools, testAssistantMessage } from "./current-fixtures";
 import type {
     AgentProfile,

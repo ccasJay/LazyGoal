@@ -1724,7 +1724,7 @@
             "root": "Goal Snapshot",
             "sources": "[`GoalSnapshotV1`](../../../packages/storage/src/goal-snapshot.ts#L905) / [`GoalSnapshotV1Schema`](../../../packages/storage/src/goal-snapshot.ts#L2115)",
             "protocol": "`metadata.schemaVersion = 1`；当前只接受 v1",
-            "consumers": "[Codec encode/decode](../../../packages/storage/src/goal-snapshot-codec.ts#L1311)、[JsonFileGoalStore save/restore](../../../packages/storage/src/goal-store.ts#L73)；[根 Schema safeParse](../../../packages/storage/src/goal-snapshot-codec.ts#L670)；无构建期生成制品",
+            "consumers": "[Codec encode/decode](../../../packages/storage/src/goal-snapshot-codec.ts)、[JsonFileGoalStore save/restore](../../../packages/storage/src/goal-store.ts)；生成绑定 `goalSnapshotFileBinding` 与字段级语义校验",
             "sourcePaths": [
                 "packages/storage/src/goal-snapshot.ts",
                 "packages/storage/src/goal-snapshot-codec.ts",
@@ -1901,7 +1901,7 @@
             "root": "Model Preference / Project Permission Mode",
             "sources": "[Preference Schema](../../../packages/storage/src/json-file-model-preference-store.ts#L11)、[Permission Mode Schema](../../../packages/storage/src/json-file-project-permission-mode-store.ts#L16)；领域类型归 `runtime` / `permission`",
             "protocol": "各记录含 version 1",
-            "consumers": "JSON Store `safeParse`；无生成制品",
+            "consumers": "JSON Store 生成绑定读取；无旧结构解析",
             "sourcePaths": [
                 "packages/storage/src/json-file-model-preference-store.ts",
                 "packages/storage/src/json-file-project-permission-mode-store.ts"
@@ -2065,76 +2065,23 @@
     ],
     "dynamicCompositions": [
         {
-            "key": "model-contracts/model-output/factory#createModelOutputContractBundle",
-            "entryPoint": "packages/model-contracts/src/model-output/factory.ts#createModelOutputContractBundle",
-            "components": [
-                "ModelOutputRequest",
-                "AuthorizedToolContract",
-                "ModelOutputContractBundle"
-            ],
-            "conditions": [
-                {
-                    "condition": "`kind: \"executing\"`",
-                    "effect": "以执行决策 AST 为基础，并按以下请求上下文选择非工具分支。",
-                    "sources": [
-                        "packages/model-contracts/src/model-output/factory.ts"
-                    ]
-                },
-                {
-                    "condition": "`planMode`、`taskPresent`",
-                    "effect": "普通模式包含普通完成、等待、失败、上下文查询、问用户和阶段更新/完成；Plan 未批准时包含问用户、任务提案和上下文查询；Plan 已批准时包含逐条件完成、等待、失败、上下文查询、问用户和阶段更新/完成。`taskPresent` 缺省按 `true`，`planMode` 缺省按 `false`。",
-                    "sources": [
-                        "packages/model-contracts/src/model-output/factory.ts"
-                    ]
-                },
-                {
-                    "condition": "`goalPlanWritable`、`allowThink`、`allowToolDiscovery`",
-                    "effect": "`goalPlanWritable` 缺省继承 `planMode`，为真时增加 Goal Plan 更新分支；`allowThink` 仅显式为真时增加 `request_think`；工具发现默认开启，仅显式为假时省略。",
-                    "sources": [
-                        "packages/model-contracts/src/model-output/factory.ts"
-                    ]
-                },
-                {
-                    "condition": "`authorizedTools`",
-                    "effect": "每个获批工具以其 `id` 和 `inputContract` 生成专属 `tool_call` 分支；按 ID 稳定排序，空集合省略此分支，空 ID 或重复 ID 拒绝。工具输入契约本身作为动态输入，不枚举所有组合。",
-                    "sources": [
-                        "packages/model-contracts/src/model-output/factory.ts"
-                    ]
-                },
-                {
-                    "condition": "`kind: \"checkpoint\"` / `\"completion_review\"`",
-                    "effect": "分别使用 `ModelContextCheckpointResultContract` / `CompletionReviewResultContract`，不进入 executing 分支组合。",
-                    "sources": [
-                        "packages/model-contracts/src/model-output/factory.ts"
-                    ]
-                }
-            ],
-            "generation": "runtime",
-            "detail": "Schema 和 Prompt Guide 随请求在运行时构造，不是构建期固定制品。",
-            "componentKeys": [
-                "model-contracts/src/model-output/factory#ModelOutputRequest",
-                "model-contracts/src/model-output/factory#AuthorizedToolContract",
-                "model-contracts/src/model-output/factory#ModelOutputContractBundle"
-            ]
-        },
-        {
             "key": "tool-core/registration#createToolRegistration",
             "entryPoint": "packages/tool-core/src/registration.ts#createToolRegistration",
             "components": [
-                "ToolInputContract",
+                "BoundToolDefinition",
                 "ToolRegistration"
             ],
             "conditions": [
                 {
                     "condition": "Tool registration",
-                    "effect": "将获批工具的输入 Contract AST 编译为该注册项的 JSON Schema。",
+                    "effect": "复制工具身份、说明、只读分类与权威输入 ContractBinding。",
                     "sources": [
                         "packages/tool-core/src/registration.ts"
                     ]
                 },
                 {
                     "condition": "Tool prepare",
-                    "effect": "对调用输入执行 safeParse；失败时不执行工具。",
+                    "effect": "以 `inputBinding.read(input, \"strip\")` 读取隔离输入；失败时不执行工具。",
                     "sources": [
                         "packages/tool-core/src/registration.ts",
                         "packages/runtime/src/tool.ts"
@@ -2142,9 +2089,9 @@
                 }
             ],
             "generation": "runtime",
-            "detail": "Tool 输入 Schema 为注册期内存投影；不是已检查进仓库的生成制品。",
+            "detail": "输入 Schema 与校验器由 Catalog 从 TS 类型生成并随绑定提供；注册与 prepare 直接消费该绑定。",
             "componentKeys": [
-                "tool-core/src/types#ToolInputContract",
+                "tool-core/src/types#BoundToolDefinition",
                 "tool-core/src/types#ToolRegistration"
             ]
         },
@@ -23938,14 +23885,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `APPLY_PATCH_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "APPLY_PATCH_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts"
             ],
@@ -24352,14 +24294,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `FIND_FILES_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "FIND_FILES_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts"
             ],
@@ -24685,14 +24622,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `GIT_STATUS_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "GIT_STATUS_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts"
             ],
@@ -24772,14 +24704,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `GIT_DIFF_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "GIT_DIFF_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts"
             ],
@@ -24818,14 +24745,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `GIT_DIFF_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "GIT_DIFF_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts"
             ],
@@ -24864,14 +24786,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `GIT_LOG_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "GIT_LOG_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts"
             ],
@@ -24910,14 +24827,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `GIT_LOG_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "GIT_LOG_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts"
             ],
@@ -24956,14 +24868,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `GIT_SHOW_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "GIT_SHOW_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts"
             ],
@@ -25002,14 +24909,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `GIT_SHOW_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "GIT_SHOW_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts"
             ],
@@ -25048,14 +24950,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `GIT_SHOW_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "GIT_SHOW_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts"
             ],
@@ -25094,14 +24991,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `GIT_BRANCH_LIST_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "GIT_BRANCH_LIST_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts"
             ],
@@ -25140,14 +25032,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `GIT_BRANCH_LIST_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "GIT_BRANCH_LIST_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts"
             ],
@@ -25186,14 +25073,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `GIT_WORKTREE_LIST_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "GIT_WORKTREE_LIST_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts"
             ],
@@ -25232,14 +25114,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `GIT_WORKTREE_LIST_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "GIT_WORKTREE_LIST_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts"
             ],
@@ -25278,14 +25155,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `GIT_WORKTREE_LIST_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "GIT_WORKTREE_LIST_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts"
             ],
@@ -25488,14 +25360,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `GIT_WORKTREE_ADD_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "GIT_WORKTREE_ADD_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts"
             ],
@@ -25534,14 +25401,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `GIT_WORKTREE_REMOVE_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "GIT_WORKTREE_REMOVE_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts"
             ],
@@ -25580,14 +25442,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `GIT_WORKTREE_REMOVE_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "GIT_WORKTREE_REMOVE_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts"
             ],
@@ -25872,14 +25729,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `GIT_ADD_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "GIT_ADD_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts"
             ],
@@ -25918,14 +25770,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `GIT_COMMIT_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "GIT_COMMIT_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts"
             ],
@@ -25964,14 +25811,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `GIT_COMMIT_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "GIT_COMMIT_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts"
             ],
@@ -26010,14 +25852,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `GIT_BRANCH_CREATE_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "GIT_BRANCH_CREATE_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts"
             ],
@@ -26056,14 +25893,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `GIT_BRANCH_CREATE_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "GIT_BRANCH_CREATE_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts"
             ],
@@ -26102,14 +25934,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `GIT_BRANCH_SWITCH_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "GIT_BRANCH_SWITCH_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts"
             ],
@@ -26148,14 +25975,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `GIT_BRANCH_SWITCH_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "GIT_BRANCH_SWITCH_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts"
             ],
@@ -26276,14 +26098,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `LIST_DIRECTORY_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "LIST_DIRECTORY_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts"
             ],
@@ -26527,14 +26344,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `PROCESS_START_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "PROCESS_START_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts"
             ],
@@ -26614,14 +26426,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `PROCESS_READ_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "PROCESS_READ_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts"
             ],
@@ -26701,14 +26508,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `PROCESS_STOP_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "PROCESS_STOP_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts"
             ],
@@ -26789,14 +26591,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `READ_FILE_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "READ_FILE_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts"
             ],
@@ -26959,14 +26756,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `WEB_FETCH_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "WEB_FETCH_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts",
                 "packages/tools/src/web/fetch-default.ts",
@@ -27009,14 +26801,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `WEB_FETCH_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "WEB_FETCH_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts"
             ],
@@ -27139,14 +26926,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `WEB_SEARCH_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "WEB_SEARCH_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts",
                 "packages/tools/src/web/search-duckduckgo.ts",
@@ -27189,14 +26971,9 @@
             "module": "tools",
             "boundary": "model-tools",
             "section": "工具",
-            "definition": "由 `WEB_SEARCH_INPUT_CONTRACT` AST 推导",
-            "definitionKind": "derived",
-            "relations": [
-                {
-                    "kind": "derived-from",
-                    "name": "WEB_SEARCH_INPUT_CONTRACT"
-                }
-            ],
+            "definition": "TS 单源；由所属工具边界消费",
+            "definitionKind": "native-ts",
+            "relations": [],
             "consumers": [
                 "packages/tools/src/index.ts"
             ],
@@ -27364,7 +27141,7 @@
             "module": "tool-core",
             "boundary": "model-tools",
             "section": "工具核心",
-            "definition": "模型可见 Tool 描述与过渡期输入 AST",
+            "definition": "模型可见 Tool 描述、发现别名与只读分类",
             "definitionKind": "native-ts",
             "relations": [],
             "consumers": [
@@ -36881,11 +36658,11 @@
             "module": "contracts",
             "boundary": "durable",
             "section": "通用 JSON payload 类型",
-            "definition": "Contracts 对外递归 JSON 值定义，`JsonValue` 包含 `JsonScalar`",
+            "definition": "Contracts 对外递归 JSON 值静态类型，`JsonValue` 包含 `JsonScalar`",
             "definitionKind": "other",
             "relations": [],
             "consumers": [],
-            "consumerNote": "Tool ToolInputContract/ToolObservation，Model Contract JsonValueContract 推导和通用 JSON parser",
+            "consumerNote": "Tool、Runtime、Storage、LLM、Web 与 Benchmark 的 JSON 边界静态类型",
             "protocol": {
                 "identity": {
                     "state": "undeclared",
@@ -36910,11 +36687,11 @@
             }
         },
         {
-            "key": "contracts/src/types#JsonValue@L10",
+            "key": "contracts/src/types#JsonValue@L16",
             "declaration": "JsonValue",
             "source": {
                 "path": "packages/contracts/src/types.ts",
-                "line": 10
+                "line": 16
             },
             "status": "present",
             "disposition": null,
@@ -36922,11 +36699,11 @@
             "module": "contracts",
             "boundary": "durable",
             "section": "通用 JSON payload 类型",
-            "definition": "Contracts 对外递归 JSON 值定义，`JsonValue` 包含 `JsonScalar`",
+            "definition": "Contracts 对外递归 JSON 值静态类型，`JsonValue` 包含 `JsonScalar`",
             "definitionKind": "other",
             "relations": [],
             "consumers": [],
-            "consumerNote": "Tool ToolInputContract/ToolObservation，Model Contract JsonValueContract 推导和通用 JSON parser",
+            "consumerNote": "Tool、Runtime、Storage、LLM、Web 与 Benchmark 的 JSON 边界静态类型",
             "protocol": {
                 "identity": {
                     "state": "undeclared",
@@ -38108,8 +37885,8 @@
             "module": "runtime",
             "boundary": "durable",
             "section": "通用 JSON payload 类型",
-            "definition": "Runtime 同名独立联合；与模型 Contract AST 派生类型并存",
-            "definitionKind": "derived",
+            "definition": "Runtime 同名独立联合；与模型输出的 TS 单源分层维护",
+            "definitionKind": "native-ts",
             "relations": [],
             "consumers": [],
             "consumerNote": "Goal Plan reducer、Trajectory goal_plan_updated 和 Snapshot 映射",
@@ -38126,11 +37903,11 @@
             },
             "generation": {
                 "state": "runtime",
-                "detail": "Model AST decode、Runtime reducer 和 Snapshot Schema 分层处理"
+                "detail": "模型生成绑定解码、Runtime reducer 和 Snapshot Schema 分层处理"
             },
             "validation": {
                 "state": "runtime-schema",
-                "detail": "Model AST decode、Runtime reducer 和 Snapshot Schema 分层处理"
+                "detail": "模型生成绑定解码、Runtime reducer 和 Snapshot Schema 分层处理"
             },
             "role": "referenced",
             "inventory": {
@@ -41430,7 +41207,7 @@
             "consumers": [
                 "packages/tools/src/write-file.ts"
             ],
-            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费；联合切换后删除旧输入 AST。",
+            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费。",
             "protocol": {
                 "identity": {
                     "state": "declared",
@@ -41494,7 +41271,7 @@
             "consumers": [
                 "packages/tools/src/edit-file.ts"
             ],
-            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费；联合切换后删除旧输入 AST。",
+            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费。",
             "protocol": {
                 "identity": {
                     "state": "declared",
@@ -41558,7 +41335,7 @@
             "consumers": [
                 "packages/tools/src/apply-patch.ts"
             ],
-            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费；联合切换后删除旧输入 AST。",
+            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费。",
             "protocol": {
                 "identity": {
                     "state": "declared",
@@ -41622,7 +41399,7 @@
             "consumers": [
                 "packages/tools/src/execute-program.ts"
             ],
-            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费；联合切换后删除旧输入 AST。",
+            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费。",
             "protocol": {
                 "identity": {
                     "state": "declared",
@@ -41686,7 +41463,7 @@
             "consumers": [
                 "packages/tools/src/git-write-tools.ts"
             ],
-            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费；联合切换后删除旧输入 AST。",
+            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费。",
             "protocol": {
                 "identity": {
                     "state": "declared",
@@ -41750,7 +41527,7 @@
             "consumers": [
                 "packages/tools/src/git-write-tools.ts"
             ],
-            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费；联合切换后删除旧输入 AST。",
+            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费。",
             "protocol": {
                 "identity": {
                     "state": "declared",
@@ -41815,7 +41592,7 @@
             "consumers": [
                 "packages/tools/src/git-write-tools.ts"
             ],
-            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费；联合切换后删除旧输入 AST。",
+            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费。",
             "protocol": {
                 "identity": {
                     "state": "declared",
@@ -41879,7 +41656,7 @@
             "consumers": [
                 "packages/tools/src/git-write-tools.ts"
             ],
-            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费；联合切换后删除旧输入 AST。",
+            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费。",
             "protocol": {
                 "identity": {
                     "state": "declared",
@@ -41943,7 +41720,7 @@
             "consumers": [
                 "packages/tools/src/git-worktree-tools.ts"
             ],
-            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费；联合切换后删除旧输入 AST。",
+            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费。",
             "protocol": {
                 "identity": {
                     "state": "declared",
@@ -42007,7 +41784,7 @@
             "consumers": [
                 "packages/tools/src/git-worktree-tools.ts"
             ],
-            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费；联合切换后删除旧输入 AST。",
+            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费。",
             "protocol": {
                 "identity": {
                     "state": "declared",
@@ -42071,7 +41848,7 @@
             "consumers": [
                 "packages/tools/src/git-read-tools.ts"
             ],
-            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费；联合切换后删除旧输入 AST。",
+            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费。",
             "protocol": {
                 "identity": {
                     "state": "declared",
@@ -42135,7 +41912,7 @@
             "consumers": [
                 "packages/tools/src/git-read-tools.ts"
             ],
-            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费；联合切换后删除旧输入 AST。",
+            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费。",
             "protocol": {
                 "identity": {
                     "state": "declared",
@@ -42199,7 +41976,7 @@
             "consumers": [
                 "packages/tools/src/process-tools.ts"
             ],
-            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费；联合切换后删除旧输入 AST。",
+            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费。",
             "protocol": {
                 "identity": {
                     "state": "declared",
@@ -42263,7 +42040,7 @@
             "consumers": [
                 "packages/tools/src/process-tools.ts"
             ],
-            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费；联合切换后删除旧输入 AST。",
+            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费。",
             "protocol": {
                 "identity": {
                     "state": "declared",
@@ -42327,7 +42104,7 @@
             "consumers": [
                 "benchmarks/alfworld/src/alfworld-tools.ts"
             ],
-            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费；联合切换后删除旧输入 AST。",
+            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费。",
             "protocol": {
                 "identity": {
                     "state": "declared",
@@ -42391,7 +42168,7 @@
             "consumers": [
                 "benchmarks/alfworld/src/alfworld-tools.ts"
             ],
-            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费；联合切换后删除旧输入 AST。",
+            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费。",
             "protocol": {
                 "identity": {
                     "state": "declared",
@@ -42455,7 +42232,7 @@
             "consumers": [
                 "benchmarks/gaia/src/submit-answer.ts"
             ],
-            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费；联合切换后删除旧输入 AST。",
+            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费。",
             "protocol": {
                 "identity": {
                     "state": "declared",
@@ -42519,7 +42296,7 @@
             "consumers": [
                 "benchmarks/context/src/context-shell.ts"
             ],
-            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费；联合切换后删除旧输入 AST。",
+            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费。",
             "protocol": {
                 "identity": {
                     "state": "declared",
@@ -42583,7 +42360,7 @@
             "consumers": [
                 "packages/tools/src/read-file.ts"
             ],
-            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费；联合切换后删除旧输入 AST。",
+            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费。",
             "protocol": {
                 "identity": {
                     "state": "declared",
@@ -42647,7 +42424,7 @@
             "consumers": [
                 "packages/tools/src/list-directory.ts"
             ],
-            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费；联合切换后删除旧输入 AST。",
+            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费。",
             "protocol": {
                 "identity": {
                     "state": "declared",
@@ -42711,7 +42488,7 @@
             "consumers": [
                 "packages/tools/src/find-files.ts"
             ],
-            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费；联合切换后删除旧输入 AST。",
+            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费。",
             "protocol": {
                 "identity": {
                     "state": "declared",
@@ -42775,7 +42552,7 @@
             "consumers": [
                 "packages/tools/src/web-search.ts"
             ],
-            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费；联合切换后删除旧输入 AST。",
+            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费。",
             "protocol": {
                 "identity": {
                     "state": "declared",
@@ -42839,7 +42616,7 @@
             "consumers": [
                 "packages/tools/src/web-fetch.ts"
             ],
-            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费；联合切换后删除旧输入 AST。",
+            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费。",
             "protocol": {
                 "identity": {
                     "state": "declared",
@@ -42903,7 +42680,7 @@
             "consumers": [
                 "packages/tools/src/bash.ts"
             ],
-            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费；联合切换后删除旧输入 AST。",
+            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费。",
             "protocol": {
                 "identity": {
                     "state": "declared",
@@ -42970,7 +42747,7 @@
             "consumers": [
                 "packages/tools/src/git-read-tools.ts"
             ],
-            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费；联合切换后删除旧输入 AST。",
+            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费。",
             "protocol": {
                 "identity": {
                     "state": "declared",
@@ -43034,7 +42811,7 @@
             "consumers": [
                 "packages/tools/src/git-read-tools.ts"
             ],
-            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费；联合切换后删除旧输入 AST。",
+            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费。",
             "protocol": {
                 "identity": {
                     "state": "declared",
@@ -43098,7 +42875,7 @@
             "consumers": [
                 "packages/tools/src/git-read-tools.ts"
             ],
-            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费；联合切换后删除旧输入 AST。",
+            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费。",
             "protocol": {
                 "identity": {
                     "state": "declared",
@@ -43162,7 +42939,7 @@
             "consumers": [
                 "packages/tools/src/git-read-tools.ts"
             ],
-            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费；联合切换后删除旧输入 AST。",
+            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费。",
             "protocol": {
                 "identity": {
                     "state": "declared",
@@ -43226,7 +43003,7 @@
             "consumers": [
                 "packages/tools/src/process-tools.ts"
             ],
-            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费；联合切换后删除旧输入 AST。",
+            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费。",
             "protocol": {
                 "identity": {
                     "state": "declared",
@@ -43290,7 +43067,7 @@
             "consumers": [
                 "benchmarks/tua-bench/src/bash-exec-tool.ts"
             ],
-            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费；联合切换后删除旧输入 AST。",
+            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费。",
             "protocol": {
                 "identity": {
                     "state": "declared",
