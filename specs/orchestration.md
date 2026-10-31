@@ -11,15 +11,15 @@
 | Spec | 路径 | 批准状态 | 执行者 / 分支 / worktree | 进度与证据 |
 |---|---|---|---|---|
 | [TS 契约生成能力](../ts-contract-generation-capabilities/spec.md) | `specs/ts-contract-generation-capabilities/` | 已批准（2026-10-31 用户确认） | 执行者 A / `feat/ts-contract-generation-capabilities` / `.worktrees/ts-contract-generation-capabilities` | 独立完成（验证提交 `813c6b87`，分支 HEAD `ddd8d6bb` 仅计划记录；等待集成） |
-| [工具输入契约迁移](../ts-tool-input-migration/spec.md) | `specs/ts-tool-input-migration/` | 已批准（2026-10-31 用户确认） | 执行者 B / `feat/ts-tool-input-migration` / `.worktrees/ts-tool-input-migration` | 独立准备完成（HEAD `a716a723`；30/30 工具绑定已生成）；已合入集成分支，TODO 3 联合切换中 |
-| [模型数据契约迁移](../ts-model-contract-migration/spec.md) | `specs/ts-model-contract-migration/` | 已批准（2026-10-31 用户确认） | 执行者 C / `feat/ts-model-contract-migration` / `.worktrees/ts-model-contract-migration` | 独立准备完成（HEAD `e424d86a`；35/36 根已生成）；已合入集成分支，TODO 3 联合切换中 |
-| [Web 数据契约迁移](../ts-web-contract-migration/spec.md) | `specs/ts-web-contract-migration/` | 已批准（2026-10-31 用户确认） | 执行者 D / `feat/ts-web-contract-migration` / `.worktrees/ts-web-contract-migration` | 执行中（subagent D） |
-| [Storage 数据契约迁移](../ts-storage-contract-migration/spec.md) | `specs/ts-storage-contract-migration/` | 已批准（2026-10-31 用户确认） | 执行者 E / `feat/ts-storage-contract-migration` / `.worktrees/ts-storage-contract-migration` | 独立完成（HEAD `ffcc8a6b`；Feature Verification passed/current）；已合入集成分支；AgentProfile 小 Spec 与嵌套 ContextLookupResult 仍为外部依赖 |
-| [其他数据边界契约迁移](../ts-other-boundaries-migration/spec.md) | `specs/ts-other-boundaries-migration/` | 已批准（2026-10-31 用户确认） | 执行者 F / `feat/ts-other-boundaries-migration` / `.worktrees/ts-other-boundaries-migration` | 独立完成（HEAD `8f930aa3`；Feature Verification passed/current；本线无 Contract AST 消费者，新增真实子进程 RPC 回归；待并入集成分支） |
-| [AgentProfile 文件契约迁移](../ts-agent-profile-file-contract/spec.md) | `specs/ts-agent-profile-file-contract/` | 已批准（2026-10-31 用户确认纳入编排） | 执行者 G / `feat/ts-agent-profile-file-contract` / `.worktrees/ts-agent-profile-file-contract` | 执行中（subagent G，基于 `8bfb4cef`） |
-| [在线模型查询输入迁移](../ts-provider-model-query-contract/spec.md) | `specs/ts-provider-model-query-contract/` | 已批准（2026-10-31 用户确认纳入编排） | 执行者 H / `feat/ts-provider-model-query-contract` / `.worktrees/ts-provider-model-query-contract` | 就绪，待并发名额释放 |
-| [Provider 连接测试结果迁移](../ts-provider-profile-test-contract/spec.md) | `specs/ts-provider-profile-test-contract/` | 已批准（2026-10-31 用户确认纳入编排） | 执行者 I / `feat/ts-provider-profile-test-contract` / `.worktrees/ts-provider-profile-test-contract` | 就绪，待并发名额释放 |
-| [删除旧 Contract AST](../remove-legacy-contract-ast/spec.md) | `specs/remove-legacy-contract-ast/` | 已批准（2026-10-31 用户确认） | 执行者 J / `feat/remove-legacy-contract-ast` / `.worktrees/remove-legacy-contract-ast` | 未就绪；等待七方向与三个小 Spec 的真实交付、联合验收 |
+| [工具输入契约迁移](../ts-tool-input-migration/spec.md) | `specs/ts-tool-input-migration/` | 已批准（2026-10-31 用户确认） | 执行者 B / `feat/ts-tool-input-migration` / `.worktrees/ts-tool-input-migration` | 联合切换完成（HEAD `a716a723`；TODO 3 已勾选；集成等价套件通过；完整 `npm test` 因外部 GEPA 阻塞，状态 blocked） |
+| [模型数据契约迁移](../ts-model-contract-migration/spec.md) | `specs/ts-model-contract-migration/` | 已批准（2026-10-31 用户确认） | 执行者 C / `feat/ts-model-contract-migration` / `.worktrees/ts-model-contract-migration` | 联合切换完成（HEAD `e424d86a`；TODO 3 已勾选；集成等价套件通过；完整 `npm test` 因外部 GEPA 阻塞，状态 blocked） |
+| [Web 数据契约迁移](../ts-web-contract-migration/spec.md) | `specs/ts-web-contract-migration/` | 已批准（2026-10-31 用户确认） | 执行者 D / `feat/ts-web-contract-migration` / `.worktrees/ts-web-contract-migration` | 独立完成（HEAD `53867a1e`；passed/current；已合入集成分支；含两个 Provider 小 Spec；3 项既有 Chrome E2E 失败已复现为基线问题） |
+| [Storage 数据契约迁移](../ts-storage-contract-migration/spec.md) | `specs/ts-storage-contract-migration/` | 已批准（2026-10-31 用户确认） | 执行者 E / `feat/ts-storage-contract-migration` / `.worktrees/ts-storage-contract-migration` | 独立完成（HEAD `ffcc8a6b`；passed/current）；已合入集成分支；AgentProfile 小 Spec 已另行完成；嵌套 ContextLookupResult 仍待删除 AST 前复核 |
+| [其他数据边界契约迁移](../ts-other-boundaries-migration/spec.md) | `specs/ts-other-boundaries-migration/` | 已批准（2026-10-31 用户确认） | 执行者 F / `feat/ts-other-boundaries-migration` / `.worktrees/ts-other-boundaries-migration` | 独立完成（HEAD `8f930aa3`；passed/current；本线无 Contract AST 消费者）；已合入集成分支 |
+| [AgentProfile 文件契约迁移](../ts-agent-profile-file-contract/spec.md) | `specs/ts-agent-profile-file-contract/` | 已批准（2026-10-31 用户确认纳入编排） | 执行者 G / `feat/ts-agent-profile-file-contract` / `.worktrees/ts-agent-profile-file-contract` | 独立完成（HEAD `aab67b03`；passed/current；完整 `npm test` 通过）；已合入集成分支 |
+| [在线模型查询输入迁移](../ts-provider-model-query-contract/spec.md) | `specs/ts-provider-model-query-contract/` | 已批准（2026-10-31 用户确认纳入编排） | 执行者 H（由 Web 线执行）/ `feat/ts-web-contract-migration` | 已由 Web 线实现并记录（TODO 1 已勾选，Latest Result passed/current）；随 Web 合入集成分支 |
+| [Provider 连接测试结果迁移](../ts-provider-profile-test-contract/spec.md) | `specs/ts-provider-profile-test-contract/` | 已批准（2026-10-31 用户确认纳入编排） | 执行者 I（由 Web 线执行）/ `feat/ts-web-contract-migration` | 已由 Web 线实现并记录（TODO 1 已勾选，Latest Result passed/current）；随 Web 合入集成分支 |
+| [删除旧 Contract AST](../remove-legacy-contract-ast/spec.md) | `specs/remove-legacy-contract-ast/` | 已批准（2026-10-31 用户确认） | 执行者 J / `feat/remove-legacy-contract-ast` / `.worktrees/remove-legacy-contract-ast` | 未就绪；等待集成验证通过并固定实际基线 |
 
 ## 依赖关系与执行顺序
 
@@ -28,8 +28,10 @@
 - 生成能力线的固定验证提交为 `813c6b8793c352919bab1e6f9120b6b6e16d5ec6`，提供联合/判别联合、递归、开放 JSON、数组元素、`@asType integer`、`@minItems`/`@maxItems` 与模型投影。工具线和模型线均已堆叠到该提交。
 - 模型线第 36 个根 `ToolCallAgentDecision` 采用封闭的 `ToolCallDecisionEnvelope` 加工具绑定动态组合，`action.input` 由实际工具绑定校验；该设计记录在模型线 `pending-generation.md`，集成时必须验证动态组合和未知字段诊断。
 - 工具线完整 `npm test` 在外部 GEPA LLM 429 处阻塞，等价过滤套件 2573/2573 通过；模型线完整 `npm test` 最终通过。并行 worktree 的 GEPA/构建资源竞争使这些证据不能直接作为联合验收，集成阶段必须在隔离环境重跑。
-- Storage 线在 `36515714` 上完成并通过 Feature Verification，集成时需升级到生成能力线最终固定提交 `813c6b87` 并重跑受影响检查；其 AgentProfile 文件仍归已批准但尚未实施的 `ts-agent-profile-file-contract` 小 Spec，Retrieval Index Sidecar 的嵌套 `ContextLookupResult` 仍由旧 AST 推导，需在模型/其他边界线收敛后再纳入生成结构校验。
-- 协调者已建立 `feat/contract-migration-integration` 集成分支，当前 HEAD `8bfb4cef`，依次合入生成能力线 `813c6b87`、Storage `ffcc8a6b`、工具线 `a716a723`、模型线 `e424d86a`。Catalog 冲突已按 key 合并为 1016 条登记、78 个启用项，生成检查与类型检查通过；联合切换正在该 worktree 执行。
+- Storage 线在 `36515714` 上完成并通过 Feature Verification，集成时已升级到生成能力线最终固定提交 `813c6b87` 并重跑受影响检查；AgentProfile 文件已由独立小 Spec `aab67b03` 完成。Retrieval Index Sidecar 的嵌套 `ContextLookupResult` 仍由旧 AST 推导，需在删除 AST 前复核归属。
+- 协调者已建立 `feat/contract-migration-integration` 集成分支，当前 HEAD `ff11f027`，已合入生成能力线 `813c6b87`、Storage `ffcc8a6b`、工具链与模型线联合切换 `d2a8b118`、Web 线 `53867a1e`、AgentProfile `aab67b03`、其他边界 `8f930aa3`。Catalog 按 key 合并为 1071 条登记、134 个启用项、402 个删除项；生成检查、Catalog 测试、类型检查通过。定向跨 Spec 测试 70/70 通过；完整 `npm test` 正在隔离集成环境运行。
+- Web 线同时完成两个 Provider 小 Spec，并已更新其 plan TODO 与 Latest Result；完整原计划中的 Web 契约族全部迁移，旧 Web AST 已删除。完整 Chrome E2E 有 3 项既有 UI/布局失败，已在基线复现或单独复跑通过，不作为本方向回归。
+- AgentProfile 小 Spec 已独立完成，完整 `npm test` 通过；Storage 的 AgentProfile 文件族现有真实生成绑定与严格 `reject` 读取。
 - 其他边界线在 `8f930aa3` 上完成并通过 Feature Verification：其自有边界未发现 Contract AST 消费者，ACP/Mux/Tool RPC/LLM RPC/Sidecar/Bench Metadata/Process/Runtime admission 均为手写 TS 或外部 SDK 契约；Runtime 决策、Program 工具输入、Worker 工具声明和模型投影中的 AST 引用分别归模型线与工具线。合并后需复核该归属清单仍成立。
 - Web、Storage 和其他边界线按各自真实依赖独立推进。只使用现有生成能力即可完成的部分不等待生成能力线整体完成；确需新能力时，从生成能力线的固定已验证提交建立堆叠分支，并记录上游依赖和验证新鲜度。
 - 删除 AST 是最后阶段：只有七方向与三个小 Spec 的真实消费者迁移、跨 Spec 联合验收和交付证据齐全，且固定实际基线后，才派发删除执行者。仍存在必要 AST 消费者时停止删除并报告。
