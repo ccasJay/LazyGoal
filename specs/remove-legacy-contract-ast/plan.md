@@ -25,6 +25,17 @@
 
 ### Latest Result
 
-- 状态：未执行
-- 验证时间：-
-- 验证摘要：尚未开始执行。
+- 状态：passed / current
+- 验证时间：2026-10-31 15:33–15:46 CST
+- 实现提交：`bed7a7ec`（TODO 2）；前置审计与保留清单：`b4606c65` 与 [inventory.md](./inventory.md)
+- 验证摘要：
+  - 全仓扫描：旧 AST 符号、模块导入与源文件均为 0；Catalog 的 present 项、boundaries 与 dynamicCompositions 不再含旧 AST 生产使用，历史 `deleted` 登记保留。删除清单与保留原语调用者见 [inventory.md](./inventory.md)。
+  - `npm test`：通过。TypeScript 2686/2686，scripts 98/98，GEPA adapter 通过；覆盖模型、工具、Web、Snapshot 恢复和跨进程代表链路。首次全量运行有 1 个 PTC 并发用例失败，单独复跑通过；修复 Catalog 测试后完整重跑 2686/2686 + 98/98 通过。
+  - `npx tsc --noEmit`：通过。
+  - `npm run contracts:generate -- --check`：通过，670 个制品 current。
+  - `npm run check:dependencies`：通过，571 个源文件。
+  - `npm run check:docs`：通过，47 个模块、170 份当前说明。
+  - `git diff --check`：通过。
+  - 定向验证：`packages/contracts/test/json.test.ts` 与 `single-implementation.test.ts` 20/20；模型、工具、Web、Storage 关联套件 298/298。
+- 未解决问题：无。
+- 新鲜度：current。验证对象为 `bed7a7ec` 实现树；本条记录提交仅修改 `plan.md`，不改变实现或验证结论。
