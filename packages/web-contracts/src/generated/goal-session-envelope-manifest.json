@@ -1,0 +1,23 @@
+{
+  "contractId": "web.sessions.envelope",
+  "version": 1,
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "source": {
+    "path": "packages/web-contracts/src/wire.ts#BrowserGoalSessionEnvelope,BrowserGoalSession,BrowserRunStatus,BrowserGoalExecution,BrowserExecutionState,BrowserSessionMessage,BrowserMessagePosition,BrowserPendingSteer,BrowserPendingMessage,BrowserQueueState,BrowserInterruption,BrowserSessionRun,BrowserSessionStep,BrowserSessionStepThink,BrowserBashExecutionDetail,BrowserRunStageGroup,BrowserRunStageStatus,BrowserRunStageRejection,BrowserRunStageResultRef,BrowserRunStageRevision,BrowserPlanRoute,BrowserPlanRouteStageState,BrowserSessionRunTerminalDetail,BrowserGoalPlan,BrowserGoalPlanItem,BrowserInteractionView,BrowserInteractionKind,BrowserInteractionDecision,BrowserPendingAction,BrowserSandboxReview,BrowserToolGrantExtraFile,BrowserParentProgram,BrowserSessionState,BrowserSessionStateInteraction,BrowserSessionStateMessage,BrowserSessionStateInterruption",
+    "sha256": "091fd8307d78bb6df37fd565e42ab804a987f1b40a71a7c444ef78c699e03c6e"
+  },
+  "generator": {
+    "name": "ts-json-schema-generator",
+    "version": "2.9.0",
+    "typescriptVersion": "5.9.3"
+  },
+  "validator": {
+    "name": "Ajv standalone",
+    "version": "8.20.0"
+  },
+  "bundler": {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "format": "esm"
+  }
+}

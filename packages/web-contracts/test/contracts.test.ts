@@ -1,78 +1,230 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import * as webContracts from "../src/index";
 import {
-    compileJsonSchema,
-    ContractDefinitionError,
-    contract,
-    safeParse,
-    type InferContract,
-} from "../../contracts/src/index";
-import {
-    browserInteractionViewContract,
-    browserMessagePositionContract,
-    browserSandboxReviewContract,
-    browserSessionInputReceiptContract,
-} from "../src/contracts/common";
-import { assertWebContractsValid } from "../src/contracts/index";
+    browserActivityPageBinding,
+    browserGoalListItemBinding,
+    browserGoalLiveEventBinding,
+    browserProviderModelQueryBinding,
+    browserProviderProfileTestResultBinding,
+    browserSessionInputCommandBinding,
+    browserSessionInputReceiptBinding,
+    sessionMetricsValuesBinding,
+} from "../src/index";
 import {
     hasUtf16LengthAtMost,
     isJsonValue,
 } from "../src/invariants/index";
 import {
     isRecord,
-    type BrowserInteractionView,
-    type BrowserMessagePosition,
-    type BrowserSessionInputReceipt,
 } from "../src/index";
 
-type Equal<Left, Right> =
-    (<Value>() => Value extends Left ? 1 : 2) extends
-        (<Value>() => Value extends Right ? 1 : 2)
-        ? true
-        : false;
-type Assert<Value extends true> = Value;
+test("all exported generated bindings expose identity, schema and read", () => {
+    const bindings = Object.entries(webContracts)
+        .filter(([name]) => name.endsWith("Binding"))
+        .map(([, value]) => value as {
+            readonly contractId: string;
+            readonly version: number;
+            readonly schema: unknown;
+            readonly read: unknown;
+        });
+    assert.ok(bindings.length >= 55);
+    assert.equal(new Set(bindings.map(binding => `${binding.contractId}:${binding.version}`)).size, bindings.length);
+    for (const binding of bindings) {
+        assert.equal(typeof binding.contractId, "string");
+        assert.equal(binding.version, 1);
+        assert.equal(typeof binding.schema, "object");
+        assert.equal(typeof binding.read, "function");
+    }
+});
 
-type _ReceiptInference = Assert<Equal<
-    BrowserSessionInputReceipt,
-    InferContract<typeof browserSessionInputReceiptContract>
->>;
-type _MessagePositionInference = Assert<Equal<
-    BrowserMessagePosition,
-    InferContract<typeof browserMessagePositionContract>
->>;
-type _InteractionViewExposesDeclaredFieldsOnly = Assert<Equal<
-    keyof BrowserInteractionView,
-    "goalId" | "runId" | "kind" | "interactionId" | "requestId" | "actionId"
-        | "recoveryRef" | "decisions" | "truncated"
->>;
+test("generated bindings strip unknown fields and keep input isolated", () => {
+    const input = {
+        goalId: "goal-1",
+        inputId: "input-1",
+        kind: "message",
+        sequence: 1,
+        status: "pending",
+        admittedAtRevision: 2,
+        debug: "private",
+    };
+    const result = browserSessionInputReceiptBinding.read(input, "strip");
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal("debug" in result.data, false);
+    assert.equal(result.diagnostic?.contractId, "web.sessions.input.receipt");
+    assert.deepEqual(result.diagnostic?.paths, ["/debug"]);
+    assert.equal(result.data.goalId, "goal-1");
+    assert.equal(input.debug, "private");
+    assert.notEqual(result.data, input);
+});
 
-test("registered web contracts pass the definition check", () => {
-    assert.doesNotThrow(() => assertWebContractsValid());
-    assert.throws(
-        () => compileJsonSchema({
-            kind: "openObject",
-            shape: "invalid",
-        } as unknown as typeof browserSandboxReviewContract),
-        (error: unknown) => error instanceof ContractDefinitionError,
+test("generated bindings reject invalid known fields and non-JSON values", () => {
+    const receipt = {
+        goalId: "goal-1",
+        inputId: "input-1",
+        kind: "message",
+        sequence: 1,
+        status: "pending",
+        admittedAtRevision: 2,
+    };
+    assert.equal(browserSessionInputReceiptBinding.read({ ...receipt, sequence: 0 }, "strip").ok, false);
+    assert.equal(browserSessionInputReceiptBinding.read({ ...receipt, status: "unknown" }, "strip").ok, false);
+    assert.equal(browserSessionInputReceiptBinding.read({ ...receipt, inputId: "" }, "strip").ok, false);
+    assert.equal(browserSessionInputReceiptBinding.read({ ...receipt, inputId: undefined }, "strip").ok, false);
+    assert.equal(browserSessionInputReceiptBinding.read({ ...receipt, extra: () => undefined }, "strip").ok, false);
+    assert.equal(browserSessionInputReceiptBinding.read({ ...receipt, extra: new Date() }, "strip").ok, false);
+});
+
+test("generated integer annotations reject fractional known values", () => {
+    const metrics = {
+        stepCount: 1.5,
+        reportedCalls: 1,
+        missingCalls: 0,
+        inputTokens: 1,
+        outputTokens: 1,
+        coverage: "complete",
+        cacheMeasuredCalls: 0,
+        cacheExcludedCalls: 0,
+        cacheHitRate: 0.5,
+        throughputMeasuredCalls: 0,
+        throughputExcludedCalls: 0,
+        tokensPerSecond: 1,
+    };
+    assert.equal(sessionMetricsValuesBinding.read(metrics, "strip").ok, false);
+    assert.equal(sessionMetricsValuesBinding.read({ ...metrics, stepCount: 2 }, "strip").ok, true);
+});
+
+test("Provider query and test result bindings preserve credentials and integer bounds", () => {
+    const query = browserProviderModelQueryBinding.read({
+        kind: "openai",
+        apiKey: "sk-private",
+        debug: "private",
+    }, "strip");
+    assert.equal(query.ok, true);
+    if (!query.ok) return;
+    assert.equal(query.data.apiKey, "sk-private");
+    assert.equal("debug" in query.data, false);
+    assert.deepEqual(query.diagnostic?.paths, ["/debug"]);
+    assert.equal(browserProviderModelQueryBinding.read({ kind: "" }, "strip").ok, false);
+    assert.equal(browserProviderModelQueryBinding.read({ kind: "openai", apiKey: null }, "strip").ok, false);
+
+    const success = browserProviderProfileTestResultBinding.read({
+        ok: true,
+        modelCount: 29,
+        debug: "private",
+    }, "strip");
+    assert.equal(success.ok, true);
+    if (!success.ok) return;
+    assert.equal("debug" in success.data, false);
+    assert.equal(browserProviderProfileTestResultBinding.read({ ok: true, modelCount: 0 }, "strip").ok, false);
+    assert.equal(browserProviderProfileTestResultBinding.read({ ok: true, modelCount: 1.5 }, "strip").ok, false);
+    assert.equal(
+        browserProviderProfileTestResultBinding.read({ ok: true, modelCount: Number.MAX_SAFE_INTEGER + 1 }, "strip").ok,
+        false,
+    );
+    assert.equal(
+        browserProviderProfileTestResultBinding.read({ ok: false, error: "model_catalog_authentication" }, "strip").ok,
+        true,
     );
 });
 
-test("shared nested contracts compile to deterministic schemas", () => {
-    const receiptSchema = compileJsonSchema(browserSessionInputReceiptContract);
-    assert.equal(receiptSchema.additionalProperties, true);
-    assert.deepEqual(receiptSchema.required, [
-        "goalId", "inputId", "kind", "sequence", "status", "admittedAtRevision",
-    ]);
+test("session input union strips branch extras and keeps discriminator", () => {
+    const message = browserSessionInputCommandBinding.read({
+        kind: "message",
+        inputId: "input-1",
+        content: "hello",
+        debug: "private",
+    }, "strip");
+    assert.equal(message.ok, true);
+    if (message.ok) assert.equal("debug" in message.data, false);
 
-    const messagePositionSchema = compileJsonSchema(browserMessagePositionContract);
-    assert.equal(messagePositionSchema.additionalProperties, true);
+    const steer = browserSessionInputCommandBinding.read({
+        kind: "steer",
+        inputId: "input-1",
+        runId: "run-1",
+        content: "go",
+        queueBinding: { messageId: "msg-1", queueRevision: 0, debug: true },
+    }, "strip");
+    assert.equal(steer.ok, true);
+    if (steer.ok && steer.data.kind === "steer") {
+        assert.equal("debug" in (steer.data.queueBinding ?? {}), false);
+    }
 
-    const interactionSchema = compileJsonSchema(browserInteractionViewContract);
-    assert.equal(
-        (interactionSchema.properties as Record<string, { minItems?: number }>).decisions?.minItems,
-        1,
-    );
+    const crossBranch = browserSessionInputCommandBinding.read({
+        kind: "message",
+        inputId: "input-1",
+        content: "hello",
+        runId: "run-1",
+    }, "strip");
+    assert.equal(crossBranch.ok, true);
+    if (crossBranch.ok) {
+        assert.equal("runId" in crossBranch.data, false);
+        assert.deepEqual(crossBranch.diagnostic?.paths, ["/runId"]);
+    }
+});
+
+test("live event binding strips unknown activity metadata", () => {
+    const event = browserGoalLiveEventBinding.read({
+        type: "activity",
+        goalId: "goal-1",
+        runId: "run-1",
+        activity: {
+            kind: "tool_started",
+            sourceEventId: "event-1",
+            sourceCursor: 1,
+            actionId: "action-1",
+            executionUnitId: "unit-1",
+            toolId: "read_file",
+            privatePayload: "hidden",
+        },
+    }, "strip");
+    assert.equal(event.ok, true);
+    if (!event.ok || event.data.type !== "activity") return;
+    assert.equal("privatePayload" in event.data.activity, false);
+    assert.deepEqual(event.diagnostic?.paths, ["/activity/privatePayload"]);
+});
+
+test("Activity page binding strips item extras and reports bounded paths", () => {
+    const page = {
+        goalId: "goal-1",
+        limit: 50,
+        items: [{
+            type: "think",
+            itemId: "think:1",
+            runId: "run-1",
+            position: { runId: "run-1", runOrder: 0, sequence: 1, itemKind: "fact", order: 0 },
+            think: { goal: "compare", privateReasoning: "hidden" },
+            reviewNotes: "private",
+        }],
+        runs: [],
+        window: [],
+        gaps: [],
+        range: { olderAvailable: false, newerAvailable: false },
+        stages: [],
+        actionGroups: [],
+    };
+    const result = browserActivityPageBinding.read(page, "strip");
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal("reviewNotes" in result.data.items[0]!, false);
+    assert.equal("privateReasoning" in (result.data.items[0] as { think: object }).think, false);
+    assert.deepEqual(result.diagnostic?.paths, ["/items/0/reviewNotes", "/items/0/think/privateReasoning"]);
+});
+
+test("Goal list item binding keeps declared fields and rejects bad enums", () => {
+    const item = {
+        goalId: "goal-1",
+        runId: "run-1",
+        intent: "Test intent",
+        workflowPhase: "executing",
+        runStatus: "running",
+        updatedAt: "2026-10-18T00:00:00.000Z",
+        archived: false,
+    };
+    assert.equal(browserGoalListItemBinding.read(item, "strip").ok, true);
+    assert.equal(browserGoalListItemBinding.read({ ...item, runStatus: "invalid" }, "strip").ok, false);
 });
 
 test("isJsonValue accepts JSON values and rejects non-plain values", () => {
@@ -119,22 +271,4 @@ test("isRecord keeps its public predicate name", () => {
     assert.equal(isRecord({}), true);
     assert.equal(isRecord([]), false);
     assert.equal(isRecord(null), false);
-});
-
-test("shared contracts reject explicit undefined for optional fields", () => {
-    const receipt = {
-        goalId: "goal-1",
-        inputId: "input-1",
-        kind: "message",
-        sequence: 1,
-        status: "pending",
-        admittedAtRevision: 2,
-    };
-    assert.equal(safeParse(browserSessionInputReceiptContract, receipt).success, true);
-    assert.equal(
-        safeParse(browserSessionInputReceiptContract, { ...receipt, targetRunId: undefined }).success,
-        false,
-    );
-    assert.equal(contract.openObject({}).kind, "openObject");
-    assert.equal(browserSessionInputReceiptContract.kind, "openObject");
 });

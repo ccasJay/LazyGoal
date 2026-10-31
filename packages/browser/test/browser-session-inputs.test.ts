@@ -132,7 +132,7 @@ test("POST /api/goals creates a session, persists the first input and returns it
     await harness.sessions.close();
 });
 
-test("POST /api/goals validates the strict create wire command", async () => {
+test("POST /api/goals validates the create wire command and strips unknown fields", async () => {
     const harness = createSessionHarness();
     const routes = createBrowserGoalRoutes(createApi(harness));
     const valid = { goalId: "goal-1", inputId: "input-1", intent: "意图" };
@@ -140,7 +140,6 @@ test("POST /api/goals validates the strict create wire command", async () => {
     for (const body of [
         { ...valid, inputId: "bad id" },
         { ...valid, intent: "   " },
-        { ...valid, extra: true },
         { ...valid, goalId: "" },
     ]) {
         const response = await routes.request("/api/goals", {
@@ -238,7 +237,6 @@ test("POST inputs validates strict union shapes and text limits", async () => {
         { kind: "unknown", inputId: "input-x" },
         { kind: "message", inputId: "input-x" },
         { kind: "message", inputId: "input-x", content: "  " },
-        { kind: "message", inputId: "input-x", content: "正文", extra: 1 },
         { kind: "message", inputId: "bad id", content: "正文" },
         { kind: "steer", inputId: "input-x", runId: "run-a" },
         { kind: "interrupt", inputId: "input-x" },
@@ -539,7 +537,7 @@ async function waitUntil(predicate: () => boolean): Promise<void> {
 
 export type { SessionHarnessOptions };
 
-test("统一输入 parser 使用共享严格合同并保留关系检查", async () => {
+test("统一输入 parser 剥离未知字段并保留关系检查", async () => {
     const harness = createSessionHarness();
     const submitted: unknown[] = [];
     const receipt = {
@@ -560,8 +558,8 @@ test("统一输入 parser 使用共享严格合同并保留关系检查", async 
     });
 
     const unknownField = await post({ kind: "message", inputId: "input-1", content: "hello", extra: true });
-    assert.equal(unknownField.status, 400);
-    assert.deepEqual(await unknownField.json(), { error: "INVALID_INPUT" });
+    assert.equal(unknownField.status, 202);
+    assert.deepEqual(submitted.at(-1), { kind: "message", inputId: "input-1", content: "hello" });
 
     const withoutScope = await post({
         kind: "respond", inputId: "input-1", runId: "run-1", requestId: "act-1",
@@ -601,7 +599,11 @@ test("统一输入 parser 使用共享严格合同并保留关系检查", async 
         kind: "steer", inputId: "input-1", runId: "run-1", content: "go",
         queueBinding: { messageId: "msg-1", queueRevision: 1, extra: true },
     });
-    assert.equal(bindingExtra.status, 400);
+    assert.equal(bindingExtra.status, 202);
+    assert.deepEqual(submitted.at(-1), {
+        kind: "steer", inputId: "input-1", runId: "run-1", content: "go",
+        queueBinding: { messageId: "msg-1", queueRevision: 1 },
+    });
     const blankResume = await post({
         kind: "resume", inputId: "input-1", runId: "run-1", commitRevision: 1, content: "   ",
     });

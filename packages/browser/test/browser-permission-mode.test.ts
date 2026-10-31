@@ -136,7 +136,7 @@ test("POST /api/project/permission-mode 校验非法输入返回 400", async () 
         { mode: "invalid", expectedRevision: 0 },
         { mode: "yolo", expectedRevision: -1 },
         { mode: "yolo", expectedRevision: "0" },
-        { mode: "default", expectedRevision: 0, extraField: true },
+        { mode: "default", expectedRevision: 0.5 },
     ];
 
     for (const body of invalidBodies) {

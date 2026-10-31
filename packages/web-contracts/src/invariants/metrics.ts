@@ -1,9 +1,7 @@
-import type { InferContract } from "../../../contracts/src/index";
-import { sessionMetricsValuesContract } from "../contracts/metrics";
-import type { SessionMetricsSnapshot } from "../metrics";
+import type { SessionMetricsSnapshot, SessionMetricsValues } from "../wire";
 
 /** 指标字段集合的只读输出。 */
-type MetricsValues = InferContract<typeof sessionMetricsValuesContract>;
+type MetricsValues = SessionMetricsValues;
 
 function isNonNegativeOrNull(value: number | null): boolean {
     return value === null || value >= 0;

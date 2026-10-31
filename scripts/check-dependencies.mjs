@@ -85,7 +85,7 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
     tools: ["runtime", "contracts", "contract-binding", "execution-stream", "sandbox", "execution-control", "tool-core", "process-runtime"],
     "process-runtime": ["runtime", "sandbox"],
     browser: ["http", "runtime", "permission", "web-contracts", "execution-control"],
-    "web-contracts": ["contracts"],
+    "web-contracts": ["contracts", "contract-binding"],
 };
 
 const PACKAGES = Object.keys(ALLOWED_PACKAGE_DEPENDENCIES);

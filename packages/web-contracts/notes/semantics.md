@@ -5,8 +5,8 @@
 | 概念 | 简明含义 | 归属模块 | 权威说明 |
 | --- | --- | --- | --- |
 | BrowserGoalSession | 浏览器会话投影 DTO。 | [Web 传输契约](../README.md) | [模块说明](./overview.md) |
-| Web wire Contract | 大多数 DTO 由 Contract AST 派生；在线 Provider 模型列表由原生 TS 类型定义，并通过构建期 Catalog 生成运行时读取器。 | [Web 传输契约](../README.md) | [合同目录](../src/contracts)、[模块说明](./overview.md)、[Provider 模型类型](../src/provider-settings.ts)、[构建期 Catalog](../../../contracts/README.md) |
-| unknown / openObject | 任意 JSON 与开放对象的边界策略；载荷深度独立于合同结构预算。 | [Web 传输契约](../README.md) | [模块说明](./overview.md) |
+| Web wire Contract | 全部 Web HTTP、SSE 与浏览器 DTO 由 `wire.ts` 原生 TS 类型定义；Catalog 生成 Schema、校验器、Manifest 和类型化绑定。 | [Web 传输契约](../README.md) | [Wire 类型](../src/wire.ts)、[模块说明](./overview.md)、[构建期 Catalog](../../../contracts/README.md) |
+| unknown / openObject | 任意 JSON 与开放对象的边界策略；未知字段剥离并产生有界诊断，载荷深度独立于生成结构预算。 | [Web 传输契约](../README.md) | [模块说明](./overview.md) |
 | 跨字段不变量 | 结构解析后执行的 Plan Route、Activity、交互、Provider 与指标关系检查。 | [Web 传输契约](../README.md) | [不变量目录](../src/invariants) |
 | UTF-16 文本上限 | wire 文本按 UTF-16 code unit 计数的唯一实现。 | [Web 传输契约](../README.md) | [utf16.ts](../src/invariants/utf16.ts) |
 | BrowserGoalList | Goal 列表响应信封：可读取摘要与无法读取的历史 Goal 数量。 | [Web 传输契约](../README.md) | [Session DTO](../src/session.ts) |

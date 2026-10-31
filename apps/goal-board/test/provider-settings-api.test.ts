@@ -158,3 +158,102 @@ test("online provider model cancellation propagates to fetch", async t => {
     else Reflect.deleteProperty(globalThis, "window");
   }
 });
+
+test("provider profile test returns extracted branch and reports a value-free diagnostic", async t => {
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  Object.defineProperty(globalThis, "window", { configurable: true, value: { location: { hash: "#test-access" } } });
+  try {
+    const { browserApi } = await import("../src/api");
+    const diagnostics: unknown[][] = [];
+    t.mock.method(console, "debug", (...args: unknown[]) => diagnostics.push(args));
+    t.mock.method(globalThis, "fetch", async () => Response.json({
+      ok: true,
+      modelCount: 29,
+      error: "model_catalog_authentication",
+      debug: "private",
+    }));
+
+    assert.deepEqual(await browserApi.testProvider("profile-1"), { ok: true, modelCount: 29 });
+    assert.equal(diagnostics.length, 1);
+    assert.deepEqual(diagnostics[0]?.[1], {
+      contractId: "web.providers.profile_test_result",
+      version: 1,
+      paths: ["/error", "/debug"],
+      truncated: false,
+    });
+    assert.equal(JSON.stringify(diagnostics).includes("private"), false);
+
+    t.mock.method(globalThis, "fetch", async () => Response.json({
+      ok: false,
+      error: "model_catalog_authentication",
+      modelCount: 29,
+    }));
+    assert.deepEqual(await browserApi.testProvider("profile-1"), {
+      ok: false,
+      error: "model_catalog_authentication",
+    });
+  } finally {
+    if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
+    else Reflect.deleteProperty(globalThis, "window");
+  }
+});
+
+test("provider profile test rejects invalid success values and keeps HTTP errors outside the union", async t => {
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  Object.defineProperty(globalThis, "window", { configurable: true, value: { location: { hash: "#test-access" } } });
+  try {
+    const { BrowserApiError, browserApi } = await import("../src/api");
+    for (const modelCount of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, "29"]) {
+      t.mock.method(globalThis, "fetch", async () => Response.json({ ok: true, modelCount }));
+      await assert.rejects(
+        () => browserApi.testProvider("profile-1"),
+        /invalid_api_response/,
+        String(modelCount),
+      );
+    }
+
+    t.mock.method(globalThis, "fetch", async () => Response.json(
+      { error: "model_catalog_authentication" },
+      { status: 502 },
+    ));
+    await assert.rejects(
+      () => browserApi.testProvider("profile-1"),
+      (error: unknown) => error instanceof BrowserApiError
+        && error.code === "model_catalog_authentication"
+        && error.status === 502,
+    );
+  } finally {
+    if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
+    else Reflect.deleteProperty(globalThis, "window");
+  }
+});
+
+test("provider profile test diagnostic sink failure and cancellation preserve existing behavior", async t => {
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  Object.defineProperty(globalThis, "window", { configurable: true, value: { location: { hash: "#test-access" } } });
+  try {
+    const { browserApi } = await import("../src/api");
+    t.mock.method(console, "debug", () => {
+      throw new Error("diagnostic sink failed");
+    });
+    t.mock.method(globalThis, "fetch", async () => Response.json({
+      ok: true,
+      modelCount: 1,
+      debug: true,
+    }));
+    assert.deepEqual(await browserApi.testProvider("profile-1"), { ok: true, modelCount: 1 });
+
+    const controller = new AbortController();
+    controller.abort();
+    t.mock.method(globalThis, "fetch", async (_input, init) => {
+      throw init?.signal?.reason;
+    });
+    await assert.rejects(
+      () => browserApi.testProvider("profile-1", controller.signal),
+      (error: unknown) => error instanceof DOMException && error.name === "AbortError",
+    );
+  } finally {
+    if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
+    else Reflect.deleteProperty(globalThis, "window");
+  }
+});

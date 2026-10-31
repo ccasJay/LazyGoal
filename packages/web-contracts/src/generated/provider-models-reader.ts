@@ -7,7 +7,7 @@ import {
 } from "../contract-reader";
 import { browserProviderModelsMetadata, browserProviderModelsSchema } from "./provider-models-schema";
 import validateBrowserProviderModels from "./provider-models-validator.mjs";
-import type { BrowserProviderModels } from "../provider-settings";
+import type { BrowserProviderModels } from "../wire";
 
 export type BrowserProviderModelsUnknownFieldDiagnostic = ContractUnknownFieldDiagnostic;
 export type BrowserProviderModelsReadResult = ContractReadResult<BrowserProviderModels>;

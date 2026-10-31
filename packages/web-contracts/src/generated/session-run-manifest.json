@@ -1,0 +1,23 @@
+{
+  "contractId": "web.sessions.run",
+  "version": 1,
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "source": {
+    "path": "packages/web-contracts/src/wire.ts#BrowserSessionRun,BrowserRunStatus,BrowserSessionStep,BrowserSessionStepThink,BrowserBashExecutionDetail,BrowserRunStageGroup,BrowserRunStageStatus,BrowserRunStageRejection,BrowserRunStageResultRef,BrowserRunStageRevision,BrowserPlanRoute,BrowserPlanRouteStageState,BrowserSessionRunTerminalDetail",
+    "sha256": "40807ff08e4cdc7f5e34cd107dc18084d7e648871c607e620154431967485f39"
+  },
+  "generator": {
+    "name": "ts-json-schema-generator",
+    "version": "2.9.0",
+    "typescriptVersion": "5.9.3"
+  },
+  "validator": {
+    "name": "Ajv standalone",
+    "version": "8.20.0"
+  },
+  "bundler": {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "format": "esm"
+  }
+}

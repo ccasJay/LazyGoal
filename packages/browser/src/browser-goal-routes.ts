@@ -32,25 +32,20 @@ import type {
     BrowserSessionInputErrorCode,
     BrowserSessionInteractionResponse,
 } from "../../web-contracts/src/index";
-import { isJsonValue } from "../../web-contracts/src/index";
 import {
-    browserGoalArchiveCommandContract,
-    browserGoalPlanModeCommandContract,
-    browserModelPreferenceCommandContract,
-    browserModelSelectionCommandContract,
-    browserPermissionModeCommandContract,
-    browserToolGrantRevokeBodyContract,
-} from "../../web-contracts/src/contracts/command";
-import {
-    browserCreateSessionCommandContract,
-    browserSessionInputCommandContract,
-} from "../../web-contracts/src/contracts/input";
-import { browserActionReviewCommandContract } from "../../web-contracts/src/contracts/interaction";
-import {
-    browserProviderModelQueryContract,
-    browserProviderProfileInputContract,
-} from "../../web-contracts/src/contracts/provider";
-import { safeParse } from "../../web-contracts/src/contracts/runtime";
+    browserActionReviewCommandBinding,
+    browserCreateSessionCommandBinding,
+    browserGoalArchiveCommandBinding,
+    browserGoalPlanModeCommandBinding,
+    browserModelPreferenceCommandBinding,
+    browserModelSelectionCommandBinding,
+    browserPermissionModeCommandBinding,
+    browserProviderModelQueryBinding,
+    browserProviderProfileInputBinding,
+    browserSessionInputCommandBinding,
+    browserToolGrantRevokeBodyBinding,
+    isJsonValue,
+} from "../../web-contracts/src/index";
 import { hasUtf16LengthAtMost } from "../../web-contracts/src/invariants/index";
 import type {
     BrowserProviderProfileInput,
@@ -332,13 +327,14 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
     routes.post("/api/project/model-preference", async (context) => {
         const body = await readJsonBody(context.req.raw);
         if (!body.ok) return context.json({ error: body.error }, body.status);
-        const parsed = safeParse(browserModelPreferenceCommandContract, body.value);
-        if (!parsed.success
+        const parsed = browserModelPreferenceCommandBinding.read(body.value, "strip");
+        if (!parsed.ok
             || !hasUtf16LengthAtMost(parsed.data.modelId, 256)
             || (parsed.data.providerProfileId !== undefined
                 && !isWireId(parsed.data.providerProfileId, MAX_GOAL_ID_LENGTH))) {
             return context.json({ error: "invalid_model_preference" }, 400);
         }
+        reportWireDiagnostic(parsed.diagnostic);
         const { modelId, providerProfileId } = parsed.data;
         try {
             const result = await source.setModelPreference(modelId, providerProfileId);
@@ -354,14 +350,15 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
         if (!isWireId(goalId, MAX_GOAL_ID_LENGTH)) return context.json({ error: "invalid_model_selection" }, 400);
         const body = await readJsonBody(context.req.raw);
         if (!body.ok) return context.json({ error: body.error }, body.status);
-        const parsed = safeParse(browserModelSelectionCommandContract, body.value);
-        if (!parsed.success
+        const parsed = browserModelSelectionCommandBinding.read(body.value, "strip");
+        if (!parsed.ok
             || !isWireId(parsed.data.runId, 256)
             || !hasUtf16LengthAtMost(parsed.data.modelId, 256)
             || (parsed.data.providerProfileId !== undefined
                 && !isWireId(parsed.data.providerProfileId, MAX_GOAL_ID_LENGTH))) {
             return context.json({ error: "invalid_model_selection" }, 400);
         }
+        reportWireDiagnostic(parsed.diagnostic);
         try {
             const result = await source.selectModel(goalId, parsed.data);
             if (result.ok) return context.json(result);
@@ -388,8 +385,9 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
         if (source.setArchived === undefined) return context.json({ error: "goal_management_unavailable" }, 503);
         const body = await readJsonBody(context.req.raw);
         if (!body.ok) return context.json({ error: body.error }, body.status);
-        const parsed = safeParse(browserGoalArchiveCommandContract, body.value);
-        if (!parsed.success) return context.json({ error: "invalid_archive_request" }, 400);
+        const parsed = browserGoalArchiveCommandBinding.read(body.value, "strip");
+        if (!parsed.ok) return context.json({ error: "invalid_archive_request" }, 400);
+        reportWireDiagnostic(parsed.diagnostic);
         try {
             const result = await source.setArchived(goalId, parsed.data.archived);
             return result.ok ? context.json({ ok: true })
@@ -824,8 +822,8 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
         routes.post("/api/providers/models", async (context) => {
             const parsedBody = await readJsonBody(context.req.raw);
             if (!parsedBody.ok) return context.json({ error: parsedBody.error }, parsedBody.status);
-            const parsed = safeParse(browserProviderModelQueryContract, parsedBody.value);
-            if (!parsed.success
+            const parsed = browserProviderModelQueryBinding.read(parsedBody.value, "strip");
+            if (!parsed.ok
                 || !hasUtf16LengthAtMost(parsed.data.kind, MAX_PROVIDER_KIND_LENGTH)
                 || (parsed.data.apiKey !== undefined
                     && !hasUtf16LengthAtMost(parsed.data.apiKey, MAX_PROVIDER_API_KEY_LENGTH))
@@ -835,6 +833,7 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
                     && !isWireId(parsed.data.profileId, MAX_GOAL_ID_LENGTH))) {
                 return context.json({ error: "invalid_provider_profile" }, 400);
             }
+            reportWireDiagnostic(parsed.diagnostic);
             try {
                 const result = await providerSettings.fetchModels(parsed.data, context.req.raw.signal);
                 if (result.ok) return context.json(result);
@@ -924,8 +923,27 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
     return routes;
 }
 
-function providerSettingsErrorStatus(error: BrowserProviderSettingsError): 400 | 404 | 409 | 503 {
-    if (error === "provider_profile_not_found") return 404;
+/**
+ * 记录已剥离的未知请求字段诊断。
+ *
+ * @remarks
+ * 只输出契约身份、版本和有界路径；不记录字段值或原始请求正文。诊断输出失败不改变请求处理结果。
+ */
+function reportWireDiagnostic(diagnostic: {
+    readonly contractId: string;
+    readonly version: number;
+    readonly paths: readonly string[];
+    readonly truncated: boolean;
+} | undefined): void {
+    if (diagnostic === undefined) return;
+    try {
+        console.debug("[browser] request has unknown fields", diagnostic);
+    } catch {
+        // 诊断输出失败不影响合法请求。
+    }
+}
+
+function providerSettingsErrorStatus(error: BrowserProviderSettingsError): 400 | 404 | 409 | 503 {    if (error === "provider_profile_not_found") return 404;
     if (error === "provider_profile_invalid") return 400;
     if (error === "provider_profile_conflict" || error === "provider_profile_active") return 409;
     return 503;
@@ -949,8 +967,9 @@ async function parseProviderProfileInput(
 ): Promise<{ readonly ok: true; readonly input: BrowserProviderProfileInput } | { readonly ok: false }> {
     const parsedBody = await readJsonBody(request);
     if (!parsedBody.ok) return { ok: false };
-    const parsed = safeParse(browserProviderProfileInputContract, parsedBody.value);
-    if (!parsed.success) return { ok: false };
+    const parsed = browserProviderProfileInputBinding.read(parsedBody.value, "strip");
+    if (!parsed.ok) return { ok: false };
+    reportWireDiagnostic(parsed.diagnostic);
     const input = parsed.data;
     if (!hasUtf16LengthAtMost(input.label, MAX_PROVIDER_LABEL_LENGTH)
         || !hasUtf16LengthAtMost(input.kind, MAX_PROVIDER_KIND_LENGTH)
@@ -958,7 +977,11 @@ async function parseProviderProfileInput(
         || (input.apiKey !== undefined
             && !hasUtf16LengthAtMost(input.apiKey, MAX_PROVIDER_API_KEY_LENGTH))
         || (input.baseURL !== undefined && input.baseURL !== null
-            && !hasUtf16LengthAtMost(input.baseURL, MAX_PROVIDER_BASE_URL_LENGTH))) {
+            && !hasUtf16LengthAtMost(input.baseURL, MAX_PROVIDER_BASE_URL_LENGTH))
+        || (input.contextWindowTokens !== undefined && input.contextWindowTokens !== null
+            && !Number.isSafeInteger(input.contextWindowTokens))
+        || (input.maxOutputTokens !== undefined && input.maxOutputTokens !== null
+            && !Number.isSafeInteger(input.maxOutputTokens))) {
         return { ok: false };
     }
     return { ok: true, input };
@@ -979,10 +1002,11 @@ async function parseCreateSessionCommand(
 > {
     const parsedBody = await readJsonBody(request);
     if (!parsedBody.ok) return parsedBody;
-    const parsed = safeParse(browserCreateSessionCommandContract, parsedBody.value);
-    if (!parsed.success) {
+    const parsed = browserCreateSessionCommandBinding.read(parsedBody.value, "strip");
+    if (!parsed.ok) {
         return { ok: false, error: "invalid_goal_input", status: 400 };
     }
+    reportWireDiagnostic(parsed.diagnostic);
     const command = parsed.data;
     if (!isWireId(command.goalId, MAX_GOAL_ID_LENGTH)
         || !isWireId(command.inputId, 256)
@@ -1009,10 +1033,11 @@ async function parseSessionInputCommand(
 > {
     const parsedBody = await readJsonBody(request, MAX_SESSION_INPUT_BODY_BYTES);
     if (!parsedBody.ok) return parsedBody;
-    const parsed = safeParse(browserSessionInputCommandContract, parsedBody.value);
-    if (!parsed.success || !isWireId(parsed.data.inputId, 256)) {
+    const parsed = browserSessionInputCommandBinding.read(parsedBody.value, "strip");
+    if (!parsed.ok || !isWireId(parsed.data.inputId, 256)) {
         return { ok: false, error: "INVALID_INPUT", status: 400 };
     }
+    reportWireDiagnostic(parsed.diagnostic);
     const command = parsed.data;
 
     if (command.kind === "message") {
@@ -1125,10 +1150,11 @@ async function parsePlanModeCommand(
 > {
     const parsedBody = await readJsonBody(request);
     if (!parsedBody.ok) return parsedBody;
-    const parsed = safeParse(browserGoalPlanModeCommandContract, parsedBody.value);
-    if (!parsed.success || !isWireId(parsed.data.runId, 256)) {
+    const parsed = browserGoalPlanModeCommandBinding.read(parsedBody.value, "strip");
+    if (!parsed.ok || !isWireId(parsed.data.runId, 256)) {
         return { ok: false, error: "invalid_plan_mode_command", status: 400 };
     }
+    reportWireDiagnostic(parsed.diagnostic);
     return { ok: true, command: parsed.data };
 }
 
@@ -1144,12 +1170,13 @@ async function parseActionReviewCommand(
 ): Promise<BrowserActionReviewCommand | undefined> {
     const parsedBody = await readJsonBody(request, MAX_SESSION_INPUT_BODY_BYTES);
     if (!parsedBody.ok) return undefined;
-    const parsed = safeParse(browserActionReviewCommandContract, parsedBody.value);
-    if (!parsed.success
+    const parsed = browserActionReviewCommandBinding.read(parsedBody.value, "strip");
+    if (!parsed.ok
         || !hasUtf16LengthAtMost(parsed.data.runId, 256)
         || !hasUtf16LengthAtMost(parsed.data.actionId, 256)) {
         return undefined;
     }
+    reportWireDiagnostic(parsed.diagnostic);
     return parsed.data;
 }
 
@@ -1160,10 +1187,11 @@ async function parseGrantRevokeCommand(request: Request): Promise<
 > {
     const parsedBody = await readJsonBody(request);
     if (!parsedBody.ok) return { ok: false, error: parsedBody.error };
-    const parsed = safeParse(browserToolGrantRevokeBodyContract, parsedBody.value);
-    if (!parsed.success || !isWireId(parsed.data.runId, 256)) {
+    const parsed = browserToolGrantRevokeBodyBinding.read(parsedBody.value, "strip");
+    if (!parsed.ok || !isWireId(parsed.data.runId, 256)) {
         return { ok: false, error: "invalid_grant_request" };
     }
+    reportWireDiagnostic(parsed.diagnostic);
     const { runId, scope, kind } = parsed.data;
     return { ok: true, command: { runId, scope, ...(kind === undefined ? {} : { kind }) } };
 }
@@ -1174,10 +1202,11 @@ async function parsePermissionModeCommand(request: Request): Promise<
 > {
     const parsedBody = await readJsonBody(request);
     if (!parsedBody.ok) return parsedBody;
-    const parsed = safeParse(browserPermissionModeCommandContract, parsedBody.value);
-    if (!parsed.success) {
+    const parsed = browserPermissionModeCommandBinding.read(parsedBody.value, "strip");
+    if (!parsed.ok) {
         return { ok: false, error: "invalid_permission_mode_request", status: 400 };
     }
+    reportWireDiagnostic(parsed.diagnostic);
     return { ok: true, command: parsed.data };
 }
 

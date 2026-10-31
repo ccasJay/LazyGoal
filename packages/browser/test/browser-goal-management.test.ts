@@ -39,7 +39,7 @@ test("Goal 管理路由校验输入并区分成功、缺失与非终态", async 
     assert.deepEqual(await revoke.json(), { error: "service_shutting_down" });
 });
 
-test("授权撤销只从路径读取 grantId 且拒绝请求体同名字段", async () => {
+test("授权撤销只从路径读取 grantId 并剥离请求体同名字段", async () => {
     let calls = 0;
     const api = port();
     const routes = createBrowserGoalRoutes({
@@ -54,10 +54,10 @@ test("授权撤销只从路径读取 grantId 且拒绝请求体同名字段", as
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
     });
-    assert.equal((await revoke({ runId: "run-1", scope: "goal", grantId: "grant-1" })).status, 400);
-    assert.equal(calls, 0);
+    assert.equal((await revoke({ runId: "run-1", scope: "goal", grantId: "grant-1" })).status, 503);
+    assert.equal(calls, 1);
     assert.equal((await revoke({ runId: "run-1", scope: "goal" })).status, 503);
-    assert.equal(calls, 1);
+    assert.equal(calls, 2);
     assert.equal((await revoke({ runId: "run-1", scope: "goal", kind: "unknown" })).status, 400);
-    assert.equal(calls, 1);
+    assert.equal(calls, 2);
 });

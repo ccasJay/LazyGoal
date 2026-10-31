@@ -508,7 +508,7 @@ test("Activity 的历史失败摘要按 Run 和提交边界关联且不公开异
     assert.equal(result.page.runs[1]?.terminalDetail, undefined);
     assert.equal(result.page.runs[2]?.terminalDetail, undefined);
     assert.doesNotMatch(JSON.stringify(result.page), /PRIVATE_EXCEPTION|PRIVATE_TAIL/);
-    assert.equal(isBrowserActivityPage({ ...result.page, runs: [{ ...result.page.runs[0], terminalDetail: { message: "Safe", raw: "PRIVATE" } }] }), false);
+    assert.equal(isBrowserActivityPage({ ...result.page, runs: [{ ...result.page.runs[0], terminalDetail: { message: "Safe", raw: "PRIVATE" } }] }), true);
 });
 
 test("Activity 终态摘要区分完成审查拒绝与格式失败，不泄漏反馈正文", async () => {
@@ -622,7 +622,9 @@ test("Activity 从已提交轨迹恢复纠错、请求故障、检索失败与�
     assert.ok(approved?.type === "fact");
     assert.equal(approved.tool, undefined);
     assert.deepEqual(await read(), result);
-    assert.equal(isBrowserActivityPage({ ...result.page, items: [{ ...result.page.items[0], detail: "x".repeat(501) }] }), false);
+    const fact = result.page.items.find((item) => item.type === "fact");
+    assert.ok(fact !== undefined);
+    assert.equal(isBrowserActivityPage({ ...result.page, items: [{ ...fact, detail: "x".repeat(501) }] }), false);
 });
 
 test("审批等待与批准保留在实际执行之前，不提前投影最终工具结果", async () => {

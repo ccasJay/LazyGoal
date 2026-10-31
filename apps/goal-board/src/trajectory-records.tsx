@@ -26,7 +26,7 @@ export function TrajectoryRecords({ goalId, runId, entries, unverifiedPageBounda
   useEffect(() => {
     const controller = new AbortController(); setError(false);
     void browserApi.modelInputs(goalId, runId, offset, controller.signal, query).then(result => {
-      if (!controller.signal.aborted) { setCalls(result.calls); setNextOffset(result.nextOffset); setTotal(result.total); }
+      if (!controller.signal.aborted) { setCalls([...result.calls]); setNextOffset(result.nextOffset); setTotal(result.total); }
     }).catch(() => { if (!controller.signal.aborted) { setError(true); setCalls([]); } });
     return () => controller.abort();
   }, [goalId, runId, offset, refresh, query, retry]);

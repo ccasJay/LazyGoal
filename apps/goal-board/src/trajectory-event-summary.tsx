@@ -20,7 +20,7 @@ export function EventSummary({ event }: { event: BrowserTrajectoryDetail["event"
     </section>;
   }
   if (payload.type === "model_repair_feedback_recorded") {
-    const feedbackPayload = payload as BrowserModelRepairFeedbackRecordedPayload;
+    const feedbackPayload = payload as unknown as BrowserModelRepairFeedbackRecordedPayload;
     return <section className="tr-feedback-summary" aria-label="Output validation issues">
       <p>{feedbackPayload.stage} attempt {feedbackPayload.attempt} was rejected before execution.</p>
       <ul className="tr-validation-issues">{feedbackPayload.feedback.issues.map((issue, index) => <li key={index}>
@@ -32,7 +32,7 @@ export function EventSummary({ event }: { event: BrowserTrajectoryDetail["event"
     </section>;
   }
   if (payload.type === "model_repair_attempt_started") {
-    const attemptPayload = payload as BrowserModelRepairAttemptStartedPayload;
+    const attemptPayload = payload as unknown as BrowserModelRepairAttemptStartedPayload;
     return <section className="tr-feedback-summary" aria-label="Model attempt">
       <p>{attemptPayload.stage ?? "model"} attempt {attemptPayload.attempt} started. Output validation and the next decision are recorded in later events.</p>
       <dl><div><dt>Stage</dt><dd>{attemptPayload.stage ?? "Unavailable"}</dd></div><div><dt>Attempt</dt><dd>{attemptPayload.attempt}</dd></div></dl>
@@ -40,7 +40,7 @@ export function EventSummary({ event }: { event: BrowserTrajectoryDetail["event"
     </section>;
   }
   if (payload.type === "execution_error") {
-    const errorPayload = payload as BrowserExecutionErrorPayload;
+    const errorPayload = payload as unknown as BrowserExecutionErrorPayload;
     return <section className="tr-feedback-summary"><h4>Execution stopped</h4><code>{errorPayload.code}</code><p>{errorPayload.message}</p><p className="tr-summary-note">View Raw for the complete saved event.</p></section>;
   }
   return <><h4>Recorded payload</h4><pre>{JSON.stringify(payload, null, 2)}</pre></>;

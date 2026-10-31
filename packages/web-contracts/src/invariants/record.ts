@@ -15,3 +15,19 @@
  * ```
  */
 export { isRecord } from "../../../contracts/src/index";
+
+/**
+ * 可空安全整数谓词。
+ *
+ * @remarks
+ * 用于生成器无法在 `number | null` 联合上表达 `@asType integer` 的字段；`null` 合法，
+ * 非空值必须是安全整数。它不替代生成 Schema 的 `@minimum`/`@maximum`。
+ *
+ * @example
+ * ```ts
+ * if (isNullableSafeInteger(page.nextCursor)) console.log(page.nextCursor);
+ * ```
+ */
+export function isNullableSafeInteger(value: number | null): boolean {
+    return value === null || Number.isSafeInteger(value);
+}

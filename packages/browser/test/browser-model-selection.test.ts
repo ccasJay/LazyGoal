@@ -151,42 +151,49 @@ test("Action 审批和取消态拒绝选模；保存失败保留原选择", asyn
     assert.equal(store.goal.state.modelSelection.modelId, "gpt-old");
 });
 
-test("模型提交只接受精确 wire 字段，并隐藏服务端错误内容", async () => {
+test("模型提交剥离精确 wire 之外的字段，并隐藏服务端错误内容", async () => {
     const store = new Store();
     store.goal = goalFor();
     const service = serviceFor(store);
+    const commands: unknown[] = [];
     const port: BrowserGoalApiPort = {
         list: async () => ({ goals: [], unreadableCount: 0 }),
         read: async () => undefined,
         enterPlanMode: async () => ({ ok: false, error: "plan_mode_failed" }),
         models: async () => ({ ok: false, error: "model_catalog_unavailable" }),
         setModelPreference: async () => ({ ok: false as const, error: "model_catalog_unavailable" as const }),
-        selectModel: (goalId, command) => service.selectModel(goalId, command),
+        selectModel: (goalId, command) => {
+            commands.push(command);
+            return service.selectModel(goalId, command);
+        },
     };
     const route = createBrowserGoalRoutes(port);
     const send = (body: unknown) => route.request("http://localhost/api/goals/goal-1/model-selection", {
         method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
     });
-    const invalid = await send({ runId: "run-1", modelId: "gpt-new", provider: "google" });
+    const invalid = await send({ runId: "run-1", modelId: "" });
     assert.equal(invalid.status, 400);
     assert.equal(store.saves, 0);
     for (const field of [
+        { provider: "google" },
         { executionApi: "openai-completions" },
         { baseURL: "https://attacker.invalid/v1" },
         { contextWindowTokens: 1_000_000 },
         { maxOutputTokens: 524_288 },
     ]) {
+        const key = Object.keys(field)[0]!;
         const forged = await send({ runId: "run-1", modelId: "gpt-new", ...field });
-        assert.equal(forged.status, 400, `rejects client-supplied ${Object.keys(field)[0]}`);
+        assert.equal(forged.status, 200, `accepts and strips ${key}`);
+        assert.equal(Object.keys(commands.at(-1) as object).includes(key), false);
     }
-    assert.equal(store.saves, 0, "forged execution metadata never reaches Snapshot persistence");
+    assert.ok(store.saves > 0, "only the stripped command reaches Snapshot persistence");
     store.failSave = true;
     const failed = await send({ runId: "run-1", modelId: "gpt-new" });
     assert.equal(failed.status, 503);
     assert.deepEqual(await failed.json(), { error: "model_selection_failed", refresh: false });
 });
 
-test("模型偏好路由严格校验请求并区分不可选与持久化故障", async () => {
+test("模型偏好路由剥离未知字段并区分不可选与持久化故障", async () => {
     let writes = 0;
     const route = createBrowserGoalRoutes({
         list: async () => ({ goals: [], unreadableCount: 0 }),
@@ -204,7 +211,7 @@ test("模型偏好路由严格校验请求并区分不可选与持久化故障",
     const send = (body: unknown) => route.request("http://localhost/api/project/model-preference", {
         method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
     });
-    assert.equal((await send({ modelId: "valid", provider: "openai" })).status, 400);
+    assert.equal((await send({ modelId: "valid", provider: "openai" })).status, 200);
     assert.equal((await send({ modelId: null })).status, 400);
     for (const field of [
         { executionApi: "openai-completions" },
@@ -212,9 +219,9 @@ test("模型偏好路由严格校验请求并区分不可选与持久化故障",
         { contextWindowTokens: 1_000_000 },
         { maxOutputTokens: 524_288 },
     ]) {
-        assert.equal((await send({ modelId: "valid", ...field })).status, 400);
+        assert.equal((await send({ modelId: "valid", ...field })).status, 200);
     }
-    assert.equal(writes, 0);
+    assert.ok(writes > 0);
     assert.equal((await send({ modelId: "missing" })).status, 409);
     assert.equal((await send({ modelId: "write-failure" })).status, 503);
     assert.deepEqual(await (await send({ modelId: "valid" })).json(), { ok: true, modelId: "valid" });
