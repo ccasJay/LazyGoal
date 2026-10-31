@@ -28,6 +28,7 @@ prompt-evaluation/ External prompt optimization integrations
   harness2/        Standalone Harness2 Propose-Probe-Compose framework and prompt optimizer
 packages/        Private `@lazygoal/*` workspaces
   contracts/      Contract AST builders and static type inference core
+  contract-binding/ Type-safe runtime binding for generated TS data contracts
   context-budget/ Model input metering, budget allocation, unit selection, and stable serialization
   execution-control/ Process-local cancellation primitives and transient model failure protocols
   model-contracts/ Model output contracts, wire projection, schema compilation, and conversation protocols

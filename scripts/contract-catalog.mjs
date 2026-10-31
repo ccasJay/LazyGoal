@@ -23,7 +23,7 @@ const validationStates = new Set([
 ]);
 const protocolStates = new Set(["declared", "undeclared", "not-applicable", "unknown"]);
 const roles = new Set(["boundary-root", "referenced"]);
-const supportedStrategies = new Set(["typescript-json-schema"]);
+const supportedStrategies = new Set(["typescript-json-schema", "typescript-binding"]);
 
 /**
  * Catalog 结构或内部一致性错误。
@@ -421,6 +421,25 @@ function validateEnabledGeneration(entry) {
             throw new ContractCatalogError(`Invalid artifact name ${name}: ${entry.key}`);
         }
     }
+    if (entry.generation.strategy === "typescript-json-schema") {
+        validateReaderBinding(entry);
+    } else {
+        validateGeneratedBinding(entry);
+    }
+    if (!/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(String(entry.protocol.identity.value))) {
+        throw new ContractCatalogError(`Enabled generation identity is not a stable protocol identity: ${entry.key}`);
+    }
+    if (!Number.isInteger(entry.protocol.version.value) || entry.protocol.version.value <= 0) {
+        throw new ContractCatalogError(`Enabled generation version must be a positive integer: ${entry.key}`);
+    }
+}
+
+function validateReaderBinding(entry) {
+    for (const field of ["schemaModule", "validator", "validatorTypes", "manifest", "reader"]) {
+        if (typeof entry.generation.artifacts[field] !== "string" || entry.generation.artifacts[field].length === 0) {
+            throw new ContractCatalogError(`Enabled generation artifact ${field} is missing: ${entry.key}`);
+        }
+    }
     if (!isRecord(entry.generation.reader)) {
         throw new ContractCatalogError(`Enabled generation requires reader binding metadata: ${entry.key}`);
     }
@@ -429,20 +448,38 @@ function validateEnabledGeneration(entry) {
             throw new ContractCatalogError(`Enabled generation reader ${field} is missing: ${entry.key}`);
         }
     }
-    if (!isRecord(entry.generation.reader.names)) {
-        throw new ContractCatalogError(`Enabled generation reader names are missing: ${entry.key}`);
-    }
-    for (const field of ["schema", "metadata", "validator"]) {
-        const value = entry.generation.reader.names[field];
-        if (typeof value !== "string" || !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(value)) {
-            throw new ContractCatalogError(`Enabled generation reader name ${field} is invalid: ${entry.key}`);
+    validateGeneratedNames(entry, entry.generation.reader.names, "reader");
+}
+
+function validateGeneratedBinding(entry) {
+    for (const field of ["schemaModule", "validator", "validatorTypes", "manifest", "binding"]) {
+        if (typeof entry.generation.artifacts[field] !== "string" || entry.generation.artifacts[field].length === 0) {
+            throw new ContractCatalogError(`Enabled generation artifact ${field} is missing: ${entry.key}`);
         }
     }
-    if (!/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(String(entry.protocol.identity.value))) {
-        throw new ContractCatalogError(`Enabled generation identity is not a stable protocol identity: ${entry.key}`);
+    if (!isRecord(entry.generation.binding)) {
+        throw new ContractCatalogError(`Enabled generation requires binding metadata: ${entry.key}`);
     }
-    if (!Number.isInteger(entry.protocol.version.value) || entry.protocol.version.value <= 0) {
-        throw new ContractCatalogError(`Enabled generation version must be a positive integer: ${entry.key}`);
+    for (const field of ["module", "dataType", "dataTypeModule", "exportName"]) {
+        if (typeof entry.generation.binding[field] !== "string" || entry.generation.binding[field].length === 0) {
+            throw new ContractCatalogError(`Enabled generation binding ${field} is missing: ${entry.key}`);
+        }
+    }
+    if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(entry.generation.binding.exportName)) {
+        throw new ContractCatalogError(`Enabled generation binding exportName is invalid: ${entry.key}`);
+    }
+    validateGeneratedNames(entry, entry.generation.binding.names, "binding");
+}
+
+function validateGeneratedNames(entry, names, label) {
+    if (!isRecord(names)) {
+        throw new ContractCatalogError(`Enabled generation ${label} names are missing: ${entry.key}`);
+    }
+    for (const field of ["schema", "metadata", "validator"]) {
+        const value = names[field];
+        if (typeof value !== "string" || !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(value)) {
+            throw new ContractCatalogError(`Enabled generation ${label} name ${field} is invalid: ${entry.key}`);
+        }
     }
 }
 
