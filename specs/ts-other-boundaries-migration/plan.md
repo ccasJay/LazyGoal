@@ -9,10 +9,11 @@
   - 实施目标与场景：对照 Catalog、生产导入、装配和跨进程入口，为每个剩余消费者记录信任边界与负责 Spec，区别 AST 与通用 JSON 工具。
   - 基本验证：抽查 Runtime、Worker 和外部适配边界的源码到消费链。
   - 执行记录：见 [inventory.md](./inventory.md)。Catalog `durable` 边界无 `contract-ast` 条目；生产 AST 使用点全部归属工具线、模型线、Web 线或 Storage 线，测试夹具单独列示；本线边界已核对源码到消费链。
-- [ ] //TODO 2. 迁移本线所属真实边界
+- [x] //TODO 2. 迁移本线所属真实边界
   - 落实标准：[1.2](./spec.md#spec-req-1-2)、[1.3](./spec.md#spec-req-1-3)、[1.4](./spec.md#spec-req-1-4)。
   - 实施目标与场景：使用 TS 类型和生成绑定替换各边界 AST；跨进程和外部输入验证，保留原有身份、错误、取消与恢复语义；对已分配其他 Spec 的引用只记录依赖。
   - 基本验证：运行真实 Worker 或进程的合法、非法和身份不匹配场景，并扫描本线遗留 AST。
+  - 执行记录：本线边界不存在可替换的 Contract AST（见 [inventory.md](./inventory.md)），因此不伪造迁移；新增真实子进程回归 [`real-process-rpc.integration.test.ts`](../../benchmarks/test/real-process-rpc.integration.test.ts)，覆盖 LLM RPC 合法/协议拒绝/取消、Tool RPC 合法/缺失 Goal-Run 身份/未知工具/重复 Action/取消，并验证取消后可继续服务。生成能力基线已足够，不需要堆叠生成能力分支。
 
 ## Feature Verification
 
