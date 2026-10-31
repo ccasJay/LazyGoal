@@ -114,7 +114,7 @@ test("catalog generation rejects misspelled, misplaced and invalid JSDoc constra
     );
 });
 
-test("catalog generation supports nullable and open objects and rejects unsupported formats", async t => {
+test("shared reader strategy supports nullable scalars and rejects open objects, unions and formats", async t => {
     const fixture = await createFixture();
     t.after(() => rm(fixture.root, { recursive: true, force: true }));
 
@@ -122,13 +122,37 @@ test("catalog generation supports nullable and open objects and rejects unsuppor
         fixture.contractFile,
         source.replace(
             "    models: BrowserProviderModel[];",
-            "    models: BrowserProviderModel[];\n    nullable?: string | null;\n    metadata: Record<string, unknown>;",
+            "    models: BrowserProviderModel[];\n    nullable?: string | null;",
         ),
     );
     const { artifacts } = await generateContractArtifacts(fixture.options);
     const schemaModule = artifacts.get("generated/provider-models-schema.ts");
     assert.match(schemaModule, /\\"nullable\\"/);
-    assert.match(schemaModule, /\\"additionalProperties\\":\{\}/);
+    assert.match(schemaModule, /\\"type\\":\[\\"string\\",\\"null\\"\]/);
+
+    await writeFile(
+        fixture.contractFile,
+        source.replace(
+            "    models: BrowserProviderModel[];",
+            "    models: BrowserProviderModel[];\n    metadata: Record<string, unknown>;",
+        ),
+    );
+    await assert.rejects(
+        generateContractArtifacts(fixture.options),
+        /Open object schemas are not supported by the shared reader strategy/,
+    );
+
+    await writeFile(
+        fixture.contractFile,
+        source.replace(
+            "    models: BrowserProviderModel[];",
+            "    models: BrowserProviderModel[];\n    choice: { kind: \"a\"; value: string } | { kind: \"b\"; value: number };",
+        ),
+    );
+    await assert.rejects(
+        generateContractArtifacts(fixture.options),
+        /Union schemas are not supported by the shared reader strategy/,
+    );
 
     await writeFile(
         fixture.contractFile,

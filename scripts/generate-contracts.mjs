@@ -147,7 +147,37 @@ export function assertSupportedSchema(schema, rootType) {
     visitSchema(schema, schema, "#", new Set());
 }
 
-async function generateSchemaArtifacts(entry, { repositoryRoot }) {
+function assertReaderSupportedSchema(schema) {
+    visitReaderSchema(schema, schema, "#", new Set());
+}
+
+function visitReaderSchema(root, schema, schemaPath, visitedRefs) {
+    if (schema === null || typeof schema !== "object" || Array.isArray(schema)) {
+        throw new Error(`JSON Schema node must be an object at ${schemaPath}`);
+    }
+    if (schema.$ref !== undefined) {
+        if (visitedRefs.has(schema.$ref)) return;
+        visitedRefs.add(schema.$ref);
+        visitReaderSchema(root, resolveSchemaPointer(root, schema.$ref), `${schemaPath} -> ${schema.$ref}`, visitedRefs);
+    }
+    if (schema.anyOf !== undefined) {
+        throw new Error(`Union schemas are not supported by the shared reader strategy at ${schemaPath}`);
+    }
+    if (schema.additionalProperties !== undefined && schema.additionalProperties !== false) {
+        throw new Error(`Open object schemas are not supported by the shared reader strategy at ${schemaPath}`);
+    }
+    for (const definition of Object.values(schema.definitions ?? {})) {
+        visitReaderSchema(root, definition, `${schemaPath}/definitions`, visitedRefs);
+    }
+    for (const [name, property] of Object.entries(schema.properties ?? {})) {
+        visitReaderSchema(root, property, `${schemaPath}/properties/${name}`, visitedRefs);
+    }
+    if (schema.items !== undefined && !Array.isArray(schema.items)) {
+        visitReaderSchema(root, schema.items, `${schemaPath}/items`, visitedRefs);
+    }
+}
+
+async function generateSchemaArtifacts(entry, { repositoryRoot, removeAdditional }) {
     const contractFile = path.resolve(repositoryRoot, entry.source.path);
     if (!isInside(repositoryRoot, contractFile)) {
         throw new Error(`Contract source escapes the repository: ${entry.key}`);
@@ -167,6 +197,9 @@ async function generateSchemaArtifacts(entry, { repositoryRoot }) {
     }
     schema.$id = `urn:lazygoal:contracts:${entry.protocol.identity.value}:v${String(entry.protocol.version.value)}`;
     assertSupportedSchema(schema, entry.generation.rootType);
+    if (entry.generation.strategy === "typescript-json-schema") {
+        assertReaderSupportedSchema(schema);
+    }
     assertDeclaredSchemaTypes(schema, entry);
     assertGeneratedConstraints(schema, constraints);
 
@@ -174,7 +207,7 @@ async function generateSchemaArtifacts(entry, { repositoryRoot }) {
         strict: true,
         allowUnionTypes: true,
         allErrors: true,
-        removeAdditional: false,
+        removeAdditional,
         coerceTypes: false,
         useDefaults: false,
         code: { source: true },
@@ -228,7 +261,10 @@ async function generateSchemaArtifacts(entry, { repositoryRoot }) {
 }
 
 async function generateTypeScriptJsonSchemaContract(entry, { repositoryRoot }) {
-    const { schema, metadata, validator } = await generateSchemaArtifacts(entry, { repositoryRoot });
+    const { schema, metadata, validator } = await generateSchemaArtifacts(entry, {
+        repositoryRoot,
+        removeAdditional: "all",
+    });
     const { names } = entry.generation.reader;
     const outputDirectory = entry.generation.outputDirectory;
     const artifactPath = name => path.posix.join(outputDirectory, name);
@@ -242,7 +278,10 @@ async function generateTypeScriptJsonSchemaContract(entry, { repositoryRoot }) {
 }
 
 async function generateTypeScriptBindingContract(entry, { repositoryRoot }) {
-    const { schema, metadata, validator } = await generateSchemaArtifacts(entry, { repositoryRoot });
+    const { schema, metadata, validator } = await generateSchemaArtifacts(entry, {
+        repositoryRoot,
+        removeAdditional: false,
+    });
     const { names } = entry.generation.binding;
     const outputDirectory = entry.generation.outputDirectory;
     const artifactPath = name => path.posix.join(outputDirectory, name);

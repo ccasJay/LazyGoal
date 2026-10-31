@@ -38,7 +38,7 @@ node scripts/contract-catalog.mjs query GoalSnapshotV1Schema
 
 真实浏览器 API 通过包公开入口消费生成读取器；共享逻辑位于 [`contract-reader.ts`](../packages/web-contracts/src/contract-reader.ts)，行为见 [Web 传输契约](../packages/web-contracts/notes/overview.md)。
 
-生成入口会拒绝重复内部键、重复对外身份与版本、重复制品路径、缺失来源、无效登记、未支持契约类型、不支持结构及无效应注解。生成器当前支持封闭与开放对象、对象数组、联合与判别联合（`anyOf` 或 `type` 数组）、递归本地 `$ref`、开放 JSON（`additionalProperties` 为 `true`、`{}` 或 Schema）、标量、`const`/`enum` 以及数值与字符串约束；元组、外部引用、`format` 与其他未声明关键字仍明确失败。共享读取器和模型投影对这些结构的支持状态以 [`@lazygoal/contract-binding`](../packages/contract-binding/README.md) 模块说明为准，生成器不会为尚未接入的结构静默降级。
+生成入口会拒绝重复内部键、重复对外身份与版本、重复制品路径、缺失来源、无效登记、未支持契约类型、不支持结构及无效应注解。生成器当前支持封闭与开放对象、对象数组、联合与判别联合（`anyOf` 或 `type` 数组）、递归本地 `$ref`、开放 JSON（`additionalProperties` 为 `true`、`{}` 或 Schema）、标量、`const`/`enum` 以及数值与字符串约束；元组、外部引用、`format` 与其他未声明关键字仍明确失败。登记 Reader 和模型投影对这些结构的支持状态以 [`@lazygoal/contract-binding`](../packages/contract-binding/README.md) 模块说明为准，生成器不会为尚未接入的结构静默降级。
 
 | 能力 | 生成表示 | 代表来源 | 当前状态 |
 | --- | --- | --- | --- |
@@ -48,6 +48,8 @@ node scripts/contract-catalog.mjs query GoalSnapshotV1Schema
 | 数组元素 | `items` 内联或 `$ref`，可再含联合与约束 | [ListDirectory 输出](../packages/tools/src/list-directory.ts)、[Snapshot 消息列表](../packages/storage/src/goal-snapshot.ts) | 生成、绑定与模型投影支持（元素需可移植） |
 | 数值与字符串约束 | `minimum`/`maximum`、`minLength`/`maxLength`、`pattern` | [ListDirectory 输入](../packages/tools/src/list-directory.ts)、[Web Provider 模型标识](../packages/web-contracts/src/provider-settings.ts) | 生成与绑定支持；数值约束进入 wire，字符串约束由投影标识并由解码强制 |
 | 元组、外部格式 | — | — | 明确失败，不生成近似 Schema |
+
+`typescript-json-schema` 策略生成薄 Reader，读取语义由登记项 `generation.reader.module` 提供。当前唯一启用项使用 [`web-contracts` 的封闭对象 Reader](../packages/web-contracts/src/contract-reader.ts)：额外字段由生成的 Ajv 校验器剥离，因此联合与开放对象在该策略下明确失败。需要这些结构的契约使用 `typescript-binding` 策略生成的 [`contract-binding`](../packages/contract-binding/README.md) 绑定。
 
 其他登记项保留真实现状：Contract AST 与 Zod 在运行时校验，Tool 输入 Schema 在注册期内存编译，模型输出联合在请求期动态组合；它们不产生本步的静态 Schema、Reader 或 Manifest。新增启用项必须在 Catalog 中显式登记生成策略，并先扩展共享读取器的受支持子集。
 
