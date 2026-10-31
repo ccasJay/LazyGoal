@@ -29,7 +29,8 @@
 - 模型线第 36 个根 `ToolCallAgentDecision` 采用封闭的 `ToolCallDecisionEnvelope` 加工具绑定动态组合，`action.input` 由实际工具绑定校验；该设计记录在模型线 `pending-generation.md`，集成时必须验证动态组合和未知字段诊断。
 - 工具线完整 `npm test` 在外部 GEPA LLM 429 处阻塞，等价过滤套件 2573/2573 通过；模型线完整 `npm test` 最终通过。并行 worktree 的 GEPA/构建资源竞争使这些证据不能直接作为联合验收，集成阶段必须在隔离环境重跑。
 - Storage 线在 `36515714` 上完成并通过 Feature Verification，集成时已升级到生成能力线最终固定提交 `813c6b87` 并重跑受影响检查；AgentProfile 文件已由独立小 Spec `aab67b03` 完成。Retrieval Index Sidecar 的嵌套 `ContextLookupResult` 仍由旧 AST 推导，需在删除 AST 前复核归属。
-- 协调者已建立 `feat/contract-migration-integration` 集成分支，当前 HEAD `ff11f027`，已合入生成能力线 `813c6b87`、Storage `ffcc8a6b`、工具链与模型线联合切换 `d2a8b118`、Web 线 `53867a1e`、AgentProfile `aab67b03`、其他边界 `8f930aa3`。Catalog 按 key 合并为 1071 条登记、134 个启用项、402 个删除项；生成检查、Catalog 测试、类型检查通过。定向跨 Spec 测试 70/70 通过；完整 `npm test` 正在隔离集成环境运行。
+- 协调者已建立 `feat/contract-migration-integration` 集成分支，当前 HEAD `f2f90e6a`，已合入生成能力线 `813c6b87`、Storage `ffcc8a6b`、工具链与模型线联合切换 `d2a8b118`、Web 线 `53867a1e`、AgentProfile `aab67b03`、其他边界 `8f930aa3`。Catalog 按 key 合并为 1071 条登记、134 个启用项、402 个删除项；生成检查、Catalog 测试、类型检查通过。
+- 跨 Spec Integration Verification 已在集成分支通过（测试代码提交 `ff11f027`，当前 HEAD `f2f90e6a` 仅多一条计划记录）：完整 `npm test` 通过（TypeScript 2736/2736、scripts 98/98、GEPA adapter 通过）；定向跨 Spec 测试 70/70；相关 Chrome E2E 5/5；`npm run build:web`、`check:dependencies`（578 个源文件）、`check:docs`（47 个模块、170 份说明）、`git diff --check` 通过。
 - Web 线同时完成两个 Provider 小 Spec，并已更新其 plan TODO 与 Latest Result；完整原计划中的 Web 契约族全部迁移，旧 Web AST 已删除。完整 Chrome E2E 有 3 项既有 UI/布局失败，已在基线复现或单独复跑通过，不作为本方向回归。
 - AgentProfile 小 Spec 已独立完成，完整 `npm test` 通过；Storage 的 AgentProfile 文件族现有真实生成绑定与严格 `reject` 读取。
 - 其他边界线在 `8f930aa3` 上完成并通过 Feature Verification：其自有边界未发现 Contract AST 消费者，ACP/Mux/Tool RPC/LLM RPC/Sidecar/Bench Metadata/Process/Runtime admission 均为手写 TS 或外部 SDK 契约；Runtime 决策、Program 工具输入、Worker 工具声明和模型投影中的 AST 引用分别归模型线与工具线。合并后需复核该归属清单仍成立。
@@ -79,8 +80,8 @@
 ## 生命周期状态
 
 - [x] 编排已获用户批准
-- [ ] 各 Spec Feature Verification 全部 passed
-- [ ] 跨 Spec Integration Verification passed/current
+- [x] 各 Spec Feature Verification 全部 passed
+- [x] 跨 Spec Integration Verification passed/current
 - [ ] 各分支已获审核及合并批准，统一合并与交付收尾完成
 - [ ] Memory 沉淀门完成（需要的写入已获批准并完成，或用户明确确认无需沉淀）
 - [ ] 用户确认最终交付
