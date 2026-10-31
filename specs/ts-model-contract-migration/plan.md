@@ -36,10 +36,10 @@
 
 - 状态：blocked
 - 验证时间：2026-10-31 13:05 CST
-- 验证提交：`800a8eee`（代码、Catalog 与说明）；`bd6e1693` 曾完成一次完整 `npm test` 通过
+- 验证提交：`327dc0ae`（代码、Catalog 与说明）；`bd6e1693` 曾完成一次完整 `npm test` 通过
 - 验证摘要：
   - 模型类型及生成：pending-integration。TS 单源、Catalog 登记、类型一致性测试与既有 system tools 回归通过；真实生成绑定未启用，范围内旧 AST 未退出。
   - 授权与动态组合：passed（隔离替身范围）。覆盖空授权、重复/空 ID、未授权工具、阶段与模式组合、未知字段诊断和非法已知字段；真实工具绑定接入为 pending-integration。
   - Provider 及整体链路：pending-integration。既有 strict/prompt-only、Provider 与 Runtime 回归通过；真实生成绑定与工具线联合切换未执行，不能宣称联合验收通过。
-  - 当前提交定向检查：TypeScript 类型检查通过；`model-contracts`、`model-response`、`model-request`、`model-execution` 共 247 项测试通过；`scripts` 98 项测试通过；`npm run build:web`、`npm run check:docs`、`npm run check:dependencies`、`npm run contracts:generate -- --check` 与 `git diff --check` 通过。
+  - 当前提交定向检查：TypeScript 类型检查通过；`model-contracts`、`model-response`、`model-request`、`model-execution` 共 248 项测试通过；`scripts` 98 项测试通过；`npm run build:web`、`npm run check:docs`、`npm run check:dependencies`、`npm run contracts:generate -- --check` 与 `git diff --check` 通过。
   - 全量回归环境说明：当前提交的完整 `npm test` 运行受其他 worktree 并发 GEPA/Worker 构建资源干扰，出现 GEPA 429/500、Worker 身份摘要与 BashTool 提取两项无关失败；两项失败单独复跑通过，GEPA adapter 单独运行通过。完整通过证据保留自 `bd6e1693`，联合集成时需在隔离环境重跑。
