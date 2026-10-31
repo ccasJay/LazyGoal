@@ -22,7 +22,7 @@ test("provider model query preserves omitted optional fields and strips unknown 
         apiKey: "sk-private",
         profileId: "profile-1",
     });
-    assert.deepEqual(result.diagnostic?.paths, ["/debug"]);
+    assert.deepEqual(result.diagnostic?.paths, ["/*"]);
     assert.equal(JSON.stringify(result.diagnostic).includes("sk-private"), false);
     assert.equal(JSON.stringify(result.diagnostic).includes("must not be reported"), false);
     assert.equal(input.debug, "must not be reported");

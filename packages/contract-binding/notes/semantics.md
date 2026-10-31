@@ -12,7 +12,7 @@
 | 数组长度约束 | `minItems`/`maxItems` 限制数组长度，并在绑定读取与模型投影中保留。 | [契约运行时绑定](../README.md) | [Schema 判定](../src/schema.ts)、[公共类型](../src/types.ts) |
 | 递归 Schema | 本地 `$ref` 按实际 JSON 值逐层解析；不消费值的引用环失败。 | [契约运行时绑定](../README.md) | [Schema 判定](../src/schema.ts) |
 | 读取结果 | 成功返回隔离数据与可选诊断；失败只返回契约身份、版本与有界问题。 | [契约运行时绑定](../README.md) | [公共类型](../src/types.ts) |
-| 安全诊断 | 只含契约身份、版本和有界 JSON Pointer 路径，不含字段值或原始载荷。 | [契约运行时绑定](../README.md) | [读取实现](../src/binding.ts)、[Schema 遍历](../src/schema.ts) |
+| 安全诊断 | 只含契约身份、版本和有界 JSON Pointer 路径，不含字段值或原始载荷；未声明属性名与开放对象键名替换为 `*`，只保留已声明属性名。 | [契约运行时绑定](../README.md) | [读取实现](../src/binding.ts)、[Schema 遍历](../src/schema.ts) |
 | 本地 Schema | 构建器从 TS 类型生成的 JSON Schema；绑定不维护第二份字段表。 | [契约运行时绑定](../README.md) | [公共类型](../src/types.ts)、[生成器](../../../scripts/generate-contracts.mjs)、[构建期 Catalog](../../../contracts/README.md) |
 | JSON 隔离 | 读取前验证 JSON 形状并创建不共享引用的副本。 | [契约运行时绑定](../README.md) | [JSON 原语](../src/json.ts) |
 | 模型投影 | 从同源本地 Schema 派生 Provider wire Schema、本地约束清单与 canonical 解码器。 | [契约运行时绑定](../README.md) | [投影实现](../src/projection.ts)、[模块说明](./overview.md) |

@@ -18,7 +18,7 @@ test("ALFWorld Reset 与 Step 使用生成输入绑定校验结构 fixtures", ()
             valid: {},
             invalid: [
                 { value: null, code: "type", path: "" },
-                { value: { extra: true }, code: "unknown", path: "/extra" },
+                { value: { extra: true }, code: "unknown", path: "/*" },
             ],
         },
         {
@@ -28,7 +28,7 @@ test("ALFWorld Reset 与 Step 使用生成输入绑定校验结构 fixtures", ()
             invalid: [
                 { value: {}, code: "required", path: "/command" },
                 { value: { command: 42 }, code: "type", path: "/command" },
-                { value: { command: "look", extra: true }, code: "unknown", path: "/extra" },
+                { value: { command: "look", extra: true }, code: "unknown", path: "/*" },
             ],
         },
     ] as const;

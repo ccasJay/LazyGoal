@@ -5,7 +5,7 @@ import {
     modelOutputBindings, type CompletionReviewResult,
 } from "../../model-contracts/src/index";
 import { allocateImmutableEvent, CompletionReviewInputBudgetError, createGoal, ModelStageFeedbackError,
-    type ModelInputRecord, type ModelCallMetricRecord, type TrajectoryEvent } from "../../runtime/src/index";
+    type ModelInputRecord, type ModelCallMetricRecord, type TrajectoryEvent, type TraceRecord } from "../../runtime/src/index";
 import { InMemoryExecutionStreamPublisher } from "../../execution-stream/src/index";
 import type { LLMAdapter } from "../../llm-core/src/index";
 import type { LLMResponse, LLMStreamEvent } from "../../llm-core/src/index";
@@ -49,7 +49,52 @@ test("text and native review contracts reject empty feedback and business decisi
     assert.deepEqual(declaration.decode({ result: { kind: "accept", feedback: "extra" } }, {
         onDiagnostic: diagnostic => diagnostics.push(...diagnostic.paths),
     }), { kind: "accept" });
-    assert.deepEqual(diagnostics, ["/result/feedback", "/result/feedback"]);
+    assert.deepEqual(diagnostics, ["/result/*", "/result/*"]);
+});
+
+test("review diagnostic trace records sanitized unknown fields without external key names", async () => {
+    const traceRecords: TraceRecord[] = [];
+    const traceSink = {
+        async append(record: TraceRecord): Promise<void> {
+            traceRecords.push(structuredClone(record));
+        },
+    };
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "strict",
+        async generate() {
+            return toolCallResponse({
+                callId: "review-diagnostic",
+                toolId: "system_review_completion",
+                argumentsJson: JSON.stringify({
+                    result: {
+                        kind: "accept",
+                        "secret-example-token": "secret-value",
+                    },
+                }),
+            });
+        },
+    };
+    const executor = new LLMStepExecutor({
+        adapter,
+        renderer,
+        contextCompactor: new DropOldestContextCompactor(),
+        traceSink,
+    });
+
+    assert.deepEqual(await executor.reviewCompletion(input()), { kind: "accept" });
+    const diagnostic = traceRecords.find(record => record.kind === "model_output_diagnostic");
+    assert.ok(diagnostic);
+    assert.deepEqual(diagnostic.payload, {
+        stage: "completion_review",
+        diagnostics: [{
+            contractId: "model.system-tool.review-completion",
+            version: 1,
+            paths: ["/result/*"],
+            truncated: false,
+        }],
+    });
+    assert.equal(JSON.stringify(diagnostic).includes("secret-example-token"), false);
+    assert.equal(JSON.stringify(diagnostic).includes("secret-value"), false);
 });
 
 for (const mode of ["strict", "prompt_only"] as const) {

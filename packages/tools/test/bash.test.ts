@@ -443,7 +443,7 @@ test("BashTool 拒绝非法输入", async () => {
         assert.equal(stripped.ok, true);
         if (stripped.ok) {
             assert.deepEqual(stripped.input, { command: "ls" });
-            assert.deepEqual(stripped.inputDiagnostic?.paths, ["/extra"]);
+            assert.deepEqual(stripped.inputDiagnostic?.paths, ["/*"]);
         }
 
         assert.deepEqual(tool.validate({ command: "ls" }), { ok: true });

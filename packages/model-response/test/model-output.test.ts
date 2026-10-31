@@ -288,7 +288,7 @@ test("parseModelOutput 拦截结构缺失、类型错误和多余字段，并保
         onDiagnostic: diagnostic => diagnostics.push(...diagnostic.paths),
     });
     assert.deepEqual(decodedExtra, { kind: "context_checkpoint" });
-    assert.deepEqual(diagnostics, ["/result/unauthorizedKey"]);
+    assert.deepEqual(diagnostics, ["/result/*"]);
 
     // 单一对象结构中字段类型错误（在 checkpointBundle 中验证）
     const wrongType = JSON.stringify({

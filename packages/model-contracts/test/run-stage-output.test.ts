@@ -172,7 +172,7 @@ test("Plan 阶段启动使用空对象并在构造时捕获下一获批阶段", 
         onDiagnostic: diagnostic => startDiagnostics.push(...diagnostic.paths),
     });
     assert.deepEqual(started, { kind: "run_stage_update", target: "Approved investigation", acceptanceCriteria: ["Read source"] });
-    assert.deepEqual(startDiagnostics, ["/target"]);
+    assert.deepEqual(startDiagnostics, ["/*"]);
     assert.deepEqual(createBoundRunStageToolDeclarations({ planRoute: { ...route, nextStageIndex: 1 } }, modelOutputBindings.systemTools), []);
     assert.deepEqual(createBoundRunStageToolDeclarations({
         currentStage: { stageId: "stage-1", revision: 1, status: "accepted" },

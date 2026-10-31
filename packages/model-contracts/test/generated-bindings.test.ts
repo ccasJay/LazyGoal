@@ -198,7 +198,7 @@ test("真实绑定驱动动态组合、诊断与授权拒绝", () => {
         },
     }, { onDiagnostic: (diagnostic) => diagnostics.push(...diagnostic.paths) });
     assert.equal(decoded.kind, "tool_call");
-    assert.deepEqual(diagnostics, ["/result/action/input/debug"]);
+    assert.deepEqual(diagnostics, ["/result/action/input/*"]);
 
     assert.throws(
         () => bundle.decode({

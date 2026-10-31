@@ -34,7 +34,7 @@ test("generated binding rejects empty strings, empty elements, unknown fields an
     const cases: readonly [string, unknown, string, string][] = [
         ["empty scalar", { ...validFile(), id: "" }, "/id", "length"],
         ["empty array element", { ...validFile(), instructions: [""] }, "/instructions/0", "length"],
-        ["unknown field", { ...validFile(), extra: true }, "/extra", "unknown"],
+        ["unknown field", { ...validFile(), extra: true }, "/*", "unknown"],
         ["wrong version", { ...validFile(), schemaVersion: 2 }, "/schemaVersion", "const"],
         ["missing field", missingToolIds, "/toolIds", "required"],
         ["wrong type", { ...validFile(), toolIds: "read_file" }, "/toolIds", "type"],

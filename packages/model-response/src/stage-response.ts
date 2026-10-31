@@ -457,6 +457,7 @@ export function normalizeRequestThinkGoal(output: { readonly goal: string }): st
  * 解码完成审查的最终响应。
  *
  * @param response - Adapter 返回的原始响应。
+ * @param options - 可选的未知字段剥离诊断观察参数；不改变审查结果。
  * @returns 唯一 `system_review_completion` 调用的接受或拒绝结果。
  * @throws LLMResponseProtocolError 调用数量错误或调用了未声明工具时抛出；
  * JSON 语法与参数契约错误保留原始 `SyntaxError`/`ContractValidationError`。
@@ -465,7 +466,10 @@ export function normalizeRequestThinkGoal(output: { readonly goal: string }): st
  * const review = decodeCompletionReviewResponse(response);
  * ```
  */
-export function decodeCompletionReviewResponse(response: LLMResponse): CompletionReviewResult {
+export function decodeCompletionReviewResponse(
+    response: LLMResponse,
+    options?: ModelContractDecodeOptions,
+): CompletionReviewResult {
     const call = requireSingleToolCall(response);
     const declaration = createBoundCompletionReviewDeclaration(modelOutputBindings);
     if (call.toolId !== declaration.id) {
@@ -473,7 +477,7 @@ export function decodeCompletionReviewResponse(response: LLMResponse): Completio
     }
     try {
         return decodePhaseToolCall([declaration], call.toolId,
-            JSON.parse(call.argumentsJson));
+            JSON.parse(call.argumentsJson), options);
     } catch (error) {
         throw error instanceof SyntaxError || error instanceof ContractValidationError
             ? new LLMResponseProtocolError("Completion review response does not match its contract", { cause: error })

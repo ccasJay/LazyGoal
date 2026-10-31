@@ -71,7 +71,7 @@ test("provider model query route passes only extracted fields and emits a value-
             body: JSON.stringify({
                 kind: "openai",
                 apiKey: "sk-private",
-                debug: "private-value",
+                "secret-example-token": "private-value",
             }),
         });
         assert.equal(response.status, 200);
@@ -81,11 +81,12 @@ test("provider model query route passes only extracted fields and emits a value-
         assert.deepEqual(diagnostics[0]?.[1], {
             contractId: "web.providers.model_query",
             version: 1,
-            paths: ["/debug"],
+            paths: ["/*"],
             truncated: false,
         });
         assert.equal(JSON.stringify(diagnostics).includes("sk-private"), false);
         assert.equal(JSON.stringify(diagnostics).includes("private-value"), false);
+        assert.equal(JSON.stringify(diagnostics).includes("secret-example-token"), false);
     });
 });
 

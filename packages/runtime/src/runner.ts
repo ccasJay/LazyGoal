@@ -632,14 +632,40 @@ function toStableExecutionError(error: unknown): RunnerExecutionError | undefine
     return undefined;
 }
 
+type ToolInputDiagnostic = Extract<PreparedToolResult, { ok: true }>["inputDiagnostic"];
+
 interface PreparedToolAction {
     readonly registration: ToolRegistration;
     readonly action: ToolCallAction;
     readonly policy: "allow" | "require_approval";
     readonly plan?: SandboxExecutionPlan;
+    readonly inputDiagnostic?: ToolInputDiagnostic;
     resolveSandboxAccess?(control?: ExecutionControl): Promise<DerivedSandboxAccess | undefined> | DerivedSandboxAccess | undefined;
     execute(control?: ExecutionControl, plan?: SandboxExecutionPlan): Promise<ToolObservation>;
     stream?(control?: ExecutionControl, plan?: SandboxExecutionPlan): AsyncIterable<ToolStreamEvent>;
+}
+
+function recordToolInputDiagnostic(
+    traceSink: DiagnosticTraceSink | undefined,
+    goal: Goal,
+    diagnostic: ToolInputDiagnostic,
+): void {
+    if (traceSink === undefined || diagnostic === undefined) return;
+    try {
+        void traceSink.append(allocateDiagnosticTraceRecord({
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            kind: "tool_input_diagnostic",
+            payload: {
+                contractId: diagnostic.contractId,
+                version: diagnostic.version,
+                paths: diagnostic.paths,
+                truncated: diagnostic.truncated,
+            },
+        })).catch(() => undefined);
+    } catch {
+        // Diagnostic Trace is best effort and must not change Tool preparation.
+    }
 }
 
 function isPlanRunAwaitingTaskApproval(goal: Goal): boolean {
@@ -654,6 +680,7 @@ function prepareToolAction(
     evaluatePolicy = true,
     control?: ExecutionControl,
     plan?: SandboxExecutionPlan,
+    traceSink?: DiagnosticTraceSink,
 ): PreparedToolAction {
     throwIfAborted(control);
 
@@ -769,11 +796,18 @@ function prepareToolAction(
         runId: goal.state.run.id,
     };
 
+    if (evaluatePolicy && prepared.inputDiagnostic !== undefined) {
+        recordToolInputDiagnostic(traceSink, goal, prepared.inputDiagnostic);
+    }
+
     if (!evaluatePolicy) {
         return {
             registration,
             action: canonicalAction,
             policy: "allow",
+            ...(prepared.inputDiagnostic === undefined
+                ? {}
+                : { inputDiagnostic: prepared.inputDiagnostic }),
             ...(plan !== undefined ? { plan } : {}),
             ...(prepared.resolveSandboxAccess === undefined
                 ? {}
@@ -825,6 +859,9 @@ function prepareToolAction(
         registration,
         action: canonicalAction,
         policy: policyResult,
+        ...(prepared.inputDiagnostic === undefined
+            ? {}
+            : { inputDiagnostic: prepared.inputDiagnostic }),
         ...(plan !== undefined ? { plan } : {}),
         ...(prepared.resolveSandboxAccess === undefined
             ? {}
@@ -2368,6 +2405,8 @@ class RunExecutor {
                 this.toolPolicy,
                 true,
                 control,
+                undefined,
+                this.traceSink,
             );
             validateActionLifecycle(goal, prepared.action);
         } catch (error) {
@@ -3715,6 +3754,8 @@ class RunExecutor {
                 this.toolPolicy,
                 false,
                 control,
+                undefined,
+                this.traceSink,
             );
         } catch (error) {
             if (isExecutionAbortedError(error)) {
@@ -4270,6 +4311,7 @@ class RunExecutor {
                             false,
                             control,
                             effectivePlan,
+                            this.traceSink,
                         )
                         : preparedAction;
                     preparedAction = undefined;
@@ -6202,6 +6244,7 @@ class RunExecutor {
             if (pending?.status === "approved") {
                 const prepared = prepareToolAction(
                     goal, pending.action, this.toolRegistry, this.toolPolicy, false, control,
+                    undefined, this.traceSink,
                 );
                 const callIndex = program.nextCallIndex;
                 let plan: SandboxExecutionPlan | undefined;
@@ -6367,6 +6410,8 @@ class RunExecutor {
                             goal, action, this.toolRegistry, this.toolPolicy,
                             !replay && goal.state.run.pendingAction?.action.actionId !== actionId,
                             toolControl,
+                            undefined,
+                            this.traceSink,
                         );
                     } catch (error) {
                         if (error instanceof RunnerExecutionError && error.code === "INVALID_TOOL_INPUT") {
@@ -6463,6 +6508,8 @@ class RunExecutor {
                             this.toolPolicy,
                             false,
                             toolControl,
+                            undefined,
+                            this.traceSink,
                         );
                         if (prepared.registration.kind === "program") {
                             throw new Error("PTC_INVALID_TOOL_CALL");

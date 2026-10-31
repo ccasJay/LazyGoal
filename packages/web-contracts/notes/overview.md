@@ -12,7 +12,7 @@ Activity 助手消息必须携带 `process`、`answer` 或 `notice` 用途；用
 
 ## 共享合同与校验分层
 
-所有 Web HTTP、SSE 与浏览器 DTO 只在 [`wire.ts`](../src/wire.ts) 声明原生 TypeScript 类型与 JSDoc 约束；[`contracts/catalog.json`](../../../contracts/catalog.json) 登记 55 个生成绑定根与 Provider 模型 Reader，构建生成固定版本的 JSON Schema、Ajv standalone 校验器、Manifest 和类型化绑定。[`validation.ts`](../src/validation.ts) 的公开 guard 与 Goal Board API 在 JSON 边界调用生成读取能力：未知字段从隔离副本剥离并产生有界路径诊断；已知字段类型、必填、枚举、数值与模式错误整体失败，不转换、不补值、不返回部分数据。同进程已类型化的生产者不重复校验。
+所有 Web HTTP、SSE 与浏览器 DTO 只在 [`wire.ts`](../src/wire.ts) 声明原生 TypeScript 类型与 JSDoc 约束；[`contracts/catalog.json`](../../../contracts/catalog.json) 登记 55 个生成绑定根与 Provider 模型 Reader，构建生成固定版本的 JSON Schema、Ajv standalone 校验器、Manifest 和类型化绑定。[`validation.ts`](../src/validation.ts) 的公开 guard 与 Goal Board API 在 JSON 边界调用生成读取能力：未知字段从隔离副本剥离并产生有界路径诊断，未声明键名统一替换为 `*`；已知字段类型、必填、枚举、数值与模式错误整体失败，不转换、不补值、不返回部分数据。同进程已类型化的生产者不重复校验。
 
 跨字段与集合规则位于 [`invariants/`](../src/invariants)：Plan Route、Activity gap/range、交互决定、Provider 禁用凭据键、Trajectory 事件身份与指标数值范围都由纯函数执行。生成器已表达交互回答题数/选项数、`decisions` 最少项、Activity `gaps` 最大项和 Plan 阶段/验收条件最少项；仅生成器无法表达的可空整数等规则由 Web 不变量补充。`@asType integer` 与 `@maximum 9007199254740991` 保留安全整数语义。开放 JSON 字段由显式栈实现的 `isJsonValue` 判定；wire 文本的 UTF-16 上限只由 `hasUtf16LengthAtMost` 承担，不新增 AST 节点或跨字段长度表。
 

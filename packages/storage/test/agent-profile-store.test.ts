@@ -144,7 +144,7 @@ test("invalid Profile errors expose stable identity and safe field issues", asyn
                 true,
             );
             assert.equal(
-                error.issues?.some(issue => issue.path === "/extra" && issue.code === "unknown"),
+                error.issues?.some(issue => issue.path === "/*" && issue.code === "unknown"),
                 true,
             );
             assert.equal(JSON.stringify(error.issues).includes(secret), false);

@@ -22,7 +22,7 @@ test("provider models reader extracts declared fields and reports bounded paths"
     assert.deepEqual(result.diagnostic, {
         contractId: "web.providers.models.success",
         version: 1,
-        paths: ["/trace", "/models/0/debug"],
+        paths: ["/*", "/models/0/*"],
         truncated: false,
     });
     assert.deepEqual(input.models[0], {
@@ -49,7 +49,7 @@ test("provider models reader bounds unknown-field diagnostics", () => {
     if (!result.ok) return;
     assert.equal(result.diagnostic?.paths.length, 32);
     assert.equal(result.diagnostic?.truncated, true);
-    assert.ok(result.diagnostic?.paths.every(path => path.startsWith("/debug-")));
+    assert.ok(result.diagnostic?.paths.every(path => path === "/*"));
 });
 
 test("provider models reader accepts empty results and names but preserves string values", () => {
@@ -121,7 +121,7 @@ test("provider models reader accepts only JSON-shaped input and handles prototyp
     assert.equal(result.ok, true);
     if (!result.ok) return;
     assert.deepEqual(result.data, { ok: true, models: [] });
-    assert.deepEqual(result.diagnostic?.paths, ["/__proto__"]);
+    assert.deepEqual(result.diagnostic?.paths, ["/*"]);
     assert.equal(Object.getPrototypeOf(result.data), Object.prototype);
     assert.equal(Object.hasOwn(prototypeKey, "__proto__"), true);
     assert.equal(({} as { polluted?: boolean }).polluted, undefined);

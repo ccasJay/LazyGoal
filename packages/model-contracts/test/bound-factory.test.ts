@@ -463,7 +463,7 @@ test("解码按未改动判别值选择分支，并拒绝未知或未授权工�
         assert.deepEqual(decoded.action.input, { path: "README.md" });
         assert.equal("memoryPatch" in decoded, false);
     }
-    assert.deepEqual(diagnostics, ["/result/action/input/debug"]);
+    assert.deepEqual(diagnostics, ["/result/action/input/*"]);
 
     assert.throws(
         () => bundle.decode({
@@ -667,7 +667,7 @@ test("统一工具声明按模式组合并复用同源绑定解码", () => {
         { onDiagnostic: (diagnostic) => diagnostics.push(...diagnostic.paths) },
     );
     assert.deepEqual(discovery, { kind: "tool_discovery", query: "read files" });
-    assert.deepEqual(diagnostics, ["/debug"]);
+    assert.deepEqual(diagnostics, ["/*"]);
 
     assert.throws(
         () => decodePhaseToolCall(normal, "system_find_tools", { query: 42 }),
@@ -749,7 +749,7 @@ test("模型响应解析消费绑定契约包并保留协议错误", () => {
         { onDiagnostic: (diagnostic) => diagnostics.push(...diagnostic.paths) },
     );
     assert.equal(decoded.kind, "wait");
-    assert.deepEqual(diagnostics, ["/result/debug"]);
+    assert.deepEqual(diagnostics, ["/result/*"]);
 
     assert.throws(
         () => parseModelOutput(JSON.stringify({ result: { kind: "wait", reason: 42 } }), bundle),

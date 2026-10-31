@@ -230,11 +230,11 @@ test("generated binding reads union, recursive and open JSON values end to end",
     assert.deepEqual(
         [...(stripped.diagnostic?.paths ?? [])].sort(),
         [
-            "/items/0/debug",
-            "/tree/children/0/debug",
-            "/tree/debug",
-            "/union/debug",
-            "/union/nested/debug",
+            "/items/0/*",
+            "/tree/*",
+            "/tree/children/0/*",
+            "/union/*",
+            "/union/nested/*",
         ],
     );
     assert.deepEqual(input, original);
@@ -243,7 +243,7 @@ test("generated binding reads union, recursive and open JSON values end to end",
     const rejected = binding.read(input, "reject");
     assert.equal(rejected.ok, false);
     if (rejected.ok) return;
-    assert.ok(rejected.issues?.some(issue => issue.path === "/union/debug" && issue.code === "unknown"));
+    assert.ok(rejected.issues?.some(issue => issue.path === "/union/*" && issue.code === "unknown"));
 
     const invalidName = binding.read({ ...input, name: "A" }, "strip");
     assert.equal(invalidName.ok, false);

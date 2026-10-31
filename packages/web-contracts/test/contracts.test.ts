@@ -54,7 +54,7 @@ test("generated bindings strip unknown fields and keep input isolated", () => {
     if (!result.ok) return;
     assert.equal("debug" in result.data, false);
     assert.equal(result.diagnostic?.contractId, "web.sessions.input.receipt");
-    assert.deepEqual(result.diagnostic?.paths, ["/debug"]);
+    assert.deepEqual(result.diagnostic?.paths, ["/*"]);
     assert.equal(result.data.goalId, "goal-1");
     assert.equal(input.debug, "private");
     assert.notEqual(result.data, input);
@@ -106,7 +106,7 @@ test("Provider query and test result bindings preserve credentials and integer b
     if (!query.ok) return;
     assert.equal(query.data.apiKey, "sk-private");
     assert.equal("debug" in query.data, false);
-    assert.deepEqual(query.diagnostic?.paths, ["/debug"]);
+    assert.deepEqual(query.diagnostic?.paths, ["/*"]);
     assert.equal(browserProviderModelQueryBinding.read({ kind: "" }, "strip").ok, false);
     assert.equal(browserProviderModelQueryBinding.read({ kind: "openai", apiKey: null }, "strip").ok, false);
 
@@ -161,7 +161,7 @@ test("session input union strips branch extras and keeps discriminator", () => {
     assert.equal(crossBranch.ok, true);
     if (crossBranch.ok) {
         assert.equal("runId" in crossBranch.data, false);
-        assert.deepEqual(crossBranch.diagnostic?.paths, ["/runId"]);
+        assert.deepEqual(crossBranch.diagnostic?.paths, ["/*"]);
     }
 });
 
@@ -183,7 +183,7 @@ test("live event binding strips unknown activity metadata", () => {
     assert.equal(event.ok, true);
     if (!event.ok || event.data.type !== "activity") return;
     assert.equal("privatePayload" in event.data.activity, false);
-    assert.deepEqual(event.diagnostic?.paths, ["/activity/privatePayload"]);
+    assert.deepEqual(event.diagnostic?.paths, ["/activity/*"]);
 });
 
 test("Activity page binding strips item extras and reports bounded paths", () => {
@@ -210,7 +210,7 @@ test("Activity page binding strips item extras and reports bounded paths", () =>
     if (!result.ok) return;
     assert.equal("reviewNotes" in result.data.items[0]!, false);
     assert.equal("privateReasoning" in (result.data.items[0] as { think: object }).think, false);
-    assert.deepEqual(result.diagnostic?.paths, ["/items/0/reviewNotes", "/items/0/think/privateReasoning"]);
+    assert.deepEqual(result.diagnostic?.paths, ["/items/0/*", "/items/0/think/*"]);
 });
 
 test("Goal list item binding keeps declared fields and rejects bad enums", () => {

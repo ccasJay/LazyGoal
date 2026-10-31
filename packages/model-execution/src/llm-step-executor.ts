@@ -253,6 +253,7 @@ export class LLMStepExecutor implements StepExecutor {
      * ```
      */
     async reviewCompletion(input: CompletionReviewInput): Promise<CompletionReviewResult> {
+        const diagnostics: unknown[] = [];
         try {
             const binding = this.bindingProvider.current();
             const { request } = buildCompletionReviewRequest(input, {
@@ -262,9 +263,20 @@ export class LLMStepExecutor implements StepExecutor {
             const { response } = await this.callModelForStage(
                 binding.decideAdapter, request, input, binding.modelCapabilities, "completion_review", [], [],
             );
-            return decodeCompletionReviewResponse(response);
+            return decodeCompletionReviewResponse(response, {
+                onDiagnostic: diagnostic => diagnostics.push(diagnostic),
+            });
         } catch (error) {
             throw toModelStageFeedback(error, input, "decide");
+        } finally {
+            if (diagnostics.length > 0) {
+                await recordLlmDiagnosticTrace({
+                    sink: this.traceSink,
+                    identity: traceIdentity(input.goal),
+                    kind: "model_output_diagnostic",
+                    payload: { stage: "completion_review", diagnostics },
+                });
+            }
         }
     }
 

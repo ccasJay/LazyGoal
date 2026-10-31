@@ -129,7 +129,7 @@ test("Catalog generates isolated tool, model, web and strict-config bindings", a
         note: "n",
     });
     assert.ok(toolResult.diagnostic);
-    assert.deepEqual([...toolResult.diagnostic.paths].sort(), ["/debug", "/nested/debug"]);
+    assert.deepEqual([...toolResult.diagnostic.paths].sort(), ["/*", "/nested/*"]);
     assert.deepEqual(toolInput, original);
     assert.equal(JSON.stringify(toolResult).includes("secret"), false);
 
@@ -163,7 +163,7 @@ test("Catalog generates isolated tool, model, web and strict-config bindings", a
         nested: { label: "nested" },
     });
     assert.ok(decoded.diagnostic);
-    assert.deepEqual([...decoded.diagnostic.paths].sort(), ["/debug", "/nested/debug"]);
+    assert.deepEqual([...decoded.diagnostic.paths].sort(), ["/*", "/nested/*"]);
     assert.equal(JSON.stringify(decoded).includes("wire-secret"), false);
 
     const configProjection = configBinding.configSampleBinding.modelProjection();
@@ -202,8 +202,8 @@ test("Catalog generates isolated tool, model, web and strict-config bindings", a
     const configResult = configBinding.configSampleBinding.read(configInput, "reject");
     assert.equal(configResult.ok, false);
     if (configResult.ok) return;
-    assert.ok(configResult.issues.some(issue => issue.code === "unknown" && issue.path === "/debug"));
-    assert.ok(configResult.issues.some(issue => issue.code === "unknown" && issue.path === "/nested/debug"));
+    assert.ok(configResult.issues.some(issue => issue.code === "unknown" && issue.path === "/*"));
+    assert.ok(configResult.issues.some(issue => issue.code === "unknown" && issue.path === "/nested/*"));
     assert.equal(JSON.stringify(configResult).includes("config-secret"), false);
 
     const invalidTool = toolBinding.toolSampleBinding.read({

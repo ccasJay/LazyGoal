@@ -358,7 +358,7 @@ test("unknown tool fields are stripped with a bounded diagnostic trace record", 
     const diagnostic = (traceSink.records as { kind: string; payload: any }[])
         .find(record => record.kind === "model_output_diagnostic")!;
     assert.equal(diagnostic.payload.toolId, "system_complete_task");
-    assert.deepEqual(diagnostic.payload.diagnostics[0].paths, ["/debugField"]);
+    assert.deepEqual(diagnostic.payload.diagnostics[0].paths, ["/*"]);
     assert.equal(JSON.stringify(diagnostic.payload).includes("PRIVATE_VALUE"), false);
 });
 

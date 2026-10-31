@@ -6,7 +6,7 @@
 
 [`LLMStepExecutor`](../src/llm-step-executor.ts) 实现 `StepExecutor`：`decide`、`think`、`reviewCompletion` 与兼容的 `execute`。每个阶段开始时从 [`ModelExecutionBindingProvider`](../src/model-execution-binding.ts) 读取一次当前绑定，并在整个异步调用中固定使用该 generation 的 Adapter、预算策略与组装器；进行中发布的新 generation 不影响本阶段。
 
-阶段流程为：构造请求（`buildStepRequest`）→ 单次调用与记录（`callModel`，成功响应必须来自唯一完成且已通过块序列核验）→ 使用同一请求契约解码（`classifyDecideResponse`/`decodeThinkResponse`/`decodeCompletionReviewResponse`，读视图由完整块派生）→ 组装阶段结果与 frame。解码失败复用同一 `callId` 记录最小诊断；请求与响应契约始终来自同一次调用，不在解码端重建 Schema。
+阶段流程为：构造请求（`buildStepRequest`）→ 单次调用与记录（`callModel`，成功响应必须来自唯一完成且已通过块序列核验）→ 使用同一请求契约解码（`classifyDecideResponse`/`decodeThinkResponse`/`decodeCompletionReviewResponse`，读视图由完整块派生）→ 组装阶段结果与 frame。解码失败复用同一 `callId` 记录最小诊断；请求与响应契约始终来自同一次调用，不在解码端重建 Schema。完成审查与 Decide 工具调用剥离未知字段的诊断统一写入 `model_output_diagnostic` Trace，只记录契约身份、脱敏路径与截断标记。
 
 Tool 调用解码后按原规则分配业务动作身份：原生会话使用新生成的 `action-` 前缀身份，否则优先使用供应商 `callId`，再回退契约分配的 `actionId`。阶段结果包含 `modelContextFrame`（关联 `modelCallId` 与原生响应消息），Runtime Runner 负责提交。
 

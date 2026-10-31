@@ -74,7 +74,8 @@ export interface ContractSchemaNode {
  * 读取失败或未知字段问题的稳定分类。
  *
  * @remarks
- * 分类不包含字段值；路径指向 JSON Pointer 位置，已声明的属性名可以出现在路径中。
+ * 分类不包含字段值；路径指向 JSON Pointer 位置。已声明属性名可以出现在路径中，
+ * 未声明属性名与开放对象键名统一使用 `*` 片段，避免外部键名进入日志。
  */
 export type ContractIssueCode =
     | "json"
@@ -107,11 +108,13 @@ export interface ContractIssue {
  *
  * @remarks
  * 只包含契约身份、版本和有界 JSON Pointer 路径，不包含字段值、原始载荷或异常消息。
+ * 已声明属性名可以出现在路径中；未声明属性名与开放对象键名统一使用 `*` 片段，
+ * 因此外部键名不会进入日志。同一层级有多个未知字段时允许出现重复路径。
  *
  * @example
  * ```ts
  * const diagnostic: ContractDiagnostic = {
- *     contractId: "sample.tool", version: 1, paths: ["/debug"], truncated: false,
+ *     contractId: "sample.tool", version: 1, paths: ["/*"], truncated: false,
  * };
  * ```
  */

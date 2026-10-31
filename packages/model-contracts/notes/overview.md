@@ -10,7 +10,7 @@
 
 [TS 契约类型](../src/model-output/schema-types.ts) 是模型 canonical 输出与全部 system tool 输入字段、可选性和约束的单源；[绑定集合接口](../src/model-output/bindings.ts) 固定模型线从生成能力线接收的 `ContractBinding` 边界。35 个模型根契约已按 `typescript-binding` 生成 Schema、Ajv standalone 校验器、Manifest 与绑定，产物位于 [`src/generated`](../src/generated)，并由 [generated-bindings.ts](../src/model-output/generated-bindings.ts) 装配为 `modelOutputBindings`。canonical `ToolCallAgentDecision` 的开放 `JsonValue` 输入不进入生成；`tool_call` 使用封闭的 `ToolCallDecisionEnvelope` 外壳并在组合时插入工具绑定。模型请求、原生工具声明、响应解码与 [Runtime 决策校验](../src/model-output/decision-validation.ts) 均消费这些生成绑定。
 
-[绑定组合器](../src/model-output/bound-factory.ts) 按请求阶段、Run 模式、任务批准状态与授权工具集合组合 Provider Schema、原生工具声明和解码。业务工具输入来自工具线提供的同一绑定；模型线不维护工具字段表。未知字段在分支确定后剥离，并通过可选 `onDiagnostic` 回报契约身份与有界路径；已知字段、判别值、未授权工具和领域约束错误直接拒绝，不返回部分数据。原生工具参数省略可选字段时按 `null` 占位补齐，再复用同一 wire 解码；生成数组与整数注解保留在 Provider Schema 与本地解码中。
+[绑定组合器](../src/model-output/bound-factory.ts) 按请求阶段、Run 模式、任务批准状态与授权工具集合组合 Provider Schema、原生工具声明和解码。业务工具输入来自工具线提供的同一绑定；模型线不维护工具字段表。未知字段在分支确定后剥离，并通过可选 `onDiagnostic` 回报契约身份与有界路径；未声明键名统一替换为 `*`。已知字段、判别值、未授权工具和领域约束错误直接拒绝，不返回部分数据。原生工具参数省略可选字段时按 `null` 占位补齐，再复用同一 wire 解码；生成数组与整数注解保留在 Provider Schema 与本地解码中。
 
 ## 对话续接
 

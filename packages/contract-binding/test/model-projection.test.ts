@@ -104,7 +104,7 @@ test("model projection decodes required-nullable wire values into canonical data
         nested: { label: "ok" },
     });
     assert.ok(result.diagnostic);
-    assert.deepEqual([...result.diagnostic.paths].sort(), ["/debug", "/nested/debug"]);
+    assert.deepEqual([...result.diagnostic.paths].sort(), ["/*", "/nested/*"]);
     assert.deepEqual(wire, original);
     assert.notEqual(result.data, wire);
     assert.equal(JSON.stringify(result).includes("secret"), false);
@@ -321,7 +321,7 @@ test("model projection maps optional, null and discriminated union fields", () =
         union: { kind: "alpha", alpha: "value" },
     });
     assert.ok(decoded.diagnostic);
-    assert.deepEqual(decoded.diagnostic.paths, ["/union/debug"]);
+    assert.deepEqual(decoded.diagnostic.paths, ["/union/*"]);
     assert.equal(JSON.stringify(decoded).includes("wire-secret"), false);
 
     const missingOptional = projection.decode({

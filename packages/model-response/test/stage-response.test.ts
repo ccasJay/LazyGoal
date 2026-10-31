@@ -326,6 +326,19 @@ test("decodeCompletionReviewResponse 解码接受与拒绝，并拒绝调用数�
         { kind: "reject", feedback: "缺少验证" },
     );
 
+    const diagnostics: string[] = [];
+    assert.deepEqual(
+        decodeCompletionReviewResponse(toolCallResponse({
+            callId: "review-extra",
+            toolId: completionReviewDeclaration.id,
+            argumentsJson: JSON.stringify({
+                result: { kind: "accept", "secret-example-token": "secret-value" },
+            }),
+        }), { onDiagnostic: diagnostic => diagnostics.push(...diagnostic.paths) }),
+        { kind: "accept" },
+    );
+    assert.deepEqual(diagnostics, ["/result/*"]);
+
     assert.throws(
         () => decodeCompletionReviewResponse(textResponse("no call")),
         (error: unknown) => error instanceof LLMResponseProtocolError

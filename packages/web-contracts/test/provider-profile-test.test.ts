@@ -18,7 +18,7 @@ test("provider profile test result selects the branch from the original ok value
     assert.equal(success.ok, true);
     if (!success.ok || !success.data.ok) return;
     assert.deepEqual(success.data, { ok: true, modelCount: 29 });
-    assert.deepEqual(success.diagnostic?.paths, ["/error", "/debug"]);
+    assert.deepEqual(success.diagnostic?.paths, ["/*", "/*"]);
     assert.equal(JSON.stringify(success.diagnostic).includes("must not be reported"), false);
     assert.equal(successInput.error, "model_catalog_authentication");
 
@@ -32,7 +32,7 @@ test("provider profile test result selects the branch from the original ok value
     assert.equal(failure.ok, true);
     if (!failure.ok || failure.data.ok) return;
     assert.deepEqual(failure.data, { ok: false, error: "model_catalog_authentication" });
-    assert.deepEqual(failure.diagnostic?.paths, ["/modelCount", "/debug"]);
+    assert.deepEqual(failure.diagnostic?.paths, ["/*", "/*"]);
 });
 
 test("provider profile test result accepts every approved error and integer bounds", () => {

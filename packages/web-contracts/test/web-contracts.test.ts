@@ -757,7 +757,7 @@ test("session bindings strip undeclared fields and keep declared relationships",
     assert.equal(parsed.ok, true);
     if (parsed.ok) {
         assert.equal("futureServerField" in parsed.data, false);
-        assert.deepEqual(parsed.diagnostic?.paths, ["/futureServerField"]);
+        assert.deepEqual(parsed.diagnostic?.paths, ["/*"]);
     }
 
     const state = {

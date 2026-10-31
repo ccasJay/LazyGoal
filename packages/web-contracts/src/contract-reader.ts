@@ -3,6 +3,7 @@ import type { BrowserJsonValue } from "./session-input";
 
 const MAX_UNKNOWN_PATHS = 32;
 const MAX_PATH_LENGTH = 160;
+const UNKNOWN_FIELD_PATH_SEGMENT = "*";
 
 /**
  * 共享 JSON 边界读取器支持的 Schema 节点。
@@ -27,11 +28,12 @@ export interface ContractSchemaNode {
  *
  * @remarks
  * 仅包含契约身份、版本及有界 JSON Pointer 路径，不包含字段值或原始响应。
+ * 已声明属性名可以出现在路径中；未声明属性名统一使用 `*` 片段，避免外部键名进入日志。
  *
  * @example
  * ```ts
  * const diagnostic: ContractUnknownFieldDiagnostic = {
- *     contractId: "web.providers.models.success", version: 1, paths: ["/models/0/debug"], truncated: false,
+ *     contractId: "web.providers.models.success", version: 1, paths: ["/models/0/*"], truncated: false,
  * };
  * ```
  */
@@ -184,8 +186,8 @@ function findUnknownPaths(value: BrowserJsonValue, rootSchema: ContractSchemaNod
         const record = current.value as Readonly<Record<string, BrowserJsonValue>>;
         const properties = schema.properties ?? {};
         for (const key of Object.keys(record)) {
-            const path = `${current.path}/${escapePointerSegment(key)}`;
             if (!Object.prototype.hasOwnProperty.call(properties, key)) {
+                const path = `${current.path}/${UNKNOWN_FIELD_PATH_SEGMENT}`;
                 if (paths.length >= MAX_UNKNOWN_PATHS) {
                     truncated = true;
                     break;
@@ -198,7 +200,11 @@ function findUnknownPaths(value: BrowserJsonValue, rootSchema: ContractSchemaNod
                 paths.push(path);
                 continue;
             }
-            pending.push({ value: record[key]!, schema: properties[key]!, path });
+            pending.push({
+                value: record[key]!,
+                schema: properties[key]!,
+                path: `${current.path}/${escapePointerSegment(key)}`,
+            });
         }
     }
 

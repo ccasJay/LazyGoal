@@ -8,6 +8,7 @@ import type {
 
 const MAX_UNKNOWN_PATHS = 32;
 const MAX_PATH_LENGTH = 160;
+const UNKNOWN_FIELD_PATH_SEGMENT = "*";
 
 /**
  * 读取联合与可空字段时使用的值判定选项。
@@ -281,6 +282,10 @@ export function checkValueAgainstSchema(
 /**
  * 收集对象树中未声明字段的有界 JSON Pointer 路径。
  *
+ * @remarks
+ * 已声明属性名保留在路径中；未声明属性名和开放对象键名统一替换为 `*`，避免外部
+ * 键名进入诊断或日志。同一层级的多个未知字段会产生重复路径。
+ *
  * @param value - 已复制的 JSON 值。
  * @param rootSchema - 契约根 Schema。
  * @returns 路径列表、截断状态，或联合解析失败问题。
@@ -322,8 +327,12 @@ export function findUnknownPaths(value: JsonValue, rootSchema: ContractSchemaNod
         const properties = schema.properties ?? {};
         const open = isOpenObjectSchema(schema);
         for (const key of Object.keys(record)) {
-            const path = joinPath(current.path, key);
-            if (Object.hasOwn(properties, key)) {
+            const declared = Object.hasOwn(properties, key);
+            const path = joinPath(
+                current.path,
+                declared ? key : UNKNOWN_FIELD_PATH_SEGMENT,
+            );
+            if (declared) {
                 pending.push({ value: record[key]!, schema: properties[key]!, path });
                 continue;
             }

@@ -53,7 +53,7 @@ test("注册与 prepare 先拒绝已知字段错误，再剥离未知字段并�
     assert.equal(unknown.ok, true);
     if (unknown.ok) {
         assert.deepEqual(unknown.input, { path: "README.md" });
-        assert.deepEqual(unknown.inputDiagnostic?.paths, ["/extra"]);
+        assert.deepEqual(unknown.inputDiagnostic?.paths, ["/*"]);
         assert.equal(unknown.inputDiagnostic?.contractId, readFile.definition.inputBinding.contractId);
         assert.equal(unknown.inputDiagnostic?.truncated, false);
     }
@@ -74,7 +74,7 @@ test("Program 注册项使用同一绑定读取并剥离未知字段", () => {
     assert.equal(prepared.ok, true);
     if (prepared.ok) {
         assert.deepEqual(prepared.input, { code: "return 1" });
-        assert.deepEqual(prepared.inputDiagnostic?.paths, ["/extra"]);
+        assert.deepEqual(prepared.inputDiagnostic?.paths, ["/*"]);
     }
     assert.equal(registration.prepare({ code: 1 }).ok, false);
 });

@@ -72,7 +72,7 @@ test("online provider models return extracted fields and emit a value-free bound
     assert.deepEqual(diagnostics[0]?.[1], {
       contractId: "web.providers.models.success",
       version: 1,
-      paths: ["/trace", "/models/0/debug"],
+      paths: ["/*", "/models/0/*"],
       truncated: false,
     });
     assert.equal(JSON.stringify(diagnostics).includes("private-model-detail"), false);
@@ -178,7 +178,7 @@ test("provider profile test returns extracted branch and reports a value-free di
     assert.deepEqual(diagnostics[0]?.[1], {
       contractId: "web.providers.profile_test_result",
       version: 1,
-      paths: ["/error", "/debug"],
+      paths: ["/*", "/*"],
       truncated: false,
     });
     assert.equal(JSON.stringify(diagnostics).includes("private"), false);

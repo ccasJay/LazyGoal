@@ -162,19 +162,22 @@ function readValidatorErrors(validate: ContractValidator): readonly RawValidatio
 }
 
 function mapValidationErrors(errors: readonly RawValidationError[]): readonly ContractIssue[] {
-    const issues = errors.map(error => {
+    const issues: ContractIssue[] = [];
+    for (const error of errors) {
         const keyword = typeof error.keyword === "string" ? error.keyword : "";
+        if (keyword === "additionalProperties") {
+            // 未知字段路径由 findUnknownPaths 统一生成，避免 Ajv 回显外部键名。
+            continue;
+        }
         const basePath = typeof error.instancePath === "string" ? error.instancePath : "";
         const property = keyword === "required"
             ? readPropertyName(error.params, "missingProperty")
-            : keyword === "additionalProperties"
-                ? readPropertyName(error.params, "additionalProperty")
-                : undefined;
+            : undefined;
         const path = property === undefined
             ? basePath
             : `${basePath}/${escapePointerSegment(property)}`;
-        return { path: boundPath(path), code: issueCode(keyword) };
-    });
+        issues.push({ path: boundPath(path), code: issueCode(keyword) });
+    }
     return boundIssues(issues);
 }
 
@@ -224,7 +227,7 @@ function boundIssues(issues: readonly ContractIssue[]): readonly ContractIssue[]
     const result: ContractIssue[] = [];
     for (const issue of issues) {
         const key = `${issue.code}:${issue.path}`;
-        if (seen.has(key)) continue;
+        if (issue.code !== "unknown" && seen.has(key)) continue;
         seen.add(key);
         result.push({ path: boundPath(issue.path), code: issue.code });
         if (result.length >= MAX_ISSUES) break;

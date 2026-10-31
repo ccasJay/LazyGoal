@@ -39,6 +39,7 @@ import type {
     StepExecutor,
     ToolPolicy,
     ToolGrant,
+    TraceRecord,
 } from "../src/index";
 import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
@@ -175,6 +176,14 @@ function createRunnerTool(
 
 function registerTool(tool: TestTool) {
     return createTestToolRegistration(tool);
+}
+
+class RecordingTraceSink {
+    readonly records: TraceRecord[] = [];
+
+    async append(record: TraceRecord): Promise<void> {
+        this.records.push(structuredClone(record));
+    }
 }
 
 function countPrepareCalls(registration: ToolRegistration): {
@@ -462,6 +471,63 @@ test("starts a created Goal, saves every transition, and executes until complete
     assert.deepEqual(executionTask(persisted), executionTask(initial));
     assert.deepEqual(persisted.definition.profile, initial.definition.profile);
     assert.deepEqual(persisted.state.run, state);
+});
+
+test("Runner records sanitized tool input diagnostics without external key names", async () => {
+    const initial = createInitialGoal("diagnostic-run", "diagnostic-goal", toolProfile);
+    const store = new InMemoryGoalStore();
+    await store.save(initial);
+    let executedInput: unknown;
+    const tool: TestTool = {
+        definition: {
+            id: "read_file",
+            description: "读取文件",
+            inputBinding: createTestBinding<PathInput>("test.tool", PATH_INPUT_SCHEMA),
+            isReadOnly: true,
+        },
+        replayPolicy: "safe",
+        validate: () => ({ ok: true }),
+        async execute({ input }) {
+            executedInput = input;
+            return { kind: "success", output: "ok", summary: "读取完成" };
+        },
+    };
+    const traceSink = new RecordingTraceSink();
+    const executor = new FakeStepExecutor([
+        () => ({
+            kind: "tool_call",
+            action: {
+                actionId: "action-1",
+                toolId: "read_file",
+                input: {
+                    path: "README.md",
+                    "secret-example-token": "secret-value",
+                },
+            },
+        }),
+        () => ({ kind: "complete", completionEvidence: [], summary: "目标完成" }),
+    ]);
+    const runner = new Runner({
+        store,
+        executor,
+        trajectoryStore: trajectoryStoreFor(store),
+        toolRegistry: { get: () => registerTool(tool) },
+        traceSink,
+    });
+
+    requireSuccessfulState(await runner.runUntilBlocked(createRef(initial)));
+
+    assert.deepEqual(executedInput, { path: "README.md" });
+    const records = traceSink.records.filter(record => record.kind === "tool_input_diagnostic");
+    assert.equal(records.length, 1);
+    assert.deepEqual(records[0]!.payload, {
+        contractId: "test.tool",
+        version: 1,
+        paths: ["/*"],
+        truncated: false,
+    });
+    assert.equal(JSON.stringify(records).includes("secret-example-token"), false);
+    assert.equal(JSON.stringify(records).includes("secret-value"), false);
 });
 
 test("Runner applies tool discovery against authorized tools and supplies the result to the next Decide", async () => {

@@ -80,7 +80,7 @@ test("binding strips nested unknown fields and returns isolated data with bounde
         tags: ["a"],
     });
     assert.ok(result.diagnostic);
-    assert.deepEqual([...result.diagnostic.paths].sort(), ["/debug", "/nested/debug"]);
+    assert.deepEqual([...result.diagnostic.paths].sort(), ["/*", "/nested/*"]);
     assert.equal(result.diagnostic.contractId, "sample.tool");
     assert.equal(result.diagnostic.version, 1);
     assert.equal(result.diagnostic.truncated, false);
@@ -103,8 +103,8 @@ test("binding rejects unknown fields under the strict policy without partial dat
     assert.equal(result.ok, false);
     if (result.ok) return;
     assert.equal("data" in result, false);
-    assert.ok(result.issues.some(issue => issue.code === "unknown" && issue.path === "/debug"));
-    assert.ok(result.issues.some(issue => issue.code === "unknown" && issue.path === "/nested/debug"));
+    assert.ok(result.issues.some(issue => issue.code === "unknown" && issue.path === "/*"));
+    assert.ok(result.issues.some(issue => issue.code === "unknown" && issue.path === "/nested/*"));
     assert.equal(JSON.stringify(result).includes("must-not-leak"), false);
 });
 
@@ -255,7 +255,59 @@ test("binding bounds unknown-field diagnostics and still removes all unknown fie
     assert.equal(longResult.ok, false);
     if (longResult.ok) return;
     assert.ok(longResult.issues.every(issue => issue.path.length <= 160));
-    assert.ok(longResult.issues.some(issue => issue.path.endsWith("…")));
+    assert.ok(longResult.issues.every(issue => !issue.path.includes(longKey)));
+    assert.deepEqual(longResult.issues, [{ path: "/*", code: "unknown" }]);
+});
+
+test("binding redacts external key names from unknown-field diagnostics", () => {
+    const sensitiveKey = "secret-example-token";
+    const input = {
+        count: 3,
+        kind: "alpha",
+        nested: { label: "ok", [sensitiveKey]: "token-value" },
+        [sensitiveKey]: "token-value",
+    };
+
+    const stripped = binding.read(input, "strip");
+    assert.equal(stripped.ok, true);
+    if (!stripped.ok) return;
+    assert.deepEqual([...stripped.diagnostic!.paths].sort(), ["/*", "/nested/*"]);
+    assert.equal(JSON.stringify(stripped).includes(sensitiveKey), false);
+    assert.equal(JSON.stringify(stripped).includes("token-value"), false);
+
+    const rejected = binding.read(input, "reject");
+    assert.equal(rejected.ok, false);
+    if (rejected.ok) return;
+    assert.deepEqual(
+        [...new Set(rejected.issues.map(issue => issue.path))].sort(),
+        ["/*", "/nested/*"],
+    );
+    assert.equal(JSON.stringify(rejected).includes(sensitiveKey), false);
+});
+
+test("binding bounds diagnostic paths at declared locations", () => {
+    const longDeclaredKey = "x".repeat(200);
+    const longSchema: ContractSchemaNode = {
+        $schema: "http://json-schema.org/draft-07/schema#",
+        type: "object",
+        properties: {
+            [longDeclaredKey]: {
+                type: "object",
+                properties: {},
+                required: [],
+                additionalProperties: false,
+            },
+        },
+        required: [longDeclaredKey],
+        additionalProperties: false,
+    };
+    const longBinding = compileBinding<unknown>(longSchema);
+
+    const result = longBinding.read({ [longDeclaredKey]: { secret: true } }, "reject");
+    assert.equal(result.ok, false);
+    if (result.ok) return;
+    assert.ok(result.issues.some(issue => issue.path.endsWith("…")));
+    assert.ok(result.issues.every(issue => issue.path.length <= 160));
 });
 
 test("binding protects prototype keys and keeps output independent after mutation", () => {
@@ -266,7 +318,7 @@ test("binding protects prototype keys and keeps output independent after mutatio
     const result = binding.read(prototypeKey, "strip");
     assert.equal(result.ok, true);
     if (!result.ok) return;
-    assert.deepEqual(result.diagnostic?.paths, ["/__proto__"]);
+    assert.deepEqual(result.diagnostic?.paths, ["/*"]);
     assert.equal(({} as { polluted?: boolean }).polluted, undefined);
 
     const mutable = result.data as unknown as {
@@ -370,7 +422,7 @@ test("binding selects a union branch before stripping cross-branch fields", () =
     assert.ok(stripped.diagnostic);
     assert.deepEqual(
         [...stripped.diagnostic.paths].sort(),
-        ["/entry/beta", "/entry/debug", "/entry/nested/debug"],
+        ["/entry/*", "/entry/*", "/entry/nested/*"],
     );
     assert.deepEqual(input, original);
     assert.equal(JSON.stringify(stripped).includes("secret"), false);
@@ -378,9 +430,11 @@ test("binding selects a union branch before stripping cross-branch fields", () =
     const rejected = discriminatedBinding.read(input, "reject");
     assert.equal(rejected.ok, false);
     if (rejected.ok) return;
-    assert.ok(rejected.issues.some(issue => issue.code === "unknown" && issue.path === "/entry/beta"));
-    assert.ok(rejected.issues.some(issue => issue.code === "unknown" && issue.path === "/entry/debug"));
-    assert.ok(rejected.issues.some(issue => issue.code === "unknown" && issue.path === "/entry/nested/debug"));
+    assert.ok(rejected.issues.some(issue => issue.code === "unknown" && issue.path === "/entry/nested/*"));
+    assert.equal(
+        rejected.issues.filter(issue => issue.code === "unknown" && issue.path === "/entry/*").length,
+        2,
+    );
     assert.equal("data" in rejected, false);
 });
 
@@ -473,7 +527,7 @@ test("binding resolves nested union and recursive values per item", () => {
     ]);
     assert.deepEqual(
         [...(result.diagnostic?.paths ?? [])].sort(),
-        ["/0/beta", "/0/nested/debug", "/1/debug"],
+        ["/0/*", "/0/nested/*", "/1/*"],
     );
     assert.equal(JSON.stringify(result).includes("secret"), false);
 
@@ -508,7 +562,7 @@ test("binding resolves nested union and recursive values per item", () => {
         value: "root",
         children: [{ value: "child", children: [] }],
     });
-    assert.deepEqual([...(treeResult.diagnostic?.paths ?? [])].sort(), ["/children/0/debug", "/debug"]);
+    assert.deepEqual([...(treeResult.diagnostic?.paths ?? [])].sort(), ["/*", "/children/0/*"]);
 });
 
 test("binding reads open JSON without unknown diagnostics and still strips nested closed records", () => {
@@ -560,14 +614,14 @@ test("binding reads open JSON without unknown diagnostics and still strips neste
         payload: { arbitrary: { keys: [true, null] } },
         records: { first: { label: "ok" } },
     });
-    assert.deepEqual(stripped.diagnostic?.paths, ["/records/first/debug"]);
+    assert.deepEqual(stripped.diagnostic?.paths, ["/records/*/*"]);
     assert.deepEqual(input, original);
     assert.equal(JSON.stringify(stripped).includes("secret"), false);
 
     const rejected = openBinding.read(input, "reject");
     assert.equal(rejected.ok, false);
     if (rejected.ok) return;
-    assert.deepEqual(rejected.issues, [{ path: "/records/first/debug", code: "unknown" }]);
+    assert.deepEqual(rejected.issues, [{ path: "/records/*/*", code: "unknown" }]);
 });
 
 function compileBinding<T>(schema: ContractSchemaNode): ContractBinding<T> {

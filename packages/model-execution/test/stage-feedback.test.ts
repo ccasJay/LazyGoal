@@ -36,7 +36,7 @@ test("未知阶段字段被剥离并产生有界诊断", () => {
         ...input, extraParam: "PRIVATE_ID", customMeta: { protocolVersion: "1", operations: [] },
     }, { onDiagnostic: diagnostic => diagnostics.push(...diagnostic.paths) });
     assert.deepEqual(decoded, { kind: "run_stage_update", ...input });
-    assert.deepEqual(diagnostics.sort(), ["/customMeta", "/extraParam"]);
+    assert.deepEqual(diagnostics.sort(), ["/*", "/*"]);
     assert.equal(JSON.stringify(decoded).includes("PRIVATE"), false);
 });
 

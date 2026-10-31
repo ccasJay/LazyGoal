@@ -183,7 +183,7 @@ test("EditFileTool 拒绝非法输入且不访问文件系统", async () => {
         assert.equal(stripped.ok, true);
         if (stripped.ok) {
             assert.deepEqual(stripped.input, { path: "a.txt", oldString: "x", newString: "y" });
-            assert.deepEqual(stripped.inputDiagnostic?.paths, ["/extra"]);
+            assert.deepEqual(stripped.inputDiagnostic?.paths, ["/*"]);
         }
 
         const result = registration.prepare({
