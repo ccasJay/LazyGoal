@@ -2,15 +2,31 @@ import assert from "node:assert/strict";
 import { realpath } from "node:fs/promises";
 import { test } from "node:test";
 
-import { GoalCoordinator, transition } from "../src/index";
+import {
+    GoalCoordinator,
+    transition,
+    type DiagnosticTraceSink,
+    type TraceRecord,
+} from "../src/index";
 import {
     createApprovalFixture,
     createAwaitingApprovalGoal,
 } from "./action-approval-fixtures";
 import { trajectoryStoreFor } from "./current-fixtures";
 
+class RecordingTraceSink implements DiagnosticTraceSink {
+    readonly records: TraceRecord[] = [];
+
+    async append(record: TraceRecord): Promise<void> {
+        this.records.push(structuredClone(record));
+    }
+}
+
 /** 构造一个只用于预检的 Coordinator；不调度执行。 */
-function createReviewCoordinator(fixture: Awaited<ReturnType<typeof createApprovalFixture>>) {
+function createReviewCoordinator(
+    fixture: Awaited<ReturnType<typeof createApprovalFixture>>,
+    traceSink?: DiagnosticTraceSink,
+) {
     return new GoalCoordinator({
         store: fixture.store,
         scheduler: {
@@ -24,6 +40,7 @@ function createReviewCoordinator(fixture: Awaited<ReturnType<typeof createApprov
         workspaceId: "ws-1",
         workspaceRoot: fixture.workspaceRoot,
         trajectoryStore: trajectoryStoreFor(fixture.store),
+        ...(traceSink === undefined ? {} : { traceSink }),
     });
 }
 
@@ -63,6 +80,44 @@ test("预检返回最终 canonical 参数、实际目标与审阅引用，且不
         assert.deepEqual(await fixture.toolGrantStore.list({ workspaceId: "ws-1" }), []);
         assert.deepEqual(await fixture.sandboxGrantStore.list({ workspaceId: "ws-1" }), []);
         assert.equal(fixture.calls.length, 0);
+    } finally {
+        await fixture.dispose();
+    }
+});
+
+test("审批参数预审记录工具输入剥离诊断且不泄露外部键名", async () => {
+    const fixture = await createApprovalFixture();
+    try {
+        const goal = createAwaitingApprovalGoal();
+        await fixture.store.save(goal);
+        const traceSink = new RecordingTraceSink();
+        const coordinator = createReviewCoordinator(fixture, traceSink);
+
+        const result = await coordinator.reviewActionApproval({
+            ref: { goalId: goal.id, runId: goal.state.run.id },
+            actionId: "action-approval",
+            input: {
+                path: "b.txt",
+                content: "revised",
+                "secret-example-token": "secret-value",
+            },
+            scope: "action",
+        });
+
+        assert.equal(result.ok, true);
+        if (!result.ok) return;
+        assert.deepEqual(result.review.finalInput, { path: "b.txt", content: "revised" });
+
+        const records = traceSink.records.filter(record => record.kind === "tool_input_diagnostic");
+        assert.equal(records.length, 1);
+        assert.deepEqual(records[0]!.payload, {
+            contractId: "test.tool",
+            version: 1,
+            paths: ["/*"],
+            truncated: false,
+        });
+        assert.equal(JSON.stringify(records).includes("secret-example-token"), false);
+        assert.equal(JSON.stringify(records).includes("secret-value"), false);
     } finally {
         await fixture.dispose();
     }

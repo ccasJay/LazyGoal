@@ -165,8 +165,11 @@ import {
 } from "./goal-plan";
 import { canUpdateGoalPlan } from "./run-mode-capabilities";
 import {
+    recordToolInputDiagnostic,
+    type ToolInputDiagnostic,
+} from "./tool-input-diagnostic";
+import {
     TrajectoryAppendError,
-    allocateDiagnosticTraceRecord,
     type DiagnosticTraceSink,
     type TrajectoryEvent,
     type TrajectoryEventDraft,
@@ -632,8 +635,6 @@ function toStableExecutionError(error: unknown): RunnerExecutionError | undefine
     return undefined;
 }
 
-type ToolInputDiagnostic = Extract<PreparedToolResult, { ok: true }>["inputDiagnostic"];
-
 interface PreparedToolAction {
     readonly registration: ToolRegistration;
     readonly action: ToolCallAction;
@@ -643,29 +644,6 @@ interface PreparedToolAction {
     resolveSandboxAccess?(control?: ExecutionControl): Promise<DerivedSandboxAccess | undefined> | DerivedSandboxAccess | undefined;
     execute(control?: ExecutionControl, plan?: SandboxExecutionPlan): Promise<ToolObservation>;
     stream?(control?: ExecutionControl, plan?: SandboxExecutionPlan): AsyncIterable<ToolStreamEvent>;
-}
-
-function recordToolInputDiagnostic(
-    traceSink: DiagnosticTraceSink | undefined,
-    goal: Goal,
-    diagnostic: ToolInputDiagnostic,
-): void {
-    if (traceSink === undefined || diagnostic === undefined) return;
-    try {
-        void traceSink.append(allocateDiagnosticTraceRecord({
-            goalId: goal.id,
-            runId: goal.state.run.id,
-            kind: "tool_input_diagnostic",
-            payload: {
-                contractId: diagnostic.contractId,
-                version: diagnostic.version,
-                paths: diagnostic.paths,
-                truncated: diagnostic.truncated,
-            },
-        })).catch(() => undefined);
-    } catch {
-        // Diagnostic Trace is best effort and must not change Tool preparation.
-    }
 }
 
 function isPlanRunAwaitingTaskApproval(goal: Goal): boolean {

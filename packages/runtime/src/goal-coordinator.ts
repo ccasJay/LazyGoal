@@ -76,6 +76,7 @@ import {
     type TrajectoryCheckpointCommitterPort,
 } from "./trajectory-checkpoint-committer";
 import { withGoalMutationGate } from "./goal-mutation-gate";
+import { recordToolInputDiagnostic } from "./tool-input-diagnostic";
 import {
     DefaultPermissionGrantService,
     createSandboxGrantMatcher,
@@ -429,6 +430,7 @@ export class GoalCoordinator {
     private readonly protocolValidator: GoalProtocolValidator | undefined;
     private readonly contextLookupPort: ContextLookupPort | undefined;
     private readonly executionStream: ExecutionStreamPublisher | undefined;
+    private readonly traceSink: DiagnosticTraceSink | undefined;
     private readonly continuationGates = new Map<string, Promise<void>>();
 
     /** @param dependencies - GoalCoordinatorDependencies。 */
@@ -447,6 +449,7 @@ export class GoalCoordinator {
         this.protocolValidator = dependencies.protocolValidator;
         this.contextLookupPort = dependencies.contextLookupPort;
         this.executionStream = dependencies.executionStream;
+        this.traceSink = dependencies.traceSink;
         this.checkpointCommitter = dependencies.checkpointCommitter
             ?? new TrajectoryCheckpointCommitter({
                 store: dependencies.store,
@@ -1182,6 +1185,7 @@ export class GoalCoordinator {
         }
 
         const prepared = await this.prepareApprovalReview(
+            goal,
             pending.action.toolId,
             request.input === undefined ? pending.action.input : request.input,
             control,
@@ -1300,9 +1304,11 @@ export class GoalCoordinator {
     /**
      * 重新准备拟审阅参数并计算实际目标与能力范围。
      *
-     * @remarks 只做参数与路径元数据准备，不执行工具、不调用模型、不保存候选。
+     * @remarks 只做参数与路径元数据准备，不执行工具、不调用模型、不保存候选；
+     * 工具输入剥离未知字段的诊断以 best-effort 写入 Trace。
      */
     private async prepareApprovalReview(
+        goal: Goal,
         toolId: string,
         proposedInput: JsonValue,
         control?: ExecutionControl,
@@ -1350,6 +1356,8 @@ export class GoalCoordinator {
                     : { issues: prepared.error.issues.map((issue) => ({ path: [...issue.path], message: issue.message })) }),
             };
         }
+
+        recordToolInputDiagnostic(this.traceSink, goal, prepared.inputDiagnostic);
 
         const finalInput = prepared.input;
         let sandboxAccessRequest: SandboxAccessRequest | undefined;
@@ -1874,6 +1882,7 @@ export class GoalCoordinator {
                 }
 
                 const prepared = await this.prepareApprovalReview(
+                    goal,
                     pendingAction.action.toolId,
                     request.action.input,
                     control,
