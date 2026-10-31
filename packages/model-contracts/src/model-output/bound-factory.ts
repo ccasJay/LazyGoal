@@ -498,7 +498,7 @@ function bindingIssueMessage(code: ContractIssue["code"]): string {
         case "pattern":
             return "String does not match the required pattern";
         case "unknown":
-            return "Unexpected extra field was stripped";
+            return "Unexpected extra field";
         default:
             return "Value does not satisfy the contract";
     }

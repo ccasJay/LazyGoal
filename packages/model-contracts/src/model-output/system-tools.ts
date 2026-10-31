@@ -2,7 +2,6 @@ import {
     contract,
     safeParse,
     ContractValidationError,
-    type Contract,
     type InferContract,
     type JsonSchema202012,
     type ObjectContract,
@@ -12,18 +11,11 @@ import {
     type AgentDecision,
     type DecideOutput,
     type RequestThink,
-    type AskUserAgentDecision,
-    type CompletionEvidence,
-    type RunPlanRouteCandidate,
-    type RunPlanRouteUpdateAgentDecision,
     CompletionEvidenceContract,
     ContextLookupFiltersContract,
     ContextLookupNeedContract,
-    ExecutingFailAgentDecisionContract,
-    ExecutingWaitAgentDecisionContract,
     ExecutingWorkingMemoryPatchContract,
     GoalPlanPatchOperationContract,
-    type GoalPlanPatchOperation,
     GoalTaskContract,
     RunPlanRouteCandidateContract,
     RunPlanRouteUpdateAgentDecisionContract,
@@ -57,7 +49,7 @@ import {
     type RunStageToolContext,
     type SystemToolSpec,
 } from "./system-tool-specs";
-import type { AgentDecision as NativeAgentDecision, AskUserAgentDecision as NativeAskUserAgentDecision, RequestThink as NativeRequestThink } from "./schema-types";
+import type { AskUserAgentDecision as NativeAskUserAgentDecision } from "./schema-types";
 
 export type { RunStageToolContext } from "./system-tool-specs";
 
