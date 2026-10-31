@@ -20,6 +20,7 @@ import {
     ModelOutputContractDefinitionError,
     SHAPE_GUIDE_PREFIX,
 } from "../src/index";
+import { LLMResponseProtocolError, parseModelOutput } from "../../model-response/src/index";
 import type {
     AuthorizedToolBinding,
     ExecutingDecisionBindings,
@@ -678,6 +679,23 @@ test("Checkpoint 与 Completion Review 声明来自绑定集合", () => {
     assert.throws(
         () => review.decode({ result: { kind: "reject", feedback: "   " } }),
         (error: unknown) => error instanceof ContractValidationError,
+    );
+});
+
+test("模型响应解析消费绑定契约包并保留协议错误", () => {
+    const bundle = createBoundModelOutputContractBundle({ kind: "executing" }, modelBindings());
+    const diagnostics: string[] = [];
+    const decoded = parseModelOutput(
+        JSON.stringify({ result: { kind: "wait", reason: "等待用户", memoryPatch: null, debug: true } }),
+        bundle,
+        { onDiagnostic: (diagnostic) => diagnostics.push(...diagnostic.paths) },
+    );
+    assert.equal(decoded.kind, "wait");
+    assert.deepEqual(diagnostics, ["/result/debug"]);
+
+    assert.throws(
+        () => parseModelOutput(JSON.stringify({ result: { kind: "wait", reason: 42 } }), bundle),
+        (error: unknown) => error instanceof LLMResponseProtocolError,
     );
 });
 
