@@ -53,8 +53,9 @@ export interface ContractBindingDefinition<T> {
  * 类型化的数据契约运行时绑定。
  *
  * @remarks
- * `read` 总是返回与输入隔离的结果；未知字段策略由调用边界显式选择。绑定不承载
- * 权限、审批、状态转换或持久化规则。
+ * `read` 总是返回与输入隔离的结果；未知字段策略由调用边界显式选择。联合在未清理
+ * 输入上先确定唯一合法分支，再按该分支处理未知字段；无法唯一确定时失败。绑定不
+ * 承载权限、审批、状态转换或持久化规则。
  *
  * @example
  * ```ts
@@ -120,7 +121,12 @@ function readContractValue<T>(
 
     const copied = cloneJsonValue(value);
     const unknown = findUnknownPaths(copied, definition.schema);
-    if (policy === "strip") stripUnknownFields(copied, definition.schema);
+    if (unknown.issues !== undefined) {
+        return failure(definition, unknown.issues, unknown.truncated);
+    }
+    if (policy === "strip" && !stripUnknownFields(copied, definition.schema)) {
+        return failure(definition, [{ path: "", code: "union" }], false);
+    }
 
     if (!definition.validate(copied)) {
         const issues = mapValidationErrors(readValidatorErrors(definition.validate));
@@ -197,9 +203,13 @@ function issueCode(keyword: string): ContractIssueCode {
             return "range";
         case "minLength":
         case "maxLength":
+        case "minItems":
+        case "maxItems":
             return "length";
         case "pattern":
             return "pattern";
+        case "anyOf":
+            return "union";
         default:
             return "constraint";
     }
