@@ -12,6 +12,8 @@
 
 [绑定组合器](../src/model-output/bound-factory.ts) 按请求阶段、Run 模式、任务批准状态与授权工具集合组合 Provider Schema、原生工具声明和解码。业务工具输入来自工具线提供的同一绑定；模型线不维护工具字段表。未知字段在分支确定后剥离，并通过可选 `onDiagnostic` 回报契约身份与有界路径；已知字段、判别值、未授权工具和领域约束错误直接拒绝，不返回部分数据。
 
+真实生成启用与生产联合切换的剩余条件见[联合切换前置条件](./pending-generation.md)。
+
 ## 对话续接
 
 [模型消息协议](../src/model-conversation.ts) 区分 system、user、assistant 和配对 tool 消息。原生续接身份包含 provider、端点、模型和协议；只有身份一致且响应已被 Runtime 接受并提交时，才可回放续接字段。Gemini 原始 Part 顺序和不透明签名不能改写；不支持的多模态 Part 在供应商边界拒绝。
