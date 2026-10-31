@@ -2,6 +2,10 @@
 
 本包实现文件、Shell、编辑和网页等可供 Agent 调用的工具。[公开入口](../src/index.ts) 导出具体实现及其 Input Contract；通用注册和单次校验边界由 [Tool Core](../../tool-core/README.md) 拥有。仓库文本搜索由 Bash Tool 执行，优先使用随项目分发的 `rg`，并在运行时诊断后降级到系统 `grep` 或 `find`/`awk`。进程工具（`process_start`/`process_read`/`process_stop`）同样属于本包，但它们调用 [进程会话运行时](../../process-runtime/README.md) 的共享管理器；会话归属、额度与自有句柄结算不由工具实现决定。
 
+## 输入契约
+
+每个工具的输入以源码中的 TS interface 与 JSDoc 定义，并在 [Catalog](../../../contracts/catalog.json) 登记 `typescript-binding` 身份、版本和生成制品。`contracts/catalog.json` 是生成登记的唯一来源；生成绑定位于各源文件旁的 `generated/` 目录，不由工具代码维护第二份字段表。全部实际注册工具输入已启用生成并消费真实 `ContractBinding`；联合切换前旧输入 AST 仍供模型线消费，工具注册与 `prepare` 的绑定消费在 Tool Core 接缝完成。
+
 ## 执行边界
 
 文件工具的路径须通过 [Workspace Sandbox](../../sandbox/README.md) 限定，Shell 执行受超时与输出上限控制；Bash 只移除 macOS 系统 Git 启动器在 Seatbelt 下固定出现的 xcrun 缓存写入噪声，其余 stderr 原样保留。Tool 的 Observation 是执行结果，只有 Runtime 成功提交后才能成为当前 Run 的证据。权限授予和恢复重放由 [Runtime](../../runtime/README.md) 管理，不由工具实现决定。

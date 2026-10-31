@@ -15,6 +15,7 @@ import {
     type Tool,
 } from "../../../packages/tool-core/src/index";
 import { createRuntimeComposition } from "../src/runtime/index";
+import { createTestToolRegistration } from "../../../packages/tool-core/test/helpers";
 
 /** 确定性模型：先请求一次写入，再完成任务。 */
 class ScriptedAdapter implements LLMAdapter {
@@ -93,7 +94,7 @@ test("无界面宿主经正式预检返回修订决定，工具按最终参数�
     const fixture = await setupFixture();
     const executed: { value: string }[] = [];
     const toolRegistry = new InMemoryToolRegistry([
-        createToolRegistration(controlledWriteTool(executed)),
+        createTestToolRegistration(controlledWriteTool(executed)),
     ]);
     const runtime = await createRuntimeComposition({
         cwd: fixture.workspace,
@@ -153,7 +154,7 @@ test("无界面宿主缺少恢复处理器时，未知结果等待不被普通�
     const fixture = await setupFixture();
     const executed: { value: string }[] = [];
     const toolRegistry = new InMemoryToolRegistry([
-        createToolRegistration(failingManualTool(executed)),
+        createTestToolRegistration(failingManualTool(executed)),
     ]);
     const runtime = await createRuntimeComposition({
         cwd: fixture.workspace,

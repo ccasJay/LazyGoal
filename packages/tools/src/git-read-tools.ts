@@ -1,16 +1,18 @@
 import { resolve } from "node:path";
 
-import type {
-    Tool,
-    ToolDefinition,
-    ToolExecutionRequest,
-    ToolObservation,
-    ToolValidationResult,
-} from "../../tool-core/src/index";
 import {
-    contract,
-    type InferContract,
-} from "../../contracts/src/index";
+    type BoundTool,
+    type Tool,
+    type BoundToolDefinition,
+    type ToolExecutionRequest,
+    type ToolObservation,
+    type ToolValidationResult,
+} from "../../tool-core/src/index";
+import { gitBranchListInputBinding } from "./generated/git-branch-list/binding";
+export { gitBranchListInputBinding };
+import { gitWorktreeListInputBinding } from "./generated/git-worktree-list/binding";
+export { gitWorktreeListInputBinding };
+import { contract } from "../../contracts/src/index";
 import {
     throwIfAborted,
     type ExecutionControl,
@@ -35,6 +37,10 @@ import {
     runRestrictedGit,
     type GitRepositoryInfo,
 } from "../../sandbox/src/git-runner";
+import { gitStatusInputBinding } from "./generated/git-status/binding";
+import { gitDiffInputBinding } from "./generated/git-diff/binding";
+import { gitLogInputBinding } from "./generated/git-log/binding";
+import { gitShowInputBinding } from "./generated/git-show/binding";
 
 // ============================================================================
 // 1. Tool IDs & Constants
@@ -73,7 +79,30 @@ export const GIT_STATUS_INPUT_CONTRACT = contract.object({
     })),
 });
 
-export type GitStatusInput = InferContract<typeof GIT_STATUS_INPUT_CONTRACT>;
+/**
+ * `git_status` 的结构化输入。
+ *
+ * @remarks
+ * `repoPath` 省略时使用当前工作区；`maxEntries` 控制单页条目数，其余字段用于游标分页与路径过滤。
+ */
+export interface GitStatusInput {
+    /** 可选的目标仓库路径。 */
+    readonly repoPath?: string;
+    /** 可选的路径过滤条件。 */
+    readonly path?: string;
+    /** 上一页返回的分页游标。 */
+    readonly cursor?: string;
+    /**
+     * 单页最多返回的条目数。
+     * @asType integer
+     * @minimum 1
+     * @maximum 500
+     */
+    readonly maxEntries?: number;
+}
+
+/** `git_status` 的生成输入绑定。 */
+export { gitStatusInputBinding };
 
 export interface GitStatusEntry {
     readonly path: string;
@@ -106,7 +135,36 @@ export const GIT_DIFF_INPUT_CONTRACT = contract.object({
     cursor: contract.optional(contract.string()),
 });
 
-export type GitDiffInput = InferContract<typeof GIT_DIFF_INPUT_CONTRACT>;
+/**
+ * `git_diff` 的结构化输入。
+ *
+ * @remarks
+ * 可比较工作区、暂存区或指定提交；`paths` 限定路径，`maxLines` 控制单页行数。
+ */
+export interface GitDiffInput {
+    /** 可选的目标仓库路径。 */
+    readonly repoPath?: string;
+    /** 可选的路径过滤列表。 */
+    readonly paths?: readonly string[];
+    /** 是否比较暂存区。 */
+    readonly staged?: boolean;
+    /** 可选的提交对象。 */
+    readonly commit?: string;
+    /** 可选的比较基线提交。 */
+    readonly baseCommit?: string;
+    /**
+     * 单页最多返回的行数。
+     * @asType integer
+     * @minimum 1
+     * @maximum 2000
+     */
+    readonly maxLines?: number;
+    /** 上一页返回的分页游标。 */
+    readonly cursor?: string;
+}
+
+/** `git_diff` 的生成输入绑定。 */
+export { gitDiffInputBinding };
 
 export interface GitDiffOutput {
     readonly repoPath: string;
@@ -127,7 +185,32 @@ export const GIT_LOG_INPUT_CONTRACT = contract.object({
     cursor: contract.optional(contract.string()),
 });
 
-export type GitLogInput = InferContract<typeof GIT_LOG_INPUT_CONTRACT>;
+/**
+ * `git_log` 的结构化输入。
+ *
+ * @remarks
+ * `maxCount` 控制单页提交数；`revisionRange` 与 `path` 缩小历史范围。
+ */
+export interface GitLogInput {
+    /** 可选的目标仓库路径。 */
+    readonly repoPath?: string;
+    /**
+     * 单页最多返回的提交数。
+     * @asType integer
+     * @minimum 1
+     * @maximum 100
+     */
+    readonly maxCount?: number;
+    /** 可选的路径过滤条件。 */
+    readonly path?: string;
+    /** 可选的修订范围。 */
+    readonly revisionRange?: string;
+    /** 上一页返回的分页游标。 */
+    readonly cursor?: string;
+}
+
+/** `git_log` 的生成输入绑定。 */
+export { gitLogInputBinding };
 
 export interface GitCommitRecord {
     readonly hash: string;
@@ -156,7 +239,30 @@ export const GIT_SHOW_INPUT_CONTRACT = contract.object({
     cursor: contract.optional(contract.string()),
 });
 
-export type GitShowInput = InferContract<typeof GIT_SHOW_INPUT_CONTRACT>;
+/**
+ * `git_show` 的结构化输入。
+ *
+ * @remarks
+ * `object` 是待展示的提交或对象标识；`maxLines` 控制单页行数。
+ */
+export interface GitShowInput {
+    /** 待展示的提交或对象标识。 */
+    readonly object: string;
+    /** 可选的目标仓库路径。 */
+    readonly repoPath?: string;
+    /**
+     * 单页最多返回的行数。
+     * @asType integer
+     * @minimum 1
+     * @maximum 2000
+     */
+    readonly maxLines?: number;
+    /** 上一页返回的分页游标。 */
+    readonly cursor?: string;
+}
+
+/** `git_show` 的生成输入绑定。 */
+export { gitShowInputBinding };
 
 export interface GitShowOutput {
     readonly repoPath: string;
@@ -174,7 +280,17 @@ export const GIT_BRANCH_LIST_INPUT_CONTRACT = contract.object({
     cursor: contract.optional(contract.string()),
 });
 
-export type GitBranchListInput = InferContract<typeof GIT_BRANCH_LIST_INPUT_CONTRACT>;
+/**
+ * `git_branch_list` 的结构化输入。
+ */
+export interface GitBranchListInput {
+    /** 可选的目标仓库路径。 */
+    readonly repoPath?: string;
+    /** 是否包含远程分支。 */
+    readonly remote?: boolean;
+    /** 上一页返回的分页游标。 */
+    readonly cursor?: string;
+}
 
 export interface GitBranchInfo {
     readonly name: string;
@@ -195,7 +311,15 @@ export const GIT_WORKTREE_LIST_INPUT_CONTRACT = contract.object({
     cursor: contract.optional(contract.string()),
 });
 
-export type GitWorktreeListInput = InferContract<typeof GIT_WORKTREE_LIST_INPUT_CONTRACT>;
+/**
+ * `git_worktree_list` 的结构化输入。
+ */
+export interface GitWorktreeListInput {
+    /** 可选的目标仓库路径。 */
+    readonly repoPath?: string;
+    /** 上一页返回的分页游标。 */
+    readonly cursor?: string;
+}
 
 export interface GitWorktreeInfo {
     readonly path: string;
@@ -276,10 +400,11 @@ async function resolveRepoDirectory(
  * const res = await tool.execute({ actionId: "act-1", input: {} });
  * ```
  */
-export class GitStatusTool implements Tool<typeof GIT_STATUS_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof GIT_STATUS_INPUT_CONTRACT> = {
+export class GitStatusTool implements BoundTool<GitStatusInput> {
+    readonly definition: BoundToolDefinition<GitStatusInput> = {
         id: GIT_STATUS_TOOL_ID,
         description: "Inspect working tree and index status using porcelain v2 format with pagination.",
+        inputBinding: gitStatusInputBinding,
         inputContract: GIT_STATUS_INPUT_CONTRACT,
         isReadOnly: true,
     };
@@ -487,10 +612,11 @@ export class GitStatusTool implements Tool<typeof GIT_STATUS_INPUT_CONTRACT> {
  * const res = await tool.execute({ actionId: "act-2", input: { staged: true } });
  * ```
  */
-export class GitDiffTool implements Tool<typeof GIT_DIFF_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof GIT_DIFF_INPUT_CONTRACT> = {
+export class GitDiffTool implements BoundTool<GitDiffInput> {
+    readonly definition: BoundToolDefinition<GitDiffInput> = {
         id: GIT_DIFF_TOOL_ID,
         description: "Inspect working tree or staged diff, or diff between commits with line pagination.",
+        inputBinding: gitDiffInputBinding,
         inputContract: GIT_DIFF_INPUT_CONTRACT,
         isReadOnly: true,
     };
@@ -645,10 +771,11 @@ export class GitDiffTool implements Tool<typeof GIT_DIFF_INPUT_CONTRACT> {
  * const res = await tool.execute({ actionId: "act-3", input: { maxCount: 10 } });
  * ```
  */
-export class GitLogTool implements Tool<typeof GIT_LOG_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof GIT_LOG_INPUT_CONTRACT> = {
+export class GitLogTool implements BoundTool<GitLogInput> {
+    readonly definition: BoundToolDefinition<GitLogInput> = {
         id: GIT_LOG_TOOL_ID,
         description: "List commit history with structured author, date, and message fields with pagination.",
+        inputBinding: gitLogInputBinding,
         inputContract: GIT_LOG_INPUT_CONTRACT,
         isReadOnly: true,
     };
@@ -815,10 +942,11 @@ export class GitLogTool implements Tool<typeof GIT_LOG_INPUT_CONTRACT> {
  * const res = await tool.execute({ actionId: "act-4", input: { object: "HEAD" } });
  * ```
  */
-export class GitShowTool implements Tool<typeof GIT_SHOW_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof GIT_SHOW_INPUT_CONTRACT> = {
+export class GitShowTool implements BoundTool<GitShowInput> {
+    readonly definition: BoundToolDefinition<GitShowInput> = {
         id: GIT_SHOW_TOOL_ID,
         description: "Show commit details, blob content, or diff for a Git object with line pagination.",
+        inputBinding: gitShowInputBinding,
         inputContract: GIT_SHOW_INPUT_CONTRACT,
         isReadOnly: true,
     };
@@ -984,10 +1112,11 @@ export class GitShowTool implements Tool<typeof GIT_SHOW_INPUT_CONTRACT> {
  * const res = await tool.execute({ actionId: "act-5", input: {} });
  * ```
  */
-export class GitBranchListTool implements Tool<typeof GIT_BRANCH_LIST_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof GIT_BRANCH_LIST_INPUT_CONTRACT> = {
+export class GitBranchListTool implements BoundTool<GitBranchListInput> {
+    readonly definition: BoundToolDefinition<GitBranchListInput> = {
         id: GIT_BRANCH_LIST_TOOL_ID,
         description: "List local and tracked branches in the repository without network access.",
+        inputBinding: gitBranchListInputBinding,
         inputContract: GIT_BRANCH_LIST_INPUT_CONTRACT,
         isReadOnly: true,
     };
@@ -1112,10 +1241,11 @@ export class GitBranchListTool implements Tool<typeof GIT_BRANCH_LIST_INPUT_CONT
  * const res = await tool.execute({ actionId: "act-6", input: {} });
  * ```
  */
-export class GitWorktreeListTool implements Tool<typeof GIT_WORKTREE_LIST_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof GIT_WORKTREE_LIST_INPUT_CONTRACT> = {
+export class GitWorktreeListTool implements BoundTool<GitWorktreeListInput> {
+    readonly definition: BoundToolDefinition<GitWorktreeListInput> = {
         id: GIT_WORKTREE_LIST_TOOL_ID,
         description: "List all linked worktrees in the repository using porcelain format.",
+        inputBinding: gitWorktreeListInputBinding,
         inputContract: GIT_WORKTREE_LIST_INPUT_CONTRACT,
         isReadOnly: true,
     };

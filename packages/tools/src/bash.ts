@@ -2,18 +2,16 @@ import { spawn } from "node:child_process";
 import { realpath } from "node:fs/promises";
 import { delimiter, dirname, resolve } from "node:path";
 
-import type {
-    Tool,
-    ToolDefinition,
-    ToolExecutionRequest,
-    ToolObservation,
-    ToolStreamEvent,
-    ToolValidationResult,
-} from "../../tool-core/src/index";
 import {
-    contract,
-    type InferContract,
-} from "../../contracts/src/index";
+    type BoundTool,
+    type Tool,
+    type BoundToolDefinition,
+    type ToolExecutionRequest,
+    type ToolObservation,
+    type ToolStreamEvent,
+    type ToolValidationResult,
+} from "../../tool-core/src/index";
+import { contract } from "../../contracts/src/index";
 import {
     ExecutionAbortedError,
     throwIfAborted,
@@ -30,6 +28,7 @@ import {
     resolveGitProtectionPaths,
     SANDBOX_EXEC_PATH,
 } from "../../sandbox/src/index";
+import { bashInputBinding } from "./generated/bash/binding";
 
 /** `BashTool` 在 Profile 中使用的稳定标识。 */
 export const BASH_TOOL_ID = "bash";
@@ -109,7 +108,62 @@ export const BASH_INPUT_CONTRACT = contract.object({
     sandboxAccess: contract.optional(SANDBOX_ACCESS_CONTRACT),
 });
 
-type BashInput = InferContract<typeof BASH_INPUT_CONTRACT>;
+/**
+ * Bash 工具申请的单文件或目录树访问。
+ */
+export interface BashSandboxFileAccessInput {
+    /** 申请路径。 */
+    readonly path: string;
+    /** 访问类型。 */
+    readonly access: "read" | "write";
+    /** 申请范围。 */
+    readonly kind: "file" | "directory_tree";
+    /** 申请用途说明。 */
+    readonly purpose: string;
+}
+
+/**
+ * Bash 工具申请的网络访问。
+ */
+export interface BashSandboxNetworkAccessInput {
+    /** 允许访问的网络目标列表。 */
+    readonly targets: readonly string[];
+    /** 申请用途说明。 */
+    readonly purpose: string;
+}
+
+/**
+ * Bash 工具申请的额外沙箱能力。
+ */
+export interface BashSandboxAccessInput {
+    /** 额外申请的文件访问列表。 */
+    readonly files?: readonly BashSandboxFileAccessInput[];
+    /** 可选的网络访问申请。 */
+    readonly network?: BashSandboxNetworkAccessInput;
+}
+
+/**
+ * `bash` 的结构化输入。
+ *
+ * @remarks
+ * `timeoutMs` 限制单次命令执行时间；`sandboxAccess` 声明命令外的额外沙箱能力申请。
+ */
+export interface BashInput {
+    /** 要执行的 shell 命令。 */
+    readonly command: string;
+    /**
+     * 命令超时毫秒数。
+     * @asType integer
+     * @minimum 1
+     * @maximum 120000
+     */
+    readonly timeoutMs?: number;
+    /** 可选的沙箱能力申请。 */
+    readonly sandboxAccess?: BashSandboxAccessInput;
+}
+
+/** `bash` 的生成输入绑定。 */
+export { bashInputBinding };
 
 /**
  * BashTool 的配置选项。
@@ -542,10 +596,11 @@ function runShellCommand(
  * });
  * ```
  */
-export class BashTool implements Tool<typeof BASH_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof BASH_INPUT_CONTRACT> = {
+export class BashTool implements BoundTool<BashInput> {
+    readonly definition: BoundToolDefinition<BashInput> = {
         id: BASH_TOOL_ID,
         description: "在 workspaceRoot 内以 bash 执行命令并返回截断后的 stdout/stderr",
+        inputBinding: bashInputBinding,
         inputContract: BASH_INPUT_CONTRACT,
         isReadOnly: false,
     };

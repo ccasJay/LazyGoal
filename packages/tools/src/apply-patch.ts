@@ -4,22 +4,22 @@ import { dirname, resolve } from "node:path";
 import * as diff from "diff";
 
 import type {
+    BoundTool,
     Tool,
-    ToolDefinition,
+    BoundToolDefinition,
     ToolExecutionRequest,
     ToolObservation,
     ToolValidationResult,
 } from "../../tool-core/src/index";
-import {
-    contract,
-    type InferContract,
-} from "../../contracts/src/index";
+import { contract } from "../../contracts/src/index";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,
     throwIfAborted,
     type ExecutionControl,
 } from "../../execution-control/src/index";
+import { applyPatchInputBinding } from "./generated/apply-patch/binding";
+export { applyPatchInputBinding };
 import { invalidInput } from "./internal/invalid-input";
 import { markWorkspaceModified } from "./internal/workspace-version";
 import {
@@ -42,13 +42,21 @@ export const APPLY_PATCH_MAX_TOTAL_BYTES = 32 * 1024 * 1024;
 /** 单个文件最大允许字节数 (8 MiB)。 */
 export const APPLY_PATCH_MAX_SINGLE_FILE_BYTES = 8 * 1024 * 1024;
 
-/** Apply Patch Tool 的输入契约。 */
+/** Apply Patch Tool 的输入契约（过渡期供模型线消费）。 */
 export const APPLY_PATCH_INPUT_CONTRACT = contract.object({
     patch: contract.string(),
 });
 
-/** Apply Patch 输入类型。 */
-export type ApplyPatchInput = InferContract<typeof APPLY_PATCH_INPUT_CONTRACT>;
+/**
+ * `apply_patch` 的结构化输入。
+ *
+ * @remarks
+ * `patch` 使用统一 diff 文本描述一个或多个文件的创建、修改或删除。
+ */
+export interface ApplyPatchInput {
+    /** 统一 diff 格式的补丁文本。 */
+    readonly patch: string;
+}
 
 /** 成功应用的单个文件结果。 */
 export interface AppliedFileResult {
@@ -130,10 +138,11 @@ function normalizeRelativePath(p: string): string {
  * });
  * ```
  */
-export class ApplyPatchTool implements Tool<typeof APPLY_PATCH_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof APPLY_PATCH_INPUT_CONTRACT> = {
+export class ApplyPatchTool implements BoundTool<ApplyPatchInput> {
+    readonly definition: BoundToolDefinition<ApplyPatchInput> = {
         id: APPLY_PATCH_TOOL_ID,
         description: "Apply unified or Git text patches across files in workspace with strict unique matching.",
+        inputBinding: applyPatchInputBinding,
         inputContract: APPLY_PATCH_INPUT_CONTRACT,
         isReadOnly: false,
     };

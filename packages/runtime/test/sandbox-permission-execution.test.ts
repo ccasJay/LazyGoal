@@ -27,6 +27,8 @@ import { contract } from "../../contracts/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import type { SandboxExecutionPlan } from "../../sandbox/src/index";
 import { BaseTestStepExecutor, currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
+import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const TEST_INPUT_CONTRACT = contract.object({
     command: contract.string(),
@@ -81,11 +83,12 @@ class FakeStepExecutor extends BaseTestStepExecutor {
 function createSandboxTestTool(
     workspaceRoot: string,
     onExecute?: (request: ToolExecutionRequest<SandboxTestInput>) => void,
-): Tool<typeof TEST_INPUT_CONTRACT> {
+): Tool<any> {
     return {
         definition: {
             id: "bash",
             description: "受限测试 bash",
+            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: TEST_INPUT_CONTRACT }),
             inputContract: TEST_INPUT_CONTRACT,
             isReadOnly: false,
         },
@@ -157,7 +160,7 @@ test("Action 经核准并提供有效 SandboxExecutionPlan 后执行成功并传
         });
         const registry = {
             get(id: string) {
-                if (id === "bash") return createToolRegistration(tool);
+                if (id === "bash") return createTestToolRegistration(tool);
                 throw new Error(`Tool ${id} not found`);
             },
         };
@@ -273,7 +276,7 @@ test("申请额外能力的 Action 未提供 plan 时被沙箱拒绝（SANDBOX_A
         });
         const registry = {
             get(id: string) {
-                if (id === "bash") return createToolRegistration(tool);
+                if (id === "bash") return createTestToolRegistration(tool);
                 throw new Error(`Tool ${id} not found`);
             },
         };
@@ -354,7 +357,7 @@ test("传入的 plan 与当前 ActionId 或 WorkspaceRoot 失配时不能越权�
         });
         const registry = {
             get(id: string) {
-                if (id === "bash") return createToolRegistration(tool);
+                if (id === "bash") return createTestToolRegistration(tool);
                 throw new Error(`Tool ${id} not found`);
             },
         };
@@ -444,7 +447,7 @@ test("通过 sandboxPlanResolver 动态解析核准 plan", async () => {
         });
         const registry = {
             get(id: string) {
-                if (id === "bash") return createToolRegistration(tool);
+                if (id === "bash") return createTestToolRegistration(tool);
                 throw new Error(`Tool ${id} not found`);
             },
         };
@@ -530,7 +533,7 @@ test("ToolPolicy 允许但无核准 plan 时，受限能力依然被拦截拒绝
         });
         const registry = {
             get(id: string) {
-                if (id === "bash") return createToolRegistration(tool);
+                if (id === "bash") return createTestToolRegistration(tool);
                 throw new Error(`Tool ${id} not found`);
             },
         };

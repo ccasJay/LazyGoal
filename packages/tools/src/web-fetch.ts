@@ -1,14 +1,12 @@
-import type {
-    Tool,
-    ToolDefinition,
-    ToolExecutionRequest,
-    ToolObservation,
-    ToolValidationResult,
-} from "../../tool-core/src/index";
 import {
-    contract,
-    type InferContract,
-} from "../../contracts/src/index";
+    type BoundTool,
+    type Tool,
+    type BoundToolDefinition,
+    type ToolExecutionRequest,
+    type ToolObservation,
+    type ToolValidationResult,
+} from "../../tool-core/src/index";
+import { contract } from "../../contracts/src/index";
 import {
     ExecutionAbortedError,
     throwIfAborted,
@@ -30,6 +28,7 @@ import {
 import { assertSafeWebFetchUrl } from "./web/fetch-url-policy";
 import { createDefaultWebFetchHandler } from "./web/fetch-default";
 import { WEB_FETCH_MAX_RESPONSE_BYTES } from "./web/limits";
+import { webFetchInputBinding } from "./generated/web-fetch/binding";
 
 /** `WebFetchTool` 在 Profile 中使用的稳定标识。 */
 export const WEB_FETCH_TOOL_ID = "web_fetch";
@@ -110,8 +109,33 @@ export const WEB_FETCH_INPUT_CONTRACT = contract.object({
     ),
 });
 
-/** Web Fetch 输入类型。 */
-export type WebFetchInput = InferContract<typeof WEB_FETCH_INPUT_CONTRACT>;
+/**
+ * `web_fetch` 的结构化输入。
+ *
+ * @remarks
+ * `maxChars` 与 `offset` 按 UTF-16 偏移对提取后的纯文本分页。
+ */
+export interface WebFetchInput {
+    /** 要抓取的 http 或 https URL。 */
+    readonly url: string;
+    /**
+     * 单页最多返回的字符数。
+     * @asType integer
+     * @minimum 1
+     * @maximum 50000
+     */
+    readonly maxChars?: number;
+    /**
+     * 提取文本的起始 UTF-16 偏移。
+     * @asType integer
+     * @minimum 0
+     * @maximum 9007199254740991
+     */
+    readonly offset?: number;
+}
+
+/** `web_fetch` 的生成输入绑定。 */
+export { webFetchInputBinding };
 
 /**
  * 将 HTML 文本转换为单行可见文本。
@@ -153,10 +177,11 @@ export function htmlToPlainText(html: string): string {
  * });
  * ```
  */
-export class WebFetchTool implements Tool<typeof WEB_FETCH_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof WEB_FETCH_INPUT_CONTRACT> = {
+export class WebFetchTool implements BoundTool<WebFetchInput> {
+    readonly definition: BoundToolDefinition<WebFetchInput> = {
         id: WEB_FETCH_TOOL_ID,
         description: "Fetch web page content and return structured plain text with pagination support.",
+        inputBinding: webFetchInputBinding,
         inputContract: WEB_FETCH_INPUT_CONTRACT,
         isReadOnly: true,
     };

@@ -33,6 +33,7 @@ import {
     createExecutionComponents,
     type ExecutionComponentDependencies,
 } from "../src/runtime/index";
+import { createTestToolRegistration } from "../../../packages/tool-core/test/helpers";
 
 const profile: AgentProfile = {
     id: "profile-execution-composition",
@@ -150,7 +151,7 @@ function createDependencies(options: {
         store: options.store,
         executor: options.executor,
         profiles: new SingleProfileRegistry(),
-        toolRegistry: options.toolRegistry ?? new InMemoryToolRegistry([createToolRegistration(readFileTool())]),
+        toolRegistry: options.toolRegistry ?? new InMemoryToolRegistry([createTestToolRegistration(readFileTool())]),
         toolPolicy: { evaluate: () => "allow" },
         ...(options.trajectoryStore === undefined ? {} : { trajectoryStore: options.trajectoryStore }),
         runIdGenerator: options.runIdGenerator,
@@ -175,7 +176,7 @@ test("仅注入现有 Port 即可推进到等待点、只读恢复与终态后�
         { kind: "fail", error: "第二次推进按脚本失败" },
         { kind: "wait", reason: "后继 Run 等待用户确认" },
     ]);
-    const toolRegistry = new InMemoryToolRegistry([createToolRegistration(readFileTool())]);
+    const toolRegistry = new InMemoryToolRegistry([createTestToolRegistration(readFileTool())]);
     let runCounter = 0;
     const components = createExecutionComponents(createDependencies({
         store,
@@ -271,7 +272,7 @@ test("构造组件不注册进程信号，也不接管调用方依赖", async ()
     const sigintBefore = process.listenerCount("SIGINT");
     const sigtermBefore = process.listenerCount("SIGTERM");
     const store = new RecordingGoalStore();
-    const toolRegistry = new InMemoryToolRegistry([createToolRegistration(readFileTool())]);
+    const toolRegistry = new InMemoryToolRegistry([createTestToolRegistration(readFileTool())]);
     const components = createExecutionComponents(createDependencies({
         store,
         executor: new ScriptedExecutor([{ kind: "wait", reason: "未推进" }]).executor,
@@ -302,7 +303,7 @@ test("构造组件不注册进程信号，也不接管调用方依赖", async ()
 test("初始保存失败不会调用执行器或工具，也不破坏借用的 Store", async () => {
     let toolCalls = 0;
     const toolRegistry = new InMemoryToolRegistry([
-        createToolRegistration(readFileTool(() => {
+        createTestToolRegistration(readFileTool(() => {
             toolCalls += 1;
         })),
     ]);

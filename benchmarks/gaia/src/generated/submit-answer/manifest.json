@@ -1,0 +1,23 @@
+{
+  "contractId": "tool.submit_answer.input",
+  "version": 1,
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "source": {
+    "path": "benchmarks/gaia/src/submit-answer.ts#SubmitAnswerInput",
+    "sha256": "61d8a3d537d7ed4a68d0d86578e89f54dc1f37ba1f262082e6dc4ff07d380ac4"
+  },
+  "generator": {
+    "name": "ts-json-schema-generator",
+    "version": "2.9.0",
+    "typescriptVersion": "5.9.3"
+  },
+  "validator": {
+    "name": "Ajv standalone",
+    "version": "8.20.0"
+  },
+  "bundler": {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "format": "esm"
+  }
+}

@@ -24,6 +24,7 @@ import { isSeatbeltSupported } from "../../sandbox/src/index";
 import { BashTool, createExecuteProgramRegistration, ReadFileTool, WriteFileTool } from "../../tools/src/index";
 import { JsonFileGoalStore } from "../src/goal-store";
 import { JsonFileTrajectoryStore } from "../src/json-file-trajectory-store";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 test("PTC restores committed reads and waits for a write with an unknown result", {
     skip: !isSeatbeltSupported(),
@@ -74,7 +75,7 @@ test("PTC restores committed reads and waits for a write with an unknown result"
         const writeInput = contract.object({ path: contract.string(), content: contract.string() });
         const registry = new InMemoryToolRegistry([
             createExecuteProgramRegistration(),
-            createToolRegistration({
+            createTestToolRegistration({
                 definition: {
                     id: "read_file", description: "Read", inputContract: readInput, isReadOnly: true,
                 },
@@ -85,7 +86,7 @@ test("PTC restores committed reads and waits for a write with an unknown result"
                     return { kind: "success", output: "old", summary: "Read" };
                 },
             }),
-            createToolRegistration({
+            createTestToolRegistration({
                 definition: {
                     id: "write_file", description: "Write", inputContract: writeInput, isReadOnly: false,
                 },
@@ -258,9 +259,9 @@ test("PTC resumes a reviewed real write, runs Bash, and returns one parent resul
         };
         const registry = new InMemoryToolRegistry([
             createExecuteProgramRegistration(),
-            createToolRegistration(new ReadFileTool(workspace)),
-            createToolRegistration(new WriteFileTool(workspace)),
-            createToolRegistration(new BashTool(workspace)),
+            createTestToolRegistration(new ReadFileTool(workspace)),
+            createTestToolRegistration(new WriteFileTool(workspace)),
+            createTestToolRegistration(new BashTool(workspace)),
         ]);
         const dependencies = {
             executor, toolRegistry: registry, workspaceRoot: workspace,

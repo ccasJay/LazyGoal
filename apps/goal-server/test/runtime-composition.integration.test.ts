@@ -27,6 +27,7 @@ import {
 } from "../../../packages/tool-core/src/index";
 import { contract } from "../../../packages/contracts/src/index";
 import { createRuntimeComposition } from "../src/runtime/index";
+import { createTestToolRegistration } from "../../../packages/tool-core/test/helpers";
 
 const profile: AgentProfile = {
     id: "profile-runtime-composition",
@@ -291,7 +292,7 @@ test("构造中途失败结算自有资源、保留初始故障且不关闭借�
     const fixture = await setupFixture();
     const resources = new ManagedResourceRegistry();
     const abortController = new AbortController();
-    const borrowedRegistry = new InMemoryToolRegistry([createToolRegistration(readFileTool())]);
+    const borrowedRegistry = new InMemoryToolRegistry([createTestToolRegistration(readFileTool())]);
     try {
         await assert.rejects(
             createRuntimeComposition({

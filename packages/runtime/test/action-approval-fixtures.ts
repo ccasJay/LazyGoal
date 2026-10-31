@@ -36,6 +36,8 @@ import {
     trajectoryStoreFor,
     withDiscoveredProfileTools,
 } from "./current-fixtures";
+import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 /** 受控写入 Tool 的输入契约；字段级错误由 Tool Contract 负责。 */
 export const WRITE_INPUT_CONTRACT = contract.object({
@@ -67,11 +69,12 @@ export function createControlledWriteTool(
         readonly replayPolicy?: "safe" | "manual";
         readonly throws?: (input: WriteToolInput) => boolean;
     } = {},
-): Tool<typeof WRITE_INPUT_CONTRACT> {
+): Tool<any> {
     return {
         definition: {
             id: "write_file",
             description: "受控写入 Tool",
+            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: WRITE_INPUT_CONTRACT }),
             inputContract: WRITE_INPUT_CONTRACT,
             isReadOnly: false,
         },
@@ -127,7 +130,7 @@ export async function createApprovalFixture(
     const sandboxGrantStore = new JsonFileSandboxGrantStore(workspaceRoot);
     const calls: CapturedToolCall[] = [];
     const registry = new InMemoryToolRegistry([
-        createToolRegistration(createControlledWriteTool(calls, {
+        createTestToolRegistration(createControlledWriteTool(calls, {
             ...(options.throws === undefined ? {} : { throws: options.throws }),
         })),
     ]);

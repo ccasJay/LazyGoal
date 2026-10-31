@@ -27,6 +27,7 @@ import {
 import { contract } from "../../../packages/contracts/src/index";
 import { createRuntimeComposition } from "../src/runtime/index";
 import { BashTool } from "../../../packages/tools/src/bash";
+import { createTestToolRegistration } from "../../../packages/tool-core/test/helpers";
 
 function wire(toolId: string, args: Record<string, unknown>): LLMResponse {
     return toolCallResponse({
@@ -153,7 +154,7 @@ test("重建服务后，沙箱审批为真实 Bash 调用恢复绑定 Action 的
     const target = join(fixture.home, "approved.txt");
     await writeFile(target, "approved read");
     // 只验证宿主审批接线与 Bash 的计划检查；OS 沙箱行为由 sandbox 测试覆盖。
-    const registry = () => new InMemoryToolRegistry([createToolRegistration(new BashTool(fixture.workspace, { enableSeatbelt: false }))]);
+    const registry = () => new InMemoryToolRegistry([createTestToolRegistration(new BashTool(fixture.workspace, { enableSeatbelt: false }))]);
     const options = {
         cwd: fixture.workspace,
         env: { LAZYGOAL_HOME: fixture.home } as NodeJS.ProcessEnv,
@@ -196,7 +197,7 @@ test("重建服务后，沙箱审批为真实 Bash 调用恢复绑定 Action 的
 test("重建实例后恢复同一 Run：匹配交互身份、累计 Step、轨迹与工具调用次数", async () => {
     const fixture = await setupFixture();
     let toolCalls = 0;
-    const toolRegistry = new InMemoryToolRegistry([createToolRegistration(readFileTool(() => {
+    const toolRegistry = new InMemoryToolRegistry([createTestToolRegistration(readFileTool(() => {
         toolCalls += 1;
     }))]);
     const goalId = "goal-recovery-identity";
@@ -345,7 +346,7 @@ test("终态后显式 continue 归档旧 Run 并创建后继 Run", async () => {
     const goalId = "goal-recovery-continue";
     let runCounter = 0;
     const runIdGenerator = (): string => `run-${++runCounter}`;
-    const toolRegistry = new InMemoryToolRegistry([createToolRegistration(readFileTool(() => undefined))]);
+    const toolRegistry = new InMemoryToolRegistry([createTestToolRegistration(readFileTool(() => undefined))]);
 
     const first = await createRuntimeComposition({
         cwd: fixture.workspace,
@@ -399,7 +400,7 @@ test("终态后显式 continue 归档旧 Run 并创建后继 Run", async () => {
 
 test("损坏 Snapshot 与缺失工具按既有边界 fail-closed", async () => {
     const fixture = await setupFixture();
-    const toolRegistry = new InMemoryToolRegistry([createToolRegistration(readFileTool(() => undefined))]);
+    const toolRegistry = new InMemoryToolRegistry([createTestToolRegistration(readFileTool(() => undefined))]);
     const runtime = await createRuntimeComposition({
         cwd: fixture.workspace,
         env: { LAZYGOAL_HOME: fixture.home } as NodeJS.ProcessEnv,
@@ -442,7 +443,7 @@ test("结果未知的 manual Tool 在重建后不被盲重试", async () => {
     const fixture = await setupFixture();
     let manualCalls = 0;
     const manualRegistry = new InMemoryToolRegistry([
-        createToolRegistration(manualTool(() => {
+        createTestToolRegistration(manualTool(() => {
             manualCalls += 1;
         })),
     ]);
@@ -518,7 +519,7 @@ test("结果未知的 manual Tool 在重建后不被盲重试", async () => {
 
 test("关闭超时的旧实例保持 closing、拒绝新执行，不作为安全重建依据", async () => {
     const fixture = await setupFixture();
-    const toolRegistry = new InMemoryToolRegistry([createToolRegistration(readFileTool(() => undefined))]);
+    const toolRegistry = new InMemoryToolRegistry([createTestToolRegistration(readFileTool(() => undefined))]);
     let neverSettles = true;
     try {
         const resources = new ManagedResourceRegistry();

@@ -1,17 +1,15 @@
 import { readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
-import type {
-    Tool,
-    ToolDefinition,
-    ToolExecutionRequest,
-    ToolObservation,
-    ToolValidationResult,
-} from "../../tool-core/src/index";
 import {
-    contract,
-    type InferContract,
-} from "../../contracts/src/index";
+    type BoundTool,
+    type Tool,
+    type BoundToolDefinition,
+    type ToolExecutionRequest,
+    type ToolObservation,
+    type ToolValidationResult,
+} from "../../tool-core/src/index";
+import { contract } from "../../contracts/src/index";
 import {
     ExecutionAbortedError,
     isExecutionAbortedError,
@@ -29,6 +27,7 @@ import {
     type DomainFailureMessages,
     type WorkspaceSandbox,
 } from "../../sandbox/src/index";
+import { listDirectoryInputBinding } from "./generated/list-directory/binding";
 
 /** `ListDirectoryTool` 在 Profile 中使用的稳定标识。 */
 export const LIST_DIRECTORY_TOOL_ID = "list_directory";
@@ -68,8 +67,28 @@ export const LIST_DIRECTORY_INPUT_CONTRACT = contract.object({
     cursor: contract.optional(contract.string()),
 });
 
-/** ListDirectory 输入结构。 */
-export type ListDirectoryInput = InferContract<typeof LIST_DIRECTORY_INPUT_CONTRACT>;
+/**
+ * `list_directory` 的结构化输入。
+ *
+ * @remarks
+ * `path` 省略时列举工作区根目录；`maxEntries` 与 `cursor` 控制单页条目数和续读位置。
+ */
+export interface ListDirectoryInput {
+    /** 工作区相对目录路径。 */
+    readonly path?: string;
+    /**
+     * 单页最多返回的条目数。
+     * @asType integer
+     * @minimum 1
+     * @maximum 1000
+     */
+    readonly maxEntries?: number;
+    /** 上一页返回的分页游标。 */
+    readonly cursor?: string;
+}
+
+/** `list_directory` 的生成输入绑定。 */
+export { listDirectoryInputBinding };
 
 /** 目录直接子项类型。 */
 export type DirectoryEntryType = "file" | "directory" | "symlink";
@@ -116,10 +135,11 @@ interface ListDirectoryCursorPayload {
  * });
  * ```
  */
-export class ListDirectoryTool implements Tool<typeof LIST_DIRECTORY_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof LIST_DIRECTORY_INPUT_CONTRACT> = {
+export class ListDirectoryTool implements BoundTool<ListDirectoryInput> {
+    readonly definition: BoundToolDefinition<ListDirectoryInput> = {
         id: LIST_DIRECTORY_TOOL_ID,
         description: "List immediate entries in a workspace directory with pagination support.",
+        inputBinding: listDirectoryInputBinding,
         inputContract: LIST_DIRECTORY_INPUT_CONTRACT,
         isReadOnly: true,
     };

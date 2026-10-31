@@ -21,6 +21,8 @@ import { contract } from "../../contracts/src/index";
 import { createToolRegistration, type Tool } from "../../tool-core/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
 import { currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
+import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const profile: AgentProfile = {
     id: "session-races-profile",
@@ -107,7 +109,7 @@ function createHarness(options: {
             : {
                 toolRegistry: {
                     get: (toolId: string) => toolId === tool.definition.id
-                        ? createToolRegistration(tool)
+                        ? createTestToolRegistration(tool)
                         : undefined,
                 },
             }),
@@ -290,6 +292,7 @@ test("工具审批等待：Interrupt 先受理后迟到批准不执行工具", a
         definition: {
             id: "write_probe",
             description: "May write externally",
+            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.record(contract.string()) }),
             inputContract: contract.record(contract.string()),
             isReadOnly: false,
         },
@@ -337,7 +340,7 @@ test("工具审批等待：Interrupt 先受理后迟到批准不执行工具", a
         trajectoryStore: trajectory,
         executor,
         checkpointCommitter: committer,
-        toolRegistry: { get: (toolId) => toolId === "write_probe" ? createToolRegistration(tool) : undefined },
+        toolRegistry: { get: (toolId) => toolId === "write_probe" ? createTestToolRegistration(tool) : undefined },
         toolPolicy: { evaluate: () => "require_approval" },
     });
     const waiting = await runner.runUntilBlocked({ goalId, runId: fixture.state.run.id });
@@ -476,6 +479,7 @@ test("未知效果中断直接取消，不调用模型或提出新的审批请�
         definition: {
             id: "write_probe",
             description: "May write externally",
+            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.record(contract.string()) }),
             inputContract: contract.record(contract.string()),
             isReadOnly: false,
         },
@@ -491,6 +495,7 @@ test("未知效果中断直接取消，不调用模型或提出新的审批请�
         definition: {
             id: "inspect_probe",
             description: "Inspect safely",
+            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.record(contract.string()) }),
             inputContract: contract.record(contract.string()),
             isReadOnly: true,
         },
@@ -507,8 +512,8 @@ test("未知效果中断直接取消，不调用模型或提出新的审批请�
         executor,
         checkpointCommitter: committer,
         toolRegistry: {
-            get: (toolId) => toolId === "write_probe" ? createToolRegistration(tool)
-                : toolId === "inspect_probe" ? createToolRegistration(inspectTool) : undefined,
+            get: (toolId) => toolId === "write_probe" ? createTestToolRegistration(tool)
+                : toolId === "inspect_probe" ? createTestToolRegistration(inspectTool) : undefined,
         },
         // 允许写入探针执行；中断后不得再提出检查工具审批。
         toolPolicy: { evaluate: ({ action }) => action.toolId === "inspect_probe" ? "require_approval" : "allow" },

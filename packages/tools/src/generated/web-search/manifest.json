@@ -1,0 +1,23 @@
+{
+  "contractId": "tool.web_search.input",
+  "version": 1,
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "source": {
+    "path": "packages/tools/src/web-search.ts#WebSearchInput",
+    "sha256": "44bbfa7846254d23f550e80cad32de8c4b065b0c3f36903f11c7d2a93fd8a899"
+  },
+  "generator": {
+    "name": "ts-json-schema-generator",
+    "version": "2.9.0",
+    "typescriptVersion": "5.9.3"
+  },
+  "validator": {
+    "name": "Ajv standalone",
+    "version": "8.20.0"
+  },
+  "bundler": {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "format": "esm"
+  }
+}

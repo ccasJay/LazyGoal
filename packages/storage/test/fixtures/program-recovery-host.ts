@@ -14,6 +14,7 @@ import { currentProtocols } from "../../../runtime/test/current-fixtures";
 import { createExecuteProgramRegistration } from "../../../tools/src/index";
 import { JsonFileGoalStore } from "../../src/goal-store";
 import { JsonFileTrajectoryStore } from "../../src/json-file-trajectory-store";
+import { createTestToolRegistration } from "../../../tool-core/test/helpers";
 
 const mode = process.argv[2];
 const root = process.argv[3];
@@ -63,7 +64,7 @@ if (mode === "start") {
 
 const registry = new InMemoryToolRegistry([
     createExecuteProgramRegistration(),
-    createToolRegistration({
+    createTestToolRegistration({
         definition: {
             id: "read_file", description: "Read fixture", inputContract: contract.object({ path: contract.string() }), isReadOnly: true,
         },
@@ -74,7 +75,7 @@ const registry = new InMemoryToolRegistry([
             return { kind: "success", output: "recorded", summary: "Read" };
         },
     }),
-    createToolRegistration({
+    createTestToolRegistration({
         definition: {
             id: "write_file", description: "Write fixture", inputContract: contract.object({ path: contract.string(), content: contract.string() }), isReadOnly: false,
         },

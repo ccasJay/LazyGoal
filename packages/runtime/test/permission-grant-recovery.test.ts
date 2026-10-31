@@ -38,6 +38,8 @@ import {
     createApprovalFixture,
     createAwaitingApprovalGoal,
 } from "./action-approval-fixtures";
+import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const TEST_INPUT_CONTRACT = contract.object({
     command: contract.string(),
@@ -80,6 +82,7 @@ function createMockBashTool(onExecute?: (request: ToolExecutionRequest) => void)
         definition: {
             id: "bash",
             description: "受限测试 bash",
+            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: TEST_INPUT_CONTRACT }),
             inputContract: TEST_INPUT_CONTRACT,
             isReadOnly: false,
         },
@@ -116,7 +119,7 @@ test("持续授权生命周期：沙箱审批选择 Goal 范围并在后续 Acti
         const mockBash = createMockBashTool((req) => {
             executedCommands.push((req.input as any).command);
         });
-        const registry = new InMemoryToolRegistry([createToolRegistration(mockBash)]);
+        const registry = new InMemoryToolRegistry([createTestToolRegistration(mockBash)]);
 
         const decisions: AgentDecision[] = [
             {
@@ -251,7 +254,7 @@ test("持续授权隔离与撤销：不同命令不复用，撤销后重新拦�
         const mockBash = createMockBashTool((req) => {
             executedCommands.push((req.input as any).command);
         });
-        const registry = new InMemoryToolRegistry([createToolRegistration(mockBash)]);
+        const registry = new InMemoryToolRegistry([createTestToolRegistration(mockBash)]);
 
         let currentDecision: AgentDecision = {
             kind: "tool_call",

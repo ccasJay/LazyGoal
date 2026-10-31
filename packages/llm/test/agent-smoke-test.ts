@@ -26,6 +26,7 @@ import {
 } from "../../context-budget/src/index";
 import { readLLMConfig } from "../../config/src/index";
 import { createLlmAdapter } from "../src/index";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 /**
  * 用显式模型配置验证统一执行、任务审批及工具执行链；仅使用内存存储。
@@ -64,7 +65,7 @@ export async function runAgentSmoke(
             return { kind: "success", output: { evidence: "smoke-observation" }, summary: "Smoke observation recorded" };
         },
     };
-    const toolRegistry = new InMemoryToolRegistry([createToolRegistration(tool)]);
+    const toolRegistry = new InMemoryToolRegistry([createTestToolRegistration(tool)]);
     const dependencies = { adapter, renderer, contextCompactor, trajectoryContextAssembler };
     const runner = new Runner({
         store, trajectoryStore, checkpointCommitter, toolRegistry,

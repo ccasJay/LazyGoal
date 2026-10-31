@@ -36,6 +36,7 @@ import { DropOldestContextCompactor } from "../../context-budget/src/index";
 import { buildStepRequest } from "../../model-request/src/index";
 import { createCurrentContextAssembler, createInMemoryTrajectoryStore, currentProtocols, currentWorkingMemory } from "../../agent/test/current-fixtures";
 import { bindMessagesToRun, messageOutline, testAssistantMessage, testUserMessage } from "../../runtime/test/current-fixtures";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const EMPTY_INPUT_CONTRACT = contract.object({});
 
@@ -939,9 +940,9 @@ test("Runner 在读取请求纠错后继续取证，反馈和无效调用不进�
         { id: "bash", description: "List files", isReadOnly: true, inputContract: contract.object({ command: contract.string() }) },
         { id: "read_file", description: "Read a file", isReadOnly: true, inputContract: contract.object({ path: contract.string() }) },
     ];
-    const registry = new InMemoryToolRegistry(definitions.map(definition => createToolRegistration({
+    const registry = new InMemoryToolRegistry(definitions.map(definition => createTestToolRegistration({
         definition, replayPolicy: "safe", validate: () => ({ ok: true }),
-        async execute({ input }) {
+        async execute({ input }: any) {
             executed.push(definition.id);
             assert.deepEqual(input, definition.id === "bash" ? { command: "ls -la" } : { path: "AGENTS.md" });
             return { kind: "success", output: { text: definition.id === "bash" ? "AGENTS.md" : "Read source and report evidence." }, summary: "Observed" };
@@ -1097,7 +1098,7 @@ test("Runner 把零调用正文本提交为 Assistant 消息，不推进 Step �
     const definitions: ToolDefinition[] = [
         { id: "bash", description: "List files", isReadOnly: true, inputContract: contract.object({ command: contract.string() }) },
     ];
-    const registry = new InMemoryToolRegistry(definitions.map(definition => createToolRegistration({
+    const registry = new InMemoryToolRegistry(definitions.map(definition => createTestToolRegistration({
         definition, replayPolicy: "safe", validate: () => ({ ok: true }),
         async execute() { executed.push(definition.id); return { kind: "success", output: { text: "ok" }, summary: "Observed" }; },
     })));
@@ -1132,7 +1133,7 @@ test("Runner 把零调用正文本提交为 Assistant 消息，不推进 Step �
 test("Runner 的不推进预算与协议纠错预算互不占用", async () => {
     const store = new InMemoryGoalStore();
     const trajectoryStore = createInMemoryTrajectoryStore();
-    const registry = new InMemoryToolRegistry([createToolRegistration({
+    const registry = new InMemoryToolRegistry([createTestToolRegistration({
         definition: { id: "read_file", description: "Read a file", isReadOnly: true,
             inputContract: contract.object({ path: contract.string() }) },
         replayPolicy: "safe", validate: () => ({ ok: true }),
@@ -1169,7 +1170,7 @@ test("Runner 的不推进预算与协议纠错预算互不占用", async () => {
 test("Runner 在有效 request_think 后重新开始不推进计数", async () => {
     const store = new InMemoryGoalStore();
     const trajectoryStore = createInMemoryTrajectoryStore();
-    const registry = new InMemoryToolRegistry([createToolRegistration({
+    const registry = new InMemoryToolRegistry([createTestToolRegistration({
         definition: { id: "read_file", description: "Read a file", isReadOnly: true,
             inputContract: contract.object({ path: contract.string() }) },
         replayPolicy: "safe", validate: () => ({ ok: true }),
@@ -1203,11 +1204,11 @@ test("Runner 按模型返回顺序执行多调用批次，各计一次 Step 且 
     const store = new InMemoryGoalStore();
     const trajectoryStore = createInMemoryTrajectoryStore();
     const executed: string[] = [];
-    const registry = new InMemoryToolRegistry(["a.md", "b.md", "c.md"].map(name => createToolRegistration({
+    const registry = new InMemoryToolRegistry(["a.md", "b.md", "c.md"].map(name => createTestToolRegistration({
         definition: { id: `read_${name[0]}`, description: `Read ${name}`, isReadOnly: true,
             inputContract: contract.object({ path: contract.string() }) },
         replayPolicy: "safe", validate: () => ({ ok: true }),
-        async execute({ input }) {
+        async execute({ input }: any) {
             executed.push((input as { path: string }).path);
             return { kind: "success", output: { text: `content of ${(input as { path: string }).path}` }, summary: "Observed" };
         },
@@ -1270,10 +1271,10 @@ test("Runner 顺序执行两调用批次后回到模型并正常终止", async (
     const store = new InMemoryGoalStore();
     const trajectoryStore = createInMemoryTrajectoryStore();
     const executed: string[] = [];
-    const registry = new InMemoryToolRegistry(["read_a", "read_b"].map(id => createToolRegistration({
+    const registry = new InMemoryToolRegistry(["read_a", "read_b"].map(id => createTestToolRegistration({
         definition: { id, description: id, isReadOnly: true, inputContract: contract.object({ path: contract.string() }) },
         replayPolicy: "safe", validate: () => ({ ok: true }),
-        async execute({ input }) { executed.push((input as { path: string }).path); return { kind: "success", output: { text: "ok" }, summary: "Observed" }; },
+        async execute({ input }: any) { executed.push((input as { path: string }).path); return { kind: "success", output: { text: "ok" }, summary: "Observed" }; },
     })));
     const requests: LLMRequest[] = [];
     const adapter: LLMAdapter = {
@@ -1315,10 +1316,10 @@ test("Runner 在批次中途需要审批时停止后续执行并保留已执行�
             inputContract: contract.object({ path: contract.string() }) },
         { id: "read_c", description: "Read c", isReadOnly: true, inputContract: contract.object({ path: contract.string() }) },
     ];
-    const registry = new InMemoryToolRegistry(definitions.map(definition => createToolRegistration({
+    const registry = new InMemoryToolRegistry(definitions.map(definition => createTestToolRegistration({
         definition, replayPolicy: "safe", validate: () => ({ ok: true }),
         ...(definition.id === "write_b" ? { evaluatePolicy: () => "require_approval" as const } : {}),
-        async execute({ input }) { executed.push((input as { path: string }).path); return { kind: "success", output: { text: "ok" }, summary: "Observed" }; },
+        async execute({ input }: any) { executed.push((input as { path: string }).path); return { kind: "success", output: { text: "ok" }, summary: "Observed" }; },
     })));
     const requests: LLMRequest[] = [];
     const adapter: LLMAdapter = {
@@ -1361,10 +1362,10 @@ test("Runner 拒绝重放已提交结果的 Action，并在有界尝试后终止
     const store = new InMemoryGoalStore();
     const trajectoryStore = createInMemoryTrajectoryStore();
     const executed: string[] = [];
-    const registry = new InMemoryToolRegistry(["read_a", "read_b"].map(id => createToolRegistration({
+    const registry = new InMemoryToolRegistry(["read_a", "read_b"].map(id => createTestToolRegistration({
         definition: { id, description: id, isReadOnly: true, inputContract: contract.object({ path: contract.string() }) },
         replayPolicy: "safe", validate: () => ({ ok: true }),
-        async execute({ input }) { executed.push(`${id}:${(input as { path: string }).path}`); return { kind: "success", output: { text: "ok" }, summary: "Observed" }; },
+        async execute({ input }: any) { executed.push(`${id}:${(input as { path: string }).path}`); return { kind: "success", output: { text: "ok" }, summary: "Observed" }; },
     })));
     const requests: LLMRequest[] = [];
     const adapter: LLMAdapter = {
@@ -1402,10 +1403,10 @@ test("Runner 在批次执行中被取消时不再启动后续 Action", async () 
     const trajectoryStore = createInMemoryTrajectoryStore();
     const controller = new AbortController();
     const executed: string[] = [];
-    const registry = new InMemoryToolRegistry(["read_a", "read_b"].map(id => createToolRegistration({
+    const registry = new InMemoryToolRegistry(["read_a", "read_b"].map(id => createTestToolRegistration({
         definition: { id, description: id, isReadOnly: true, inputContract: contract.object({ path: contract.string() }) },
         replayPolicy: "safe", validate: () => ({ ok: true }),
-        async execute({ input }) {
+        async execute({ input }: any) {
             executed.push((input as { path: string }).path);
             // 第一个 Action 执行期间取消：后续 Action 与后续模型调用都不得开始。
             if (executed.length === 1) controller.abort();
@@ -1445,7 +1446,7 @@ test("Runner 在批次执行中被取消时不再启动后续 Action", async () 
 test("Trajectory 记录多调用批次事实，可与单调用、零调用区分", async () => {
     const store = new InMemoryGoalStore();
     const trajectoryStore = createInMemoryTrajectoryStore();
-    const registry = new InMemoryToolRegistry(["read_a", "read_b"].map(id => createToolRegistration({
+    const registry = new InMemoryToolRegistry(["read_a", "read_b"].map(id => createTestToolRegistration({
         definition: { id, description: id, isReadOnly: true, inputContract: contract.object({ path: contract.string() }) },
         replayPolicy: "safe", validate: () => ({ ok: true }),
         async execute() { return { kind: "success", output: { text: "ok" }, summary: "Observed" }; },

@@ -14,6 +14,7 @@ import {
     readBrowserGoalSessionState,
 } from "../../../packages/browser/src/index";
 import { createRuntimeComposition, type RuntimeComposition } from "../src/runtime/index";
+import { createTestToolRegistration } from "../../../packages/tool-core/test/helpers";
 
 const fixtureInput = contract.object({ value: contract.string() });
 const profile: AgentProfile = {
@@ -102,7 +103,7 @@ test("正式装配贯通工具活动与正式答复，并给出稳定位置与�
         env: { LAZYGOAL_HOME: home } as NodeJS.ProcessEnv,
         adapter,
         profile,
-        toolRegistry: new InMemoryToolRegistry([createToolRegistration(controlledTool)]),
+        toolRegistry: new InMemoryToolRegistry([createTestToolRegistration(controlledTool)]),
         toolPolicy: { evaluate: () => "allow" },
         goalIdGenerator: () => "goal-board-streaming-integration",
         runIdGenerator: () => "run-board-streaming-1",

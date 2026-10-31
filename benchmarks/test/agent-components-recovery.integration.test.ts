@@ -16,6 +16,7 @@ import type {
     BenchmarkPersistenceAdapter,
     HeadlessCompositionRootDependencies,
 } from "../src/headless-composition-root.js";
+import { createTestToolRegistration } from "../../packages/tool-core/test/helpers";
 
 const profile: AgentProfile = {
     id: "recovery-profile",
@@ -41,7 +42,7 @@ const evidenceTool: Tool = {
         summary: "evidence recorded",
     }),
 };
-const evidenceRegistration = createToolRegistration(evidenceTool);
+const evidenceRegistration = createTestToolRegistration(evidenceTool);
 
 interface FakeTask {
     readonly id: string;

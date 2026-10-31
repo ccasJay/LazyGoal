@@ -1,0 +1,23 @@
+{
+  "contractId": "tool.bash_exec.input",
+  "version": 1,
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "source": {
+    "path": "benchmarks/tua-bench/src/bash-exec-tool.ts#BashExecInput",
+    "sha256": "9e5a180e3e761593f334f39673358f1df5555effbccbc3280dbda427ffbec10f"
+  },
+  "generator": {
+    "name": "ts-json-schema-generator",
+    "version": "2.9.0",
+    "typescriptVersion": "5.9.3"
+  },
+  "validator": {
+    "name": "Ajv standalone",
+    "version": "8.20.0"
+  },
+  "bundler": {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "format": "esm"
+  }
+}

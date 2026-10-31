@@ -22,6 +22,8 @@ export { TransientToolExecutionFailure } from "./errors";
 export { createToolRegistration } from "./registration";
 export { InMemoryToolRegistry } from "./registry";
 export type {
+    BoundTool,
+    BoundToolDefinition,
     PreparedToolAction,
     Tool,
     ToolDefinition,

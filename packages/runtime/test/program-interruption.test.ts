@@ -17,6 +17,8 @@ import {
     InMemoryToolRegistry,
 } from "../../tool-core/src/index";
 import { currentProtocols, InMemoryTrajectoryStore, withDiscoveredProfileTools } from "./current-fixtures";
+import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 function setup(code: string, tool?: ReturnType<typeof createToolRegistration>, completeAfterFirst = false) {
     const created = withDiscoveredProfileTools(createGoal({
@@ -95,7 +97,7 @@ test("PTC reports the rejected child Tool input field", {
     skip: !isSeatbeltSupported(),
 }, async () => {
     let readCalls = 0;
-    const read = createToolRegistration({
+    const read = createTestToolRegistration({
         definition: {
             id: "read_file",
             description: "Read test content",
@@ -137,10 +139,11 @@ test("PTC stops before a 129th tool call", {
     skip: !isSeatbeltSupported(),
 }, async () => {
     let calls = 0;
-    const read = createToolRegistration({
+    const read = createTestToolRegistration({
         definition: {
             id: "count_read",
             description: "Count reads",
+            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.object({}) }),
             inputContract: contract.object({}),
             isReadOnly: true,
         },
@@ -202,10 +205,11 @@ test("PTC refuses nested programs and system tools", {
 test("PTC rejects an oversized read result without committing a partial observation", {
     skip: !isSeatbeltSupported(),
 }, async () => {
-    const read = createToolRegistration({
+    const read = createTestToolRegistration({
         definition: {
             id: "large_read",
             description: "Return a large value",
+            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.object({}) }),
             inputContract: contract.object({}),
             isReadOnly: true,
         },
@@ -243,10 +247,11 @@ test("PTC preserves an unknown write before settling a resource stop", {
     skip: !isSeatbeltSupported(),
 }, async () => {
     let writes = 0;
-    const write = createToolRegistration({
+    const write = createTestToolRegistration({
         definition: {
             id: "large_write",
             description: "Write and return a large value",
+            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.object({}) }),
             inputContract: contract.object({}),
             isReadOnly: false,
         },
@@ -478,7 +483,7 @@ test("PTC can be cancelled while a child approval is waiting without executing i
     skip: !isSeatbeltSupported(),
 }, async () => {
     let writes = 0;
-    const write = createToolRegistration({
+    const write = createTestToolRegistration({
         definition: {
             id: "write_file", description: "Write fixture", inputContract: contract.object({}), isReadOnly: false,
         },
@@ -520,16 +525,17 @@ test("User Interrupt records unknown PTC parent and child outcomes, then cancels
     const entered = deferred();
     let toolCalls = 0;
     let modelCalls = 0;
-    const write = createToolRegistration({
+    const write = createTestToolRegistration({
         definition: {
             id: "interrupt_write",
             description: "Write with interruptible execution",
+            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.object({ value: contract.string() }) }),
             inputContract: contract.object({ value: contract.string() }),
             isReadOnly: false,
         },
         replayPolicy: "manual",
         validate: () => ({ ok: true }),
-        async execute(_request, control) {
+        async execute(_request: any, control: any) {
             toolCalls += 1;
             entered.resolve();
             return new Promise((_, reject) => control?.signal?.addEventListener("abort", () => reject(new ExecutionAbortedError()), { once: true }));

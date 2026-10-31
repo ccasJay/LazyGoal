@@ -1,0 +1,23 @@
+{
+  "contractId": "tool.alfworld_reset.input",
+  "version": 1,
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "source": {
+    "path": "benchmarks/alfworld/src/alfworld-tools.ts#AlfworldResetInput",
+    "sha256": "ab79612d5882f161364a7f5bd6493c01d0d453dbe2906798308968e98f7384bd"
+  },
+  "generator": {
+    "name": "ts-json-schema-generator",
+    "version": "2.9.0",
+    "typescriptVersion": "5.9.3"
+  },
+  "validator": {
+    "name": "Ajv standalone",
+    "version": "8.20.0"
+  },
+  "bundler": {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "format": "esm"
+  }
+}

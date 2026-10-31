@@ -38,6 +38,7 @@ import {
     readBrowserGoalSession,
 } from "../src/index";
 import { bindMessagesToRun, testAssistantMessage, testUserMessage } from "../../runtime/test/current-fixtures";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 
 const protocols = {
@@ -127,7 +128,7 @@ test("manual Tool result recovered after restart stays unknown and stream reconn
                 };
             },
         };
-        const registration = createToolRegistration(tool);
+        const registration = createTestToolRegistration(tool);
         const firstProcessTrajectory = new FailObservationTrajectoryStore(initialTrajectory);
         const firstRunner = new Runner({
             store: initialStore,

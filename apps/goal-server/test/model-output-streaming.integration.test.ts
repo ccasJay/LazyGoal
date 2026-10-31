@@ -13,6 +13,7 @@ import { createToolRegistration, InMemoryToolRegistry, type Tool } from "../../.
 import { contract } from "../../../packages/contracts/src/index";
 import type { AgentProfile } from "../../../packages/runtime/src/index";
 import { createRuntimeComposition } from "../src/runtime/index";
+import { createTestToolRegistration } from "../../../packages/tool-core/test/helpers";
 
 const profile: AgentProfile = {
     id: "profile-streaming-composition",
@@ -172,7 +173,7 @@ test("经正式无界面装配的真实 Chat Completions 流：屏障前无工�
         dataDirectory: fixture.dataDirectory,
         adapter,
         profile,
-        toolRegistry: new InMemoryToolRegistry([createToolRegistration(bashTool(command => { executed.push(command); }))]),
+        toolRegistry: new InMemoryToolRegistry([createTestToolRegistration(bashTool(command => { executed.push(command); }))]),
     });
 
     const goalId = "goal-streaming-composition";
@@ -219,7 +220,7 @@ test("经正式无界面装配的真实 Chat Completions 流：屏障前无工�
         dataDirectory: fixture.dataDirectory,
         adapter: new OpenAICompatible({ apiKey: "fixture-key", baseURL, model: "stream-model", structuredOutputMode: "strict" }),
         profile,
-        toolRegistry: new InMemoryToolRegistry([createToolRegistration(bashTool(command => { executed.push(`unexpected:${String(command)}`); }))]),
+        toolRegistry: new InMemoryToolRegistry([createTestToolRegistration(bashTool(command => { executed.push(`unexpected:${String(command)}`); }))]),
     });
     try {
         const restored = await reopened.workspaceGoalStore.restore(goalId);
@@ -272,7 +273,7 @@ test("宿主生成的确定性流式 Adapter 可注入同一装配并保持单�
         dataDirectory: fixture.dataDirectory,
         adapter: adapter as never,
         profile: { ...profile, toolIds: [] },
-        toolRegistry: new InMemoryToolRegistry([createToolRegistration(bashTool(command => { executed.push(command); }))]),
+        toolRegistry: new InMemoryToolRegistry([createTestToolRegistration(bashTool(command => { executed.push(command); }))]),
     });
     try {
         const launched = await runtime.commands.launch({ goalId: "goal-host-stream", intent: "等待确认", profileId: profile.id, mode: "normal" });

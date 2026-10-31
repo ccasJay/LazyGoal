@@ -28,6 +28,8 @@ import type {
     TrajectoryReadResult,
     TrajectoryStore,
 } from "../src/index";
+import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const profile: AgentProfile = {
     id: "memory-runner-profile",
@@ -119,11 +121,12 @@ function executingGoal(id: string): Goal {
     };
 }
 
-function tool(): Tool<typeof TEST_INPUT_CONTRACT> {
+function tool(): Tool<any> {
     return {
         definition: {
             id: "read_file",
             description: "read",
+            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: TEST_INPUT_CONTRACT }),
             inputContract: TEST_INPUT_CONTRACT,
             isReadOnly: true,
         },
@@ -158,7 +161,7 @@ function complete(): Extract<AgentDecision, { kind: "complete" }> {
 
 function registry(): ToolRegistry {
     const implementation = tool();
-    const registration = createToolRegistration(implementation);
+    const registration = createTestToolRegistration(implementation);
     return { get: (id) => id === "read_file" ? registration : undefined };
 }
 

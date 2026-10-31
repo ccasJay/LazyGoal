@@ -19,6 +19,7 @@ import { createDefaultModelContextBudgetPolicy, createModelContextBudgetPolicy, 
 import { buildStepRequest } from "../../model-request/src/index";
 import type { LLMAdapter, LLMRequest, LLMResponse } from "../../llm-core/src/index";
 import { currentProtocols, currentWorkingMemory, createInMemoryTrajectoryStore } from "./current-fixtures";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const identity: NativeConversationIdentity = { provider: "google", endpoint: "https://generativelanguage.googleapis.com/v1beta", model: "test", protocol: "gemini-content" };
 const projector = new TrajectoryEventProjector({ previewLimit: 100 });
@@ -223,7 +224,7 @@ test("file-backed Runner restores native history after two tool steps without re
         await store.save(initial());
         let executed = 0;
         const inputContract = contract.object({});
-        const registry = new InMemoryToolRegistry([createToolRegistration({ definition: { id: "read_file", description: "Read", isReadOnly: true, inputContract }, replayPolicy: "safe", validate: () => ({ ok: true }),
+        const registry = new InMemoryToolRegistry([createTestToolRegistration({ definition: { id: "read_file", description: "Read", isReadOnly: true, inputContract }, replayPolicy: "safe", validate: () => ({ ok: true }),
             async execute() { executed++; return { kind: "success", output: { text: `file-${executed}` }, summary: "Observed" }; } })]);
         const requests: LLMRequest[] = [];
         const adapter = nativeAdapter(async request => {
@@ -296,7 +297,7 @@ test("accepted response checkpoint interrupted before decision does not bind a s
         }
     } };
     let executed = 0;
-    const registry = new InMemoryToolRegistry([createToolRegistration({ definition: { id: "read_file", description: "Read", isReadOnly: true, inputContract: contract.object({}) }, replayPolicy: "safe", validate: () => ({ ok: true }),
+    const registry = new InMemoryToolRegistry([createTestToolRegistration({ definition: { id: "read_file", description: "Read", isReadOnly: true, inputContract: contract.object({}) }, replayPolicy: "safe", validate: () => ({ ok: true }),
         async execute() { executed++; return { kind: "success", output: "Read", summary: "Observed" }; } })]);
     await assert.rejects(new Runner({ store, trajectoryStore: trajectory, executor: executorFor(nativeAdapter(async () => responseFor("read_file", {}, "stale-call")), trajectory), toolRegistry: registry, toolPolicy: { evaluate: () => "allow" } })
         .run({ goalId: "native-goal", runId: "native-run" }), ExecutionAbortedError);
@@ -320,7 +321,7 @@ test("approval waiting restores the same native call ID and executes the approve
     const trajectory = createInMemoryTrajectoryStore();
     await store.save(initial());
     let executed = 0;
-    const registry = new InMemoryToolRegistry([createToolRegistration({ definition: { id: "read_file", description: "Read", isReadOnly: true, inputContract: contract.object({}) }, replayPolicy: "safe", validate: () => ({ ok: true }),
+    const registry = new InMemoryToolRegistry([createTestToolRegistration({ definition: { id: "read_file", description: "Read", isReadOnly: true, inputContract: contract.object({}) }, replayPolicy: "safe", validate: () => ({ ok: true }),
         async execute() { executed++; return { kind: "success", output: "Read", summary: "Observed" }; } })]);
     const waiting = await new Runner({ store, trajectoryStore: trajectory, executor: executorFor(nativeAdapter(async () => responseFor("read_file", {})), trajectory), toolRegistry: registry, toolPolicy: { evaluate: () => "require_approval" } })
         .run({ goalId: "native-goal", runId: "native-run" });

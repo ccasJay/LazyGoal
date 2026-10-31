@@ -2,21 +2,23 @@ import { resolve } from "node:path";
 import { realpath } from "node:fs/promises";
 
 import type {
+    BoundTool,
     Tool,
-    ToolDefinition,
+    BoundToolDefinition,
     ToolExecutionRequest,
     ToolObservation,
     ToolValidationResult,
 } from "../../tool-core/src/index";
-import {
-    contract,
-    type InferContract,
-} from "../../contracts/src/index";
+import { contract } from "../../contracts/src/index";
 import {
     ExecutionAbortedError,
     throwIfAborted,
     type ExecutionControl,
 } from "../../execution-control/src/index";
+import { processStartInputBinding } from "./generated/process-start/binding";
+export { processStartInputBinding };
+import { processStopInputBinding } from "./generated/process-stop/binding";
+export { processStopInputBinding };
 import { invalidInput } from "./internal/invalid-input";
 import {
     buildSeatbeltPolicy,
@@ -32,6 +34,7 @@ import {
 } from "./bash";
 import type { ProcessManager } from "../../process-runtime/src/index";
 import type { ProcessSessionStore } from "../../runtime/src/index";
+import { processReadInputBinding } from "./generated/process-read/binding";
 
 /** `ProcessStartTool` 在 Profile 中使用的稳定标识。 */
 export const PROCESS_START_TOOL_ID = "process_start";
@@ -58,7 +61,39 @@ export const PROCESS_START_INPUT_CONTRACT = contract.object({
     sandboxAccess: contract.optional(SANDBOX_ACCESS_CONTRACT),
 });
 
-export type ProcessStartInput = InferContract<typeof PROCESS_START_INPUT_CONTRACT>;
+/**
+ * `process_start` 的结构化输入。
+ *
+ * @remarks
+ * `sandboxAccess` 声明本次长进程需要额外申请的沙箱文件或网络能力。
+ */
+export interface ProcessStartInput {
+    /** 要启动的 shell 命令。 */
+    readonly command: string;
+    /**
+     * 可选的沙箱能力申请。
+     */
+    readonly sandboxAccess?: {
+        /** 额外申请的文件访问列表。 */
+        readonly files?: readonly {
+            /** 申请路径。 */
+            readonly path: string;
+            /** 访问类型。 */
+            readonly access: "read" | "write";
+            /** 申请范围。 */
+            readonly kind: "file" | "directory_tree";
+            /** 申请用途说明。 */
+            readonly purpose: string;
+        }[];
+        /** 可选的网络访问申请。 */
+        readonly network?: {
+            /** 允许访问的网络目标列表。 */
+            readonly targets: readonly string[];
+            /** 申请用途说明。 */
+            readonly purpose: string;
+        };
+    };
+}
 
 /**
  * process_start Tool 输出结构。
@@ -86,10 +121,11 @@ export interface ProcessStartOutput {
  * });
  * ```
  */
-export class ProcessStartTool implements Tool<typeof PROCESS_START_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof PROCESS_START_INPUT_CONTRACT> = {
+export class ProcessStartTool implements BoundTool<ProcessStartInput> {
+    readonly definition: BoundToolDefinition<ProcessStartInput> = {
         id: PROCESS_START_TOOL_ID,
         description: "Start a background managed process within workspaceRoot without waiting for its completion.",
+        inputBinding: processStartInputBinding,
         inputContract: PROCESS_START_INPUT_CONTRACT,
         isReadOnly: false,
     };
@@ -250,7 +286,42 @@ export const PROCESS_READ_INPUT_CONTRACT = contract.object({
     maxChars: contract.optional(contract.integer({ minimum: 1, maximum: PROCESS_READ_MAX_CHARS_LIMIT })),
 });
 
-export type ProcessReadInput = InferContract<typeof PROCESS_READ_INPUT_CONTRACT>;
+/**
+ * `process_read` 的结构化输入。
+ *
+ * @remarks
+ * `cursor`、`channel` 与 `waitMs` 控制增量读取位置、通道和最长等待时间；`maxChars` 限制单通道返回字符数。
+ */
+export interface ProcessReadInput {
+    /** 目标受管进程 ID。 */
+    readonly processId: string;
+    /**
+     * 输出游标。
+     * @asType integer
+     * @minimum 0
+     * @maximum 9007199254740991
+     */
+    readonly cursor?: number;
+    /** 读取的输出通道。 */
+    readonly channel?: "stdout" | "stderr" | "both";
+    /**
+     * 最长等待毫秒数。
+     * @asType integer
+     * @minimum 0
+     * @maximum 30000
+     */
+    readonly waitMs?: number;
+    /**
+     * 单通道最多返回的字符数。
+     * @asType integer
+     * @minimum 1
+     * @maximum 50000
+     */
+    readonly maxChars?: number;
+}
+
+/** `process_read` 的生成输入绑定。 */
+export { processReadInputBinding };
 
 /**
  * process_read Tool 输出结构。
@@ -292,10 +363,11 @@ export interface ProcessReadOutput {
  * });
  * ```
  */
-export class ProcessReadTool implements Tool<typeof PROCESS_READ_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof PROCESS_READ_INPUT_CONTRACT> = {
+export class ProcessReadTool implements BoundTool<ProcessReadInput> {
+    readonly definition: BoundToolDefinition<ProcessReadInput> = {
         id: PROCESS_READ_TOOL_ID,
         description: "Read stdout/stderr output from a managed background process with cursor pagination.",
+        inputBinding: processReadInputBinding,
         inputContract: PROCESS_READ_INPUT_CONTRACT,
         isReadOnly: true,
     };
@@ -419,7 +491,13 @@ export const PROCESS_STOP_INPUT_CONTRACT = contract.object({
     processId: contract.string(),
 });
 
-export type ProcessStopInput = InferContract<typeof PROCESS_STOP_INPUT_CONTRACT>;
+/**
+ * `process_stop` 的结构化输入。
+ */
+export interface ProcessStopInput {
+    /** 要停止的受管进程 ID。 */
+    readonly processId: string;
+}
 
 /**
  * 停止受管长进程的 Tool。
@@ -438,10 +516,11 @@ export type ProcessStopInput = InferContract<typeof PROCESS_STOP_INPUT_CONTRACT>
  * });
  * ```
  */
-export class ProcessStopTool implements Tool<typeof PROCESS_STOP_INPUT_CONTRACT> {
-    readonly definition: ToolDefinition<typeof PROCESS_STOP_INPUT_CONTRACT> = {
+export class ProcessStopTool implements BoundTool<ProcessStopInput> {
+    readonly definition: BoundToolDefinition<ProcessStopInput> = {
         id: PROCESS_STOP_TOOL_ID,
         description: "Stop a managed background process belonging to current Goal.",
+        inputBinding: processStopInputBinding,
         inputContract: PROCESS_STOP_INPUT_CONTRACT,
         isReadOnly: false,
     };

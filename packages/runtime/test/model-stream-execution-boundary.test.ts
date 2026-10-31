@@ -20,6 +20,8 @@ import {
     currentWorkingMemory,
 } from "../../agent/test/current-fixtures";
 import { trajectoryStoreFor } from "./current-fixtures";
+import { createTransitionalToolInputBinding } from "../../tool-core/test/transitional-binding";
+import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 const renderer = await createDefaultPromptBundleRenderer();
 const contextCompactor = new DropOldestContextCompactor();
@@ -36,11 +38,12 @@ function bashRegistration(execute: (command: string) => Promise<{
     readonly output: { readonly text: string };
     readonly summary: string;
 }>) {
-    return createToolRegistration({
+    return createTestToolRegistration({
         definition: {
             id: "bash",
             description: "Run one read-only command",
             isReadOnly: true,
+            inputBinding: createTransitionalToolInputBinding({ contractId: "test.tool", version: 1, contract: contract.object({ command: contract.string() }) }),
             inputContract: contract.object({ command: contract.string() }),
         },
         replayPolicy: "safe",
