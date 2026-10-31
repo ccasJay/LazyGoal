@@ -1,15 +1,19 @@
 ---
 feature: contract-dsl-core
-status: active
+status: obsolete
+status_reason: "Contract AST、Parser 与 Schema 编译器已在 contract-migration 中删除；仅保留的 JSON 原语由 shared-json-primitives Capsule 持有。"
 summary: "基于不可变 AST 的纯 TypeScript 结构契约核心，支持静态类型推导、严格 JSON 校验与确定性 JSON Schema 2020-12 编译"
 source_spec: specs/contract-dsl-core/
 distilled_at: 2026-09-05
-reviewed_at: 2026-10-10
+reviewed_at: 2026-10-31
 tags: [contracts, ast, schema, validation, parser, json-schema, typescript]
-authorities: [packages/contracts/notes/overview.md, packages/contracts/src/contract.ts, packages/contracts/src/parser.ts, packages/contracts/src/json-schema.ts, packages/contracts/src/types.ts, packages/contracts/src/definition.ts, packages/contracts/src/errors.ts]
+authorities: [packages/contracts/src/index.ts, packages/contracts/src/json.ts, packages/contracts/src/types.ts, packages/contracts/src/errors.ts]
 ---
 
 # Contract DSL Core
+
+> [!CAUTION]
+> 本 Capsule 描述的不可变 AST、Parser 与 JSON Schema 编译器已删除，不得作为当前实现参考。当前契约生成与边界读取见 [contract-migration](./contract-migration.md)；保留的 JSON 原语见 [shared-json-primitives](./shared-json-primitives.md)。
 
 ## Purpose
 
@@ -38,8 +42,8 @@ authorities: [packages/contracts/notes/overview.md, packages/contracts/src/contr
 
 - S1: `specs/contract-dsl-core/requirements.md`
 - S2: `specs/contract-dsl-core/design.md`
-- S3: `packages/contracts/src/contract.ts`
-- S4: `packages/contracts/src/parser.ts`
-- S5: `packages/contracts/src/json-schema.ts`
-- S6: `packages/contracts/test/parser.test.ts`
-- S7: `packages/contracts/test/json-schema.test.ts`
+- S3: `packages/contracts/src/json.ts`
+- S4: `packages/contracts/src/types.ts`
+- S5: `packages/contracts/src/errors.ts`
+- S6: `packages/contracts/src/index.ts`
+- S7: `specs/remove-legacy-contract-ast/spec.md`

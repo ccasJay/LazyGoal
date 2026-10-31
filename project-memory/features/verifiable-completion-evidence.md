@@ -6,7 +6,7 @@ source_spec: specs/verifiable-completion-evidence/
 distilled_at: 2026-09-07
 reviewed_at: 2026-10-17
 tags: [runtime, runner, contracts, evidence-gate, completion-criterion, verifiable-completion, benchmarks]
-authorities: [packages/runtime/notes/overview.md, benchmarks/notes/overview.md, packages/model-contracts/src/model-output/canonical.ts, packages/runtime/src/evidence-gate.ts, packages/runtime/src/runner.ts, packages/storage/src/goal-snapshot-codec.ts, benchmarks/src/headless-composition-root.ts]
+authorities: [packages/runtime/notes/overview.md, benchmarks/notes/overview.md, packages/model-contracts/src/model-output/schema-types.ts, packages/runtime/src/evidence-gate.ts, packages/runtime/src/runner.ts, packages/storage/src/goal-snapshot-codec.ts, benchmarks/src/headless-composition-root.ts]
 ---
 
 # Verifiable Completion Evidence
@@ -40,7 +40,7 @@ authorities: [packages/runtime/notes/overview.md, benchmarks/notes/overview.md, 
 
 - S1: `specs/verifiable-completion-evidence/requirements.md`
 - S2: `specs/verifiable-completion-evidence/design.md`
-- S3: `packages/model-contracts/src/model-output/canonical.ts`
+- S3: `packages/model-contracts/src/model-output/schema-types.ts`
 - S4: `packages/storage/src/goal-snapshot-codec.ts`
 - S5: `packages/runtime/src/evidence-gate.ts`
 - S6: `packages/runtime/src/runner.ts`

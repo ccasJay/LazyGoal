@@ -6,7 +6,7 @@ source_spec: specs/goal-driven-workflow-prompt/
 distilled_at: 2026-08-25
 reviewed_at: 2026-10-17
 tags: [prompt, workflow, evidence, planning, completion]
-authorities: [packages/agent/notes/overview.md, packages/prompt-bundle/src/step-prompt/agent-decision@1.njk, packages/model-request/src/prompt.ts, packages/model-contracts/src/model-output/factory.ts]
+authorities: [packages/agent/notes/overview.md, packages/prompt-bundle/src/step-prompt/agent-decision@1.njk, packages/model-request/src/prompt.ts, packages/model-contracts/src/model-output/bound-factory.ts]
 ---
 
 # Goal-Driven Workflow Prompt
@@ -38,7 +38,7 @@ authorities: [packages/agent/notes/overview.md, packages/prompt-bundle/src/step-
 - S3: `specs/goal-driven-workflow-prompt/requirements.md`
 - S4: `packages/agent/notes/overview.md`
 - S5: `packages/prompt-bundle/src/step-prompt/agent-decision@1.njk`
-- S6: `packages/model-contracts/src/model-output/factory.ts`
+- S6: `packages/model-contracts/src/model-output/bound-factory.ts`
 - S7: `packages/prompt-bundle/test/prompting-default-bundles.test.ts`
 - S8: `specs/verifiable-completion-evidence/requirements.md`
 - S9: `packages/runtime/src/evidence-gate.ts`

@@ -49,7 +49,7 @@ authorities: [packages/runtime/notes/overview.md, packages/sandbox/notes/overvie
 - S7: `packages/tools/src/list-directory.ts`
 - S8: `packages/tools/src/find-files.ts`
 - S9: `packages/tools/src/read-file.ts`
-- S10: `packages/tools/src/grep.ts`
+- S10: `packages/tools/src/index.ts`
 - S11: `packages/tools/src/apply-patch.ts`
 - S12: `packages/runtime/test/apply-patch-recovery.test.ts`
 - S13: `packages/tools/src/web-search.ts`

@@ -51,8 +51,8 @@ superseded_by: [project-memory/features/mode-driven-task-proposal.md]
 - S7: `packages/runtime/src/evidence-gate.ts`
 - S8: `packages/storage/src/goal-snapshot-codec.ts`
 - S9: `packages/storage/src/goal-snapshot.ts`
-- S10: `packages/model-contracts/src/model-output/canonical.ts`
-- S11: `packages/model-contracts/src/model-output/system-tools.ts`
+- S10: `packages/model-contracts/src/model-output/schema-types.ts`
+- S11: `packages/model-contracts/src/model-output/system-tool-specs.ts`
 - S12: `apps/goal-server/src/composition-root.ts`
 - S13: `apps/goal-board/src/panels.tsx`
 - S14: `packages/runtime/test/goal-multi-run-session.test.ts`

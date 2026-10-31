@@ -6,7 +6,7 @@ source_spec: specs/preparation-phase-removal/
 distilled_at: 2026-09-18
 reviewed_at: 2026-10-17
 tags: [lifecycle, interaction, ask-user, task-approval, ordinary-step, action-observation, evidence, persistence, tui]
-authorities: [packages/runtime/notes/overview.md, packages/agent/notes/overview.md, apps/goal-server/notes/overview.md, packages/runtime/src/domain.ts, packages/runtime/src/runner.ts, packages/runtime/src/run-mode-capabilities.ts, packages/model-context/src/trajectory-execution-unit-adapter.ts, packages/prompt-bundle/src/step-prompt/agent-decision@1.njk, packages/model-contracts/src/model-output/factory.ts, packages/storage/src/goal-snapshot-codec.ts, apps/goal-server/src/composition-root.ts]
+authorities: [packages/runtime/notes/overview.md, packages/agent/notes/overview.md, apps/goal-server/notes/overview.md, packages/runtime/src/domain.ts, packages/runtime/src/runner.ts, packages/runtime/src/run-mode-capabilities.ts, packages/model-context/src/trajectory-execution-unit-adapter.ts, packages/prompt-bundle/src/step-prompt/agent-decision@1.njk, packages/model-contracts/src/model-output/bound-factory.ts, packages/storage/src/goal-snapshot-codec.ts, apps/goal-server/src/composition-root.ts]
 supersedes: [project-memory/features/goal-preparation-workflow.md, project-memory/features/preparation-runtime-flow.md]
 ---
 
@@ -48,7 +48,7 @@ supersedes: [project-memory/features/goal-preparation-workflow.md, project-memor
 - S5: `apps/goal-server/notes/overview.md`
 - S6: `packages/runtime/src/domain.ts`
 - S7: `packages/runtime/src/runner.ts`
-- S8: `packages/model-contracts/src/model-output/factory.ts`
+- S8: `packages/model-contracts/src/model-output/bound-factory.ts`
 - S9: `packages/storage/src/goal-snapshot-codec.ts`
 - S10: `apps/goal-server/src/composition-root.ts`
 - S11: `apps/goal-server/test/composition-root-model-switching.test.ts`

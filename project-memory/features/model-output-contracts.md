@@ -1,12 +1,14 @@
 ---
 feature: model-output-contracts
-status: active
+status: superseded
+status_reason: "模型输出 AST、wire 与 factory 已由 TS 单源生成绑定与动态组合取代。"
+superseded_by: [project-memory/features/contract-migration.md]
 summary: "基于 Contract AST 统一构建模型输出 Wire 契约、Shape Guide 与共用 Schema，消除 Zod 依赖并支持固定结构化输出模式"
 source_spec: specs/model-output-contracts/
 distilled_at: 2026-09-05
-reviewed_at: 2026-10-17
+reviewed_at: 2026-10-31
 tags: [agent, contracts, model-output, structured-output, request-plan, wire-envelope, llm-adapter]
-authorities: [packages/agent/notes/overview.md, packages/llm/notes/overview.md, packages/model-contracts/src/model-output/wire.ts, packages/model-contracts/src/model-output/factory.ts, packages/model-response/src/model-output.ts, packages/model-request/src/prompt.ts, packages/llm-core/src/adapter.ts, packages/llm-openai/src/openai-compatible.ts, packages/llm-google/src/gemini.ts, apps/goal-server/src/composition-root.ts, benchmarks/alfworld/src/cli.ts]
+authorities: [packages/model-contracts/src/model-output/generated-bindings.ts, packages/model-response/src/model-output.ts, packages/model-request/src/prompt.ts, packages/llm-google/src/gemini.ts, apps/goal-server/src/composition-root.ts]
 ---
 
 # Model Output Contracts
@@ -41,7 +43,7 @@ authorities: [packages/agent/notes/overview.md, packages/llm/notes/overview.md, 
 
 - S1: `specs/model-output-contracts/requirements.md`
 - S2: `specs/model-output-contracts/design.md`
-- S3: `packages/model-contracts/src/model-output/wire.ts`
+- S3: `packages/model-contracts/src/model-output/generated-bindings.ts`
 - S4: `packages/model-response/src/model-output.ts`
 - S5: `packages/model-request/src/prompt.ts`
 - S6: `packages/llm-openai/src/openai-compatible.ts`
@@ -50,5 +52,5 @@ authorities: [packages/agent/notes/overview.md, packages/llm/notes/overview.md, 
 - S9: `packages/model-response/test/model-output.test.ts`
 - S10: `apps/goal-server/test/prompt-bundle-integration.test.ts`
 - S11: `specs/preparation-phase-removal/design.md`
-- S12: `packages/model-contracts/test/model-output-wire.test.ts`
+- S12: `packages/model-contracts/test/generated-bindings.test.ts`
 - S13: `specs/runtime-feedback-tool-approval/requirements.md`

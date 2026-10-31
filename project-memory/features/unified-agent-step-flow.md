@@ -45,7 +45,7 @@ supersedes: [project-memory/features/preparation-read-only-tools.md]
 - S5: `specs/unified-agent-step-flow/tasks.md`
 - S6: `packages/runtime/notes/overview.md`
 - S7: `packages/runtime/src/runner.ts`
-- S8: `packages/model-contracts/src/model-output/factory.ts`
+- S8: `packages/model-contracts/src/model-output/bound-factory.ts`
 - S9: `packages/runtime/test/runner-pretask-read.test.ts`
 - S10: `packages/prompt-bundle/src/step-prompt/agent-decision@1.njk`
 - S11: `packages/prompt-bundle/test/prompting-default-bundles.test.ts`

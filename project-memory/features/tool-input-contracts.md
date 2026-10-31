@@ -1,10 +1,12 @@
 ---
 feature: tool-input-contracts
-status: active
+status: superseded
+status_reason: "工具输入 AST、编译 Schema 与过渡绑定已由 Catalog 生成的 typescript-binding 与统一准备接缝取代。"
+superseded_by: [project-memory/features/contract-migration.md]
 summary: "Tool 输入契约全面迁移至不可变 Contract AST，建立单次准备边界与确定性模型 Schema 投影"
 source_spec: specs/tool-input-contracts/
 distilled_at: 2026-09-05
-reviewed_at: 2026-10-17
+reviewed_at: 2026-10-31
 tags: [tool, contracts, tool-registration, prepared-action, runtime, schema-projection]
 authorities: [packages/runtime/notes/overview.md, packages/runtime/src/tool.ts, packages/runtime/src/runner.ts, packages/model-context/src/model-inference-projector.ts]
 ---

@@ -40,6 +40,6 @@ authorities: [packages/runtime/notes/overview.md, packages/sandbox/src/index.ts,
 - S2: `specs/archived/tools-shared-internals/design.md`
 - S3: `packages/sandbox/src/index.ts`
 - S4: `packages/tools/src/read-file.ts`
-- S5: `packages/tools/src/grep.ts`
+- S5: `packages/tools/src/index.ts`
 - S6: `packages/tools/test/read-file.test.ts`
 - S7: `scripts/check-dependencies.mjs`

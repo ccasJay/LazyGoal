@@ -1,12 +1,14 @@
 ---
 feature: web-wire-contract-unification
-status: active
+status: superseded
+status_reason: "Web wire DTO 的 Contract AST 来源已由 wire.ts 原生 TS 单源与生成绑定取代。"
+superseded_by: [project-memory/features/contract-migration.md]
 summary: 让浏览器与本地后端的 wire 形状只由一份 Contract 派生，出站 guard 与入站 parser 不再各自维护字段表
 source_spec: specs/web-wire-contract-unification/
 distilled_at: 2026-10-29
-reviewed_at: 2026-10-29
+reviewed_at: 2026-10-31
 tags: [web-contracts, contract-ast, wire-dto, guard, parser, open-object, depth-budget, utf16, bundle-budget]
-authorities: [packages/web-contracts/src/contracts/session.ts, packages/web-contracts/src/invariants/index.ts, packages/web-contracts/src/validation.ts, packages/browser/src/browser-goal-routes.ts, packages/contracts/src/parser.ts]
+authorities: [packages/web-contracts/src/wire.ts, packages/web-contracts/src/bindings.ts, packages/web-contracts/src/validation.ts, packages/browser/src/browser-goal-routes.ts]
 ---
 
 # Web 传输契约统一
@@ -43,8 +45,8 @@ authorities: [packages/web-contracts/src/contracts/session.ts, packages/web-cont
 
 - S1: `specs/web-wire-contract-unification/spec.md`
 - S2: `specs/web-wire-contract-unification/plan.md`
-- S3: `packages/web-contracts/src/contracts/session.ts`
+- S3: `packages/web-contracts/src/wire.ts`
 - S4: `packages/browser/src/browser-goal-routes.ts`
-- S5: `packages/contracts/src/parser.ts`
+- S5: `packages/web-contracts/src/bindings.ts`
 - S6: `packages/web-contracts/src/invariants/utf16.ts`
 - S7: `packages/web-contracts/src/validation.ts`

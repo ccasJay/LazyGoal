@@ -6,7 +6,7 @@ source_spec: specs/mode-driven-task-proposal/
 distilled_at: 2026-09-23
 reviewed_at: 2026-10-10
 tags: [runtime, run-mode, task-proposal, goal-plan, todo, recovery, tui, benchmark]
-authorities: [packages/runtime/notes/overview.md, apps/goal-server/notes/overview.md, packages/runtime/src/domain.ts, packages/runtime/src/goal-coordinator.ts, packages/runtime/src/run-mode-capabilities.ts, packages/runtime/src/runner.ts, packages/model-contracts/src/model-output/factory.ts, packages/storage/src/goal-snapshot-codec.ts, apps/goal-server/src/composition-root.ts, benchmarks/src/headless-composition-root.ts]
+authorities: [packages/runtime/notes/overview.md, apps/goal-server/notes/overview.md, packages/runtime/src/domain.ts, packages/runtime/src/goal-coordinator.ts, packages/runtime/src/run-mode-capabilities.ts, packages/runtime/src/runner.ts, packages/model-contracts/src/model-output/bound-factory.ts, packages/storage/src/goal-snapshot-codec.ts, apps/goal-server/src/composition-root.ts, benchmarks/src/headless-composition-root.ts]
 supersedes: [project-memory/features/goal-multi-run-session.md]
 ---
 
@@ -60,4 +60,4 @@ supersedes: [project-memory/features/goal-multi-run-session.md]
 - S18: `apps/goal-board/src/panels.tsx`
 - S19: `apps/goal-server/test/prompt-bundle-integration.test.ts`
 - S20: `packages/runtime/test/goal-multi-run-session.test.ts`
-- S21: `packages/model-contracts/src/model-output/factory.ts`
+- S21: `packages/model-contracts/src/model-output/bound-factory.ts`

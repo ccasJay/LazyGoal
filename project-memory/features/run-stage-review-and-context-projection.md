@@ -6,7 +6,7 @@ source_spec: specs/run-stage-review-and-context-projection/
 distilled_at: 2026-10-15
 reviewed_at: 2026-10-17
 tags: [run-stage, review, stage-revision, context-projection, deduplication, goal-board, recovery]
-authorities: [packages/runtime/notes/overview.md, packages/agent/notes/overview.md, packages/runtime/src/run-stage.ts, packages/runtime/src/runner.ts, packages/model-contracts/src/model-output/system-tools.ts, packages/model-request/src/completion-review.ts, packages/storage/src/goal-snapshot-codec.ts, packages/browser/src/browser-projection.ts, packages/runtime/test/run-stage-execution.test.ts, packages/runtime/test/run-stage-review.test.ts, packages/runtime/test/run-stage-recovery.test.ts, packages/storage/test/run-stage-snapshot.test.ts, packages/model-execution/test/completion-review.test.ts, apps/goal-board/test/run-stage-presentation.test.ts]
+authorities: [packages/runtime/notes/overview.md, packages/agent/notes/overview.md, packages/runtime/src/run-stage.ts, packages/runtime/src/runner.ts, packages/model-contracts/src/model-output/system-tool-specs.ts, packages/model-request/src/completion-review.ts, packages/storage/src/goal-snapshot-codec.ts, packages/browser/src/browser-projection.ts, packages/runtime/test/run-stage-execution.test.ts, packages/runtime/test/run-stage-review.test.ts, packages/runtime/test/run-stage-recovery.test.ts, packages/storage/test/run-stage-snapshot.test.ts, packages/model-execution/test/completion-review.test.ts, apps/goal-board/test/run-stage-presentation.test.ts]
 ---
 
 # Run Stage Review and Context Projection
@@ -45,7 +45,7 @@ authorities: [packages/runtime/notes/overview.md, packages/agent/notes/overview.
 - S5: `packages/model-request/src/completion-review.ts`
 - S6: `packages/storage/src/goal-snapshot-codec.ts`
 - S7: `packages/browser/src/browser-projection.ts`
-- S8: `packages/model-contracts/src/model-output/system-tools.ts`
+- S8: `packages/model-contracts/src/model-output/system-tool-specs.ts`
 - S9: `packages/model-context/src/trajectory-model-context-assembler.ts`
 - S10: `packages/runtime/test/run-stage-execution.test.ts`
 - S11: `packages/runtime/test/run-stage-review.test.ts`
