@@ -29,6 +29,13 @@
 
 ### Latest Result
 
-- 状态：未执行
-- 验证时间：-
-- 验证摘要：尚未开始执行。
+- 状态：passed
+- 新鲜度：current
+- 验证时间：2026-10-31T03:57:19Z–2026-10-31T04:02:58Z（UTC）
+- 验证提交：`400be697f5cfc25b5ab02da1d5b9c36883a5035b`；工作区干净。实现提交为 TODO 1 `50e96681`、TODO 2 `c4181221`、TODO 3 `4ab1aa43`，以及验证中发现并修复的登记 Reader 策略回归 `400be697`。
+- 生成覆盖及漂移（[1.1](./spec.md#spec-req-1-1)、[1.4](./spec.md#spec-req-1-4)、[1.5](./spec.md#spec-req-1-5)）：`npx tsx --test packages/contract-binding/test/structures.test.ts packages/contract-binding/test/generation.test.ts scripts/provider-models-contract-generation.test.mjs` 12/12 通过；`npm run contracts:generate -- --check` 输出 `Contract artifacts are current.`。覆盖联合与判别联合、递归 `$ref`、开放 JSON、数组元素、数值/字符串约束、约束漂移、错误注解、缺失 `declaredTypes`、元组与登记 Reader 不支持结构。能力清单见 [contracts/README.md](../../contracts/README.md)。
+- 读取与投影（[1.2](./spec.md#spec-req-1-2)、[1.3](./spec.md#spec-req-1-3)、[1.5](./spec.md#spec-req-1-5)）：`npx tsx --test packages/contract-binding/test/binding.test.ts` 12/12 通过，覆盖跨分支字段、歧义、非法已知字段、嵌套数组/递归、开放 JSON 与 `strip`/`reject` 诊断；`npx tsx --test packages/contract-binding/test/model-projection.test.ts` 7/7 通过，覆盖可选/null/判别联合、`localConstraints` 标识与解码拒绝、可选 nullable 歧义及不可移植结构失败。行为说明见 [contract-binding overview](../../packages/contract-binding/notes/overview.md)。
+- 回归与范围（[1.5](./spec.md#spec-req-1-5)）：`npm test` 通过（发现 446 个 `.ts/.tsx` 与 7 个 `.mjs` 测试文件；TS 测试 2705/2705、scripts 98/98 通过），该入口同时覆盖 `contracts:generate --check`、`tsc --noEmit`、文档检查、依赖检查与 GEPA adapter；单独执行 `npm run check:dependencies` 通过（320 个源文件），`npm run check:docs` 通过（47 个模块、169 份当前说明），`git diff --check` 无输出。
+- 首轮全量回归在 `packages/runtime/test/git-sandbox-authorization.test.ts` 出现一次与本方向无关的 Seatbelt 抖动（期望 stderr 为空）；该文件隔离重跑通过，随后完整 `npm test` 全部通过，最终证据采用第二轮全量结果。
+- 已知边界（非未解决缺陷）：`typescript-json-schema` 登记 Reader 策略仍只支持封闭对象和标量类型数组，联合与开放 JSON 明确失败并要求使用 `typescript-binding` 生成的绑定；模型投影对递归、开放 JSON、元组等不可安全转换结构明确失败，字符串 `pattern`/`minLength`/`maxLength` 由 `localConstraints` 标识并在解码时强制验证。本方向未修改 Catalog 启用项或生产消费者，现有 `web.providers.models.success` 生成制品与基线一致。
+- 未解决问题：本方向无阻塞；下游可基于验证提交接入。
