@@ -192,6 +192,17 @@ export function useRunStream({
               await refreshLatest();
               continue;
             }
+            if (event.type === "state_committed"
+              || event.type === "run_status_changed"
+              || event.type === "run_result"
+              || event.type === "interaction_opened"
+              || event.type === "interaction_settled"
+              || event.type === "tool_activity"
+              || event.type === "stream_fault"
+              || event.type === "closed") {
+              // 控制 reducer 接管前，旧 activity／snapshot 事件仍驱动当前页面。
+              continue;
+            }
             if (event.type === "snapshot_changed" || event.type === "refresh_required") {
               setLiveEvents([]);
               if (event.type === "refresh_required") {

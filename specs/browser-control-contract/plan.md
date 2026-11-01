@@ -7,7 +7,7 @@
   - 实施目标与场景：在 `packages/web-contracts` 定义可生成的 `ControlIntentCommand`、`ControlReceipt`、`ControlScope` 与相关结果联合；在 `packages/browser`／`apps/goal-server` 增加单一控制入口，按 kind 分发到现有命令服务。提交 SessionInput、计划模式、模型选择、权限模式、Grant 撤销、Goal 归档／删除、Action 预检时均返回同一 receipt 形状；SessionInput 的 `intentId` 与 `inputId` 一致，重复身份与旧 revision 返回 `existing` 或稳定拒绝。
   - 验证手段：运行 `npm run contracts:generate -- --write` 生成新制品；新增 `packages/browser/test/browser-control-intents.test.ts`，覆盖 accepted、existing、rejected 与 receipt 回显。
 
-- [ ] //TODO 2. 显式控制事件与 Browser 投影
+- [x] //TODO 2. 显式控制事件与 Browser 投影
   - 落实标准：[2.1](./spec.md#spec-req-2-1), [2.2](./spec.md#spec-req-2-2), [2.3](./spec.md#spec-req-2-3), [2.4](./spec.md#spec-req-2-4), [2.5](./spec.md#spec-req-2-5), [4.1](./spec.md#spec-req-4-1), [4.2](./spec.md#spec-req-4-2)
   - 实施目标与场景：在 `packages/web-contracts` 定义 `BrowserControlEvent`、`BrowserContentEvent` 与 `BrowserGoalEvent`，原位替换 `BrowserGoalLiveEvent`；在 `packages/browser` 把 Runtime 的 `state_sync`、`state_committed`、`input_result`、`interaction_settled`、`run_status`、`run_result`、`tool_activity`、`stream_fault`、`closed` 投影为显式事件。给定一次 Run 从 waiting 到 completed、一次交互结算和一次流缺口，浏览器应分别收到 `run_status_changed`／`run_result`、`interaction_settled` 和带 `code`／`resync` 的 `stream_fault`，不再出现对应的 `activity_boundary`。
   - 验证手段：运行 `npx tsx --test packages/browser/test/browser-session-output.test.ts packages/browser/test/browser-stream.test.ts`，并新增迟到／重复事件断言。

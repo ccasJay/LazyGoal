@@ -56,8 +56,38 @@ function goalFor(goalId: string, runId = "run-1"): Goal {
     });
 }
 
+const CONTROL_ONLY_EVENT_TYPES = new Set([
+    "state_committed",
+    "run_status_changed",
+    "run_result",
+    "interaction_opened",
+    "interaction_settled",
+    "tool_activity",
+    "stream_fault",
+    "closed",
+]);
+
 function nextEvent<T>(iterator: AsyncIterator<T>): Promise<IteratorResult<T>> {
-    return iterator.next();
+    return (async () => {
+        while (true) {
+            const result = await iterator.next();
+            if (result.done) return result;
+            const type = (result.value as { readonly type?: unknown } | undefined)?.type;
+            if (typeof type === "string" && CONTROL_ONLY_EVENT_TYPES.has(type)) continue;
+            return result;
+        }
+    })();
+}
+
+function nextControlEvent<T>(iterator: AsyncIterator<T>): Promise<IteratorResult<T>> {
+    return (async () => {
+        while (true) {
+            const result = await iterator.next();
+            if (result.done) return result;
+            const type = (result.value as { readonly type?: unknown } | undefined)?.type;
+            if (typeof type === "string" && CONTROL_ONLY_EVENT_TYPES.has(type)) return result;
+        }
+    })();
 }
 
 /** 打开一个覆盖整个 Goal 的浏览器安全事件流。 */
@@ -379,6 +409,77 @@ test("实时公开回复、等待、阶段、终态、失败与未知活动映�
             activity: { kind: "activity_boundary", sourceEventId: `event-${index + 1}`, sourceCursor: index + 1, reason },
         });
     }
+    opened.feed.close();
+});
+
+test("控制事实以显式事件发布，而不是压扁为通用活动边界", async () => {
+    const goal = goalFor("goal-stream-control-events");
+    const store = new MemoryStore();
+    await store.save(goal);
+    const publisher = new InMemoryExecutionStreamPublisher();
+    const opened = openFeed(store, publisher, goal.id);
+    const iterator = opened.feed.events[Symbol.asyncIterator]();
+    await nextEvent(iterator);
+
+    publisher.publish({
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        kind: "run_waiting",
+        visibility: "public",
+        durability: "trajectory",
+        delivery: "control",
+        payload: {},
+    });
+    assert.deepEqual((await iterator.next()).value, {
+        type: "run_status_changed",
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        status: "waiting",
+    });
+
+    publisher.publish({
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        kind: "run_completed",
+        visibility: "public",
+        durability: "trajectory",
+        delivery: "control",
+        payload: {},
+    });
+    assert.deepEqual((await nextControlEvent(iterator)).value, {
+        type: "run_result",
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        result: "completed",
+    });
+
+    publisher.publish({
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        kind: "step_committed",
+        visibility: "public",
+        durability: "trajectory",
+        delivery: "control",
+        payload: {},
+    });
+    const committed = (await nextControlEvent(iterator)).value;
+    assert.equal(committed?.type, "state_committed");
+    assert.deepEqual(committed?.type === "state_committed" ? committed.changed : [], ["session"]);
+
+    publisher.publish({
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        actionId: "action-control-1",
+        executionUnitId: "unit-control-1",
+        kind: "tool_started",
+        visibility: "public",
+        durability: "live",
+        delivery: "control",
+        payload: { toolId: "read_file", input: { path: "src/a.ts" } },
+    });
+    const tool = (await nextControlEvent(iterator)).value;
+    assert.equal(tool?.type, "tool_activity");
+    assert.equal(tool?.type === "tool_activity" ? tool.activity.phase : undefined, "started");
     opened.feed.close();
 });
 

@@ -12,14 +12,17 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
   "BrowserGoalLiveEvent-validator.cjs"(exports, module) {
     module.exports = validate10;
     module.exports.default = validate10;
+    var schema12 = { "anyOf": [{ "type": "object", "properties": { "type": { "type": "string", "const": "state_sync" }, "goalId": { "type": "string", "pattern": "\\S" }, "state": { "$ref": "#/definitions/BrowserSessionState" } }, "required": ["type", "goalId", "state"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "input_result" }, "goalId": { "type": "string", "pattern": "\\S" }, "outcome": { "$ref": "#/definitions/BrowserSessionInputOutcome" } }, "required": ["type", "goalId", "outcome"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "activity" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "activity": { "$ref": "#/definitions/BrowserGoalActivityEvent" } }, "required": ["type", "goalId", "runId", "activity"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "message_committed" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "message": { "$ref": "#/definitions/BrowserCommittedMessageEvent" } }, "required": ["type", "goalId", "runId", "message"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "interaction_required" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "interaction": { "$ref": "#/definitions/BrowserInteractionRequiredEvent" } }, "required": ["type", "goalId", "runId", "interaction"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "snapshot_changed" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" } }, "required": ["type", "goalId"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "refresh_required" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" } }, "required": ["type", "goalId"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "state_committed" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "commitRevision": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "changed": { "type": "array", "items": { "$ref": "#/definitions/BrowserControlScope" }, "minItems": 1 } }, "required": ["type", "goalId", "commitRevision", "changed"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "run_status_changed" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "status": { "$ref": "#/definitions/BrowserRunStatus" }, "commitRevision": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 } }, "required": ["type", "goalId", "runId", "status"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "run_result" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "result": { "type": "string", "enum": ["completed", "failed", "cancelled"] }, "commitRevision": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 } }, "required": ["type", "goalId", "runId", "result"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "interaction_opened" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "interactionId": { "type": "string", "pattern": "\\S" }, "kind": { "$ref": "#/definitions/BrowserInteractionKind" } }, "required": ["type", "goalId", "runId", "interactionId", "kind"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "interaction_settled" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "interactionId": { "type": "string", "pattern": "\\S" }, "kind": { "$ref": "#/definitions/BrowserInteractionKind" } }, "required": ["type", "goalId", "runId", "interactionId", "kind"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "tool_activity" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "activity": { "$ref": "#/definitions/BrowserToolActivity" } }, "required": ["type", "goalId", "runId", "activity"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "stream_fault" }, "goalId": { "type": "string", "pattern": "\\S" }, "code": { "type": "string", "enum": ["gap", "read_failed", "backpressure", "publisher_closed"] }, "resync": { "type": "array", "items": { "$ref": "#/definitions/BrowserControlScope" }, "minItems": 1 } }, "required": ["type", "goalId", "code", "resync"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "closed" }, "goalId": { "type": "string", "pattern": "\\S" }, "reason": { "type": "string", "enum": ["backpressure", "closed", "publisher_closed"] } }, "required": ["type", "goalId", "reason"], "additionalProperties": false }], "description": "\u6D4F\u89C8\u5668\u7AEF\u6D88\u8D39\u7684 Goal \u8303\u56F4\u5B9E\u65F6\u63A8\u9001\u4E8B\u4EF6\u3002" };
     var schema26 = { "anyOf": [{ "type": "object", "properties": { "kind": { "type": "string", "const": "assistant_text_delta" }, "text": { "type": "string" }, "truncated": { "type": "boolean" }, "sourceEventId": { "type": "string", "pattern": "\\S" }, "sourceCursor": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 } }, "required": ["kind", "text", "truncated", "sourceEventId", "sourceCursor"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "model_started" }, "stage": { "type": "string", "enum": ["think", "decide", "completion_review"] }, "modelCallId": { "type": "string", "pattern": "\\S" }, "executionUnitId": { "type": "string", "pattern": "\\S" }, "occurredAt": { "type": "string" } }, "required": ["kind"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "model_completed" } }, "required": ["kind"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "step_started" } }, "required": ["kind"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "tool_started" }, "sourceEventId": { "type": "string", "pattern": "\\S" }, "sourceCursor": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "actionId": { "type": "string", "pattern": "\\S" }, "executionUnitId": { "type": "string", "pattern": "\\S" }, "toolId": { "type": "string", "pattern": "\\S" }, "inputSummary": { "type": "string" } }, "required": ["kind", "sourceEventId", "sourceCursor", "actionId", "executionUnitId", "toolId"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "tool_finished" }, "sourceEventId": { "type": "string", "pattern": "\\S" }, "sourceCursor": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "actionId": { "type": "string", "pattern": "\\S" }, "toolId": { "type": "string", "pattern": "\\S" }, "outcome": { "type": "string", "enum": ["success", "failure"] }, "summary": { "type": "string" } }, "required": ["kind", "sourceEventId", "sourceCursor", "actionId", "toolId", "outcome"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "tool_attempt_started" }, "sourceEventId": { "type": "string", "pattern": "\\S" }, "sourceCursor": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "actionId": { "type": "string", "pattern": "\\S" }, "attempt": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 } }, "required": ["kind", "sourceEventId", "sourceCursor", "actionId", "attempt"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "tool_attempt_failed" }, "sourceEventId": { "type": "string", "pattern": "\\S" }, "sourceCursor": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "actionId": { "type": "string", "pattern": "\\S" }, "attempt": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "reason": { "type": "string" } }, "required": ["kind", "sourceEventId", "sourceCursor", "actionId", "attempt", "reason"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "activity_boundary" }, "sourceEventId": { "type": "string", "pattern": "\\S" }, "sourceCursor": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "reason": { "type": "string", "enum": ["assistant_reply", "user_wait", "stage_change", "terminal", "failure", "unknown"] } }, "required": ["kind", "sourceEventId", "sourceCursor", "reason"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "candidate_preview" }, "sourceEventId": { "type": "string", "pattern": "\\S" }, "sourceCursor": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "candidateId": { "type": "string", "pattern": "\\S" }, "text": { "type": "string" }, "startOffset": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "truncated": { "type": "boolean" }, "complete": { "type": "boolean" } }, "required": ["kind", "sourceEventId", "sourceCursor", "candidateId", "text", "startOffset", "truncated", "complete"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "candidate_invalidated" }, "sourceEventId": { "type": "string", "pattern": "\\S" }, "sourceCursor": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "candidateId": { "type": "string", "pattern": "\\S" }, "reason": { "type": "string", "enum": ["rejected", "cancelled", "failed", "replaced", "ambiguous"] } }, "required": ["kind", "sourceEventId", "sourceCursor", "candidateId", "reason"], "additionalProperties": false }], "description": "\u5B9E\u65F6\u6267\u884C\u6D3B\u52A8\u4E8B\u4EF6\u7684\u7A33\u5B9A\u8054\u5408\u3002" };
     var schema29 = { "type": "object", "properties": { "interactionId": { "type": "string", "pattern": "\\S" }, "kind": { "type": "string", "enum": ["ask_user", "task_approval", "action_approval", "action_recovery"] }, "runId": { "type": "string", "pattern": "\\S" } }, "required": ["interactionId", "kind", "runId"], "additionalProperties": false, "description": "\u4EA4\u4E92\u8981\u6C42\u7684\u5B9E\u65F6\u63A8\u9001\u6458\u8981\u3002" };
+    var schema30 = { "type": "string", "enum": ["session", "activity", "trajectory", "metrics", "goals", "grants", "permission", "model"], "description": "Browser \u63A7\u5236\u6295\u5F71\u7684\u53EF\u5931\u6548\u4F5C\u7528\u57DF\u3002" };
+    var schema14 = { "type": "string", "enum": ["created", "running", "waiting", "completed", "failed", "cancelled"], "description": "Run \u751F\u547D\u5468\u671F\u72B6\u6001\u3002" };
+    var schema16 = { "type": "string", "enum": ["question", "task_approval", "action_approval", "action_recovery"], "description": "\u5F53\u524D\u4EA4\u4E92\u89C6\u56FE\u7684\u79CD\u7C7B\u3002" };
+    var schema34 = { "type": "object", "properties": { "actionId": { "type": "string", "pattern": "\\S" }, "executionUnitId": { "type": "string", "pattern": "\\S" }, "toolId": { "type": "string", "pattern": "\\S" }, "attempt": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "phase": { "type": "string", "enum": ["started", "attempting", "retrying", "result_pending", "observed_committed", "unknown"] }, "outcome": { "type": "string", "enum": ["success", "failure"] }, "summary": { "type": "string" }, "reason": { "type": "string" } }, "required": ["actionId", "phase"], "additionalProperties": false, "description": "\u5355\u4E2A\u5DE5\u5177\u6D3B\u52A8\u7684\u516C\u5F00\u63A7\u5236\u72B6\u6001\u3002" };
     var pattern0 = new RegExp("\\S", "u");
     var schema13 = { "type": "object", "properties": { "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "runStatus": { "$ref": "#/definitions/BrowserRunStatus" }, "mode": { "type": "string", "enum": ["normal", "plan"] }, "commitRevision": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "queueRevision": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "queuePaused": { "type": "boolean" }, "queuePauseReason": { "type": "string", "enum": ["run_failed", "user_interrupt"] }, "pendingMessageCount": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "pendingSteerCount": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "waitingFor": { "type": "string", "enum": ["ask_user", "task_approval", "action_approval", "action_recovery", "blocked"] }, "interaction": { "$ref": "#/definitions/BrowserSessionStateInteraction" }, "messages": { "type": "object", "properties": { "count": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "throughMessageId": { "type": "string", "pattern": "\\S" }, "recent": { "type": "array", "items": { "$ref": "#/definitions/BrowserSessionStateMessage" } } }, "required": ["count", "recent"], "additionalProperties": false }, "needsRecovery": { "type": "boolean" }, "interruption": { "$ref": "#/definitions/BrowserSessionStateInterruption" }, "executionOwner": { "type": "boolean" } }, "required": ["goalId", "runId", "runStatus", "mode", "commitRevision", "queueRevision", "queuePaused", "pendingMessageCount", "pendingSteerCount", "messages", "needsRecovery", "executionOwner"], "additionalProperties": false, "description": "\u5B89\u5168\u4F1A\u8BDD\u72B6\u6001\u6295\u5F71\u3002" };
-    var schema14 = { "type": "string", "enum": ["created", "running", "waiting", "completed", "failed", "cancelled"], "description": "Run \u751F\u547D\u5468\u671F\u72B6\u6001\u3002" };
     var schema19 = { "type": "object", "properties": { "requestId": { "type": "string", "pattern": "\\S" }, "status": { "type": "string", "enum": ["requested", "finished"] }, "outcomeUnknown": { "type": "boolean" } }, "required": ["requestId", "status", "outcomeUnknown"], "additionalProperties": false, "description": "\u5F53\u524D Run \u7684\u7528\u6237\u4E2D\u65AD\u72B6\u6001\u3002" };
     var func2 = Object.prototype.hasOwnProperty;
-    var schema16 = { "type": "string", "enum": ["question", "task_approval", "action_approval", "action_recovery"], "description": "\u5F53\u524D\u4EA4\u4E92\u89C6\u56FE\u7684\u79CD\u7C7B\u3002" };
     function validate13(data, { instancePath = "", parentData, parentDataProperty, rootData = data } = {}) {
       let vErrors = null;
       let errors = 0;
@@ -4795,6 +4798,1545 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                   }
                   var _valid0 = _errs208 === errors;
                   valid0 = valid0 || _valid0;
+                  if (!valid0) {
+                    const _errs217 = errors;
+                    if (data && typeof data == "object" && !Array.isArray(data)) {
+                      if (data.type === void 0) {
+                        const err266 = { instancePath, schemaPath: "#/anyOf/7/required", keyword: "required", params: { missingProperty: "type" }, message: "must have required property 'type'" };
+                        if (vErrors === null) {
+                          vErrors = [err266];
+                        } else {
+                          vErrors.push(err266);
+                        }
+                        errors++;
+                      }
+                      if (data.goalId === void 0) {
+                        const err267 = { instancePath, schemaPath: "#/anyOf/7/required", keyword: "required", params: { missingProperty: "goalId" }, message: "must have required property 'goalId'" };
+                        if (vErrors === null) {
+                          vErrors = [err267];
+                        } else {
+                          vErrors.push(err267);
+                        }
+                        errors++;
+                      }
+                      if (data.commitRevision === void 0) {
+                        const err268 = { instancePath, schemaPath: "#/anyOf/7/required", keyword: "required", params: { missingProperty: "commitRevision" }, message: "must have required property 'commitRevision'" };
+                        if (vErrors === null) {
+                          vErrors = [err268];
+                        } else {
+                          vErrors.push(err268);
+                        }
+                        errors++;
+                      }
+                      if (data.changed === void 0) {
+                        const err269 = { instancePath, schemaPath: "#/anyOf/7/required", keyword: "required", params: { missingProperty: "changed" }, message: "must have required property 'changed'" };
+                        if (vErrors === null) {
+                          vErrors = [err269];
+                        } else {
+                          vErrors.push(err269);
+                        }
+                        errors++;
+                      }
+                      for (const key19 in data) {
+                        if (!(key19 === "type" || key19 === "goalId" || key19 === "runId" || key19 === "commitRevision" || key19 === "changed")) {
+                          const err270 = { instancePath, schemaPath: "#/anyOf/7/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key19 }, message: "must NOT have additional properties" };
+                          if (vErrors === null) {
+                            vErrors = [err270];
+                          } else {
+                            vErrors.push(err270);
+                          }
+                          errors++;
+                        }
+                      }
+                      if (data.type !== void 0) {
+                        let data81 = data.type;
+                        if (typeof data81 !== "string") {
+                          const err271 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/7/properties/type/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                          if (vErrors === null) {
+                            vErrors = [err271];
+                          } else {
+                            vErrors.push(err271);
+                          }
+                          errors++;
+                        }
+                        if ("state_committed" !== data81) {
+                          const err272 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/7/properties/type/const", keyword: "const", params: { allowedValue: "state_committed" }, message: "must be equal to constant" };
+                          if (vErrors === null) {
+                            vErrors = [err272];
+                          } else {
+                            vErrors.push(err272);
+                          }
+                          errors++;
+                        }
+                      }
+                      if (data.goalId !== void 0) {
+                        let data82 = data.goalId;
+                        if (typeof data82 === "string") {
+                          if (!pattern0.test(data82)) {
+                            const err273 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/7/properties/goalId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                            if (vErrors === null) {
+                              vErrors = [err273];
+                            } else {
+                              vErrors.push(err273);
+                            }
+                            errors++;
+                          }
+                        } else {
+                          const err274 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/7/properties/goalId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                          if (vErrors === null) {
+                            vErrors = [err274];
+                          } else {
+                            vErrors.push(err274);
+                          }
+                          errors++;
+                        }
+                      }
+                      if (data.runId !== void 0) {
+                        let data83 = data.runId;
+                        if (typeof data83 === "string") {
+                          if (!pattern0.test(data83)) {
+                            const err275 = { instancePath: instancePath + "/runId", schemaPath: "#/anyOf/7/properties/runId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                            if (vErrors === null) {
+                              vErrors = [err275];
+                            } else {
+                              vErrors.push(err275);
+                            }
+                            errors++;
+                          }
+                        } else {
+                          const err276 = { instancePath: instancePath + "/runId", schemaPath: "#/anyOf/7/properties/runId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                          if (vErrors === null) {
+                            vErrors = [err276];
+                          } else {
+                            vErrors.push(err276);
+                          }
+                          errors++;
+                        }
+                      }
+                      if (data.commitRevision !== void 0) {
+                        let data84 = data.commitRevision;
+                        if (!(typeof data84 == "number" && (!(data84 % 1) && !isNaN(data84)) && isFinite(data84))) {
+                          const err277 = { instancePath: instancePath + "/commitRevision", schemaPath: "#/anyOf/7/properties/commitRevision/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
+                          if (vErrors === null) {
+                            vErrors = [err277];
+                          } else {
+                            vErrors.push(err277);
+                          }
+                          errors++;
+                        }
+                        if (typeof data84 == "number" && isFinite(data84)) {
+                          if (data84 > 9007199254740991 || isNaN(data84)) {
+                            const err278 = { instancePath: instancePath + "/commitRevision", schemaPath: "#/anyOf/7/properties/commitRevision/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
+                            if (vErrors === null) {
+                              vErrors = [err278];
+                            } else {
+                              vErrors.push(err278);
+                            }
+                            errors++;
+                          }
+                          if (data84 < 0 || isNaN(data84)) {
+                            const err279 = { instancePath: instancePath + "/commitRevision", schemaPath: "#/anyOf/7/properties/commitRevision/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
+                            if (vErrors === null) {
+                              vErrors = [err279];
+                            } else {
+                              vErrors.push(err279);
+                            }
+                            errors++;
+                          }
+                        }
+                      }
+                      if (data.changed !== void 0) {
+                        let data85 = data.changed;
+                        if (Array.isArray(data85)) {
+                          if (data85.length < 1) {
+                            const err280 = { instancePath: instancePath + "/changed", schemaPath: "#/anyOf/7/properties/changed/minItems", keyword: "minItems", params: { limit: 1 }, message: "must NOT have fewer than 1 items" };
+                            if (vErrors === null) {
+                              vErrors = [err280];
+                            } else {
+                              vErrors.push(err280);
+                            }
+                            errors++;
+                          }
+                          const len0 = data85.length;
+                          for (let i0 = 0; i0 < len0; i0++) {
+                            let data86 = data85[i0];
+                            if (typeof data86 !== "string") {
+                              const err281 = { instancePath: instancePath + "/changed/" + i0, schemaPath: "#/definitions/BrowserControlScope/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                              if (vErrors === null) {
+                                vErrors = [err281];
+                              } else {
+                                vErrors.push(err281);
+                              }
+                              errors++;
+                            }
+                            if (!(data86 === "session" || data86 === "activity" || data86 === "trajectory" || data86 === "metrics" || data86 === "goals" || data86 === "grants" || data86 === "permission" || data86 === "model")) {
+                              const err282 = { instancePath: instancePath + "/changed/" + i0, schemaPath: "#/definitions/BrowserControlScope/enum", keyword: "enum", params: { allowedValues: schema30.enum }, message: "must be equal to one of the allowed values" };
+                              if (vErrors === null) {
+                                vErrors = [err282];
+                              } else {
+                                vErrors.push(err282);
+                              }
+                              errors++;
+                            }
+                          }
+                        } else {
+                          const err283 = { instancePath: instancePath + "/changed", schemaPath: "#/anyOf/7/properties/changed/type", keyword: "type", params: { type: "array" }, message: "must be array" };
+                          if (vErrors === null) {
+                            vErrors = [err283];
+                          } else {
+                            vErrors.push(err283);
+                          }
+                          errors++;
+                        }
+                      }
+                    } else {
+                      const err284 = { instancePath, schemaPath: "#/anyOf/7/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                      if (vErrors === null) {
+                        vErrors = [err284];
+                      } else {
+                        vErrors.push(err284);
+                      }
+                      errors++;
+                    }
+                    var _valid0 = _errs217 === errors;
+                    valid0 = valid0 || _valid0;
+                    if (!valid0) {
+                      const _errs233 = errors;
+                      if (data && typeof data == "object" && !Array.isArray(data)) {
+                        if (data.type === void 0) {
+                          const err285 = { instancePath, schemaPath: "#/anyOf/8/required", keyword: "required", params: { missingProperty: "type" }, message: "must have required property 'type'" };
+                          if (vErrors === null) {
+                            vErrors = [err285];
+                          } else {
+                            vErrors.push(err285);
+                          }
+                          errors++;
+                        }
+                        if (data.goalId === void 0) {
+                          const err286 = { instancePath, schemaPath: "#/anyOf/8/required", keyword: "required", params: { missingProperty: "goalId" }, message: "must have required property 'goalId'" };
+                          if (vErrors === null) {
+                            vErrors = [err286];
+                          } else {
+                            vErrors.push(err286);
+                          }
+                          errors++;
+                        }
+                        if (data.runId === void 0) {
+                          const err287 = { instancePath, schemaPath: "#/anyOf/8/required", keyword: "required", params: { missingProperty: "runId" }, message: "must have required property 'runId'" };
+                          if (vErrors === null) {
+                            vErrors = [err287];
+                          } else {
+                            vErrors.push(err287);
+                          }
+                          errors++;
+                        }
+                        if (data.status === void 0) {
+                          const err288 = { instancePath, schemaPath: "#/anyOf/8/required", keyword: "required", params: { missingProperty: "status" }, message: "must have required property 'status'" };
+                          if (vErrors === null) {
+                            vErrors = [err288];
+                          } else {
+                            vErrors.push(err288);
+                          }
+                          errors++;
+                        }
+                        for (const key20 in data) {
+                          if (!(key20 === "type" || key20 === "goalId" || key20 === "runId" || key20 === "status" || key20 === "commitRevision")) {
+                            const err289 = { instancePath, schemaPath: "#/anyOf/8/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key20 }, message: "must NOT have additional properties" };
+                            if (vErrors === null) {
+                              vErrors = [err289];
+                            } else {
+                              vErrors.push(err289);
+                            }
+                            errors++;
+                          }
+                        }
+                        if (data.type !== void 0) {
+                          let data87 = data.type;
+                          if (typeof data87 !== "string") {
+                            const err290 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/8/properties/type/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                            if (vErrors === null) {
+                              vErrors = [err290];
+                            } else {
+                              vErrors.push(err290);
+                            }
+                            errors++;
+                          }
+                          if ("run_status_changed" !== data87) {
+                            const err291 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/8/properties/type/const", keyword: "const", params: { allowedValue: "run_status_changed" }, message: "must be equal to constant" };
+                            if (vErrors === null) {
+                              vErrors = [err291];
+                            } else {
+                              vErrors.push(err291);
+                            }
+                            errors++;
+                          }
+                        }
+                        if (data.goalId !== void 0) {
+                          let data88 = data.goalId;
+                          if (typeof data88 === "string") {
+                            if (!pattern0.test(data88)) {
+                              const err292 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/8/properties/goalId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                              if (vErrors === null) {
+                                vErrors = [err292];
+                              } else {
+                                vErrors.push(err292);
+                              }
+                              errors++;
+                            }
+                          } else {
+                            const err293 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/8/properties/goalId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                            if (vErrors === null) {
+                              vErrors = [err293];
+                            } else {
+                              vErrors.push(err293);
+                            }
+                            errors++;
+                          }
+                        }
+                        if (data.runId !== void 0) {
+                          let data89 = data.runId;
+                          if (typeof data89 === "string") {
+                            if (!pattern0.test(data89)) {
+                              const err294 = { instancePath: instancePath + "/runId", schemaPath: "#/anyOf/8/properties/runId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                              if (vErrors === null) {
+                                vErrors = [err294];
+                              } else {
+                                vErrors.push(err294);
+                              }
+                              errors++;
+                            }
+                          } else {
+                            const err295 = { instancePath: instancePath + "/runId", schemaPath: "#/anyOf/8/properties/runId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                            if (vErrors === null) {
+                              vErrors = [err295];
+                            } else {
+                              vErrors.push(err295);
+                            }
+                            errors++;
+                          }
+                        }
+                        if (data.status !== void 0) {
+                          let data90 = data.status;
+                          if (typeof data90 !== "string") {
+                            const err296 = { instancePath: instancePath + "/status", schemaPath: "#/definitions/BrowserRunStatus/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                            if (vErrors === null) {
+                              vErrors = [err296];
+                            } else {
+                              vErrors.push(err296);
+                            }
+                            errors++;
+                          }
+                          if (!(data90 === "created" || data90 === "running" || data90 === "waiting" || data90 === "completed" || data90 === "failed" || data90 === "cancelled")) {
+                            const err297 = { instancePath: instancePath + "/status", schemaPath: "#/definitions/BrowserRunStatus/enum", keyword: "enum", params: { allowedValues: schema14.enum }, message: "must be equal to one of the allowed values" };
+                            if (vErrors === null) {
+                              vErrors = [err297];
+                            } else {
+                              vErrors.push(err297);
+                            }
+                            errors++;
+                          }
+                        }
+                        if (data.commitRevision !== void 0) {
+                          let data91 = data.commitRevision;
+                          if (!(typeof data91 == "number" && (!(data91 % 1) && !isNaN(data91)) && isFinite(data91))) {
+                            const err298 = { instancePath: instancePath + "/commitRevision", schemaPath: "#/anyOf/8/properties/commitRevision/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
+                            if (vErrors === null) {
+                              vErrors = [err298];
+                            } else {
+                              vErrors.push(err298);
+                            }
+                            errors++;
+                          }
+                          if (typeof data91 == "number" && isFinite(data91)) {
+                            if (data91 > 9007199254740991 || isNaN(data91)) {
+                              const err299 = { instancePath: instancePath + "/commitRevision", schemaPath: "#/anyOf/8/properties/commitRevision/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
+                              if (vErrors === null) {
+                                vErrors = [err299];
+                              } else {
+                                vErrors.push(err299);
+                              }
+                              errors++;
+                            }
+                            if (data91 < 0 || isNaN(data91)) {
+                              const err300 = { instancePath: instancePath + "/commitRevision", schemaPath: "#/anyOf/8/properties/commitRevision/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
+                              if (vErrors === null) {
+                                vErrors = [err300];
+                              } else {
+                                vErrors.push(err300);
+                              }
+                              errors++;
+                            }
+                          }
+                        }
+                      } else {
+                        const err301 = { instancePath, schemaPath: "#/anyOf/8/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                        if (vErrors === null) {
+                          vErrors = [err301];
+                        } else {
+                          vErrors.push(err301);
+                        }
+                        errors++;
+                      }
+                      var _valid0 = _errs233 === errors;
+                      valid0 = valid0 || _valid0;
+                      if (!valid0) {
+                        const _errs247 = errors;
+                        if (data && typeof data == "object" && !Array.isArray(data)) {
+                          if (data.type === void 0) {
+                            const err302 = { instancePath, schemaPath: "#/anyOf/9/required", keyword: "required", params: { missingProperty: "type" }, message: "must have required property 'type'" };
+                            if (vErrors === null) {
+                              vErrors = [err302];
+                            } else {
+                              vErrors.push(err302);
+                            }
+                            errors++;
+                          }
+                          if (data.goalId === void 0) {
+                            const err303 = { instancePath, schemaPath: "#/anyOf/9/required", keyword: "required", params: { missingProperty: "goalId" }, message: "must have required property 'goalId'" };
+                            if (vErrors === null) {
+                              vErrors = [err303];
+                            } else {
+                              vErrors.push(err303);
+                            }
+                            errors++;
+                          }
+                          if (data.runId === void 0) {
+                            const err304 = { instancePath, schemaPath: "#/anyOf/9/required", keyword: "required", params: { missingProperty: "runId" }, message: "must have required property 'runId'" };
+                            if (vErrors === null) {
+                              vErrors = [err304];
+                            } else {
+                              vErrors.push(err304);
+                            }
+                            errors++;
+                          }
+                          if (data.result === void 0) {
+                            const err305 = { instancePath, schemaPath: "#/anyOf/9/required", keyword: "required", params: { missingProperty: "result" }, message: "must have required property 'result'" };
+                            if (vErrors === null) {
+                              vErrors = [err305];
+                            } else {
+                              vErrors.push(err305);
+                            }
+                            errors++;
+                          }
+                          for (const key21 in data) {
+                            if (!(key21 === "type" || key21 === "goalId" || key21 === "runId" || key21 === "result" || key21 === "commitRevision")) {
+                              const err306 = { instancePath, schemaPath: "#/anyOf/9/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key21 }, message: "must NOT have additional properties" };
+                              if (vErrors === null) {
+                                vErrors = [err306];
+                              } else {
+                                vErrors.push(err306);
+                              }
+                              errors++;
+                            }
+                          }
+                          if (data.type !== void 0) {
+                            let data92 = data.type;
+                            if (typeof data92 !== "string") {
+                              const err307 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/9/properties/type/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                              if (vErrors === null) {
+                                vErrors = [err307];
+                              } else {
+                                vErrors.push(err307);
+                              }
+                              errors++;
+                            }
+                            if ("run_result" !== data92) {
+                              const err308 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/9/properties/type/const", keyword: "const", params: { allowedValue: "run_result" }, message: "must be equal to constant" };
+                              if (vErrors === null) {
+                                vErrors = [err308];
+                              } else {
+                                vErrors.push(err308);
+                              }
+                              errors++;
+                            }
+                          }
+                          if (data.goalId !== void 0) {
+                            let data93 = data.goalId;
+                            if (typeof data93 === "string") {
+                              if (!pattern0.test(data93)) {
+                                const err309 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/9/properties/goalId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                                if (vErrors === null) {
+                                  vErrors = [err309];
+                                } else {
+                                  vErrors.push(err309);
+                                }
+                                errors++;
+                              }
+                            } else {
+                              const err310 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/9/properties/goalId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                              if (vErrors === null) {
+                                vErrors = [err310];
+                              } else {
+                                vErrors.push(err310);
+                              }
+                              errors++;
+                            }
+                          }
+                          if (data.runId !== void 0) {
+                            let data94 = data.runId;
+                            if (typeof data94 === "string") {
+                              if (!pattern0.test(data94)) {
+                                const err311 = { instancePath: instancePath + "/runId", schemaPath: "#/anyOf/9/properties/runId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                                if (vErrors === null) {
+                                  vErrors = [err311];
+                                } else {
+                                  vErrors.push(err311);
+                                }
+                                errors++;
+                              }
+                            } else {
+                              const err312 = { instancePath: instancePath + "/runId", schemaPath: "#/anyOf/9/properties/runId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                              if (vErrors === null) {
+                                vErrors = [err312];
+                              } else {
+                                vErrors.push(err312);
+                              }
+                              errors++;
+                            }
+                          }
+                          if (data.result !== void 0) {
+                            let data95 = data.result;
+                            if (typeof data95 !== "string") {
+                              const err313 = { instancePath: instancePath + "/result", schemaPath: "#/anyOf/9/properties/result/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                              if (vErrors === null) {
+                                vErrors = [err313];
+                              } else {
+                                vErrors.push(err313);
+                              }
+                              errors++;
+                            }
+                            if (!(data95 === "completed" || data95 === "failed" || data95 === "cancelled")) {
+                              const err314 = { instancePath: instancePath + "/result", schemaPath: "#/anyOf/9/properties/result/enum", keyword: "enum", params: { allowedValues: schema12.anyOf[9].properties.result.enum }, message: "must be equal to one of the allowed values" };
+                              if (vErrors === null) {
+                                vErrors = [err314];
+                              } else {
+                                vErrors.push(err314);
+                              }
+                              errors++;
+                            }
+                          }
+                          if (data.commitRevision !== void 0) {
+                            let data96 = data.commitRevision;
+                            if (!(typeof data96 == "number" && (!(data96 % 1) && !isNaN(data96)) && isFinite(data96))) {
+                              const err315 = { instancePath: instancePath + "/commitRevision", schemaPath: "#/anyOf/9/properties/commitRevision/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
+                              if (vErrors === null) {
+                                vErrors = [err315];
+                              } else {
+                                vErrors.push(err315);
+                              }
+                              errors++;
+                            }
+                            if (typeof data96 == "number" && isFinite(data96)) {
+                              if (data96 > 9007199254740991 || isNaN(data96)) {
+                                const err316 = { instancePath: instancePath + "/commitRevision", schemaPath: "#/anyOf/9/properties/commitRevision/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
+                                if (vErrors === null) {
+                                  vErrors = [err316];
+                                } else {
+                                  vErrors.push(err316);
+                                }
+                                errors++;
+                              }
+                              if (data96 < 0 || isNaN(data96)) {
+                                const err317 = { instancePath: instancePath + "/commitRevision", schemaPath: "#/anyOf/9/properties/commitRevision/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
+                                if (vErrors === null) {
+                                  vErrors = [err317];
+                                } else {
+                                  vErrors.push(err317);
+                                }
+                                errors++;
+                              }
+                            }
+                          }
+                        } else {
+                          const err318 = { instancePath, schemaPath: "#/anyOf/9/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                          if (vErrors === null) {
+                            vErrors = [err318];
+                          } else {
+                            vErrors.push(err318);
+                          }
+                          errors++;
+                        }
+                        var _valid0 = _errs247 === errors;
+                        valid0 = valid0 || _valid0;
+                        if (!valid0) {
+                          const _errs260 = errors;
+                          if (data && typeof data == "object" && !Array.isArray(data)) {
+                            if (data.type === void 0) {
+                              const err319 = { instancePath, schemaPath: "#/anyOf/10/required", keyword: "required", params: { missingProperty: "type" }, message: "must have required property 'type'" };
+                              if (vErrors === null) {
+                                vErrors = [err319];
+                              } else {
+                                vErrors.push(err319);
+                              }
+                              errors++;
+                            }
+                            if (data.goalId === void 0) {
+                              const err320 = { instancePath, schemaPath: "#/anyOf/10/required", keyword: "required", params: { missingProperty: "goalId" }, message: "must have required property 'goalId'" };
+                              if (vErrors === null) {
+                                vErrors = [err320];
+                              } else {
+                                vErrors.push(err320);
+                              }
+                              errors++;
+                            }
+                            if (data.runId === void 0) {
+                              const err321 = { instancePath, schemaPath: "#/anyOf/10/required", keyword: "required", params: { missingProperty: "runId" }, message: "must have required property 'runId'" };
+                              if (vErrors === null) {
+                                vErrors = [err321];
+                              } else {
+                                vErrors.push(err321);
+                              }
+                              errors++;
+                            }
+                            if (data.interactionId === void 0) {
+                              const err322 = { instancePath, schemaPath: "#/anyOf/10/required", keyword: "required", params: { missingProperty: "interactionId" }, message: "must have required property 'interactionId'" };
+                              if (vErrors === null) {
+                                vErrors = [err322];
+                              } else {
+                                vErrors.push(err322);
+                              }
+                              errors++;
+                            }
+                            if (data.kind === void 0) {
+                              const err323 = { instancePath, schemaPath: "#/anyOf/10/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
+                              if (vErrors === null) {
+                                vErrors = [err323];
+                              } else {
+                                vErrors.push(err323);
+                              }
+                              errors++;
+                            }
+                            for (const key22 in data) {
+                              if (!(key22 === "type" || key22 === "goalId" || key22 === "runId" || key22 === "interactionId" || key22 === "kind")) {
+                                const err324 = { instancePath, schemaPath: "#/anyOf/10/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key22 }, message: "must NOT have additional properties" };
+                                if (vErrors === null) {
+                                  vErrors = [err324];
+                                } else {
+                                  vErrors.push(err324);
+                                }
+                                errors++;
+                              }
+                            }
+                            if (data.type !== void 0) {
+                              let data97 = data.type;
+                              if (typeof data97 !== "string") {
+                                const err325 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/10/properties/type/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                if (vErrors === null) {
+                                  vErrors = [err325];
+                                } else {
+                                  vErrors.push(err325);
+                                }
+                                errors++;
+                              }
+                              if ("interaction_opened" !== data97) {
+                                const err326 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/10/properties/type/const", keyword: "const", params: { allowedValue: "interaction_opened" }, message: "must be equal to constant" };
+                                if (vErrors === null) {
+                                  vErrors = [err326];
+                                } else {
+                                  vErrors.push(err326);
+                                }
+                                errors++;
+                              }
+                            }
+                            if (data.goalId !== void 0) {
+                              let data98 = data.goalId;
+                              if (typeof data98 === "string") {
+                                if (!pattern0.test(data98)) {
+                                  const err327 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/10/properties/goalId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                                  if (vErrors === null) {
+                                    vErrors = [err327];
+                                  } else {
+                                    vErrors.push(err327);
+                                  }
+                                  errors++;
+                                }
+                              } else {
+                                const err328 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/10/properties/goalId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                if (vErrors === null) {
+                                  vErrors = [err328];
+                                } else {
+                                  vErrors.push(err328);
+                                }
+                                errors++;
+                              }
+                            }
+                            if (data.runId !== void 0) {
+                              let data99 = data.runId;
+                              if (typeof data99 === "string") {
+                                if (!pattern0.test(data99)) {
+                                  const err329 = { instancePath: instancePath + "/runId", schemaPath: "#/anyOf/10/properties/runId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                                  if (vErrors === null) {
+                                    vErrors = [err329];
+                                  } else {
+                                    vErrors.push(err329);
+                                  }
+                                  errors++;
+                                }
+                              } else {
+                                const err330 = { instancePath: instancePath + "/runId", schemaPath: "#/anyOf/10/properties/runId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                if (vErrors === null) {
+                                  vErrors = [err330];
+                                } else {
+                                  vErrors.push(err330);
+                                }
+                                errors++;
+                              }
+                            }
+                            if (data.interactionId !== void 0) {
+                              let data100 = data.interactionId;
+                              if (typeof data100 === "string") {
+                                if (!pattern0.test(data100)) {
+                                  const err331 = { instancePath: instancePath + "/interactionId", schemaPath: "#/anyOf/10/properties/interactionId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                                  if (vErrors === null) {
+                                    vErrors = [err331];
+                                  } else {
+                                    vErrors.push(err331);
+                                  }
+                                  errors++;
+                                }
+                              } else {
+                                const err332 = { instancePath: instancePath + "/interactionId", schemaPath: "#/anyOf/10/properties/interactionId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                if (vErrors === null) {
+                                  vErrors = [err332];
+                                } else {
+                                  vErrors.push(err332);
+                                }
+                                errors++;
+                              }
+                            }
+                            if (data.kind !== void 0) {
+                              let data101 = data.kind;
+                              if (typeof data101 !== "string") {
+                                const err333 = { instancePath: instancePath + "/kind", schemaPath: "#/definitions/BrowserInteractionKind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                if (vErrors === null) {
+                                  vErrors = [err333];
+                                } else {
+                                  vErrors.push(err333);
+                                }
+                                errors++;
+                              }
+                              if (!(data101 === "question" || data101 === "task_approval" || data101 === "action_approval" || data101 === "action_recovery")) {
+                                const err334 = { instancePath: instancePath + "/kind", schemaPath: "#/definitions/BrowserInteractionKind/enum", keyword: "enum", params: { allowedValues: schema16.enum }, message: "must be equal to one of the allowed values" };
+                                if (vErrors === null) {
+                                  vErrors = [err334];
+                                } else {
+                                  vErrors.push(err334);
+                                }
+                                errors++;
+                              }
+                            }
+                          } else {
+                            const err335 = { instancePath, schemaPath: "#/anyOf/10/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                            if (vErrors === null) {
+                              vErrors = [err335];
+                            } else {
+                              vErrors.push(err335);
+                            }
+                            errors++;
+                          }
+                          var _valid0 = _errs260 === errors;
+                          valid0 = valid0 || _valid0;
+                          if (!valid0) {
+                            const _errs274 = errors;
+                            if (data && typeof data == "object" && !Array.isArray(data)) {
+                              if (data.type === void 0) {
+                                const err336 = { instancePath, schemaPath: "#/anyOf/11/required", keyword: "required", params: { missingProperty: "type" }, message: "must have required property 'type'" };
+                                if (vErrors === null) {
+                                  vErrors = [err336];
+                                } else {
+                                  vErrors.push(err336);
+                                }
+                                errors++;
+                              }
+                              if (data.goalId === void 0) {
+                                const err337 = { instancePath, schemaPath: "#/anyOf/11/required", keyword: "required", params: { missingProperty: "goalId" }, message: "must have required property 'goalId'" };
+                                if (vErrors === null) {
+                                  vErrors = [err337];
+                                } else {
+                                  vErrors.push(err337);
+                                }
+                                errors++;
+                              }
+                              if (data.runId === void 0) {
+                                const err338 = { instancePath, schemaPath: "#/anyOf/11/required", keyword: "required", params: { missingProperty: "runId" }, message: "must have required property 'runId'" };
+                                if (vErrors === null) {
+                                  vErrors = [err338];
+                                } else {
+                                  vErrors.push(err338);
+                                }
+                                errors++;
+                              }
+                              if (data.interactionId === void 0) {
+                                const err339 = { instancePath, schemaPath: "#/anyOf/11/required", keyword: "required", params: { missingProperty: "interactionId" }, message: "must have required property 'interactionId'" };
+                                if (vErrors === null) {
+                                  vErrors = [err339];
+                                } else {
+                                  vErrors.push(err339);
+                                }
+                                errors++;
+                              }
+                              if (data.kind === void 0) {
+                                const err340 = { instancePath, schemaPath: "#/anyOf/11/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
+                                if (vErrors === null) {
+                                  vErrors = [err340];
+                                } else {
+                                  vErrors.push(err340);
+                                }
+                                errors++;
+                              }
+                              for (const key23 in data) {
+                                if (!(key23 === "type" || key23 === "goalId" || key23 === "runId" || key23 === "interactionId" || key23 === "kind")) {
+                                  const err341 = { instancePath, schemaPath: "#/anyOf/11/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key23 }, message: "must NOT have additional properties" };
+                                  if (vErrors === null) {
+                                    vErrors = [err341];
+                                  } else {
+                                    vErrors.push(err341);
+                                  }
+                                  errors++;
+                                }
+                              }
+                              if (data.type !== void 0) {
+                                let data102 = data.type;
+                                if (typeof data102 !== "string") {
+                                  const err342 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/11/properties/type/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                  if (vErrors === null) {
+                                    vErrors = [err342];
+                                  } else {
+                                    vErrors.push(err342);
+                                  }
+                                  errors++;
+                                }
+                                if ("interaction_settled" !== data102) {
+                                  const err343 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/11/properties/type/const", keyword: "const", params: { allowedValue: "interaction_settled" }, message: "must be equal to constant" };
+                                  if (vErrors === null) {
+                                    vErrors = [err343];
+                                  } else {
+                                    vErrors.push(err343);
+                                  }
+                                  errors++;
+                                }
+                              }
+                              if (data.goalId !== void 0) {
+                                let data103 = data.goalId;
+                                if (typeof data103 === "string") {
+                                  if (!pattern0.test(data103)) {
+                                    const err344 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/11/properties/goalId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                                    if (vErrors === null) {
+                                      vErrors = [err344];
+                                    } else {
+                                      vErrors.push(err344);
+                                    }
+                                    errors++;
+                                  }
+                                } else {
+                                  const err345 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/11/properties/goalId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                  if (vErrors === null) {
+                                    vErrors = [err345];
+                                  } else {
+                                    vErrors.push(err345);
+                                  }
+                                  errors++;
+                                }
+                              }
+                              if (data.runId !== void 0) {
+                                let data104 = data.runId;
+                                if (typeof data104 === "string") {
+                                  if (!pattern0.test(data104)) {
+                                    const err346 = { instancePath: instancePath + "/runId", schemaPath: "#/anyOf/11/properties/runId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                                    if (vErrors === null) {
+                                      vErrors = [err346];
+                                    } else {
+                                      vErrors.push(err346);
+                                    }
+                                    errors++;
+                                  }
+                                } else {
+                                  const err347 = { instancePath: instancePath + "/runId", schemaPath: "#/anyOf/11/properties/runId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                  if (vErrors === null) {
+                                    vErrors = [err347];
+                                  } else {
+                                    vErrors.push(err347);
+                                  }
+                                  errors++;
+                                }
+                              }
+                              if (data.interactionId !== void 0) {
+                                let data105 = data.interactionId;
+                                if (typeof data105 === "string") {
+                                  if (!pattern0.test(data105)) {
+                                    const err348 = { instancePath: instancePath + "/interactionId", schemaPath: "#/anyOf/11/properties/interactionId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                                    if (vErrors === null) {
+                                      vErrors = [err348];
+                                    } else {
+                                      vErrors.push(err348);
+                                    }
+                                    errors++;
+                                  }
+                                } else {
+                                  const err349 = { instancePath: instancePath + "/interactionId", schemaPath: "#/anyOf/11/properties/interactionId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                  if (vErrors === null) {
+                                    vErrors = [err349];
+                                  } else {
+                                    vErrors.push(err349);
+                                  }
+                                  errors++;
+                                }
+                              }
+                              if (data.kind !== void 0) {
+                                let data106 = data.kind;
+                                if (typeof data106 !== "string") {
+                                  const err350 = { instancePath: instancePath + "/kind", schemaPath: "#/definitions/BrowserInteractionKind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                  if (vErrors === null) {
+                                    vErrors = [err350];
+                                  } else {
+                                    vErrors.push(err350);
+                                  }
+                                  errors++;
+                                }
+                                if (!(data106 === "question" || data106 === "task_approval" || data106 === "action_approval" || data106 === "action_recovery")) {
+                                  const err351 = { instancePath: instancePath + "/kind", schemaPath: "#/definitions/BrowserInteractionKind/enum", keyword: "enum", params: { allowedValues: schema16.enum }, message: "must be equal to one of the allowed values" };
+                                  if (vErrors === null) {
+                                    vErrors = [err351];
+                                  } else {
+                                    vErrors.push(err351);
+                                  }
+                                  errors++;
+                                }
+                              }
+                            } else {
+                              const err352 = { instancePath, schemaPath: "#/anyOf/11/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                              if (vErrors === null) {
+                                vErrors = [err352];
+                              } else {
+                                vErrors.push(err352);
+                              }
+                              errors++;
+                            }
+                            var _valid0 = _errs274 === errors;
+                            valid0 = valid0 || _valid0;
+                            if (!valid0) {
+                              const _errs288 = errors;
+                              if (data && typeof data == "object" && !Array.isArray(data)) {
+                                if (data.type === void 0) {
+                                  const err353 = { instancePath, schemaPath: "#/anyOf/12/required", keyword: "required", params: { missingProperty: "type" }, message: "must have required property 'type'" };
+                                  if (vErrors === null) {
+                                    vErrors = [err353];
+                                  } else {
+                                    vErrors.push(err353);
+                                  }
+                                  errors++;
+                                }
+                                if (data.goalId === void 0) {
+                                  const err354 = { instancePath, schemaPath: "#/anyOf/12/required", keyword: "required", params: { missingProperty: "goalId" }, message: "must have required property 'goalId'" };
+                                  if (vErrors === null) {
+                                    vErrors = [err354];
+                                  } else {
+                                    vErrors.push(err354);
+                                  }
+                                  errors++;
+                                }
+                                if (data.runId === void 0) {
+                                  const err355 = { instancePath, schemaPath: "#/anyOf/12/required", keyword: "required", params: { missingProperty: "runId" }, message: "must have required property 'runId'" };
+                                  if (vErrors === null) {
+                                    vErrors = [err355];
+                                  } else {
+                                    vErrors.push(err355);
+                                  }
+                                  errors++;
+                                }
+                                if (data.activity === void 0) {
+                                  const err356 = { instancePath, schemaPath: "#/anyOf/12/required", keyword: "required", params: { missingProperty: "activity" }, message: "must have required property 'activity'" };
+                                  if (vErrors === null) {
+                                    vErrors = [err356];
+                                  } else {
+                                    vErrors.push(err356);
+                                  }
+                                  errors++;
+                                }
+                                for (const key24 in data) {
+                                  if (!(key24 === "type" || key24 === "goalId" || key24 === "runId" || key24 === "activity")) {
+                                    const err357 = { instancePath, schemaPath: "#/anyOf/12/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key24 }, message: "must NOT have additional properties" };
+                                    if (vErrors === null) {
+                                      vErrors = [err357];
+                                    } else {
+                                      vErrors.push(err357);
+                                    }
+                                    errors++;
+                                  }
+                                }
+                                if (data.type !== void 0) {
+                                  let data107 = data.type;
+                                  if (typeof data107 !== "string") {
+                                    const err358 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/12/properties/type/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                    if (vErrors === null) {
+                                      vErrors = [err358];
+                                    } else {
+                                      vErrors.push(err358);
+                                    }
+                                    errors++;
+                                  }
+                                  if ("tool_activity" !== data107) {
+                                    const err359 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/12/properties/type/const", keyword: "const", params: { allowedValue: "tool_activity" }, message: "must be equal to constant" };
+                                    if (vErrors === null) {
+                                      vErrors = [err359];
+                                    } else {
+                                      vErrors.push(err359);
+                                    }
+                                    errors++;
+                                  }
+                                }
+                                if (data.goalId !== void 0) {
+                                  let data108 = data.goalId;
+                                  if (typeof data108 === "string") {
+                                    if (!pattern0.test(data108)) {
+                                      const err360 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/12/properties/goalId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                                      if (vErrors === null) {
+                                        vErrors = [err360];
+                                      } else {
+                                        vErrors.push(err360);
+                                      }
+                                      errors++;
+                                    }
+                                  } else {
+                                    const err361 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/12/properties/goalId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                    if (vErrors === null) {
+                                      vErrors = [err361];
+                                    } else {
+                                      vErrors.push(err361);
+                                    }
+                                    errors++;
+                                  }
+                                }
+                                if (data.runId !== void 0) {
+                                  let data109 = data.runId;
+                                  if (typeof data109 === "string") {
+                                    if (!pattern0.test(data109)) {
+                                      const err362 = { instancePath: instancePath + "/runId", schemaPath: "#/anyOf/12/properties/runId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                                      if (vErrors === null) {
+                                        vErrors = [err362];
+                                      } else {
+                                        vErrors.push(err362);
+                                      }
+                                      errors++;
+                                    }
+                                  } else {
+                                    const err363 = { instancePath: instancePath + "/runId", schemaPath: "#/anyOf/12/properties/runId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                    if (vErrors === null) {
+                                      vErrors = [err363];
+                                    } else {
+                                      vErrors.push(err363);
+                                    }
+                                    errors++;
+                                  }
+                                }
+                                if (data.activity !== void 0) {
+                                  let data110 = data.activity;
+                                  if (data110 && typeof data110 == "object" && !Array.isArray(data110)) {
+                                    if (data110.actionId === void 0) {
+                                      const err364 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserToolActivity/required", keyword: "required", params: { missingProperty: "actionId" }, message: "must have required property 'actionId'" };
+                                      if (vErrors === null) {
+                                        vErrors = [err364];
+                                      } else {
+                                        vErrors.push(err364);
+                                      }
+                                      errors++;
+                                    }
+                                    if (data110.phase === void 0) {
+                                      const err365 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserToolActivity/required", keyword: "required", params: { missingProperty: "phase" }, message: "must have required property 'phase'" };
+                                      if (vErrors === null) {
+                                        vErrors = [err365];
+                                      } else {
+                                        vErrors.push(err365);
+                                      }
+                                      errors++;
+                                    }
+                                    for (const key25 in data110) {
+                                      if (!(key25 === "actionId" || key25 === "executionUnitId" || key25 === "toolId" || key25 === "attempt" || key25 === "phase" || key25 === "outcome" || key25 === "summary" || key25 === "reason")) {
+                                        const err366 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserToolActivity/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key25 }, message: "must NOT have additional properties" };
+                                        if (vErrors === null) {
+                                          vErrors = [err366];
+                                        } else {
+                                          vErrors.push(err366);
+                                        }
+                                        errors++;
+                                      }
+                                    }
+                                    if (data110.actionId !== void 0) {
+                                      let data111 = data110.actionId;
+                                      if (typeof data111 === "string") {
+                                        if (!pattern0.test(data111)) {
+                                          const err367 = { instancePath: instancePath + "/activity/actionId", schemaPath: "#/definitions/BrowserToolActivity/properties/actionId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                                          if (vErrors === null) {
+                                            vErrors = [err367];
+                                          } else {
+                                            vErrors.push(err367);
+                                          }
+                                          errors++;
+                                        }
+                                      } else {
+                                        const err368 = { instancePath: instancePath + "/activity/actionId", schemaPath: "#/definitions/BrowserToolActivity/properties/actionId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                        if (vErrors === null) {
+                                          vErrors = [err368];
+                                        } else {
+                                          vErrors.push(err368);
+                                        }
+                                        errors++;
+                                      }
+                                    }
+                                    if (data110.executionUnitId !== void 0) {
+                                      let data112 = data110.executionUnitId;
+                                      if (typeof data112 === "string") {
+                                        if (!pattern0.test(data112)) {
+                                          const err369 = { instancePath: instancePath + "/activity/executionUnitId", schemaPath: "#/definitions/BrowserToolActivity/properties/executionUnitId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                                          if (vErrors === null) {
+                                            vErrors = [err369];
+                                          } else {
+                                            vErrors.push(err369);
+                                          }
+                                          errors++;
+                                        }
+                                      } else {
+                                        const err370 = { instancePath: instancePath + "/activity/executionUnitId", schemaPath: "#/definitions/BrowserToolActivity/properties/executionUnitId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                        if (vErrors === null) {
+                                          vErrors = [err370];
+                                        } else {
+                                          vErrors.push(err370);
+                                        }
+                                        errors++;
+                                      }
+                                    }
+                                    if (data110.toolId !== void 0) {
+                                      let data113 = data110.toolId;
+                                      if (typeof data113 === "string") {
+                                        if (!pattern0.test(data113)) {
+                                          const err371 = { instancePath: instancePath + "/activity/toolId", schemaPath: "#/definitions/BrowserToolActivity/properties/toolId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                                          if (vErrors === null) {
+                                            vErrors = [err371];
+                                          } else {
+                                            vErrors.push(err371);
+                                          }
+                                          errors++;
+                                        }
+                                      } else {
+                                        const err372 = { instancePath: instancePath + "/activity/toolId", schemaPath: "#/definitions/BrowserToolActivity/properties/toolId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                        if (vErrors === null) {
+                                          vErrors = [err372];
+                                        } else {
+                                          vErrors.push(err372);
+                                        }
+                                        errors++;
+                                      }
+                                    }
+                                    if (data110.attempt !== void 0) {
+                                      let data114 = data110.attempt;
+                                      if (!(typeof data114 == "number" && (!(data114 % 1) && !isNaN(data114)) && isFinite(data114))) {
+                                        const err373 = { instancePath: instancePath + "/activity/attempt", schemaPath: "#/definitions/BrowserToolActivity/properties/attempt/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
+                                        if (vErrors === null) {
+                                          vErrors = [err373];
+                                        } else {
+                                          vErrors.push(err373);
+                                        }
+                                        errors++;
+                                      }
+                                      if (typeof data114 == "number" && isFinite(data114)) {
+                                        if (data114 > 9007199254740991 || isNaN(data114)) {
+                                          const err374 = { instancePath: instancePath + "/activity/attempt", schemaPath: "#/definitions/BrowserToolActivity/properties/attempt/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
+                                          if (vErrors === null) {
+                                            vErrors = [err374];
+                                          } else {
+                                            vErrors.push(err374);
+                                          }
+                                          errors++;
+                                        }
+                                        if (data114 < 1 || isNaN(data114)) {
+                                          const err375 = { instancePath: instancePath + "/activity/attempt", schemaPath: "#/definitions/BrowserToolActivity/properties/attempt/minimum", keyword: "minimum", params: { comparison: ">=", limit: 1 }, message: "must be >= 1" };
+                                          if (vErrors === null) {
+                                            vErrors = [err375];
+                                          } else {
+                                            vErrors.push(err375);
+                                          }
+                                          errors++;
+                                        }
+                                      }
+                                    }
+                                    if (data110.phase !== void 0) {
+                                      let data115 = data110.phase;
+                                      if (typeof data115 !== "string") {
+                                        const err376 = { instancePath: instancePath + "/activity/phase", schemaPath: "#/definitions/BrowserToolActivity/properties/phase/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                        if (vErrors === null) {
+                                          vErrors = [err376];
+                                        } else {
+                                          vErrors.push(err376);
+                                        }
+                                        errors++;
+                                      }
+                                      if (!(data115 === "started" || data115 === "attempting" || data115 === "retrying" || data115 === "result_pending" || data115 === "observed_committed" || data115 === "unknown")) {
+                                        const err377 = { instancePath: instancePath + "/activity/phase", schemaPath: "#/definitions/BrowserToolActivity/properties/phase/enum", keyword: "enum", params: { allowedValues: schema34.properties.phase.enum }, message: "must be equal to one of the allowed values" };
+                                        if (vErrors === null) {
+                                          vErrors = [err377];
+                                        } else {
+                                          vErrors.push(err377);
+                                        }
+                                        errors++;
+                                      }
+                                    }
+                                    if (data110.outcome !== void 0) {
+                                      let data116 = data110.outcome;
+                                      if (typeof data116 !== "string") {
+                                        const err378 = { instancePath: instancePath + "/activity/outcome", schemaPath: "#/definitions/BrowserToolActivity/properties/outcome/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                        if (vErrors === null) {
+                                          vErrors = [err378];
+                                        } else {
+                                          vErrors.push(err378);
+                                        }
+                                        errors++;
+                                      }
+                                      if (!(data116 === "success" || data116 === "failure")) {
+                                        const err379 = { instancePath: instancePath + "/activity/outcome", schemaPath: "#/definitions/BrowserToolActivity/properties/outcome/enum", keyword: "enum", params: { allowedValues: schema34.properties.outcome.enum }, message: "must be equal to one of the allowed values" };
+                                        if (vErrors === null) {
+                                          vErrors = [err379];
+                                        } else {
+                                          vErrors.push(err379);
+                                        }
+                                        errors++;
+                                      }
+                                    }
+                                    if (data110.summary !== void 0) {
+                                      if (typeof data110.summary !== "string") {
+                                        const err380 = { instancePath: instancePath + "/activity/summary", schemaPath: "#/definitions/BrowserToolActivity/properties/summary/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                        if (vErrors === null) {
+                                          vErrors = [err380];
+                                        } else {
+                                          vErrors.push(err380);
+                                        }
+                                        errors++;
+                                      }
+                                    }
+                                    if (data110.reason !== void 0) {
+                                      if (typeof data110.reason !== "string") {
+                                        const err381 = { instancePath: instancePath + "/activity/reason", schemaPath: "#/definitions/BrowserToolActivity/properties/reason/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                        if (vErrors === null) {
+                                          vErrors = [err381];
+                                        } else {
+                                          vErrors.push(err381);
+                                        }
+                                        errors++;
+                                      }
+                                    }
+                                  } else {
+                                    const err382 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserToolActivity/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                                    if (vErrors === null) {
+                                      vErrors = [err382];
+                                    } else {
+                                      vErrors.push(err382);
+                                    }
+                                    errors++;
+                                  }
+                                }
+                              } else {
+                                const err383 = { instancePath, schemaPath: "#/anyOf/12/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                                if (vErrors === null) {
+                                  vErrors = [err383];
+                                } else {
+                                  vErrors.push(err383);
+                                }
+                                errors++;
+                              }
+                              var _valid0 = _errs288 === errors;
+                              valid0 = valid0 || _valid0;
+                              if (!valid0) {
+                                const _errs317 = errors;
+                                if (data && typeof data == "object" && !Array.isArray(data)) {
+                                  if (data.type === void 0) {
+                                    const err384 = { instancePath, schemaPath: "#/anyOf/13/required", keyword: "required", params: { missingProperty: "type" }, message: "must have required property 'type'" };
+                                    if (vErrors === null) {
+                                      vErrors = [err384];
+                                    } else {
+                                      vErrors.push(err384);
+                                    }
+                                    errors++;
+                                  }
+                                  if (data.goalId === void 0) {
+                                    const err385 = { instancePath, schemaPath: "#/anyOf/13/required", keyword: "required", params: { missingProperty: "goalId" }, message: "must have required property 'goalId'" };
+                                    if (vErrors === null) {
+                                      vErrors = [err385];
+                                    } else {
+                                      vErrors.push(err385);
+                                    }
+                                    errors++;
+                                  }
+                                  if (data.code === void 0) {
+                                    const err386 = { instancePath, schemaPath: "#/anyOf/13/required", keyword: "required", params: { missingProperty: "code" }, message: "must have required property 'code'" };
+                                    if (vErrors === null) {
+                                      vErrors = [err386];
+                                    } else {
+                                      vErrors.push(err386);
+                                    }
+                                    errors++;
+                                  }
+                                  if (data.resync === void 0) {
+                                    const err387 = { instancePath, schemaPath: "#/anyOf/13/required", keyword: "required", params: { missingProperty: "resync" }, message: "must have required property 'resync'" };
+                                    if (vErrors === null) {
+                                      vErrors = [err387];
+                                    } else {
+                                      vErrors.push(err387);
+                                    }
+                                    errors++;
+                                  }
+                                  for (const key26 in data) {
+                                    if (!(key26 === "type" || key26 === "goalId" || key26 === "code" || key26 === "resync")) {
+                                      const err388 = { instancePath, schemaPath: "#/anyOf/13/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key26 }, message: "must NOT have additional properties" };
+                                      if (vErrors === null) {
+                                        vErrors = [err388];
+                                      } else {
+                                        vErrors.push(err388);
+                                      }
+                                      errors++;
+                                    }
+                                  }
+                                  if (data.type !== void 0) {
+                                    let data119 = data.type;
+                                    if (typeof data119 !== "string") {
+                                      const err389 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/13/properties/type/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                      if (vErrors === null) {
+                                        vErrors = [err389];
+                                      } else {
+                                        vErrors.push(err389);
+                                      }
+                                      errors++;
+                                    }
+                                    if ("stream_fault" !== data119) {
+                                      const err390 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/13/properties/type/const", keyword: "const", params: { allowedValue: "stream_fault" }, message: "must be equal to constant" };
+                                      if (vErrors === null) {
+                                        vErrors = [err390];
+                                      } else {
+                                        vErrors.push(err390);
+                                      }
+                                      errors++;
+                                    }
+                                  }
+                                  if (data.goalId !== void 0) {
+                                    let data120 = data.goalId;
+                                    if (typeof data120 === "string") {
+                                      if (!pattern0.test(data120)) {
+                                        const err391 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/13/properties/goalId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                                        if (vErrors === null) {
+                                          vErrors = [err391];
+                                        } else {
+                                          vErrors.push(err391);
+                                        }
+                                        errors++;
+                                      }
+                                    } else {
+                                      const err392 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/13/properties/goalId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                      if (vErrors === null) {
+                                        vErrors = [err392];
+                                      } else {
+                                        vErrors.push(err392);
+                                      }
+                                      errors++;
+                                    }
+                                  }
+                                  if (data.code !== void 0) {
+                                    let data121 = data.code;
+                                    if (typeof data121 !== "string") {
+                                      const err393 = { instancePath: instancePath + "/code", schemaPath: "#/anyOf/13/properties/code/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                      if (vErrors === null) {
+                                        vErrors = [err393];
+                                      } else {
+                                        vErrors.push(err393);
+                                      }
+                                      errors++;
+                                    }
+                                    if (!(data121 === "gap" || data121 === "read_failed" || data121 === "backpressure" || data121 === "publisher_closed")) {
+                                      const err394 = { instancePath: instancePath + "/code", schemaPath: "#/anyOf/13/properties/code/enum", keyword: "enum", params: { allowedValues: schema12.anyOf[13].properties.code.enum }, message: "must be equal to one of the allowed values" };
+                                      if (vErrors === null) {
+                                        vErrors = [err394];
+                                      } else {
+                                        vErrors.push(err394);
+                                      }
+                                      errors++;
+                                    }
+                                  }
+                                  if (data.resync !== void 0) {
+                                    let data122 = data.resync;
+                                    if (Array.isArray(data122)) {
+                                      if (data122.length < 1) {
+                                        const err395 = { instancePath: instancePath + "/resync", schemaPath: "#/anyOf/13/properties/resync/minItems", keyword: "minItems", params: { limit: 1 }, message: "must NOT have fewer than 1 items" };
+                                        if (vErrors === null) {
+                                          vErrors = [err395];
+                                        } else {
+                                          vErrors.push(err395);
+                                        }
+                                        errors++;
+                                      }
+                                      const len1 = data122.length;
+                                      for (let i1 = 0; i1 < len1; i1++) {
+                                        let data123 = data122[i1];
+                                        if (typeof data123 !== "string") {
+                                          const err396 = { instancePath: instancePath + "/resync/" + i1, schemaPath: "#/definitions/BrowserControlScope/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                          if (vErrors === null) {
+                                            vErrors = [err396];
+                                          } else {
+                                            vErrors.push(err396);
+                                          }
+                                          errors++;
+                                        }
+                                        if (!(data123 === "session" || data123 === "activity" || data123 === "trajectory" || data123 === "metrics" || data123 === "goals" || data123 === "grants" || data123 === "permission" || data123 === "model")) {
+                                          const err397 = { instancePath: instancePath + "/resync/" + i1, schemaPath: "#/definitions/BrowserControlScope/enum", keyword: "enum", params: { allowedValues: schema30.enum }, message: "must be equal to one of the allowed values" };
+                                          if (vErrors === null) {
+                                            vErrors = [err397];
+                                          } else {
+                                            vErrors.push(err397);
+                                          }
+                                          errors++;
+                                        }
+                                      }
+                                    } else {
+                                      const err398 = { instancePath: instancePath + "/resync", schemaPath: "#/anyOf/13/properties/resync/type", keyword: "type", params: { type: "array" }, message: "must be array" };
+                                      if (vErrors === null) {
+                                        vErrors = [err398];
+                                      } else {
+                                        vErrors.push(err398);
+                                      }
+                                      errors++;
+                                    }
+                                  }
+                                } else {
+                                  const err399 = { instancePath, schemaPath: "#/anyOf/13/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                                  if (vErrors === null) {
+                                    vErrors = [err399];
+                                  } else {
+                                    vErrors.push(err399);
+                                  }
+                                  errors++;
+                                }
+                                var _valid0 = _errs317 === errors;
+                                valid0 = valid0 || _valid0;
+                                if (!valid0) {
+                                  const _errs331 = errors;
+                                  if (data && typeof data == "object" && !Array.isArray(data)) {
+                                    if (data.type === void 0) {
+                                      const err400 = { instancePath, schemaPath: "#/anyOf/14/required", keyword: "required", params: { missingProperty: "type" }, message: "must have required property 'type'" };
+                                      if (vErrors === null) {
+                                        vErrors = [err400];
+                                      } else {
+                                        vErrors.push(err400);
+                                      }
+                                      errors++;
+                                    }
+                                    if (data.goalId === void 0) {
+                                      const err401 = { instancePath, schemaPath: "#/anyOf/14/required", keyword: "required", params: { missingProperty: "goalId" }, message: "must have required property 'goalId'" };
+                                      if (vErrors === null) {
+                                        vErrors = [err401];
+                                      } else {
+                                        vErrors.push(err401);
+                                      }
+                                      errors++;
+                                    }
+                                    if (data.reason === void 0) {
+                                      const err402 = { instancePath, schemaPath: "#/anyOf/14/required", keyword: "required", params: { missingProperty: "reason" }, message: "must have required property 'reason'" };
+                                      if (vErrors === null) {
+                                        vErrors = [err402];
+                                      } else {
+                                        vErrors.push(err402);
+                                      }
+                                      errors++;
+                                    }
+                                    for (const key27 in data) {
+                                      if (!(key27 === "type" || key27 === "goalId" || key27 === "reason")) {
+                                        const err403 = { instancePath, schemaPath: "#/anyOf/14/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key27 }, message: "must NOT have additional properties" };
+                                        if (vErrors === null) {
+                                          vErrors = [err403];
+                                        } else {
+                                          vErrors.push(err403);
+                                        }
+                                        errors++;
+                                      }
+                                    }
+                                    if (data.type !== void 0) {
+                                      let data124 = data.type;
+                                      if (typeof data124 !== "string") {
+                                        const err404 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/14/properties/type/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                        if (vErrors === null) {
+                                          vErrors = [err404];
+                                        } else {
+                                          vErrors.push(err404);
+                                        }
+                                        errors++;
+                                      }
+                                      if ("closed" !== data124) {
+                                        const err405 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/14/properties/type/const", keyword: "const", params: { allowedValue: "closed" }, message: "must be equal to constant" };
+                                        if (vErrors === null) {
+                                          vErrors = [err405];
+                                        } else {
+                                          vErrors.push(err405);
+                                        }
+                                        errors++;
+                                      }
+                                    }
+                                    if (data.goalId !== void 0) {
+                                      let data125 = data.goalId;
+                                      if (typeof data125 === "string") {
+                                        if (!pattern0.test(data125)) {
+                                          const err406 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/14/properties/goalId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                                          if (vErrors === null) {
+                                            vErrors = [err406];
+                                          } else {
+                                            vErrors.push(err406);
+                                          }
+                                          errors++;
+                                        }
+                                      } else {
+                                        const err407 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/14/properties/goalId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                        if (vErrors === null) {
+                                          vErrors = [err407];
+                                        } else {
+                                          vErrors.push(err407);
+                                        }
+                                        errors++;
+                                      }
+                                    }
+                                    if (data.reason !== void 0) {
+                                      let data126 = data.reason;
+                                      if (typeof data126 !== "string") {
+                                        const err408 = { instancePath: instancePath + "/reason", schemaPath: "#/anyOf/14/properties/reason/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                        if (vErrors === null) {
+                                          vErrors = [err408];
+                                        } else {
+                                          vErrors.push(err408);
+                                        }
+                                        errors++;
+                                      }
+                                      if (!(data126 === "backpressure" || data126 === "closed" || data126 === "publisher_closed")) {
+                                        const err409 = { instancePath: instancePath + "/reason", schemaPath: "#/anyOf/14/properties/reason/enum", keyword: "enum", params: { allowedValues: schema12.anyOf[14].properties.reason.enum }, message: "must be equal to one of the allowed values" };
+                                        if (vErrors === null) {
+                                          vErrors = [err409];
+                                        } else {
+                                          vErrors.push(err409);
+                                        }
+                                        errors++;
+                                      }
+                                    }
+                                  } else {
+                                    const err410 = { instancePath, schemaPath: "#/anyOf/14/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                                    if (vErrors === null) {
+                                      vErrors = [err410];
+                                    } else {
+                                      vErrors.push(err410);
+                                    }
+                                    errors++;
+                                  }
+                                  var _valid0 = _errs331 === errors;
+                                  valid0 = valid0 || _valid0;
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -4802,11 +6344,11 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
         }
       }
       if (!valid0) {
-        const err266 = { instancePath, schemaPath: "#/anyOf", keyword: "anyOf", params: {}, message: "must match a schema in anyOf" };
+        const err411 = { instancePath, schemaPath: "#/anyOf", keyword: "anyOf", params: {}, message: "must match a schema in anyOf" };
         if (vErrors === null) {
-          vErrors = [err266];
+          vErrors = [err411];
         } else {
-          vErrors.push(err266);
+          vErrors.push(err411);
         }
         errors++;
       } else {

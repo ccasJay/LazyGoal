@@ -30,6 +30,7 @@ import type {
     BrowserSessionMessageListResult,
     BrowserSessionMessageResult,
     BrowserSessionState,
+    BrowserToolActivity,
 } from "../../web-contracts/src/index";
 import { isJsonValue } from "../../web-contracts/src/index";
 
@@ -426,17 +427,32 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
                     message: projectCommittedMessage(event.event),
                 });
                 return;
-            case "interaction_required":
+            case "interaction_required": {
+                const interaction = projectInteractionSummary(event.event);
                 this.push({
                     type: "interaction_required",
                     goalId,
                     runId: event.event.runId,
-                    interaction: projectInteractionSummary(event.event),
+                    interaction,
+                });
+                this.push({
+                    type: "interaction_opened",
+                    goalId,
+                    runId: event.event.runId,
+                    interactionId: interaction.interactionId,
+                    kind: projectInteractionKind(interaction.kind),
                 });
                 return;
+            }
             case "interaction_settled":
+                this.push({
+                    type: "interaction_settled",
+                    goalId,
+                    runId: event.event.runId,
+                    interactionId: event.event.interactionId,
+                    kind: projectInteractionKind(event.event.interactionKind),
+                });
                 if (this.pushCommittedBoundary(goalId, event.event.source)) return;
-                // 既有公开活动语义：交互结算仍以 user_wait 分组边界呈现。
                 this.push({
                     type: "activity",
                     goalId,
@@ -445,6 +461,12 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
                 });
                 return;
             case "run_status":
+                this.push({
+                    type: "run_status_changed",
+                    goalId,
+                    runId: event.event.source.runId,
+                    status: projectRunStatus(event.event.kind),
+                });
                 if (this.pushCommittedBoundary(goalId, event.event.source)) return;
                 this.push({
                     type: "activity",
@@ -454,6 +476,12 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
                 });
                 return;
             case "run_result":
+                this.push({
+                    type: "run_result",
+                    goalId,
+                    runId: event.event.runId,
+                    result: event.event.kind,
+                });
                 if (this.pushCommittedBoundary(goalId, event.event.source)) return;
                 this.push({
                     type: "activity",
@@ -464,12 +492,26 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
                 return;
             case "stream_fault":
                 // 读取故障或缺口不伪装业务结果：要求客户端重新同步最新快照。
+                this.push({
+                    type: "stream_fault",
+                    goalId,
+                    code: event.event.kind === "gap" ? "gap" : "read_failed",
+                    resync: ["session"],
+                });
                 this.push({ type: "refresh_required", goalId });
                 return;
             case "commit_boundary":
+                this.push({
+                    type: "state_committed",
+                    goalId,
+                    ...(event.event.source.runId === undefined ? {} : { runId: event.event.source.runId }),
+                    commitRevision: event.event.commitRevision ?? 0,
+                    changed: ["session"],
+                });
                 this.push({ type: "snapshot_changed", goalId, runId: event.event.source.runId });
                 return;
             case "closed":
+                this.push({ type: "closed", goalId, reason: event.reason });
                 if (event.reason !== "closed") this.push({ type: "refresh_required", goalId });
                 this.close();
                 return;
@@ -500,6 +542,13 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
      */
     private pushCommittedBoundary(goalId: string, source: SessionEventSource): boolean {
         if (source.durability !== "checkpoint") return false;
+        this.push({
+            type: "state_committed",
+            goalId,
+            ...(source.runId === undefined ? {} : { runId: source.runId }),
+            commitRevision: 0,
+            changed: ["session"],
+        });
         this.push({ type: "snapshot_changed", goalId, runId: source.runId });
         return true;
     }
@@ -578,6 +627,12 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
     }
 
     private onToolActivity(goalId: string, event: SessionToolActivityEvent): void {
+        this.push({
+            type: "tool_activity",
+            goalId,
+            runId: event.source.runId,
+            activity: projectToolActivity(event),
+        });
         const source = event.source;
         switch (event.kind) {
             case "started":
@@ -688,6 +743,49 @@ class LiveEventQueue implements AsyncIterable<BrowserGoalLiveEvent>, AsyncIterat
 
     [Symbol.asyncIterator](): AsyncIterator<BrowserGoalLiveEvent> {
         return this;
+    }
+}
+
+function projectInteractionKind(
+    kind: "ask_user" | "task_approval" | "action_approval" | "action_recovery",
+): "question" | "task_approval" | "action_approval" | "action_recovery" {
+    return kind === "ask_user" ? "question" : kind;
+}
+
+function projectRunStatus(kind: "waiting" | "stage_changed" | "failure" | "unknown"): "running" | "waiting" | "failed" {
+    switch (kind) {
+        case "waiting":
+            return "waiting";
+        case "failure":
+            return "failed";
+        case "stage_changed":
+        case "unknown":
+            return "running";
+    }
+}
+
+function projectToolActivity(event: SessionToolActivityEvent): BrowserToolActivity {
+    switch (event.kind) {
+        case "started":
+            return {
+                actionId: event.actionId,
+                executionUnitId: event.executionUnitId,
+                toolId: event.toolId,
+                attempt: 1,
+                phase: "started",
+            };
+        case "attempt_started":
+            return { actionId: event.actionId, attempt: event.attempt, phase: "attempting" };
+        case "attempt_failed":
+            return { actionId: event.actionId, attempt: event.attempt, phase: "retrying", reason: event.reason };
+        case "finished":
+            return {
+                actionId: event.actionId,
+                toolId: event.toolId,
+                phase: "result_pending",
+                outcome: event.outcome,
+                ...(event.summary === undefined ? {} : { summary: event.summary }),
+            };
     }
 }
 

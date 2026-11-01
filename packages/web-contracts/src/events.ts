@@ -6,6 +6,10 @@
  */
 
 export type {
+    BrowserControlEvent,
+    BrowserContentEvent,
     BrowserGoalActivityEvent,
+    BrowserGoalEvent,
     BrowserGoalLiveEvent,
+    BrowserToolActivity,
 } from "./wire";

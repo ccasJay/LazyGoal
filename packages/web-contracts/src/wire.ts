@@ -1946,6 +1946,85 @@ export type BrowserGoalLiveEvent =
         readonly goalId: string;
         /** @pattern \S */
         readonly runId?: string;
+    }
+    | {
+        readonly type: "state_committed";
+        /** @pattern \S */
+        readonly goalId: string;
+        /** @pattern \S */
+        readonly runId?: string;
+        /** @asType integer
+         * @maximum 9007199254740991
+         * @minimum 0 */
+        readonly commitRevision: number;
+        /** @minItems 1 */
+        readonly changed: readonly BrowserControlScope[];
+    }
+    | {
+        readonly type: "run_status_changed";
+        /** @pattern \S */
+        readonly goalId: string;
+        /** @pattern \S */
+        readonly runId: string;
+        readonly status: BrowserRunStatus;
+        /** @asType integer
+         * @maximum 9007199254740991
+         * @minimum 0 */
+        readonly commitRevision?: number;
+    }
+    | {
+        readonly type: "run_result";
+        /** @pattern \S */
+        readonly goalId: string;
+        /** @pattern \S */
+        readonly runId: string;
+        readonly result: "completed" | "failed" | "cancelled";
+        /** @asType integer
+         * @maximum 9007199254740991
+         * @minimum 0 */
+        readonly commitRevision?: number;
+    }
+    | {
+        readonly type: "interaction_opened";
+        /** @pattern \S */
+        readonly goalId: string;
+        /** @pattern \S */
+        readonly runId: string;
+        /** @pattern \S */
+        readonly interactionId: string;
+        readonly kind: BrowserInteractionKind;
+    }
+    | {
+        readonly type: "interaction_settled";
+        /** @pattern \S */
+        readonly goalId: string;
+        /** @pattern \S */
+        readonly runId: string;
+        /** @pattern \S */
+        readonly interactionId: string;
+        readonly kind: BrowserInteractionKind;
+    }
+    | {
+        readonly type: "tool_activity";
+        /** @pattern \S */
+        readonly goalId: string;
+        /** @pattern \S */
+        readonly runId: string;
+        readonly activity: BrowserToolActivity;
+    }
+    | {
+        readonly type: "stream_fault";
+        /** @pattern \S */
+        readonly goalId: string;
+        readonly code: "gap" | "read_failed" | "backpressure" | "publisher_closed";
+        /** @minItems 1 */
+        readonly resync: readonly BrowserControlScope[];
+    }
+    | {
+        readonly type: "closed";
+        /** @pattern \S */
+        readonly goalId: string;
+        readonly reason: "backpressure" | "closed" | "publisher_closed";
     };
 
 /** 指标覆盖度分类。 */
@@ -2545,3 +2624,55 @@ export type BrowserControlReceipt =
         readonly actualRevision?: number;
     }
     | { readonly intentId: string; readonly status: "unknown" };
+
+/** 单个工具活动的公开控制状态。 */
+export interface BrowserToolActivity {
+    /** @pattern \S */
+    readonly actionId: string;
+    /** @pattern \S */
+    readonly executionUnitId?: string;
+    /** @pattern \S */
+    readonly toolId?: string;
+    /** @asType integer
+     * @maximum 9007199254740991
+     * @minimum 1 */
+    readonly attempt?: number;
+    readonly phase: "started" | "attempting" | "retrying" | "result_pending" | "observed_committed" | "unknown";
+    readonly outcome?: "success" | "failure";
+    readonly summary?: string;
+    readonly reason?: string;
+}
+
+/** 控制事实事件；不含生成正文与正式消息内容。 */
+export type BrowserControlEvent = Extract<
+    BrowserGoalLiveEvent,
+    {
+        readonly type:
+            | "state_committed"
+            | "run_status_changed"
+            | "run_result"
+            | "interaction_opened"
+            | "interaction_settled"
+            | "tool_activity"
+            | "stream_fault"
+            | "closed";
+    }
+>;
+
+/** 内容事实事件；生成正文、正式消息、预览与旧活动边界保持既有语义。 */
+export type BrowserContentEvent = Extract<
+    BrowserGoalLiveEvent,
+    {
+        readonly type:
+            | "state_sync"
+            | "input_result"
+            | "activity"
+            | "message_committed"
+            | "interaction_required"
+            | "snapshot_changed"
+            | "refresh_required";
+    }
+>;
+
+/** Goal SSE 的完整事件联合。 */
+export type BrowserGoalEvent = BrowserGoalLiveEvent;

@@ -201,7 +201,14 @@ test("公开序列只含允许字段，不泄漏工具参数、reasoning 与原�
         delivery: "control",
         payload: { observation: { kind: "success", output: "PRIVATE_OBSERVATION" } },
     });
-    const next = await iterator.next();
+    let next = await iterator.next();
+    while (next.value?.type === "tool_activity") {
+        const controlSerialized = JSON.stringify(next.value);
+        assert.equal(controlSerialized.includes("PRIVATE_REASONING"), false);
+        assert.equal(controlSerialized.includes("PRIVATE_ARGUMENT"), false);
+        assert.equal(controlSerialized.includes("PRIVATE_OBSERVATION"), false);
+        next = await iterator.next();
+    }
     assert.equal(next.value?.type, "activity");
     const serialized = JSON.stringify(next.value);
     assert.equal(serialized.includes("PRIVATE_REASONING"), false);
