@@ -17,7 +17,7 @@
   - 实施目标与场景：定义 `ControlSnapshot` 与 `ControlResources`；Browser 在首次同步／重连时组装包含 Goal／Run、队列、交互、待审批 Action、`commitRevision` 与执行所有者的完整快照；`state_committed` 只声明实际变化 scope。给定连接重建，页面应直接应用 `state_sync` 而不再完整读取 session／activity 历史；给定一次仅影响 `grants` 的提交，页面只失效 Grant 资源。
   - 验证手段：扩展 `packages/browser/test/browser-session-output.test.ts` 与 `packages/browser/test/browser-recovery.test.ts`，断言快照字段完整、scope 精确且无额外完整读取。
 
-- [ ] //TODO 4. Goal Board 控制 reducer 与 intent 生命周期
+- [x] //TODO 4. Goal Board 控制 reducer 与 intent 生命周期
   - 落实标准：[1.5](./spec.md#spec-req-1-5), [4.3](./spec.md#spec-req-4-3), [7.3](./spec.md#spec-req-7-3), [7.4](./spec.md#spec-req-7-4)
   - 实施目标与场景：在 `apps/goal-board/src/control/` 实现 `ControlState`、`ControlIntentState` 与纯 `applyControlEvent`／intent reducer。给定 pending intent、accepted receipt、applied 事件与 unknown 结果，reducer 应分别得到 `pending`、`accepted`、`applied` 与 `unknown`；低 `commitRevision` 事件不得覆盖高修订快照。
   - 验证手段：新增 `apps/goal-board/test/control-reducer.test.ts`，覆盖状态转移、幂等、乱序与 stale scope。
