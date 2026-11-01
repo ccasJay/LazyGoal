@@ -373,6 +373,158 @@
     ],
     "entries": [
         {
+            "key": "web-contracts/src/wire#BrowserControlIntentCommand",
+            "declaration": "BrowserControlIntentCommand",
+            "source": {
+                "path": "packages/web-contracts/src/wire.ts",
+                "line": 2420
+            },
+            "owner": "@lazygoal/web-contracts",
+            "module": "web-contracts",
+            "boundary": "web",
+            "section": "`wire`：原生 TS 边界根",
+            "definition": "原生 TS 契约根；Schema、校验器与绑定由 Catalog 生成",
+            "definitionKind": "native-ts",
+            "relations": [],
+            "consumers": [
+                "packages/browser/src/browser-goal-routes.ts"
+            ],
+            "protocol": {
+                "identity": {
+                    "state": "declared",
+                    "value": "web.control.intent"
+                },
+                "version": {
+                    "state": "declared",
+                    "value": 1
+                }
+            },
+            "generation": {
+                "state": "enabled",
+                "detail": "由 wire.ts 生成 Schema、Ajv standalone 校验器、Manifest 与 contract-binding 绑定。",
+                "strategy": "typescript-binding",
+                "rootType": "BrowserControlIntentCommand",
+                "declaredTypes": [
+                    "BrowserControlIntentCommand",
+                    "BrowserSessionInputCommand",
+                    "BrowserQueueBinding",
+                    "BrowserSessionInteractionResponse",
+                    "BrowserGrantScope",
+                    "BrowserPermissionMode",
+                    "BrowserActionReviewScope",
+                    "BrowserJsonValue"
+                ],
+                "outputDirectory": "packages/web-contracts/src/generated",
+                "artifacts": {
+                    "schemaModule": "control-intent-command-schema.ts",
+                    "validator": "control-intent-command-validator.mjs",
+                    "validatorTypes": "control-intent-command-validator.d.mts",
+                    "manifest": "control-intent-command-manifest.json",
+                    "binding": "control-intent-command-binding.ts"
+                },
+                "binding": {
+                    "module": "../../../contract-binding/src/index",
+                    "dataType": "BrowserControlIntentCommand",
+                    "dataTypeModule": "../wire",
+                    "exportName": "browserControlIntentCommandBinding",
+                    "names": {
+                        "schema": "browserControlIntentCommandSchema",
+                        "metadata": "browserControlIntentCommandMetadata",
+                        "validator": "browserControlIntentCommandValidator"
+                    }
+                }
+            },
+            "validation": {
+                "state": "runtime-schema",
+                "detail": "生成的 Schema 与 Ajv standalone 校验器；contract-binding 在 HTTP JSON 边界读取。"
+            },
+            "role": "boundary-root"
+        },
+        {
+            "key": "web-contracts/src/wire#BrowserControlReceipt",
+            "declaration": "BrowserControlReceipt",
+            "source": {
+                "path": "packages/web-contracts/src/wire.ts",
+                "line": 2530
+            },
+            "owner": "@lazygoal/web-contracts",
+            "module": "web-contracts",
+            "boundary": "web",
+            "section": "`wire`：原生 TS 边界根",
+            "definition": "原生 TS 契约根；Schema、校验器与绑定由 Catalog 生成",
+            "definitionKind": "native-ts",
+            "relations": [],
+            "consumers": [
+                "packages/browser/src/browser-goal-routes.ts",
+                "apps/goal-board/src/api.ts"
+            ],
+            "protocol": {
+                "identity": {
+                    "state": "declared",
+                    "value": "web.control.receipt"
+                },
+                "version": {
+                    "state": "declared",
+                    "value": 1
+                }
+            },
+            "generation": {
+                "state": "enabled",
+                "detail": "由 wire.ts 生成 Schema、Ajv standalone 校验器、Manifest 与 contract-binding 绑定。",
+                "strategy": "typescript-binding",
+                "rootType": "BrowserControlReceipt",
+                "declaredTypes": [
+                    "BrowserControlReceipt",
+                    "BrowserControlIntentResult",
+                    "BrowserCreateSessionResult",
+                    "BrowserSessionInputResult",
+                    "BrowserGoalPlanModeResult",
+                    "BrowserModelSelectionResult",
+                    "BrowserPermissionModeResult",
+                    "BrowserToolGrantResult",
+                    "BrowserGoalArchiveResult",
+                    "BrowserGoalDeleteResult",
+                    "BrowserActionReviewResult",
+                    "BrowserSessionInputReceipt",
+                    "BrowserToolGrantSummary",
+                    "BrowserActionReview",
+                    "BrowserActionCapability",
+                    "BrowserToolGrantExtraFile",
+                    "BrowserPermissionMode",
+                    "BrowserGrantScope",
+                    "BrowserSessionInputStatus",
+                    "BrowserSessionInputKind",
+                    "BrowserSessionInputErrorCode",
+                    "BrowserActionReviewIssue",
+                    "BrowserActionReviewScope"
+                ],
+                "outputDirectory": "packages/web-contracts/src/generated",
+                "artifacts": {
+                    "schemaModule": "control-receipt-schema.ts",
+                    "validator": "control-receipt-validator.mjs",
+                    "validatorTypes": "control-receipt-validator.d.mts",
+                    "manifest": "control-receipt-manifest.json",
+                    "binding": "control-receipt-binding.ts"
+                },
+                "binding": {
+                    "module": "../../../contract-binding/src/index",
+                    "dataType": "BrowserControlReceipt",
+                    "dataTypeModule": "../wire",
+                    "exportName": "browserControlReceiptBinding",
+                    "names": {
+                        "schema": "browserControlReceiptSchema",
+                        "metadata": "browserControlReceiptMetadata",
+                        "validator": "browserControlReceiptValidator"
+                    }
+                }
+            },
+            "validation": {
+                "state": "runtime-schema",
+                "detail": "生成的 Schema 与 Ajv standalone 校验器；contract-binding 在 HTTP JSON 边界读取。"
+            },
+            "role": "boundary-root"
+        },
+        {
             "key": "storage/src/goal-snapshot#GoalSnapshotV1",
             "declaration": "GoalSnapshotV1",
             "source": {

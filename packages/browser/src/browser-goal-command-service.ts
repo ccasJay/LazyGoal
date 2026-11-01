@@ -219,7 +219,9 @@ export class BrowserGoalCommandService {
             return { ok: false, error };
         }
         let defaultModelSaved = false;
-        if (this.dependencies.saveModelPreference !== undefined && !this.isShuttingDown()) {
+        if (command.persistAsDefault !== false
+            && this.dependencies.saveModelPreference !== undefined
+            && !this.isShuttingDown()) {
             try {
                 await this.dependencies.saveModelPreference(selection);
                 defaultModelSaved = true;

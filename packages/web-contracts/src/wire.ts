@@ -1565,6 +1565,8 @@ export interface BrowserModelSelectionCommand {
     readonly modelId: string;
     /** @pattern \S */
     readonly providerProfileId?: string;
+    /** 是否同时保存为当前工作区默认模型；省略时保持既有行为。 */
+    readonly persistAsDefault?: boolean;
 }
 
 /** 模型选择结果。 */
@@ -2397,3 +2399,149 @@ export interface BrowserTrajectoryDetail {
     readonly toolDurationMs: number | null;
     readonly observationConfirmed: boolean;
 }
+
+/** Browser 控制投影的可失效作用域。 */
+export type BrowserControlScope =
+    | "session"
+    | "activity"
+    | "trajectory"
+    | "metrics"
+    | "goals"
+    | "grants"
+    | "permission"
+    | "model";
+
+/**
+ * Goal/Workspace 作用域的统一控制命令。
+ *
+ * @remarks
+ * `intentId` 是客户端控制身份，不写入 Goal Snapshot；`session_input` 复用其
+ * `input.inputId` 作为同一身份。`permission_mode` 是 workspace 作用域，其余命令
+ * 必须携带目标 `goalId`。
+ */
+export type BrowserControlIntentCommand =
+    | {
+        readonly kind: "create_session";
+        /** @pattern \S */
+        readonly intentId: string;
+        /** @pattern \S */
+        readonly goalId: string;
+        /** @pattern \S */
+        readonly inputId: string;
+        readonly intent: string;
+        readonly mode?: "plan";
+        /** @pattern \S */
+        readonly modelId?: string;
+    }
+    | {
+        readonly kind: "session_input";
+        /** @pattern \S */
+        readonly intentId: string;
+        /** @pattern \S */
+        readonly goalId: string;
+        readonly input: BrowserSessionInputCommand;
+    }
+    | {
+        readonly kind: "plan_mode";
+        /** @pattern \S */
+        readonly intentId: string;
+        /** @pattern \S */
+        readonly goalId: string;
+        /** @pattern \S */
+        readonly runId: string;
+    }
+    | {
+        readonly kind: "model_selection";
+        /** @pattern \S */
+        readonly intentId: string;
+        /** @pattern \S */
+        readonly goalId: string;
+        /** @pattern \S */
+        readonly runId: string;
+        /** @pattern \S */
+        readonly modelId: string;
+        /** @pattern \S */
+        readonly providerProfileId?: string;
+        readonly persistAsDefault: boolean;
+    }
+    | {
+        readonly kind: "permission_mode";
+        /** @pattern \S */
+        readonly intentId: string;
+        readonly mode: BrowserPermissionMode;
+        /** @asType integer
+         * @maximum 9007199254740991
+         * @minimum 0 */
+        readonly expectedRevision: number;
+    }
+    | {
+        readonly kind: "grant_revoke";
+        /** @pattern \S */
+        readonly intentId: string;
+        /** @pattern \S */
+        readonly goalId: string;
+        /** @pattern \S */
+        readonly runId: string;
+        /** @pattern \S */
+        readonly grantId: string;
+        readonly scope: "goal" | "workspace";
+        readonly grantKind?: "tool" | "sandbox";
+    }
+    | {
+        readonly kind: "goal_archive";
+        /** @pattern \S */
+        readonly intentId: string;
+        /** @pattern \S */
+        readonly goalId: string;
+        readonly archived: boolean;
+    }
+    | {
+        readonly kind: "goal_delete";
+        /** @pattern \S */
+        readonly intentId: string;
+        /** @pattern \S */
+        readonly goalId: string;
+    }
+    | {
+        readonly kind: "action_review";
+        /** @pattern \S */
+        readonly intentId: string;
+        /** @pattern \S */
+        readonly goalId: string;
+        /** @pattern \S */
+        readonly runId: string;
+        /** @pattern \S */
+        readonly actionId: string;
+        readonly input?: BrowserJsonValue;
+        readonly scope?: BrowserActionReviewScope;
+    };
+
+/** 控制命令的原始结果；按 kind 复用现有 wire 结果，不维护第二份字段表。 */
+export type BrowserControlIntentResult =
+    | BrowserCreateSessionResult
+    | BrowserSessionInputResult
+    | BrowserGoalPlanModeResult
+    | BrowserModelSelectionResult
+    | BrowserPermissionModeResult
+    | BrowserToolGrantResult
+    | BrowserGoalArchiveResult
+    | BrowserGoalDeleteResult
+    | BrowserActionReviewResult;
+
+/** 控制命令的受理收据；只表达受理结果，不表达 Runtime 事实。 */
+export type BrowserControlReceipt =
+    | {
+        readonly intentId: string;
+        readonly status: "accepted" | "existing";
+        readonly result: BrowserControlIntentResult;
+    }
+    | {
+        readonly intentId: string;
+        readonly status: "rejected";
+        readonly error: string;
+        readonly refresh?: boolean;
+        /** @asType integer
+         * @maximum 9007199254740991 */
+        readonly actualRevision?: number;
+    }
+    | { readonly intentId: string; readonly status: "unknown" };

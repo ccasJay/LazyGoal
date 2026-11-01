@@ -164,7 +164,7 @@ type ControlIntent =
   | { kind: "plan_mode"; intentId: string; goalId: string; runId: string }
   | { kind: "model_selection"; intentId: string; goalId: string; runId: string; modelId: string; providerProfileId?: string; persistAsDefault: boolean }
   | { kind: "permission_mode"; intentId: string; mode: BrowserPermissionMode; expectedRevision: number }
-  | { kind: "grant_revoke"; intentId: string; goalId: string; runId: string; grantId: string; scope: "goal" | "workspace"; kind?: "tool" | "sandbox" }
+  | { kind: "grant_revoke"; intentId: string; goalId: string; runId: string; grantId: string; scope: "goal" | "workspace"; grantKind?: "tool" | "sandbox" }
   | { kind: "goal_archive"; intentId: string; goalId: string; archived: boolean }
   | { kind: "goal_delete"; intentId: string; goalId: string }
   | { kind: "action_review"; intentId: string; goalId: string; runId: string; actionId: string; input?: unknown; scope?: BrowserActionReviewScope };

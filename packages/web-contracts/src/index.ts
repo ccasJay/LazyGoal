@@ -153,6 +153,13 @@ export {
 } from "./events";
 
 export {
+    type BrowserControlIntentCommand,
+    type BrowserControlIntentResult,
+    type BrowserControlReceipt,
+    type BrowserControlScope,
+} from "./control";
+
+export {
     type MetricsCoverage,
     type RunSessionMetrics,
     type SessionMetricsSnapshot,

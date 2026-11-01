@@ -37,7 +37,7 @@ var require_BrowserModelSelectionCommand_validator = __commonJS({
           errors++;
         }
         for (const key0 in data) {
-          if (!(key0 === "runId" || key0 === "modelId" || key0 === "providerProfileId")) {
+          if (!(key0 === "runId" || key0 === "modelId" || key0 === "providerProfileId" || key0 === "persistAsDefault")) {
             const err2 = { instancePath, schemaPath: "#/definitions/BrowserModelSelectionCommand/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key0 }, message: "must NOT have additional properties" };
             if (vErrors === null) {
               vErrors = [err2];
@@ -113,12 +113,23 @@ var require_BrowserModelSelectionCommand_validator = __commonJS({
             errors++;
           }
         }
+        if (data.persistAsDefault !== void 0) {
+          if (typeof data.persistAsDefault !== "boolean") {
+            const err9 = { instancePath: instancePath + "/persistAsDefault", schemaPath: "#/definitions/BrowserModelSelectionCommand/properties/persistAsDefault/type", keyword: "type", params: { type: "boolean" }, message: "must be boolean" };
+            if (vErrors === null) {
+              vErrors = [err9];
+            } else {
+              vErrors.push(err9);
+            }
+            errors++;
+          }
+        }
       } else {
-        const err9 = { instancePath, schemaPath: "#/definitions/BrowserModelSelectionCommand/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+        const err10 = { instancePath, schemaPath: "#/definitions/BrowserModelSelectionCommand/type", keyword: "type", params: { type: "object" }, message: "must be object" };
         if (vErrors === null) {
-          vErrors = [err9];
+          vErrors = [err10];
         } else {
-          vErrors.push(err9);
+          vErrors.push(err10);
         }
         errors++;
       }

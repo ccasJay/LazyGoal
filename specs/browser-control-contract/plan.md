@@ -2,7 +2,7 @@
 
 ## 任务清单
 
-- [ ] //TODO 1. 统一控制意图与受理收据
+- [x] //TODO 1. 统一控制意图与受理收据
   - 落实标准：[1.1](./spec.md#spec-req-1-1), [1.2](./spec.md#spec-req-1-2), [1.3](./spec.md#spec-req-1-3), [1.4](./spec.md#spec-req-1-4), [2.3](./spec.md#spec-req-2-3)
   - 实施目标与场景：在 `packages/web-contracts` 定义可生成的 `ControlIntentCommand`、`ControlReceipt`、`ControlScope` 与相关结果联合；在 `packages/browser`／`apps/goal-server` 增加单一控制入口，按 kind 分发到现有命令服务。提交 SessionInput、计划模式、模型选择、权限模式、Grant 撤销、Goal 归档／删除、Action 预检时均返回同一 receipt 形状；SessionInput 的 `intentId` 与 `inputId` 一致，重复身份与旧 revision 返回 `existing` 或稳定拒绝。
   - 验证手段：运行 `npm run contracts:generate -- --write` 生成新制品；新增 `packages/browser/test/browser-control-intents.test.ts`，覆盖 accepted、existing、rejected 与 receipt 回显。

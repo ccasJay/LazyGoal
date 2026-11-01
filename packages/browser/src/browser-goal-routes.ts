@@ -27,6 +27,9 @@ import type {
 import type {
     BrowserActionReviewCommand,
     BrowserActionReviewResult,
+    BrowserControlIntentCommand,
+    BrowserControlIntentResult,
+    BrowserControlReceipt,
     BrowserCreateSessionCommand,
     BrowserSessionInputCommand,
     BrowserSessionInputErrorCode,
@@ -34,6 +37,7 @@ import type {
 } from "../../web-contracts/src/index";
 import {
     browserActionReviewCommandBinding,
+    browserControlIntentCommandBinding,
     browserCreateSessionCommandBinding,
     browserGoalArchiveCommandBinding,
     browserGoalPlanModeCommandBinding,
@@ -45,6 +49,7 @@ import {
     browserSessionInputCommandBinding,
     browserToolGrantRevokeBodyBinding,
     isJsonValue,
+    isRecord,
 } from "../../web-contracts/src/index";
 import { hasUtf16LengthAtMost } from "../../web-contracts/src/invariants/index";
 import type {
@@ -274,6 +279,30 @@ export interface BrowserGoalApiPort {
  */
 export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
     const routes = new Hono();
+
+    routes.post("/api/control", async (context) => {
+        let body: unknown;
+        try {
+            const read = await readJsonBody(context.req.raw, MAX_SESSION_INPUT_BODY_BYTES);
+            if (!read.ok) {
+                return context.json({ intentId: "", status: "rejected", error: read.error }, read.status);
+            }
+            body = read.value;
+        } catch {
+            return context.json({ intentId: "", status: "rejected", error: "invalid_control_command" }, 400);
+        }
+        const parsed = browserControlIntentCommandBinding.read(body, "reject");
+        const intentId = isRecord(body) && typeof body.intentId === "string" ? body.intentId : "";
+        if (!parsed.ok) {
+            return context.json({ intentId, status: "rejected", error: "invalid_control_command" }, 400);
+        }
+        try {
+            const outcome = await dispatchControlIntent(source, parsed.data);
+            return context.json(outcome.receipt, outcome.status);
+        } catch {
+            return context.json({ intentId: parsed.data.intentId, status: "unknown" }, 503);
+        }
+    });
 
     routes.get("/api/models", async (context) => {
         const query = new URL(context.req.url).searchParams;
@@ -962,6 +991,141 @@ function providerProfileTestStatus(error: BrowserProviderProfileTestError): 404 
  * 只接受白名单字段；`label`、`kind`、`defaultModel` 必填。
  * 其余可选字段省略或为 `null` 时归一为缺省：`apiKey` 缺省表示保留原凭据，其余表示清空。
  */
+type ControlHttpStatus = 200 | 202 | 400 | 404 | 409 | 500 | 503;
+
+async function dispatchControlIntent(
+    source: BrowserGoalApiPort,
+    command: BrowserControlIntentCommand,
+): Promise<{ readonly receipt: BrowserControlReceipt; readonly status: ControlHttpStatus }> {
+    switch (command.kind) {
+        case "create_session": {
+            const session = source.session;
+            if (session === undefined) return rejectedControl(command.intentId, "session_unavailable");
+            const result = await session.create({
+                goalId: command.goalId,
+                inputId: command.inputId,
+                intent: command.intent,
+                ...(command.mode === undefined ? {} : { mode: command.mode }),
+                ...(command.modelId === undefined ? {} : { modelId: command.modelId }),
+            });
+            if (result.ok) return acceptedControl(command.intentId, result, result.existing, result.existing ? 200 : 202);
+            return rejectedControl(command.intentId, result.error);
+        }
+        case "session_input": {
+            if (command.intentId !== command.input.inputId) {
+                return rejectedControl(command.intentId, "intent_id_mismatch");
+            }
+            const session = source.session;
+            if (session === undefined) return rejectedControl(command.intentId, "session_unavailable");
+            const result = await session.submit(command.goalId, command.input);
+            if (result.ok) return acceptedControl(command.intentId, result, result.existing, result.existing ? 200 : 202);
+            return rejectedControl(command.intentId, result.error);
+        }
+        case "plan_mode": {
+            const result = await source.enterPlanMode(command.goalId, { runId: command.runId });
+            if (result.ok) return acceptedControl(command.intentId, result, result.existing, result.existing ? 200 : 202);
+            return rejectedControl(command.intentId, result.error);
+        }
+        case "model_selection": {
+            const result = await source.selectModel(command.goalId, {
+                runId: command.runId,
+                modelId: command.modelId,
+                ...(command.providerProfileId === undefined ? {} : { providerProfileId: command.providerProfileId }),
+                persistAsDefault: command.persistAsDefault,
+            });
+            if (result.ok) return acceptedControl(command.intentId, result);
+            return rejectedControl(command.intentId, result.error);
+        }
+        case "permission_mode": {
+            if (source.setPermissionMode === undefined) return rejectedControl(command.intentId, "permissions_unavailable");
+            const result = await source.setPermissionMode({
+                mode: command.mode,
+                expectedRevision: command.expectedRevision,
+            });
+            if (result.ok) return acceptedControl(command.intentId, result);
+            return rejectedControl(command.intentId, result.error);
+        }
+        case "grant_revoke": {
+            if (source.revokeToolGrant === undefined) return rejectedControl(command.intentId, "permissions_unavailable");
+            const result = await source.revokeToolGrant(command.goalId, {
+                runId: command.runId,
+                grantId: command.grantId,
+                scope: command.scope,
+                ...(command.grantKind === undefined ? {} : { kind: command.grantKind }),
+            });
+            if (result.ok) return acceptedControl(command.intentId, result);
+            return rejectedControl(command.intentId, result.error);
+        }
+        case "goal_archive": {
+            if (source.setArchived === undefined) return rejectedControl(command.intentId, "goal_management_unavailable");
+            const result = await source.setArchived(command.goalId, command.archived);
+            if (result.ok) return acceptedControl(command.intentId, result);
+            return rejectedControl(command.intentId, result.error);
+        }
+        case "goal_delete": {
+            if (source.deleteGoal === undefined) return rejectedControl(command.intentId, "goal_management_unavailable");
+            const result = await source.deleteGoal(command.goalId);
+            if (result.ok) return acceptedControl(command.intentId, result);
+            return rejectedControl(command.intentId, result.error);
+        }
+        case "action_review": {
+            if (source.reviewActionApproval === undefined) return rejectedControl(command.intentId, "review_unavailable");
+            const result = await source.reviewActionApproval(command.goalId, {
+                runId: command.runId,
+                actionId: command.actionId,
+                ...(command.input === undefined ? {} : { input: command.input }),
+                ...(command.scope === undefined ? {} : { scope: command.scope }),
+            });
+            if (result.ok) return acceptedControl(command.intentId, result);
+            return rejectedControl(command.intentId, result.error);
+        }
+    }
+}
+
+function acceptedControl(
+    intentId: string,
+    result: BrowserControlIntentResult,
+    existing = false,
+    status: ControlHttpStatus = 200,
+): { readonly receipt: BrowserControlReceipt; readonly status: ControlHttpStatus } {
+    return {
+        receipt: { intentId, status: existing ? "existing" : "accepted", result },
+        status,
+    };
+}
+
+function rejectedControl(
+    intentId: string,
+    error: string,
+): { readonly receipt: BrowserControlReceipt; readonly status: ControlHttpStatus } {
+    return {
+        receipt: { intentId, status: "rejected", error, ...(controlErrorRefresh(error) ? { refresh: true } : {}) },
+        status: controlErrorStatus(error),
+    };
+}
+
+function controlErrorStatus(error: string): ControlHttpStatus {
+    if (error === "goal_not_found") return 404;
+    if (error === "session_unavailable" || error === "service_shutting_down"
+        || error === "permissions_unavailable" || error === "review_unavailable"
+        || error === "goal_management_unavailable" || error === "model_catalog_unavailable") return 503;
+    if (error === "invalid_control_command" || error === "intent_id_mismatch" || error === "invalid_tool_input") return 400;
+    if (error === "stale_run" || error === "goal_busy" || error === "conflict"
+        || error === "model_switch_not_allowed" || error === "plan_mode_busy"
+        || error === "goal_id_conflict" || error === "goal_not_terminal"
+        || error === "goal_has_pending_inputs" || error === "action_not_waiting"
+        || error === "action_id_mismatch" || error === "scope_unavailable"
+        || error === "sandbox_scope_unavailable" || error === "tool_not_found") return 409;
+    return 500;
+}
+
+function controlErrorRefresh(error: string): boolean {
+    return error === "stale_run" || error === "goal_busy" || error === "conflict"
+        || error === "model_switch_not_allowed" || error === "plan_mode_busy"
+        || error === "goal_not_terminal" || error === "goal_has_pending_inputs"
+        || error === "action_not_waiting" || error === "action_id_mismatch";
+}
+
 async function parseProviderProfileInput(
     request: Request,
 ): Promise<{ readonly ok: true; readonly input: BrowserProviderProfileInput } | { readonly ok: false }> {
