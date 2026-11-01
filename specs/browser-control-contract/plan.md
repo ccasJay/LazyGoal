@@ -22,7 +22,7 @@
   - 实施目标与场景：在 `apps/goal-board/src/control/` 实现 `ControlState`、`ControlIntentState` 与纯 `applyControlEvent`／intent reducer。给定 pending intent、accepted receipt、applied 事件与 unknown 结果，reducer 应分别得到 `pending`、`accepted`、`applied` 与 `unknown`；低 `commitRevision` 事件不得覆盖高修订快照。
   - 验证手段：新增 `apps/goal-board/test/control-reducer.test.ts`，覆盖状态转移、幂等、乱序与 stale scope。
 
-- [ ] //TODO 5. 审批会话与工具活动生命周期
+- [x] //TODO 5. 审批会话与工具活动生命周期
   - 落实标准：[5.1](./spec.md#spec-req-5-1), [5.2](./spec.md#spec-req-5-2), [5.3](./spec.md#spec-req-5-3), [5.4](./spec.md#spec-req-5-4), [6.1](./spec.md#spec-req-6-1), [6.2](./spec.md#spec-req-6-2), [6.3](./spec.md#spec-req-6-3), [6.4](./spec.md#spec-req-6-4)
   - 实施目标与场景：从 `pendingAction`、`reviewRef`、SessionInput 收据与提交事实派生 `ApprovalSession`；从 `tool_activity` 与 `state_committed` 维护按 `actionId` 聚合的 `ToolActivity`。给定预检成功、提交受理、交互结算与 pendingAction 变化，审批会话应依次进入 `reviewed`、`accepted`、`settled` 或 `invalidated`；给定工具返回但 Observation 未提交，卡片应停留在 `result_pending`。
   - 验证手段：新增 `apps/goal-board/test/approval-session.test.ts` 与 `apps/goal-board/test/tool-activity.test.ts`，覆盖失效、迟到 attempt 与重复事件。

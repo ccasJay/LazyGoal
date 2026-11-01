@@ -7,12 +7,11 @@ import type {
   BrowserGoalEvent,
   BrowserRunStatus,
   BrowserSessionInputOutcome,
-  BrowserToolActivity,
 } from "../../../../packages/web-contracts/src/index";
 import type { ControlIntentState, ControlResources, ControlState } from "./types";
+import { applyToolActivityEvent } from "./tool-activity";
 
 const MAX_CONTROL_INTENTS = 64;
-const MAX_CONTROL_ACTIVITIES = 128;
 
 /**
  * 创建尚未同步的控制状态。
@@ -144,7 +143,7 @@ export function applyControlEvent(state: ControlState, event: BrowserGoalEvent):
     case "interaction_settled":
       return applyInteractionSettled(state, event);
     case "tool_activity":
-      return applyToolActivity(state, event.activity);
+      return { ...state, toolActivities: applyToolActivityEvent(state.toolActivities, event.activity) };
     case "stream_fault":
       return {
         ...state,
@@ -346,20 +345,6 @@ function applyInteractionSettled(
       session: settledSession ? sessionRest : session,
     },
   };
-}
-
-function applyToolActivity(state: ControlState, activity: BrowserToolActivity): ControlState {
-  const index = state.toolActivities.findIndex(
-    (entry) => entry.actionId === activity.actionId && entry.executionUnitId === activity.executionUnitId,
-  );
-  if (index < 0) {
-    return { ...state, toolActivities: [...state.toolActivities, activity].slice(-MAX_CONTROL_ACTIVITIES) };
-  }
-  const current = state.toolActivities[index]!;
-  if ((current.attempt ?? 0) > (activity.attempt ?? 0)) return state;
-  const toolActivities = [...state.toolActivities];
-  toolActivities[index] = activity;
-  return { ...state, toolActivities };
 }
 
 function waitingForOf(

@@ -534,6 +534,61 @@ test("提交边界只声明实际变化的投影作用域", async () => {
     opened.feed.close();
 });
 
+test("Observation 提交事实把工具活动结算为 observed_committed", async () => {
+    const goal = goalFor("goal-stream-observed");
+    const store = new MemoryStore();
+    await store.save(goal);
+    const publisher = new InMemoryExecutionStreamPublisher();
+    const opened = openFeed(store, publisher, goal.id);
+    const iterator = opened.feed.events[Symbol.asyncIterator]();
+    await nextEvent(iterator);
+
+    publisher.publish({
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        actionId: "action-observed-1",
+        executionUnitId: "unit-observed-1",
+        kind: "tool_started",
+        visibility: "public",
+        durability: "live",
+        delivery: "control",
+        payload: { toolId: "write_file", input: { path: "a.ts" } },
+    });
+    const started = (await nextControlEvent(iterator)).value;
+    assert.equal(started?.type === "tool_activity" ? started.activity.phase : undefined, "started");
+
+    publisher.publish({
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        actionId: "action-observed-1",
+        executionUnitId: "unit-observed-1",
+        kind: "tool_finished",
+        visibility: "public",
+        durability: "live",
+        delivery: "control",
+        payload: { toolId: "write_file", observation: { kind: "success", summary: "written" } },
+    });
+    const returned = (await nextControlEvent(iterator)).value;
+    assert.equal(returned?.type === "tool_activity" ? returned.activity.phase : undefined, "result_pending");
+
+    publisher.publish({
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        actionId: "action-observed-1",
+        executionUnitId: "unit-observed-1",
+        kind: "observation_recorded",
+        visibility: "public",
+        durability: "checkpoint",
+        delivery: "control",
+        payload: { observation: { kind: "success" } },
+    });
+    const observed = (await nextControlEvent(iterator)).value;
+    assert.equal(observed?.type, "tool_activity");
+    assert.equal(observed?.type === "tool_activity" ? observed.activity.phase : undefined, "observed_committed");
+    assert.equal(observed?.type === "tool_activity" ? observed.activity.executionUnitId : undefined, "unit-observed-1");
+    opened.feed.close();
+});
+
 test("事件缺口与同步读取失败都只要求刷新，不伪装运行终态", async () => {
     const goal = goalFor("goal-stream-2");
     const store = new MemoryStore();

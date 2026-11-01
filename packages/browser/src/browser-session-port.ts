@@ -534,16 +534,30 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
                 });
                 this.push({ type: "refresh_required", goalId });
                 return;
-            case "commit_boundary":
+            case "commit_boundary": {
+                const eventTypes = event.event.eventTypes;
+                if (eventTypes.includes("observation_recorded") && event.event.actionId !== undefined) {
+                    this.push({
+                        type: "tool_activity",
+                        goalId,
+                        runId: event.event.source.runId,
+                        activity: {
+                            actionId: event.event.actionId,
+                            ...(event.event.executionUnitId === undefined ? {} : { executionUnitId: event.event.executionUnitId }),
+                            phase: "observed_committed",
+                        },
+                    });
+                }
                 this.push({
                     type: "state_committed",
                     goalId,
                     runId: event.event.source.runId,
                     commitRevision: event.event.commitRevision ?? 0,
-                    changed: projectCommittedScopes(event.event.eventTypes),
+                    changed: projectCommittedScopes(eventTypes),
                 });
                 this.push({ type: "snapshot_changed", goalId, runId: event.event.source.runId });
                 return;
+            }
             case "closed":
                 this.push({ type: "closed", goalId, reason: event.reason });
                 if (event.reason !== "closed") this.push({ type: "refresh_required", goalId });
@@ -838,12 +852,24 @@ function projectToolActivity(event: SessionToolActivityEvent): BrowserToolActivi
                 phase: "started",
             };
         case "attempt_started":
-            return { actionId: event.actionId, attempt: event.attempt, phase: "attempting" };
+            return {
+                actionId: event.actionId,
+                ...(event.executionUnitId === undefined ? {} : { executionUnitId: event.executionUnitId }),
+                attempt: event.attempt,
+                phase: "attempting",
+            };
         case "attempt_failed":
-            return { actionId: event.actionId, attempt: event.attempt, phase: "retrying", reason: event.reason };
+            return {
+                actionId: event.actionId,
+                ...(event.executionUnitId === undefined ? {} : { executionUnitId: event.executionUnitId }),
+                attempt: event.attempt,
+                phase: "retrying",
+                reason: event.reason,
+            };
         case "finished":
             return {
                 actionId: event.actionId,
+                ...(event.executionUnitId === undefined ? {} : { executionUnitId: event.executionUnitId }),
                 toolId: event.toolId,
                 phase: "result_pending",
                 outcome: event.outcome,

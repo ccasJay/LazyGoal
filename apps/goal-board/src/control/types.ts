@@ -6,9 +6,9 @@ import type {
   BrowserGoalList,
   BrowserModelCatalog,
   BrowserPermissionModeResult,
-  BrowserToolActivity,
   BrowserToolGrantSummary,
 } from "../../../../packages/web-contracts/src/index";
+import type { ToolActivity } from "./tool-activity";
 
 /**
  * 控制状态持有的独立资源投影。
@@ -97,7 +97,7 @@ export interface ControlState {
   /** 本客户端最近的控制意图，按受理顺序保留。 */
   readonly intents: readonly ControlIntentState[];
   /** 当前活动工具尝试。 */
-  readonly toolActivities: readonly BrowserToolActivity[];
+  readonly toolActivities: readonly ToolActivity[];
   /** 独立资源投影。 */
   readonly resources: ControlResources;
   readonly connection: ControlConnection;

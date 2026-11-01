@@ -167,12 +167,14 @@ export type SessionToolActivityEvent =
         readonly kind: "attempt_started";
         readonly source: SessionEventSource;
         readonly actionId: string;
+        readonly executionUnitId?: string | undefined;
         readonly attempt: number;
     }
     | {
         readonly kind: "attempt_failed";
         readonly source: SessionEventSource;
         readonly actionId: string;
+        readonly executionUnitId?: string | undefined;
         readonly attempt: number;
         readonly reason: string;
     }
@@ -180,6 +182,7 @@ export type SessionToolActivityEvent =
         readonly kind: "finished";
         readonly source: SessionEventSource;
         readonly actionId: string;
+        readonly executionUnitId?: string | undefined;
         readonly toolId: string;
         readonly outcome: "success" | "failure";
         readonly summary?: string | undefined;
@@ -322,6 +325,10 @@ export interface SessionCommitBoundaryEvent {
      * 消费者据此推导实际变化范围，不需要读取 Trajectory 或按事件顺序猜测。
      */
     readonly eventTypes: readonly string[];
+    /** 该提交边界关联的 Action 身份；与该批次无关时省略。 */
+    readonly actionId?: string | undefined;
+    /** 该提交边界关联的执行单元；与该批次无关时省略。 */
+    readonly executionUnitId?: string | undefined;
     /** 该提交边界的 Goal 提交修订；来源未提供时省略。 */
     readonly commitRevision?: number | undefined;
 }
@@ -490,6 +497,7 @@ function classifySemanticEvent(event: ExecutionStreamEvent): SessionOutputEvent 
                     kind: "finished",
                     source,
                     actionId: event.actionId,
+                    ...(event.executionUnitId === undefined ? {} : { executionUnitId: event.executionUnitId }),
                     toolId: event.payload.toolId,
                     outcome,
                     ...(summary === undefined ? {} : { summary: summary.slice(0, 500) }),
@@ -505,6 +513,7 @@ function classifySemanticEvent(event: ExecutionStreamEvent): SessionOutputEvent 
                     kind: "attempt_started",
                     source,
                     actionId: event.actionId,
+                    ...(event.executionUnitId === undefined ? {} : { executionUnitId: event.executionUnitId }),
                     attempt: Number(event.payload.attempt),
                 },
             };
@@ -520,6 +529,7 @@ function classifySemanticEvent(event: ExecutionStreamEvent): SessionOutputEvent 
                     kind: "attempt_failed",
                     source,
                     actionId: event.actionId,
+                    ...(event.executionUnitId === undefined ? {} : { executionUnitId: event.executionUnitId }),
                     attempt: Number(event.payload.attempt),
                     reason: event.payload.reason.slice(0, 160),
                 },
@@ -619,6 +629,8 @@ function readCommitBoundary(event: ExecutionStreamEvent): SessionCommitBoundaryE
     return {
         source: toSource(event),
         eventTypes: readCommittedEventTypes(event),
+        ...(event.actionId === undefined ? {} : { actionId: event.actionId }),
+        ...(event.executionUnitId === undefined ? {} : { executionUnitId: event.executionUnitId }),
         ...(revision === undefined ? {} : { commitRevision: revision }),
     };
 }
