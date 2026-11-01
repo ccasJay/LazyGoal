@@ -34,10 +34,11 @@ test("会话输出 wire 守卫接受新的类型化事件", () => {
         },
     }), true);
     assert.equal(isLiveEvent({
-        type: "interaction_required",
+        type: "interaction_opened",
         goalId: "goal-1",
         runId: "run-1",
-        interaction: { interactionId: "question:ask-1", kind: "ask_user", runId: "run-1" },
+        interactionId: "question:ask-1",
+        kind: "question",
     }), true);
     assert.equal(isLiveEvent({
         type: "activity",
@@ -102,10 +103,11 @@ test("会话输出 wire 守卫拒绝缺少身份或位置的事件", () => {
         },
     }), false);
     assert.equal(isLiveEvent({
-        type: "interaction_required",
+        type: "interaction_opened",
         goalId: "goal-1",
         runId: "run-1",
-        interaction: { interactionId: "question:ask-1", kind: "unknown", runId: "run-1" },
+        interactionId: "question:ask-1",
+        kind: "unknown",
     }), false);
 });
 

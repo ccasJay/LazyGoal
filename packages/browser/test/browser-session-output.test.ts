@@ -15,7 +15,7 @@ import {
     createBrowserGoalRoutes,
     createBrowserSessionFeed,
     readBrowserGoalSessionState,
-    type BrowserGoalLiveEvent,
+    type BrowserGoalEvent,
 } from "../src/index";
 
 const protocols = {
@@ -315,7 +315,7 @@ test("真实 SSE 端点输出单一会话协议事件，不保留第二条旧事
     const goal = goalFor("goal-session-output-sse");
     await store.save(goal);
     const publisher = new InMemoryExecutionStreamPublisher();
-    const events: BrowserGoalLiveEvent[] = [];
+    const events: BrowserGoalEvent[] = [];
     const routes = createBrowserGoalRoutes({
         async list() { return { goals: [], unreadableCount: 0 }; },
         async read() { return undefined; },

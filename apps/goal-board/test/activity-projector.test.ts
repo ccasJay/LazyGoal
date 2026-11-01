@@ -8,7 +8,7 @@ import type {
   BrowserActivityThinkItem,
   BrowserActivityToolState,
   BrowserGoalActivityEvent,
-  BrowserGoalLiveEvent,
+  BrowserGoalEvent,
   BrowserRunStatus,
 } from "../../../packages/web-contracts/src/index";
 import { projectActivityGroups } from "../src/activity-projector";
@@ -111,13 +111,13 @@ function event(
   runId: string,
   activity: BrowserGoalActivityEvent,
   goalId = "goal-1",
-): BrowserGoalLiveEvent {
+): BrowserGoalEvent {
   return { type: "activity", goalId, runId, activity };
 }
 
 function project(
   items: readonly BrowserActivityItem[],
-  liveEvents: readonly BrowserGoalLiveEvent[] = [],
+  liveEvents: readonly BrowserGoalEvent[] = [],
   options: { readonly current?: boolean; readonly runStatus?: BrowserRunStatus } = {},
 ) {
   return projectActivityGroups({
@@ -286,7 +286,7 @@ test("a tool that returned without a saved result stays pending instead of saved
 });
 
 test("live retries update one action; a returned result is not presented as saved success", () => {
-  const events: BrowserGoalLiveEvent[] = [
+  const events: BrowserGoalEvent[] = [
     event("run-1", { kind: "tool_started", sourceEventId: "event-1", sourceCursor: 1, actionId: "live-a", executionUnitId: "unit-a", toolId: "read_file", inputSummary: "src/a.ts" }),
     event("run-1", { kind: "tool_attempt_started", sourceEventId: "event-2", sourceCursor: 2, actionId: "live-a", attempt: 1 }),
     event("run-1", { kind: "tool_attempt_failed", sourceEventId: "event-3", sourceCursor: 3, actionId: "live-a", attempt: 1, reason: "temporary failure" }),
@@ -305,7 +305,7 @@ test("live retries update one action; a returned result is not presented as save
 
 test("live updates reconcile with committed action identity and materialization does not duplicate it", () => {
   const saved = toolFact({ actionId: "shared", sequence: 8, toolId: "bash", status: "recorded", inputSummary: "npm test" });
-  const events: BrowserGoalLiveEvent[] = [
+  const events: BrowserGoalEvent[] = [
     event("run-1", { kind: "tool_started", sourceEventId: "event-1", sourceCursor: 1, actionId: "shared", executionUnitId: "unit-shared", toolId: "bash", inputSummary: "npm test" }),
     event("run-1", { kind: "tool_finished", sourceEventId: "event-2", sourceCursor: 2, actionId: "shared", toolId: "bash", outcome: "success", summary: "Tests passed" }),
   ];

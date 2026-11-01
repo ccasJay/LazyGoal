@@ -135,19 +135,19 @@ test("停止 Run 独立可达，不在回答提交中或文本框内隐式触发
   // 文本框只由提交按钮提交；没有把 Enter／Escape 绑定为批准、跳过或停止的提示。
   assert.doesNotMatch(html, /Enter to send|Press Enter/);
 
-  const { createInteractionSubmissionState, reduceInteractionSubmission } = await import("../src/interaction-state");
-  const submitting = reduceInteractionSubmission(createInteractionSubmissionState(), {
-    kind: "submit",
-    decision: {
+  const submitting = {
+    phase: "submitting" as const,
+    frozen: {
       inputId: "input-1",
       command: {
-        kind: "answer_ask_user",
+        kind: "answer_ask_user" as const,
         runId: "run-1",
         requestId: "ask-1",
         answers: [{ questionId: "source", optionIds: ["approved"] }],
       },
     },
-  });
+    error: null,
+  };
   const busyHtml = await render({ submission: submitting });
   assert.match(busyHtml, /Stop run/);
   assert.match(busyHtml, /Sending your decision/);
@@ -156,18 +156,18 @@ test("停止 Run 独立可达，不在回答提交中或文本框内隐式触发
 });
 
 test("结果不明时冻结原身份并提供核验与同身份重试", async () => {
-  const { createInteractionSubmissionState, reduceInteractionSubmission, resolveDecisionInputId } = await import("../src/interaction-state");
+  const { resolveDecisionInputId } = await import("../src/interaction-state");
   const command = (content: string) => ({
     kind: "reply_to_question" as const,
     runId: "run-1",
     requestId: "ask-1",
     content,
   });
-  const frozen = reduceInteractionSubmission(createInteractionSubmissionState(), {
-    kind: "submit",
-    decision: { inputId: "input-frozen", command: command("Original decision") },
-  });
-  const unverified = reduceInteractionSubmission(frozen, { kind: "unverified", message: "Network failed" });
+  const unverified = {
+    phase: "unverified" as const,
+    frozen: { inputId: "input-frozen", command: command("Original decision") },
+    error: "Network failed",
+  };
   assert.equal(resolveDecisionInputId(unverified, command("Original decision"), () => "new-id"), "input-frozen");
   assert.equal(resolveDecisionInputId(unverified, command("Changed decision"), () => "new-id"), "new-id");
 
@@ -178,12 +178,38 @@ test("结果不明时冻结原身份并提供核验与同身份重试", async ()
   assert.match(html, /Network failed/);
 });
 
+test("核验确认未保存后回到可编辑并保留原决定身份", async () => {
+  const { selectInteractionSubmission } = await import("../src/interaction-state");
+  const submission = selectInteractionSubmission([
+    {
+      intent: {
+        kind: "session_input",
+        intentId: "input-frozen",
+        goalId: "goal-1",
+        input: {
+          kind: "respond",
+          inputId: "input-frozen",
+          runId: "run-1",
+          requestId: "ask-1",
+          response: { kind: "skip_question" },
+        },
+      },
+      phase: "unknown",
+      receipt: { intentId: "input-frozen", status: "unknown" },
+      verification: "not_applied",
+    },
+  ], { runId: "run-1", requestId: "ask-1" }, () => "unused");
+  assert.equal(submission.phase, "editing");
+  assert.equal(submission.frozen?.inputId, "input-frozen");
+  assert.equal(submission.error, null);
+});
+
 test("失效请求不再提供任何决定操作", async () => {
-  const { createInteractionSubmissionState, reduceInteractionSubmission } = await import("../src/interaction-state");
-  const invalidated = reduceInteractionSubmission(createInteractionSubmissionState(), {
-    kind: "invalidated",
-    message: "This request is no longer current.",
-  });
+  const invalidated = {
+    phase: "invalidated" as const,
+    frozen: null,
+    error: "This request is no longer current.",
+  };
   const html = await render({ submission: invalidated });
   assert.match(html, /no longer current/);
   assert.doesNotMatch(html, /Send answers|Send reply|Confirm skip/);

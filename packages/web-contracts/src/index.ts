@@ -154,7 +154,6 @@ export {
     type BrowserContentEvent,
     type BrowserGoalActivityEvent,
     type BrowserGoalEvent,
-    type BrowserGoalLiveEvent,
     type BrowserToolActivity,
 } from "./events";
 

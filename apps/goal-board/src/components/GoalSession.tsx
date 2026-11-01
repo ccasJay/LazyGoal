@@ -402,7 +402,7 @@ export function GoalSession({
             </div>
           </div>
           {stateStale && (
-            <div className="state-stale" role="status">
+            <div className="state-stale" role="alert">
               The live connection dropped. The last confirmed content is shown, but it may be outdated. New Steer
               and Resume actions stay unavailable until the state is re-read.
               <Button variant="ghost" size="sm" type="button" onClick={() => void refreshSelectedSession()}>Re-read state</Button>
@@ -711,7 +711,7 @@ export function GoalSession({
                     </div>
                     <WaitingInteraction
                       session={session}
-                      busy={commandBusy || (!draftSessionOpen && sessionError !== null)}
+                      busy={commandBusy || stateStale || (!draftSessionOpen && sessionError !== null)}
                       stopping={
                         stoppingRunId === session.currentRunId ||
                         (session.interruption !== undefined && session.interruption.status !== "finished")

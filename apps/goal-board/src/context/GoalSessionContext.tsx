@@ -4,7 +4,7 @@ import type {
   BrowserActivityPage,
   BrowserGoalSession,
   BrowserGoalSessionState,
-  BrowserGoalLiveEvent,
+  BrowserGoalEvent,
   BrowserModelCatalog,
   BrowserToolGrantSummary,
   BrowserWorkspaceContext,
@@ -71,7 +71,7 @@ export interface GoalSessionContextValue {
   readonly progressEntries: readonly ExecutionProgressEntry[];
   /** 按候选 ID 关联的公开预览与保存核验状态。 */
   readonly candidatePresentation: SessionOutputDisplay;
-  readonly liveEvents: readonly BrowserGoalLiveEvent[];
+  readonly liveEvents: readonly BrowserGoalEvent[];
   readonly streamConnected: boolean;
   /** 最后确认的正式内容是否可能过期；过期期间限制依赖最新状态的新决定。 */
   readonly stateStale: boolean;

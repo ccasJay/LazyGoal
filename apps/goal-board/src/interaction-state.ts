@@ -207,69 +207,22 @@ export interface FrozenInteractionDecision {
   readonly command: BrowserGoalInteractionCommand;
 }
 
-/** 交互决定提交状态机状态。 */
+/**
+ * 从控制意图派生的交互提交展示状态。
+ *
+ * @remarks
+ * 状态由 `control/reducer` 的 `respond` 意图派生，页面不再维护第二份提交状态机；
+ * `frozen` 只用于核验与原身份重试。
+ */
 export interface InteractionSubmissionState {
   readonly phase: InteractionSubmissionPhase;
   readonly frozen: FrozenInteractionDecision | null;
   readonly error: string | null;
 }
 
-/** 提交状态机事件。 */
-export type InteractionSubmissionAction =
-  | { readonly kind: "submit"; readonly decision: FrozenInteractionDecision }
-  | { readonly kind: "accepted" }
-  | { readonly kind: "rejected"; readonly message: string }
-  | { readonly kind: "unverified"; readonly message: string }
-  | { readonly kind: "verified_accepted" }
-  | { readonly kind: "verified_absent"; readonly message: string }
-  | { readonly kind: "invalidated"; readonly message: string }
-  | { readonly kind: "reset" };
-
 /** 创建初始提交状态。 */
 export function createInteractionSubmissionState(): InteractionSubmissionState {
   return { phase: "editing", frozen: null, error: null };
-}
-
-/**
- * 归约一次提交状态转移。
- *
- * @remarks
- * 结果不明后不允许产生第二个身份的决定；只有显式核验确认未提交或明确业务
- * 拒绝才回到 `editing`，并保留可复用的原身份。已受理与已失效状态不可回退，
- * 新请求由调用方重置为初始状态。
- */
-export function reduceInteractionSubmission(
-  state: InteractionSubmissionState,
-  action: InteractionSubmissionAction,
-): InteractionSubmissionState {
-  switch (action.kind) {
-    case "submit": {
-      if (state.phase === "accepted" || state.phase === "invalidated") return state;
-      if (state.phase === "unverified") {
-        if (state.frozen === null || state.frozen.inputId !== action.decision.inputId) return state;
-      }
-      return { phase: "submitting", frozen: action.decision, error: null };
-    }
-    case "accepted":
-      if (state.phase !== "submitting" && state.phase !== "unverified") return state;
-      return { phase: "accepted", frozen: state.frozen, error: null };
-    case "rejected":
-      if (state.phase !== "submitting") return state;
-      return { phase: "editing", frozen: null, error: action.message };
-    case "unverified":
-      if (state.phase !== "submitting") return state;
-      return { phase: "unverified", frozen: state.frozen, error: action.message };
-    case "verified_accepted":
-      if (state.phase !== "unverified") return state;
-      return { phase: "accepted", frozen: state.frozen, error: null };
-    case "verified_absent":
-      if (state.phase !== "unverified") return state;
-      return { phase: "editing", frozen: state.frozen, error: action.message };
-    case "invalidated":
-      return { phase: "invalidated", frozen: state.frozen, error: action.message };
-    case "reset":
-      return createInteractionSubmissionState();
-  }
 }
 
 /**
@@ -292,7 +245,8 @@ export function isInvalidatingInteractionCode(code: string): boolean {
  * @remarks
  * 只读取与当前等待 `requestId` 关联的 `respond` 控制意图：待处理为 `submitting`，
  * 已受理为 `accepted`，结果不明为 `unverified`，明确失效拒绝为 `invalidated`。
- * 本地编辑草稿不进入该状态。
+ * 核验确认未保存的决定回到 `editing` 并保留冻结身份，使同一决定按原 `inputId`
+ * 重试。本地编辑草稿不进入该状态。
  *
  * @param intents - 控制意图列表。
  * @param view - 当前等待交互的规范引用。
@@ -326,7 +280,9 @@ export function selectInteractionSubmission(
     case "applied":
       return { phase: "accepted", frozen, error: null };
     case "unknown":
-      return { phase: "unverified", frozen, error: null };
+      return entry.verification === "not_applied"
+        ? { phase: "editing", frozen, error: null }
+        : { phase: "unverified", frozen, error: null };
     case "rejected": {
       const code = entry.receipt?.status === "rejected" ? entry.receipt.error : "interaction_rejected";
       return isInvalidatingInteractionCode(code)
@@ -334,24 +290,6 @@ export function selectInteractionSubmission(
         : { phase: "editing", frozen: null, error: errorText(code) };
     }
   }
-}
-
-/**
- * 把持久化 response 还原为页面命令。
- *
- * @param view - 当前等待交互的规范引用。
- * @param response - 已提交的 respond 载荷。
- * @returns 页面交互命令。
- * @example
- * ```ts
- * interactionCommandOf(view, input.response);
- * ```
- */
-export function interactionCommandOf(
-  view: { readonly runId: string; readonly requestId?: string; readonly actionId?: string },
-  response: BrowserSessionInteractionResponse,
-): BrowserGoalInteractionCommand {
-  return fromSessionInteractionResponse(view, response);
 }
 
 /**

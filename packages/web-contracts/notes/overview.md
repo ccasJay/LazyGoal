@@ -26,6 +26,14 @@ Activity 助手消息必须携带 `process`、`answer` 或 `notice` 用途；用
 
 会话 wire DTO 与 guard 只接受 `requested`／`finished` 中断状态，不再传输模型收尾预算。执行语义见 [Runtime](../../runtime/notes/overview.md)。
 
+## 控制协议
+
+Goal Board 的全部 Goal／Workspace 变更命令使用同一 [`BrowserControlIntentCommand`](../src/wire.ts)：`intentId` 是客户端控制身份，`session_input` 与 `create_session` 复用既有 `inputId`，其余命令按 Goal、Run、revision 或资源身份寻址。命令入口返回 [`BrowserControlReceipt`](../src/wire.ts)，明确区分 `accepted`、`existing`、`rejected` 与 `unknown`；同步提交类命令在受理即完成，`create_session`、`session_input` 停在受理态等待应用事实，只读 `action_review` 只报告预检结果。[`BrowserControlIntentResult`](../src/wire.ts) 以与命令一致的 `kind` 标记成功结果，消费方按命令类型读取唯一的 `result`，不从字段形状猜测命令种类。
+
+[`BrowserControlScope`](../src/wire.ts) 是投影失效的唯一分类：`session`、`activity`、`trajectory`、`metrics`、`goals`、`grants`、`permission` 与 `model`。`state_committed.changed` 与 `stream_fault.resync` 只声明实际变化范围；`BrowserControlSnapshot` 由 Browser 在同一提交边界组装，包含 Goal 控制投影与 Runtime 窄状态，仅由 `state_sync` 携带。`BrowserGoalEvent` 是 [`BrowserControlEvent`](../src/wire.ts) 与 [`BrowserContentEvent`](../src/wire.ts) 的并集；控制事实与生成正文互斥，`intent_applied`／`intent_rejected` 不属于 wire 事实。
+
+本包不持久化意图、收据或审批会话；它们由命令入口、Runtime 事实与页面 reducer 派生。
+
 ## 所有权
 
 传输 DTO 不是 Goal Snapshot 的持久化 Schema。运行状态、阶段记录及授权事实由 Runtime 提交，Browser 从已提交状态建立当前视图；前端的瞬时活动不会变成恢复输入。请求入站验证由对应的 Web 边界使用本包生成的命令绑定执行。

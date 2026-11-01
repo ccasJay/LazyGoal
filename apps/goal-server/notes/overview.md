@@ -74,6 +74,7 @@ flowchart LR
 4. `ask_user` 与 Plan Run 的 `task_proposal` 都保存为可恢复的 `pendingInteraction`。提案等待期间不继续模型或 Tool 调用；用户回答、批准或反馈持久化后，Coordinator 恢复同一 Run。completed 或 failed 输入先归档历史及终态，再提交新 Run。
 5. 获批 Plan Run 可通过受模式能力授权的计划 Tool 更新 GoalPlan。一个 Run 可依次更新多个 Todo；标记 Todo 完成必须引用当前 Run 已提交 Observation。Run 终态独立于未完成 Todo，后者保留原状态且不会自动创建下一 Run。
 6. 每个事实、Memory Patch、消息、Action/Observation 和 Snapshot 都遵守“提交成功后才继续”的边界。非 YOLO 工具审批可按单次、当前 Goal 或 workspace 授权；持续授权在 Goal 批准快照提交后才激活。Web 看板从已提交的 Goal、Run 与计划状态投影会话和交互面板。
+7. Web 组合根为 `POST /api/control` 装配同一命令服务与 Runtime 会话所有者，并把 `readBrowserGoalSessionState` 作为 `state_sync` 快照的 Goal 投影读取器；Browser 不在组合根维护第二套命令或事件状态。
 
 `RuntimeComposition.interactions` 暴露无界面宿主的窄交互接入：`attach` 打开 Goal 会话并注册按交互种类分派的处理函数，`read` 只读返回当前等待的类型化视图；两者都不需要 HTTP、进程信号或前端，决定仍经统一 `send` 与既有身份、授权和提交规则受理。注册处理器只做一致同步：连接之前已有的历史等待不会被自动回答，宿主显式 `resume` 发现仍需交互时只解锁该请求并把结果交给已注册的处理函数；同一 Goal 已有自动所有者时第二次连接被明确拒绝，解除句柄不取消 Goal。可运行示例见 [headless-interaction-handlers.ts](../examples/headless-interaction-handlers.ts)（`npx tsx apps/goal-server/examples/headless-interaction-handlers.ts`）。
 

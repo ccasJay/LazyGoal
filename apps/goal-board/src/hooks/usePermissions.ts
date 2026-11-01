@@ -153,5 +153,6 @@ export function usePermissions({
     revokingGrantId,
     updatePermissionMode,
     revokePermissionGrant,
+    reloadPermissionMode,
   };
 }

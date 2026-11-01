@@ -436,7 +436,7 @@ function createStageMockApi() {
     const pending = session.runs[0].steps[1];
     pending.status = "completed";
     pending.think.output = "Remaining uncertainty is resolved.";
-    for (const stream of streams) stream.write(`data: ${JSON.stringify({ type: "snapshot_changed", goalId: session.goalId, runId: "run-1" })}\n\n`);
+    for (const stream of streams) stream.write(`data: ${JSON.stringify({ type: "state_committed", goalId: session.goalId, runId: "run-1", commitRevision: 1, changed: ["session", "activity"] })}\n\n`);
   } };
 }
 

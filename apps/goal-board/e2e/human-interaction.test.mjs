@@ -259,10 +259,10 @@ test("human interaction submit state: frozen decision, host settlement and refre
     // 提交未送达：客户端冻结身份与载荷，不产生第二个身份。
     const frozenGoal = await createGoal(socket, origin, token, "Human interaction flow: questionnaire", fixture.statusPath);
     await waitForExpression(socket, "document.querySelector('.interaction-region.question-region') !== null", 20_000);
-    await cdp(socket, "Fetch.enable", { patterns: [{ urlPattern: "*inputs", requestStage: "Request" }] });
+    await cdp(socket, "Fetch.enable", { patterns: [{ urlPattern: "*api/control*", requestStage: "Request" }] });
     socket.on("Fetch.requestPaused", (params) => {
       const pathname = new URL(params.request.url).pathname;
-      if (params.request.method === "POST" && pathname.endsWith("/inputs")) {
+      if (params.request.method === "POST" && pathname.endsWith("/api/control")) {
         void cdp(socket, "Fetch.failRequest", { requestId: params.requestId, errorReason: "Failed" });
         return;
       }

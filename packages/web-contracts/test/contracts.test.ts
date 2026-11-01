@@ -4,8 +4,9 @@ import { test } from "node:test";
 import * as webContracts from "../src/index";
 import {
     browserActivityPageBinding,
+    browserControlReceiptBinding,
     browserGoalListItemBinding,
-    browserGoalLiveEventBinding,
+    browserGoalEventBinding,
     browserProviderModelQueryBinding,
     browserProviderProfileTestResultBinding,
     browserSessionInputCommandBinding,
@@ -165,8 +166,49 @@ test("session input union strips branch extras and keeps discriminator", () => {
     }
 });
 
+test("control receipt keeps the result payload that belongs to its command kind", () => {
+    const inputReceipt = {
+        goalId: "goal-1",
+        inputId: "input-1",
+        kind: "message",
+        sequence: 1,
+        status: "applied",
+        admittedAtRevision: 1,
+    };
+    const created = browserControlReceiptBinding.read({
+        intentId: "intent-1",
+        status: "accepted",
+        result: {
+            kind: "create_session",
+            result: { ok: true, existing: false, goalId: "goal-1", runId: "run-1", receipt: inputReceipt },
+        },
+    }, "strip");
+    assert.equal(created.ok, true);
+    if (created.ok && created.data.status === "accepted") {
+        assert.equal(created.data.result.kind, "create_session");
+        assert.deepEqual(created.data.result.result, {
+            ok: true,
+            existing: false,
+            goalId: "goal-1",
+            runId: "run-1",
+            receipt: inputReceipt,
+        });
+    }
+
+    const planned = browserControlReceiptBinding.read({
+        intentId: "intent-2",
+        status: "existing",
+        result: { kind: "plan_mode", result: { ok: true, goalId: "goal-1", runId: "run-1", existing: true } },
+    }, "strip");
+    assert.equal(planned.ok, true);
+    if (planned.ok && planned.data.status === "existing") {
+        assert.equal(planned.data.result.kind, "plan_mode");
+        assert.deepEqual(planned.data.result.result, { ok: true, goalId: "goal-1", runId: "run-1", existing: true });
+    }
+});
+
 test("live event binding strips unknown activity metadata", () => {
-    const event = browserGoalLiveEventBinding.read({
+    const event = browserGoalEventBinding.read({
         type: "activity",
         goalId: "goal-1",
         runId: "run-1",

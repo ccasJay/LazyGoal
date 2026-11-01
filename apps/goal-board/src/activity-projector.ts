@@ -3,7 +3,7 @@ import type {
   BrowserActivityPosition,
   BrowserActivityToolLifecycleEntry,
   BrowserActivityToolState,
-  BrowserGoalLiveEvent,
+  BrowserGoalEvent,
   BrowserRunStatus,
 } from "../../../packages/web-contracts/src/index";
 
@@ -172,7 +172,7 @@ export function projectActivityGroups(input: {
   readonly goalId: string;
   readonly runId: string;
   readonly items: readonly BrowserActivityItem[];
-  readonly liveEvents: readonly BrowserGoalLiveEvent[];
+  readonly liveEvents: readonly BrowserGoalEvent[];
   readonly current: boolean;
   readonly runStatus: BrowserRunStatus;
 }): readonly ActivityGroup[] {
@@ -341,10 +341,10 @@ function committedMemberStatus(tool: BrowserActivityToolState): ActivityMemberSt
 function projectLiveMembers(
   goalId: string,
   runId: string,
-  events: readonly BrowserGoalLiveEvent[],
+  events: readonly BrowserGoalEvent[],
 ): { readonly members: readonly MutableMember[] } {
   const latestByIdentity = new Map<string, {
-    readonly event: Extract<BrowserGoalLiveEvent, { readonly type: "activity" }>;
+    readonly event: Extract<BrowserGoalEvent, { readonly type: "activity" }>;
     readonly cursor: number;
   }>();
   for (const event of events) {

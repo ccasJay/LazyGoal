@@ -1,6 +1,5 @@
 import type {
   BrowserActionReview,
-  BrowserControlIntentResult,
 } from "../../../../packages/web-contracts/src/index";
 import type { ControlIntentState, ControlState } from "./types";
 
@@ -134,10 +133,6 @@ function approvalRequestId(state: ControlState, actionId: string): string | unde
 function reviewOf(entry: ControlIntentState): BrowserActionReview | undefined {
   const receipt = entry.receipt;
   if (receipt === undefined || receipt.status === "rejected" || receipt.status === "unknown") return undefined;
-  return actionReviewOf(receipt.result);
-}
-
-function actionReviewOf(result: BrowserControlIntentResult): BrowserActionReview | undefined {
-  if (typeof result !== "object" || result === null || !("review" in result)) return undefined;
-  return (result as { readonly review: BrowserActionReview }).review;
+  if (receipt.result.kind !== "action_review" || !receipt.result.result.ok) return undefined;
+  return receipt.result.result.review;
 }

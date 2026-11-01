@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type {
+  BrowserControlScope,
   BrowserGoalListItem,
   BrowserModelCatalog,
   BrowserModelOption,
@@ -47,15 +48,6 @@ export function useGoalBoardApp() {
     control,
   });
 
-  const streamManager = useRunStream({
-    selectedGoalId: sessionManager.selectedGoalId,
-    session: sessionManager.session,
-    activityPage: sessionManager.activityPage,
-    sessionLoading: sessionManager.sessionLoading,
-    onRefresh: sessionManager.refreshSelectedSession,
-    onControlSnapshot: sessionManager.applyControlSnapshot,
-  });
-
   const permissionsManager = usePermissions({
     session: sessionManager.session,
     control,
@@ -81,6 +73,7 @@ export function useGoalBoardApp() {
     toolGrantsLoading,
     toolGrantsError,
     revokeToolGrant,
+    reloadToolGrants,
   } = useToolGrants({
     enabled: goalInfoOpen,
     session: sessionManager.session,
@@ -132,6 +125,28 @@ export function useGoalBoardApp() {
     control,
     onRefreshSession: sessionManager.refreshSelectedSession,
     onCommandError: commandsManager.setCommandError,
+  });
+
+  /** 按控制事件声明的范围定向读取；不触发完整会话重读。 */
+  const readControlScopes = async (scopes: readonly BrowserControlScope[]): Promise<void> => {
+    if (scopes.includes("session")) await sessionManager.refreshSessionState();
+    if (scopes.includes("activity")) await sessionManager.refreshActivity();
+    if (scopes.includes("goals")) await goalsManager.refreshGoals();
+    if (scopes.includes("grants")) await reloadToolGrants();
+    if (scopes.includes("permission")) await permissionsManager.reloadPermissionMode();
+    if (scopes.includes("model")) modelSelectionManager.refreshModelCatalog();
+    control.markFresh(scopes);
+  };
+
+  const streamManager = useRunStream({
+    selectedGoalId: sessionManager.selectedGoalId,
+    session: sessionManager.session,
+    activityPage: sessionManager.activityPage,
+    sessionLoading: sessionManager.sessionLoading,
+    onRefresh: sessionManager.refreshSelectedSession,
+    onControlSnapshot: sessionManager.applyControlSnapshot,
+    onControlEvent: control.applyEvent,
+    onReadScopes: readControlScopes,
   });
 
   const currentModelName = modelSelectionManager.currentModelCatalog === null

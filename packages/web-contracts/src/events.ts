@@ -10,6 +10,5 @@ export type {
     BrowserContentEvent,
     BrowserGoalActivityEvent,
     BrowserGoalEvent,
-    BrowserGoalLiveEvent,
     BrowserToolActivity,
 } from "./wire";

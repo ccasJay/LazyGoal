@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import type { BrowserGoalLiveEvent } from "../../../packages/web-contracts/src/index";
+import type { BrowserGoalEvent } from "../../../packages/web-contracts/src/index";
 import {
   EMPTY_SESSION_OUTPUT_DISPLAY,
   applySessionOutputEvent,
   type SessionOutputDisplay,
 } from "../src/session-output-consumer";
 
-function previewEvent(text: string, startOffset = 0): BrowserGoalLiveEvent {
+function previewEvent(text: string, startOffset = 0): BrowserGoalEvent {
   return {
     type: "activity",
     goalId: "goal-1",
@@ -26,7 +26,7 @@ function previewEvent(text: string, startOffset = 0): BrowserGoalLiveEvent {
   };
 }
 
-function committedEvent(messageId: string): BrowserGoalLiveEvent {
+function committedEvent(messageId: string): BrowserGoalEvent {
   return {
     type: "message_committed",
     goalId: "goal-1",
@@ -93,23 +93,12 @@ test("候选确定作废后丢弃正文并保留迟到事件屏障", () => {
   assert.equal(invalidated.retiredCandidateKeys.length, 1);
 });
 
-test("等待交互只更新提示，不伪造完成结果", () => {
-  const display: SessionOutputDisplay = { ...EMPTY_SESSION_OUTPUT_DISPLAY, liveText: "临时正文", liveActivity: "生成中", unconfirmed: true };
-  const next = applySessionOutputEvent(display, {
-    type: "interaction_required",
-    goalId: "goal-1",
-    runId: "run-1",
-    interaction: { interactionId: "question:ask-1", kind: "ask_user", runId: "run-1" },
-  });
-  assert.ok(next !== undefined);
-  assert.match(next.liveActivity, /Waiting/);
-  assert.equal(next.unconfirmed, true);
-});
-
 test("与候选无关的事件不改变显示状态", () => {
   const display: SessionOutputDisplay = { ...EMPTY_SESSION_OUTPUT_DISPLAY, liveText: "临时正文", liveActivity: "生成中", unconfirmed: true };
   assert.equal(applySessionOutputEvent(display, {
-    type: "refresh_required",
+    type: "run_status_changed",
     goalId: "goal-1",
+    runId: "run-1",
+    status: "waiting",
   }), undefined);
 });

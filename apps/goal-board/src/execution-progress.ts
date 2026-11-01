@@ -1,4 +1,4 @@
-import type { BrowserGoalLiveEvent } from "../../../packages/web-contracts/src/index";
+import type { BrowserGoalEvent } from "../../../packages/web-contracts/src/index";
 
 /**
  * 当前连接实际观察到的公开执行阶段，不作为持久化历史或 Runtime 状态。
@@ -43,7 +43,7 @@ export interface ExecutionProgressEntry {
  * @param observedAt - 浏览器实际接收时间。
  * @returns 最多 20 条新记录；无语义变化时返回原引用。
  */
-export function recordExecutionProgress(entries: readonly ExecutionProgressEntry[], event: BrowserGoalLiveEvent, observedAt: number): readonly ExecutionProgressEntry[] {
+export function recordExecutionProgress(entries: readonly ExecutionProgressEntry[], event: BrowserGoalEvent, observedAt: number): readonly ExecutionProgressEntry[] {
   if (event.type !== "activity") return entries;
   const activity = event.activity;
   let label: string;

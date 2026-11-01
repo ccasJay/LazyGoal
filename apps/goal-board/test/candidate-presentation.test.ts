@@ -13,7 +13,7 @@ import type { Goal, SessionOutputEvent, StepExecutor } from "../../../packages/r
 import { InMemoryGoalStore } from "../../../packages/storage/src/index";
 import { readBrowserGoalActivity, readBrowserGoalSessionState } from "../../../packages/browser/src/index";
 import { InMemoryExecutionStreamPublisher } from "../../../packages/execution-stream/src/index";
-import type { BrowserActivityPage, BrowserGoalLiveEvent } from "../../../packages/web-contracts/src/index";
+import type { BrowserActivityPage, BrowserGoalEvent } from "../../../packages/web-contracts/src/index";
 import { InMemoryTrajectoryStore } from "../../../packages/runtime/test/current-fixtures";
 import { collectActivityProjections } from "../src/collect-activity-projections";
 import {
@@ -43,7 +43,7 @@ function previewEvent(
   text: string,
   startOffset = 0,
   options: { readonly truncated?: boolean; readonly complete?: boolean } = {},
-): BrowserGoalLiveEvent {
+): BrowserGoalEvent {
   return {
     type: "activity",
     goalId: "candidate-presentation-goal",
@@ -61,7 +61,7 @@ function previewEvent(
   };
 }
 
-function invalidationEvent(candidateId: string, sourceCursor: number): BrowserGoalLiveEvent {
+function invalidationEvent(candidateId: string, sourceCursor: number): BrowserGoalEvent {
   return {
     type: "activity",
     goalId: "candidate-presentation-goal",
@@ -272,7 +272,7 @@ test("已作废的候选不会在 Activity 时间线留下旧稿区块", async (
   assert.equal(html.includes("旧稿只在展开后显示"), false);
 });
 
-function toBrowserCandidateEvent(event: SessionOutputEvent): BrowserGoalLiveEvent | undefined {
+function toBrowserCandidateEvent(event: SessionOutputEvent): BrowserGoalEvent | undefined {
   if (event.type === "generation_event" && event.event.kind === "candidate_preview") {
     return {
       type: "activity",

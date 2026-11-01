@@ -25,6 +25,13 @@
 | BrowserInteractionDetailResult | 交互完整审阅内容的读取结果与稳定错误分类。 | [Web 传输契约](../README.md) | [Session DTO](../src/session.ts) |
 | BrowserPlanRoute | 获批 Plan Run 的完整权威路线及当前游标；普通 Run 省略。 | [Web 传输契约](../README.md) | [Session DTO](../src/session.ts) |
 | BrowserGoalActivityEvent | 白名单公开的短期 SSE 活动及其来源身份；不持久化。 | [Web 传输契约](../README.md) | [Event DTO](../src/events.ts) |
+| BrowserGoalEvent | Goal SSE 的唯一事件联合：控制事实与内容事实原位合并，不保留第二条事件流或旧事件双解析。 | [Web 传输契约](../README.md) | [Event DTO](../src/events.ts)、[Wire 类型](../src/wire.ts) |
+| BrowserControlIntentCommand | Goal／Workspace 作用域的统一控制命令；身份、目标身份与预期修订由 wire 校验。 | [Web 传输契约](../README.md) | [控制命令 DTO](../src/control.ts) |
+| BrowserControlReceipt | 命令受理结果：`accepted`／`existing`／`rejected`／`unknown`；不表达 Runtime 事实。 | [Web 传输契约](../README.md) | [控制命令 DTO](../src/control.ts) |
+| BrowserControlIntentResult | 受理结果中的成功载荷：以与命令一致的 `kind` 标记，`result` 复用该命令既有的 wire 结果类型。 | [Web 传输契约](../README.md) | [Wire 类型](../src/wire.ts) |
+| BrowserControlScope | 投影失效分类：`session`、`activity`、`trajectory`、`metrics`、`goals`、`grants`、`permission`、`model`。 | [Web 传输契约](../README.md) | [Wire 类型](../src/wire.ts) |
+| BrowserControlSnapshot | `state_sync` 携带的权威控制快照：同一 Run 的 Goal 控制投影与窄会话状态。 | [Web 传输契约](../README.md) | [Wire 类型](../src/wire.ts) |
+| BrowserControlEvent / BrowserContentEvent | 控制事实与内容事实的判别子集；`state_sync`、`input_result` 属于控制事实。 | [Web 传输契约](../README.md) | [Event DTO](../src/events.ts)、[Wire 类型](../src/wire.ts) |
 | SessionMetricsSnapshot | 会话指标响应 DTO；`tokensPerSecond` 的端到端计时语义归属指标投影模块。 | [Web 传输契约](../README.md) | [指标 DTO](../src/metrics.ts) |
 | BrowserCreateGoalCommand | 创建 Goal 的 Web 命令。 | [Web 传输契约](../README.md) | [模块说明](./overview.md) |
 | Provider model query | 未保存连接参数与仅含模型 ID/名称的响应；TS 类型驱动 Schema 生成、校验和未知字段提取。 | [Web 传输契约](../README.md) | [Provider DTO](../src/provider-settings.ts)、[生成绑定](../src/generated/provider-models-binding.ts) |

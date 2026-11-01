@@ -8,7 +8,7 @@ import {
     browserCreateSessionResultBinding,
     browserGoalListBinding,
     browserGoalListItemBinding,
-    browserGoalLiveEventBinding,
+    browserGoalEventBinding,
     browserGoalPlanBinding,
     browserGoalSessionBinding,
     browserGoalSessionEnvelopeBinding,
@@ -67,7 +67,7 @@ import type {
     BrowserCreateSessionResult,
     BrowserGoalList,
     BrowserGoalListItem,
-    BrowserGoalLiveEvent,
+    BrowserGoalEvent,
     BrowserGoalPlan,
     BrowserGoalSession,
     BrowserGoalSessionState,
@@ -668,15 +668,15 @@ export function isWorkspaceContext(value: unknown): value is BrowserWorkspaceCon
  * 实时事件类型守卫。
  *
  * @param value - 待检测值。
- * @returns 是否为 BrowserGoalLiveEvent。
+ * @returns 是否为 BrowserGoalEvent。
  *
  * @example
  * ```ts
  * if (isLiveEvent(evt)) console.log(evt.type);
  * ```
  */
-export function isLiveEvent(value: unknown): value is BrowserGoalLiveEvent {
-    const result = browserGoalLiveEventBinding.read(value, "strip");
+export function isLiveEvent(value: unknown): value is BrowserGoalEvent {
+    const result = browserGoalEventBinding.read(value, "strip");
     return result.ok && isLiveEventStructure(result.data);
 }
 

@@ -37,12 +37,12 @@
   - 实施目标与场景：控制入口的 `model_selection` 接受 `persistAsDefault`，一次返回 `selection` 与 `defaultPreference` 子结果；Goal Board 不再调用第二次 `setModelPreference`。给定模型切换成功但偏好保存失败，页面应显示部分成功与可重试提示；给定当前 Run 已不允许切换，应返回稳定拒绝且不单独写入偏好。
   - 验证手段：运行 `npx tsx --test packages/browser/test/browser-model-selection.test.ts`，并新增 Goal Board 部分成功用例。
 
-- [ ] //TODO 8. Goal Board 事件消费与刷新路径迁移
+- [x] //TODO 8. Goal Board 事件消费与刷新路径迁移
   - 落实标准：[3.2](./spec.md#spec-req-3-2), [3.3](./spec.md#spec-req-3-3), [3.4](./spec.md#spec-req-3-4), [4.4](./spec.md#spec-req-4-4), [9.2](./spec.md#spec-req-9-2), [9.3](./spec.md#spec-req-9-3)
   - 实施目标与场景：把 `useRunStream` 的事件 switch 改为控制 reducer；`state_sync` 直接应用快照，`state_committed` 只处理声明 scope；原有 generation／candidate／message 内容路径保持不变。给定连续模型增量、正式消息与交互结算，页面应更新控制状态而不触发 `refreshSelectedSession`；给定另一客户端结算当前交互，旧草稿应失效并切换到真实后续状态。
   - 验证手段：运行 `npx tsx --test apps/goal-board/test/session-output-consumer.test.ts apps/goal-board/test/session-stream-recovery.test.ts apps/goal-board/test/session-output-api.test.ts`，并用 API 调用计数断言控制事件不触发全量读取。
 
-- [ ] //TODO 9. 清理旧事件与本地状态机、更新文档与生成物
+- [x] //TODO 9. 清理旧事件与本地状态机、更新文档与生成物
   - 落实标准：[9.1](./spec.md#spec-req-9-1), [9.5](./spec.md#spec-req-9-5)
   - 实施目标与场景：删除 `BrowserGoalLiveEvent`、控制事件的 `activity_boundary` 压扁、被 reducer 取代的 `UnverifiedSubmissionState`／`InteractionSubmissionState` 提交阶段与重复 Grant 状态；更新 `web-contracts`、`browser`、`goal-board`、`runtime` 的相关中文 TSDoc、模块概览与语义表，并重新生成 Catalog 制品。交付后源码中只保留一套控制事件与控制状态实现。
   - 验证手段：运行 `npm run contracts:generate -- --check`、`npm run check:docs`、`npm run check:dependencies` 与 `npx tsc --noEmit`。
@@ -67,6 +67,16 @@
 
 ### Latest Result
 
-- 状态：未执行
-- 验证时间：-
-- 验证摘要：尚未开始执行。
+- 状态：通过（有既有 E2E 失败，见下）
+- 验证时间：2026-11-01
+- 验证摘要：
+  - `npm test`：全部通过（类型检查、契约一致性、文档、依赖边界、GEPA adapter 与全量单元测试）。
+  - `npm run contracts:generate -- --check`、`npm run check:docs`、`npm run check:dependencies`、`npx tsc --noEmit`：全部通过。
+  - `npm run build:web`：通过。
+  - Goal Board 单元测试：242/242 通过；`packages/browser`：149/149 通过。
+  - `node --test --test-concurrency=1 apps/goal-board/e2e/*.test.mjs`：14/18 通过。4 个失败在 `dev` 基线上同样复现，不属于本次改动：
+    - `board.test.mjs`：390px 视口下 `.session .timeline > *` 宽 361px，断言要求 ≤ 358px（既有布局偏差）。
+    - `runtime.test.mjs`：轨迹详情 `.tr-detail-body pre` 未出现（既有失败）。
+    - `provider-models-contract.test.mjs`、`provider-profile-test-contract.test.mjs`：生成绑定的未知字段诊断路径为 `/*`，而用例仍期待具体路径（既有失败）。
+  - 未使用 `--test-concurrency=1` 的并行 E2E 会因多个 Chrome／Vite 实例争用而额外超时；序列执行可稳定复现上述结果。
+  - 本次同时修复两处阻塞验收的旧缺陷：模型选择失败后选择器不显示错误文本；Goal 创建冲突未复用统一错误文案。

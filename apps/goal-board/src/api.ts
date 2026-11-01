@@ -5,7 +5,7 @@ import {
   browserControlReceiptBinding,
   browserCreateSessionResultBinding,
   browserGoalListBinding,
-  browserGoalLiveEventBinding,
+  browserGoalEventBinding,
   browserGoalSessionEnvelopeBinding,
   browserGoalSessionStateEnvelopeBinding,
   browserInteractionDetailResultBinding,
@@ -42,7 +42,7 @@ import {
   type BrowserCreateSessionResult,
   type BrowserGoalList,
   type BrowserGoalListItem,
-  type BrowserGoalLiveEvent,
+  type BrowserGoalEvent,
   type BrowserGoalPlanModeCommand,
   type BrowserGoalSession,
   type BrowserGoalSessionState,
@@ -424,7 +424,7 @@ export const browserApi = {
   async *events(
     goalId: string,
     signal: AbortSignal,
-  ): AsyncGenerator<BrowserGoalLiveEvent> {
+  ): AsyncGenerator<BrowserGoalEvent> {
     const response = await fetch(
       `/api/goals/${encodeURIComponent(goalId)}/events`,
       {
@@ -438,7 +438,7 @@ export const browserApi = {
     for await (const message of readSseMessages(response.body, signal)) {
       if (message.event !== undefined && message.event !== "update") continue;
       const value = parseSseJson(message.data, "invalid_event_response");
-      const result = browserGoalLiveEventBinding.read(value, "strip");
+      const result = browserGoalEventBinding.read(value, "strip");
       if (!result.ok) throw new Error("invalid_event_response");
       reportWireDiagnostic(result.diagnostic);
       yield result.data;

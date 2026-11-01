@@ -44,7 +44,7 @@ test("control intent returns a receipt with the client intent identity", async (
     assert.deepEqual(await response.json(), {
         intentId: "intent-plan-1",
         status: "accepted",
-        result: { ok: true, goalId: "goal-1", runId: "run-1", existing: false },
+        result: { kind: "plan_mode", result: { ok: true, goalId: "goal-1", runId: "run-1", existing: false } },
     });
 });
 

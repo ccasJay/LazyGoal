@@ -9,7 +9,9 @@ import type {
 import {
   type ModelPickerTarget,
   dispatchBrowserInput,
+  errorMessage,
 } from "../types";
+import { BrowserApiError } from "../api";
 import type { ControlIntents } from "./useControlIntents";
 import { pendingIntentOfKind } from "../control/reducer";
 import type { FrozenSubmission } from "../session-controls";
@@ -33,7 +35,7 @@ export type UnverifiedSubmission = FrozenSubmission;
 
 export function useRunCommands({
   session,
-  sessionState: _sessionState,
+  sessionState,
   canSendText,
   draftGoalId,
   draftPlanMode,
@@ -119,7 +121,7 @@ export function useRunCommands({
       }
       if (receipt.status === "rejected") {
         setCommandError(receipt.error === "goal_busy"
-          ? "This Goal is still busy. Wait for the current run to finish or reload."
+          ? errorMessage(new BrowserApiError(receipt.error, 409, receipt.refresh === true))
           : "The Goal could not be created.");
         if (receipt.error === "goal_busy") {
           setDraftGoalBusy(true);
@@ -337,7 +339,7 @@ export function useRunCommands({
       kind: "resume",
       inputId: crypto.randomUUID(),
       runId: session.currentRunId,
-      commitRevision: session.execution?.committedThroughSequence ?? 0,
+      commitRevision: sessionState?.commitRevision ?? 0,
     });
     if (receipt.status === "rejected") {
       setCommandError(receipt.error);
@@ -349,7 +351,7 @@ export function useRunCommands({
       return;
     }
     await onRefreshSession();
-  }, [session, commandBusy, submitInput, onRefreshSession, setCommandError]);
+  }, [session, sessionState?.commitRevision, commandBusy, submitInput, onRefreshSession, setCommandError]);
 
   return {
     commandBusy,

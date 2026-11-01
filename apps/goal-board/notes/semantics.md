@@ -20,7 +20,15 @@
 | 固定 Activity 页 | 有界正文／安全活动读取带固定水位和 cursor；当前页面提示更早来源存在，但不自动翻页。 | [浏览器服务边界](../../../packages/browser/README.md) | [Activity API](../../../packages/browser/src/browser-goal-routes.ts)、[页面说明](./overview.md) |
 | 输出速率展示 | 显示已结束模型调用的端到端输出速率；在调用完成事实更新后刷新。 | [Goal Board](../README.md) | [模块说明](./overview.md) |
 | 交互区域 | 按已提交等待种类分派的统一决定区：问答导航与审阅、任务范围审阅、工具能力与期限、未知结果恢复；替换旧三套表单。 | [Goal Board](../README.md) | [InteractionRegion](../src/interaction-panel.tsx) |
-| 交互提交状态 | 编辑、提交中、待核验、已受理与失效的页面状态机；结果不明时冻结原身份与载荷，只允许核验或原身份重试。 | [Goal Board](../README.md) | [interaction-state.ts](../src/interaction-state.ts) |
+| 交互提交状态 | 从控制意图派生的展示阶段（编辑、提交中、待核验、已受理、失效）；冻结身份只用于核验与原身份重试，不再维护第二份状态机。 | [Goal Board](../README.md) | [interaction-state.ts](../src/interaction-state.ts)、[控制 reducer](../src/control/reducer.ts) |
+| 控制 reducer | 页面唯一的 `ControlState`：权威快照、意图生命周期、工具活动、独立资源与失效作用域。 | [Goal Board](../README.md) | [reducer.ts](../src/control/reducer.ts)、[模块说明](./overview.md#控制-reducer) |
+| 控制意图生命周期 | `pending → accepted → applied` 或 `rejected`／`unknown`；同一 `intentId` 保留冻结载荷，重复登记不改写。 | [Goal Board](../README.md) | [reducer.ts](../src/control/reducer.ts)、[控制命令 DTO](../../../packages/web-contracts/src/control.ts) |
+| 统一核验 | 结果不明时按 `inputId` 收据、权限 revision、`grantId`、Goal 状态、模型选择与 `pendingAction` 重新核对；只有 `not_applied` 允许原身份重试。 | [Goal Board](../README.md) | [verify.ts](../src/control/verify.ts) |
+| 权威控制快照 | `state_sync.snapshot` 直接替换会话控制状态；页面不再因同步事件完整重读 session／activity。 | [Goal Board](../README.md) | [useGoalSession](../src/hooks/useGoalSession.ts)、[useRunStream](../src/hooks/useRunStream.ts) |
+| 定向失效与读取 | `state_committed.changed` 与 `stream_fault.resync` 只触发声明范围的读取；普通控制事实不触发 HTTP 重读。 | [Goal Board](../README.md) | [事件路由](../src/control/event-routing.ts)、[useRunStream](../src/hooks/useRunStream.ts) |
+| 审批会话 | 由 `pendingAction`、最近预检与 `respond` 提交派生的 `unreviewed`／`reviewing`／`reviewed`／`submitting`／`accepted`／`settled`／`invalidated`／`unknown`。 | [Goal Board](../README.md) | [审批会话 selector](../src/control/approval-session.ts) |
+| 工具活动生命周期 | 以 `actionId` + `executionUnitId` 聚合尝试；工具返回停在 `result_pending`，Observation 提交后进入 `observed_committed`。 | [Goal Board](../README.md) | [工具活动 selector](../src/control/tool-activity.ts) |
+| 模型选择原子化 | 一次 `model_selection` 完成模型切换与可选默认偏好；部分失败以子结果报告，重试复用同一意图身份。 | [Goal Board](../README.md) | [模型选择结果](../src/control/model-selection.ts)、[useModelSelection](../src/hooks/useModelSelection.ts) |
 | 交互决定摘要 | 当前页面暂存已受理的非权限决定摘要；工具／沙箱授权及修订授权不保留在输入区，刷新后清空。 | [Goal Board](../README.md) | [GoalSession](../src/components/GoalSession.tsx)、[交互提交](../src/interaction-panel.tsx) |
 | 交互详情读取 | 按当前 Goal／Run／交互引用读取完整问题、任务范围或 Action 输入；失败保留等待并禁用依赖完整范围的决定。 | [浏览器服务边界](../../../packages/browser/README.md) | [交互详情路由](../../../packages/browser/src/browser-goal-routes.ts) |
 | 提案阶段路线 | 批准前显示 Plan Run 的完整候选阶段及各自验收条件。 | [Goal Board](../README.md) | [任务审批视图](../src/interaction-panel.tsx) |
@@ -30,7 +38,8 @@
 | 活动成员状态 | 区分执行中、重试、审批等待、结果待保存、已提交失败／成功与已拒绝；展开详情按来源顺序显示该成员的授权、执行、重试与结果记录，已提交 Observation 才决定终态。组的运行状态与异常计数独立显示，结算后区分全部失败与部分失败；实时返回不标为已保存成功。 | [Goal Board](../README.md) | [ActivityProjector](../src/activity-projector.ts) |
 | 活动组展开状态 | 标题单行显示动作描述与真实调用次数，混合失败组保留成功和失败计数；完整命令、结果计数与授权／执行／重试／结果生命周期只在展开详情中显示。连续步骤使用 shadcn Trace，消息断开步骤组；成功默认折叠，运行、失败、拒绝与审批等待默认展开，等待授权不能被筛选或手动折叠隐藏其 `Awaiting approval` 状态。手动开合在追加、结算与筛选时保留，异常摘要不随折叠或筛选隐藏。 | [Goal Board](../README.md) | [SessionTimeline](../src/components/SessionTimeline.tsx)、[ActivityProjector](../src/activity-projector.ts) |
 | 真实阶段展示 | 只按已提交声明或当前路线的真实阶段标题、身份与修订收拢连续活动；已接受阶段默认折叠，工作中与需处理的阶段展开，正文与交互仍在原来源位置。 | [Goal Board](../README.md) | [SessionTimeline](../src/components/SessionTimeline.tsx)、[时间线投影](../src/session-timeline.ts) |
-| Live Activity | 当前 Goal SSE 的公开生成与连接状态；候选正文不持久化，保存通知后仍待固定 Activity 页核验。 | [Goal Board](../README.md) | [useRunStream](../src/hooks/useRunStream.ts) |
+| Live Activity | 当前 Goal SSE 的公开生成与连接状态；控制事实先进入控制 reducer，内容事实维持候选与临时正文路径。 | [Goal Board](../README.md) | [useRunStream](../src/hooks/useRunStream.ts) |
+| 重连与权威恢复 | 两条流结束后由既有 800ms 循环重新订阅；不发送 `Last-Event-ID`、不请求补发，以新连接的 `state_sync` 快照或最新指标快照替换旧值与旧临时正文。 | [Goal Board](../README.md) | [useRunStream](../src/hooks/useRunStream.ts)、[useGoals](../src/hooks/useGoals.ts) |
 | 临时正文来源索引 | 流式正文按来源身份独立累积并有界：换源时旧来源保留已到达内容，新来源单独累积；结算边界立即提交待合并尾部，不丢字也不复活旧帧。 | [Goal Board](../README.md) | [流式渲染状态](../src/streaming-render.ts)、[帧合并](../src/live-text-batch.ts) |
 | 安全 Markdown | 正文与 Think 输出共用同一安全 GFM 渲染：原始 HTML 与脚本不进入 DOM，模型图片与嵌入降级为链接，代码与表格只在自身区域横向滚动。 | [Goal Board](../README.md) | [AssistantMarkdown](../src/components/AssistantMarkdown.tsx) |
 | 观察同步与过期 | 订阅按 Goal 建立并先消费权威同步；单纯断开或读取失败只标记内容可能过期，保留最后确认的正式内容与当前草稿，并限制 Steer 与 Resume 一类依赖最新状态的决定。 | [Goal Board](../README.md) | [观察恢复语义](../src/session-stream-recovery.ts) |
@@ -45,7 +54,7 @@
 | 会话输出消费 | 页面消费同一条 Goal SSE：保存不明的候选保持待核验；正式 Activity 以同一展示 key 替换候选；确定作废后立即移除临时正文并保留有限身份标记以忽略迟到片段。 | [Goal Board](../README.md) | [会话输出归约](../src/session-output-consumer.ts) |
 | 运行中输入与主按钮 | Enter 排队普通消息、Shift+Enter 换行；唯一主按钮在有正文时排队发送，空输入时受理 Interrupt 并暂停当前 Run。动态运行提示位于 Activity 时间线；暂停后由可恢复 Run 状态提供 Resume。 | [Goal Board](../README.md) | [输入区](../src/components/MessageComposer.tsx)、[Activity 时间线](../src/components/SessionTimeline.tsx)、[运行命令](../src/hooks/useRunCommands.ts) |
 | 可折叠队列状态框 | 汇总 Runtime 队列与待应用 Steer；每条普通消息可单独删除，或按观察到的队列修订原子转为当前 Run 的 Steer。暂停队列显式继续。 | [Goal Board](../README.md) | [会话视图](../src/components/GoalSession.tsx)、[队列控制](../src/hooks/useQueue.ts) |
-| 不确定提交核验 | 受理结果不明时保留原 `inputId` 与冻结载荷，只提供按原身份核验收据或重试；明确拒绝保留可编辑草稿。 | [Goal Board](../README.md) | [输入控制语义](../src/session-controls.ts)、[运行命令](../src/hooks/useRunCommands.ts) |
+| 不确定提交核验 | 受理结果不明时保留原 `inputId` 与冻结载荷，由统一核验按收据或资源身份结算；只有未应用允许原身份重试。 | [Goal Board](../README.md) | [控制核验](../src/control/verify.ts)、[运行命令](../src/hooks/useRunCommands.ts) |
 | 渲染错误边界 | 会话与轨迹视图的渲染异常被边界捕获，显示错误卡与重载入口，不整页白屏。 | [Goal Board](../README.md) | [SessionBoundary](../src/components/error-boundary.tsx) |
 | liveText 帧合并 | 打字机增量按帧合并后提交渲染，跟随滚动以帧节流，流结束不丢字。 | [Goal Board](../README.md) | [live-text-batch](../src/live-text-batch.ts) |
 | Provider 设置页 | 受管 Provider 紧凑列表与按需展开表单；区分凭据已保存、激活与目录检查状态，不回显已保存密钥。 | [Goal Board](../README.md) | [SettingsPage](../src/components/SettingsPage.tsx) |

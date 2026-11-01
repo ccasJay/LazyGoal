@@ -139,6 +139,11 @@ export function ModelPicker({
           />
           {resultCount !== null && <span className="model-result-count" aria-live="polite">{resultCount}</span>}
         </div>
+        {catalog !== null && error !== null && (
+          <div className="model-results-state">
+            <p className="model-error" role="alert">{error}</p>
+          </div>
+        )}
         {catalog === null ? (
           <div className="model-results-state" aria-live="polite" aria-busy="true">
             {error === null ? (

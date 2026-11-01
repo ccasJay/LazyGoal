@@ -34,6 +34,8 @@ React 看板源码位于 [`apps/goal-board`](../README.md)，构建后输出到 
 
 Goal 范围事件与 session metrics 两条 SSE 共用 [`readSseMessages`](../src/sse.ts) 分帧入口：`eventsource-parser` 的 `EventSourceParserStream` 与 `TextDecoderStream` 负责跨 chunk 行拼接、CRLF／LF／单独 CR、注释与多行 `data:`，事件名称映射与 DTO 校验留在 [`api.ts`](../src/api.ts)。Goal 事件接受 `update` 与未命名默认事件，metrics 只接受 `snapshot`；未知命名事件忽略，已接受事件的无效 JSON 或无效 DTO 结束本次生成器并按协议错误处理。`useRunStream` 与 `useGoals` 的 800ms 重连循环随后重新订阅；重连不发送 `Last-Event-ID`、不请求服务端补发，新连接以首个 `state_sync` 或最新指标快照恢复权威状态，并清空旧连接遗留的临时进度与未提交正文。
 
+`state_sync` 携带的 `BrowserControlSnapshot` 直接替换会话控制状态，不触发 session／activity 全量重读；`state_committed` 与 `stream_fault` 只按声明的 `ControlScope` 定向读取（`session` 读窄状态、`activity` 读固定 Activity 页、`goals`／`grants`／`permission`／`model` 走各自入口）。`refreshSelectedSession` 只用于显式刷新、首次同步失败兜底与完整历史读取。控制 reducer 见下节。
+
 未限定 execution unit 的轨迹列表按服务端 cursor 每段最多读取 100 条。左右箭头在相邻段之间移动，已读取的相邻段最多保留 3 段；移出窗口的段返回时按 cursor 重读，使事件列表与内存中的页数据都有界。页脚显示当前导航段末的匹配事件序数/总量，返回上一段时序数随之回退。切换段时滚动到该段第一条实际渲染的事件，跳过列表隐藏的边界事件。限定 execution unit 的轨迹视图不提供跨段导航。
 
 首屏 Activity 查询从文件来源构建一个固定水位、有界页；顶部提示页外仍有更早来源，但当前页面不自动加载旧页。游标翻页与阅读位置保持由后续历史窗口任务负责。实时文本增量先进入按帧合并缓冲再提交渲染，跟随滚动以帧节流，流结束后逐字一致（[live-text-batch](../src/live-text-batch.ts)）。会话内容区与 Trajectory 视图的渲染异常由 SessionBoundary 捕获：在视图内显示错误摘要与 Reload session 入口，错误与组件栈进入控制台，顶层 shell 不受影响（[error-boundary](../src/components/error-boundary.tsx)）。
@@ -67,6 +69,14 @@ Activity 保持 Run、真实 Stage、Activity Group 三层：Run 承载整体状
 步骤折叠详情区分模型等待、正文生成、响应处理和工具活动，连接内最多保留二十条公开事件。来源开始时间与浏览器观察时间分别标注；正文分片只更新最近响应时间，不重置开始计时。模型连续六十秒无新公开响应时显示提示，心跳不算进展，不自动重试或取消。断线显示最后观察状态，重连清空旧连接的临时进度，Run 结束后停止动画和计时，不读取隐藏推理。
 
 Activity 与输入区宽度由 Appearance 的 Activity width 控制，正文／活动标题／辅助字号为 14／13／12px。自动滚动状态由 Activity 窗口唯一持有：距底部 60px 内跟随；可滚动内容展开详情时暂停，短内容开合不暂停。当前窗口已到来源末尾时，暂停滚动仍会并入新回答、事实及 Run 状态；历史窗口仍有更新方向缺口时只累计提示，直到显式加载或跳转到最新。稳定来源锚点用于恢复分页和布局变化后的阅读位置。新消息以未读数及 Jump to latest 提示，重复刷新不重复计数。底部指标独立成行，Goal metrics 的 Popover 区分当前 Run 状态与 Goal 聚合指标，并展示缺失值、覆盖率及计量范围说明。输入框仍只有一个发送／暂停主按钮，持久化队列、Steer、授权及审批语义保持原有归属。
+
+## 控制 reducer
+
+[`useControlIntents`](../src/hooks/useControlIntents.ts) 持有页面唯一的 `ControlState`：`snapshot`、`intents`、`toolActivities`、`resources` 与 `connection`。所有 Goal／Workspace 变更命令以 [`BrowserControlIntentCommand`](../../../packages/web-contracts/src/wire.ts) 提交到 `POST /api/control`，并在 [`reducer.ts`](../src/control/reducer.ts) 中按受理收据与 Runtime 事实流转 `pending → accepted → applied` 或 `rejected`／`unknown`；同一个 `intentId` 只保留首次冻结载荷。同步提交类命令在受理后直接完成，`create_session`、`session_input` 与只读 `action_review` 等待应用事实。
+
+命令钩子不再分别维护 busy／unknown 状态：按钮忙碌态从待处理意图派生，结果不明时展示可由 [`verify.ts`](../src/control/verify.ts) 按既有资源身份核验的原身份记录；只有 `not_applied` 允许以同一身份重试，`applied` 结算为成功，读取失败保持 `unknown`。模型选择与默认偏好是一次 `model_selection` 命令，receipt 分别报告 `selection` 与 `defaultPreference`，部分成功保留同一意图身份重试。
+
+`ApprovalSession` 与 `ToolActivity` 是纯 selector：审批阶段由 `pendingAction`、最近 `action_review` 意图与关联 `respond` 提交派生；工具活动以 `actionId` + `executionUnitId` 聚合尝试，工具返回停在 `result_pending`，只有 Observation 提交事实进入 `observed_committed`。`state_sync` 是权威快照来源，`state_committed.changed` 与 `stream_fault.resync` 是定向失效来源；页面不得用完整会话重读替代它们。
 
 实时进度按真实 `executionUnitId`／`actionId` 归入事件或工具步骤的折叠内容，不设独立进度面板。尚无已保存节点的真实执行单元先显示为当前 Run 内的临时步骤；没有执行身份的事件不按相邻位置猜测归属。连续执行节点使用 shadcn Trace，消息和待用户处理的交互断开步骤组；Run 使用独立的浅色标题条。事件标题保持可见，诊断与进度在折叠内容内查看。Bash 标题由活动投影按简单命令前缀确定：Git 工作区、提交历史、代码变更和常见测试命令各有固定标题；复杂 Shell 表达式及未知命令使用 `Run shell commands`。连续 Bash 调用组合至多两种不同操作并提示其余操作数量，调用次数仍由辅助计数显示。服务端提供的有界命令摘要与执行结果只在成员详情中换行显示，超出服务端上限的原始命令通过 Trajectory 查看；计数、异常状态与展开按钮保持对齐。等待或终态后不再显示临时进度；已提交的完整历史由 Trajectory 提供，缓存事件不决定 Run 状态。
 

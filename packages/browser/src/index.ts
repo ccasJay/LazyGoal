@@ -34,7 +34,7 @@ export {
     type BrowserPermissionModeCommand,
     type BrowserPermissionModeResult,
 } from "./browser-goal-command-service";
-export type { BrowserGoalLiveEvent } from "../../web-contracts/src/index";
+export type { BrowserGoalEvent } from "../../web-contracts/src/index";
 export {
     createBrowserGoalSessionPort,
     createBrowserSessionFeed,

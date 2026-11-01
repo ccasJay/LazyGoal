@@ -1,0 +1,23 @@
+{
+  "contractId": "web.events.goal",
+  "version": 1,
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "source": {
+    "path": "packages/web-contracts/src/wire.ts#BrowserGoalEvent,BrowserSessionState,BrowserRunStatus,BrowserSessionStateInteraction,BrowserInteractionKind,BrowserSessionStateMessage,BrowserMessagePosition,BrowserSessionStateInterruption,BrowserSessionInputOutcome,BrowserSessionInputKind,BrowserSessionInputReceipt,BrowserSessionInputStatus,BrowserSessionInputErrorCode,BrowserGoalActivityEvent,BrowserControlScope,BrowserControlSnapshot,BrowserGoalSessionState,BrowserSessionRunTerminalDetail,BrowserPlanRoute,BrowserPlanRouteStageState,BrowserGoalExecution,BrowserExecutionState,BrowserPendingSteer,BrowserPendingMessage,BrowserQueueState,BrowserInterruption,BrowserGoalPlan,BrowserGoalPlanItem,BrowserInteractionView,BrowserInteractionDecision,BrowserPendingAction,BrowserSandboxReview,BrowserToolGrantExtraFile,BrowserParentProgram,BrowserActivityHistoryMarker,BrowserToolActivity,BrowserCommittedMessageEvent,BrowserInteractionRequiredEvent",
+    "sha256": "9f75aff43e0c8725a4b35324451480ddb16f8a5dbb4a0c2ea77291ac757c09a7"
+  },
+  "generator": {
+    "name": "ts-json-schema-generator",
+    "version": "2.9.0",
+    "typescriptVersion": "5.9.3"
+  },
+  "validator": {
+    "name": "Ajv standalone",
+    "version": "8.20.0"
+  },
+  "bundler": {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "format": "esm"
+  }
+}

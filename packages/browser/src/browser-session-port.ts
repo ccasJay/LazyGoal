@@ -22,7 +22,7 @@ import type {
     BrowserControlScope,
     BrowserControlSnapshot,
     BrowserGoalActivityEvent,
-    BrowserGoalLiveEvent,
+    BrowserGoalEvent,
     BrowserGoalSessionState,
     BrowserSessionInputCommand,
     BrowserSessionInputOutcome,
@@ -38,7 +38,7 @@ import type {
 import { BROWSER_ACTIVITY_EVENT_TYPES, isJsonValue } from "../../web-contracts/src/index";
 
 const MAX_PENDING_LIVE_EVENTS = 128;
-type ActivityBoundaryReason = "assistant_reply" | "user_wait" | "stage_change" | "terminal" | "failure" | "unknown";
+type ActivityBoundaryReason = "assistant_reply";
 
 /**
  * 一个已连接 Goal 的安全实时事件流。
@@ -51,7 +51,7 @@ type ActivityBoundaryReason = "assistant_reply" | "user_wait" | "stage_change" |
  */
 export interface BrowserGoalLiveFeed {
     /** 当前授权页面可读的安全事件流。 */
-    readonly events: AsyncIterable<BrowserGoalLiveEvent>;
+    readonly events: AsyncIterable<BrowserGoalEvent>;
     /** 解除该连接的订阅与句柄；不影响其他连接或执行。 */
     close(): void;
 }
@@ -395,7 +395,7 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
         if (!this.closed) void this.observe();
     }
 
-    get events(): AsyncIterable<BrowserGoalLiveEvent> {
+    get events(): AsyncIterable<BrowserGoalEvent> {
         return this.queue;
     }
 
@@ -408,7 +408,7 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
         this.queue.close();
     }
 
-    private push(event: BrowserGoalLiveEvent): void {
+    private push(event: BrowserGoalEvent): void {
         if (this.closed) return;
         if (!this.queue.push(event)) this.close();
     }
@@ -420,7 +420,9 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
                 await this.onSessionEvent(event);
             }
         } catch {
-            if (!this.closed) this.push({ type: "refresh_required", goalId: this.session.goalId });
+            if (!this.closed) {
+                this.push({ type: "stream_fault", goalId: this.session.goalId, code: "read_failed", resync: ["session"] });
+            }
         } finally {
             if (!this.closed) this.close();
         }
@@ -464,12 +466,6 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
             case "interaction_required": {
                 const interaction = projectInteractionSummary(event.event);
                 this.push({
-                    type: "interaction_required",
-                    goalId,
-                    runId: event.event.runId,
-                    interaction,
-                });
-                this.push({
                     type: "interaction_opened",
                     goalId,
                     runId: event.event.runId,
@@ -486,13 +482,7 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
                     interactionId: event.event.interactionId,
                     kind: projectInteractionKind(event.event.interactionKind),
                 });
-                if (this.pushCommittedBoundary(goalId, event.event.source, ["session"])) return;
-                this.push({
-                    type: "activity",
-                    goalId,
-                    runId: event.event.runId,
-                    activity: projectActivityBoundary(event.event.source, "user_wait"),
-                });
+                this.pushCommittedBoundary(goalId, event.event.source, ["session"]);
                 return;
             case "run_status":
                 this.push({
@@ -501,13 +491,7 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
                     runId: event.event.source.runId,
                     status: projectRunStatus(event.event.kind),
                 });
-                if (this.pushCommittedBoundary(goalId, event.event.source, ["session"])) return;
-                this.push({
-                    type: "activity",
-                    goalId,
-                    runId: event.event.source.runId,
-                    activity: projectActivityBoundary(event.event.source, projectRunStatusReason(event.event.kind)),
-                });
+                this.pushCommittedBoundary(goalId, event.event.source, ["session"]);
                 return;
             case "run_result":
                 this.push({
@@ -516,23 +500,16 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
                     runId: event.event.runId,
                     result: event.event.kind,
                 });
-                if (this.pushCommittedBoundary(goalId, event.event.source, ["session"])) return;
-                this.push({
-                    type: "activity",
-                    goalId,
-                    runId: event.event.runId,
-                    activity: projectActivityBoundary(event.event.source, "terminal"),
-                });
+                this.pushCommittedBoundary(goalId, event.event.source, ["session"]);
                 return;
             case "stream_fault":
-                // 读取故障或缺口不伪装业务结果：要求客户端重新同步最新快照。
+                // 读取故障或缺口不伪装业务结果：要求客户端重新同步受影响范围。
                 this.push({
                     type: "stream_fault",
                     goalId,
                     code: event.event.kind === "gap" ? "gap" : "read_failed",
                     resync: ["session"],
                 });
-                this.push({ type: "refresh_required", goalId });
                 return;
             case "commit_boundary": {
                 const eventTypes = event.event.eventTypes;
@@ -555,12 +532,10 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
                     commitRevision: event.event.commitRevision ?? 0,
                     changed: projectCommittedScopes(eventTypes),
                 });
-                this.push({ type: "snapshot_changed", goalId, runId: event.event.source.runId });
                 return;
             }
             case "closed":
                 this.push({ type: "closed", goalId, reason: event.reason });
-                if (event.reason !== "closed") this.push({ type: "refresh_required", goalId });
                 this.close();
                 return;
         }
@@ -602,7 +577,6 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
             commitRevision: 0,
             changed,
         });
-        this.push({ type: "snapshot_changed", goalId, runId: source.runId });
         return true;
     }
 
@@ -777,12 +751,12 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
     }
 }
 
-class LiveEventQueue implements AsyncIterable<BrowserGoalLiveEvent>, AsyncIterator<BrowserGoalLiveEvent> {
-    private readonly events: BrowserGoalLiveEvent[] = [];
-    private readonly waiters: Array<(result: IteratorResult<BrowserGoalLiveEvent>) => void> = [];
+class LiveEventQueue implements AsyncIterable<BrowserGoalEvent>, AsyncIterator<BrowserGoalEvent> {
+    private readonly events: BrowserGoalEvent[] = [];
+    private readonly waiters: Array<(result: IteratorResult<BrowserGoalEvent>) => void> = [];
     private closed = false;
 
-    push(event: BrowserGoalLiveEvent): boolean {
+    push(event: BrowserGoalEvent): boolean {
         if (this.closed) return false;
         const waiter = this.waiters.shift();
         if (waiter !== undefined) {
@@ -791,7 +765,7 @@ class LiveEventQueue implements AsyncIterable<BrowserGoalLiveEvent>, AsyncIterat
         }
         if (this.events.length >= MAX_PENDING_LIVE_EVENTS) {
             this.events.length = 0;
-            this.events.push({ type: "refresh_required", goalId: event.goalId });
+            this.events.push({ type: "stream_fault", goalId: event.goalId, code: "backpressure", resync: ["session"] });
             return false;
         }
         this.events.push(event);
@@ -806,19 +780,19 @@ class LiveEventQueue implements AsyncIterable<BrowserGoalLiveEvent>, AsyncIterat
         }
     }
 
-    next(): Promise<IteratorResult<BrowserGoalLiveEvent>> {
+    next(): Promise<IteratorResult<BrowserGoalEvent>> {
         const event = this.events.shift();
         if (event !== undefined) return Promise.resolve({ value: event, done: false });
         if (this.closed) return Promise.resolve({ value: undefined, done: true });
         return new Promise((resolve) => this.waiters.push(resolve));
     }
 
-    return(): Promise<IteratorResult<BrowserGoalLiveEvent>> {
+    return(): Promise<IteratorResult<BrowserGoalEvent>> {
         this.close();
         return Promise.resolve({ value: undefined, done: true });
     }
 
-    [Symbol.asyncIterator](): AsyncIterator<BrowserGoalLiveEvent> {
+    [Symbol.asyncIterator](): AsyncIterator<BrowserGoalEvent> {
         return this;
     }
 }
@@ -875,19 +849,6 @@ function projectToolActivity(event: SessionToolActivityEvent): BrowserToolActivi
                 outcome: event.outcome,
                 ...(event.summary === undefined ? {} : { summary: event.summary }),
             };
-    }
-}
-
-function projectRunStatusReason(kind: "waiting" | "stage_changed" | "failure" | "unknown"): ActivityBoundaryReason {
-    switch (kind) {
-        case "waiting":
-            return "user_wait";
-        case "stage_changed":
-            return "stage_change";
-        case "failure":
-            return "failure";
-        case "unknown":
-            return "unknown";
     }
 }
 

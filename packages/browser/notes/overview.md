@@ -41,9 +41,15 @@ Plan Run 的待审批会话 DTO 会投影候选路线中的全部阶段顺序、
 
 `POST /api/goals/:goalId/plan-mode` 只接受当前 `runId`，并由管理命令服务在转交 Coordinator 前校验 Goal/Run 身份与实例活动名额。Runtime 允许未启动 Run 进入 Plan Mode，或为已完成或失败 Run 标记下一 Run 使用 Plan Mode；已开始的普通 Run 和其他不允许切换的状态返回稳定错误。命令文本不写入消息或 Step。
 
-`GET /api/goals/:goalId/events` 订阅整个 Goal，不再要求客户端绑定单一当前 Run，也不接受 `runId` 查询参数。该路由用 Hono `streamSSE` 写出 `event: update` 与 JSON `data:`，并在返回前恢复 `cache-control: no-cache, no-transform` 与 `x-accel-buffering: no`；客户端断开、feed 正常结束或迭代失败都会结束响应，并只释放本连接的一次 Browser feed 订阅。Goal 事件不设置 metrics 的 5 秒写超时：慢客户端由 128 项有界 `LiveEventQueue` 关闭本连接订阅，HTTP 连接可能保持到客户端断开。首项是一致 `state_sync` 安全会话状态，其后按来源顺序输出 `input_result`（按 `inputId` 关联受理与拒绝）和公开执行活动；后继 Run 开始不关闭订阅、不遗漏开始事件。事件仅投影白名单活动和长度受限的助手文本：内部块协议中只有公开普通正文增量与整块完成映射为 `assistant_text_delta`，结构化 JSON、Tool 参数、reasoning、调用失败摘要及未识别载荷不转发。Trajectory/Checkpoint 事件与 Goal 保存只发送刷新通知；订阅缺口、同步读取失败、背压关闭或连接故障要求页面重新读取，不代表 Run 完成。
+`GET /api/goals/:goalId/events` 订阅整个 Goal，不再要求客户端绑定单一当前 Run，也不接受 `runId` 查询参数。该路由用 Hono `streamSSE` 写出 `event: update` 与 JSON `data:`，并在返回前恢复 `cache-control: no-cache, no-transform` 与 `x-accel-buffering: no`；客户端断开、feed 正常结束或迭代失败都会结束响应，并只释放本连接的一次 Browser feed 订阅。Goal 事件不设置 metrics 的 5 秒写超时：慢客户端由 128 项有界 `LiveEventQueue` 关闭本连接订阅，HTTP 连接可能保持到客户端断开。首项是一致 `state_sync` 安全会话状态，并在同一次读取中携带可直接应用的 `BrowserControlSnapshot`；其后按来源顺序输出 `input_result`（按 `inputId` 关联受理与拒绝）、控制事实与公开执行活动；后继 Run 开始不关闭订阅、不遗漏开始事件。事件仅投影白名单活动和长度受限的助手文本：内部块协议中只有公开普通正文增量与整块完成映射为 `assistant_text_delta`，结构化 JSON、Tool 参数、reasoning、调用失败摘要及未识别载荷不转发。Trajectory／Checkpoint 事件与 Goal 保存发送带 `eventTypes`、可选 `actionId`／`executionUnitId` 与提交修订的 `state_committed`，并只声明实际变化的 `ControlScope`；订阅缺口、同步读取失败、背压关闭或连接故障发送带稳定 `code` 与 `resync` 的 `stream_fault`，不代表 Run 完成。
 
-模型开始事件投影真实来源时间，以及来源提供的调用阶段、调用身份和执行单元；不复制模型输入或输出。Bash 的实时及已提交活动输入摘要只公开至多 240 字符的命令，不带环境或其它参数。实时工具活动的安全 DTO 附带 ExecutionStream 自己的 `sourceEventId` 与 `sourceCursor`，并保留跨流调用对齐所需的 `actionId`。这些来源标识不等同于 Trajectory 中同名字段；只有 `actionId` 用于将同一调用的暂时活动与已提交步骤对齐。输入与结果仅允许投影白名单摘要，不发送任意 Tool 参数、原始 Tool 输出或隐藏推理。助手可见回复、等待、阶段变化、终态、失败和未知公开事件投影为活动边界，供 Goal Board 重建活动组；流缺口通知促使前端清空不完整临时数据并刷新。
+模型开始事件投影真实来源时间，以及来源提供的调用阶段、调用身份和执行单元；不复制模型输入或输出。Bash 的实时及已提交活动输入摘要只公开至多 240 字符的命令，不带环境或其它参数。实时工具活动的安全 DTO 附带 ExecutionStream 自己的 `sourceEventId` 与 `sourceCursor`，并保留跨流调用对齐所需的 `actionId` 与 `executionUnitId`。这些来源标识不等同于 Trajectory 中同名字段；`actionId` 与 `executionUnitId` 用于将同一调用的暂时活动与已提交步骤对齐。输入与结果仅允许投影白名单摘要，不发送任意 Tool 参数、原始 Tool 输出或隐藏推理。助手可见回复投影为 `assistant_reply` 内容边界；等待建立与结算、Run 状态与终态、工具尝试分别投影为 `interaction_opened`／`interaction_settled`、`run_status_changed`／`run_result` 与 `tool_activity`，不再压扁为通用活动边界。
+
+## 控制协议投影
+
+`state_sync` 的 `BrowserControlSnapshot` 由 Browser 在订阅建立或重建时组装：Runtime 窄状态与同一 Run 的 Goal 控制投影读取一次，Run 身份不一致或读取失败时省略快照，不拼接不同提交的字段。后续增量事件不重复完整读取。`state_committed` 按提交批次内的来源事件类型映射作用域：授权撤销只声明 `grants`，状态提交与 Run 事实声明 `session`，活动事实声明 `activity`／`trajectory`，无法识别时保守声明 `session`。Observation 提交边界额外投影一条 `observed_committed` 工具活动，使工具返回与已提交结果分离。
+
+Browser 不向 SSE 写入客户端 `intentId`、客户端派生的 `intent_applied`／`intent_rejected`、旧 `snapshot_changed`／`refresh_required` 或旧 `interaction_required`；控制事实只有本模块定义的显式事件。
 
 SIGINT 通过 Runtime 已有关闭协调器冻结检查点、取消执行并关闭 HTTP Host。关闭信号生效后，HTTP Host 拒绝新的写请求；已排队的命令在预约锁释放后返回 `service_shutting_down`，不再进入 Runtime 或持久化操作。
 

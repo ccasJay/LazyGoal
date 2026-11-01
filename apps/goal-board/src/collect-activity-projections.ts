@@ -1,6 +1,6 @@
 import type {
   BrowserActivityPage,
-  BrowserGoalLiveEvent,
+  BrowserGoalEvent,
 } from "../../../packages/web-contracts/src/index";
 import { projectActivityGroups, type ActivityGroup } from "./activity-projector";
 
@@ -24,7 +24,7 @@ import { projectActivityGroups, type ActivityGroup } from "./activity-projector"
 export function collectActivityProjections(
   page: BrowserActivityPage,
   goalId: string,
-  liveEvents: readonly BrowserGoalLiveEvent[],
+  liveEvents: readonly BrowserGoalEvent[],
 ): ReadonlyMap<string, readonly ActivityGroup[]> {
   const projections = new Map<string, readonly ActivityGroup[]>();
   for (const run of page.runs) {

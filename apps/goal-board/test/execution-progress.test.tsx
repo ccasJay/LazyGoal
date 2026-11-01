@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { BrowserGoalActivityEvent, BrowserGoalLiveEvent } from "../../../packages/web-contracts/src/index";
+import type { BrowserGoalActivityEvent, BrowserGoalEvent } from "../../../packages/web-contracts/src/index";
 import { recordExecutionProgress } from "../src/execution-progress";
 import { projectActivityGroups } from "../src/activity-projector";
 import { SessionTimeline } from "../src/components/SessionTimeline";
 
 (globalThis as any).React = React;
-const event = (activity: BrowserGoalActivityEvent, runId = "run-1"): BrowserGoalLiveEvent => ({ type: "activity", goalId: "goal-1", runId, activity });
+const event = (activity: BrowserGoalActivityEvent, runId = "run-1"): BrowserGoalEvent => ({ type: "activity", goalId: "goal-1", runId, activity });
 
 test("model progress distinguishes deciding, explicit analysis and completion review", () => {
   const entries = (["decide", "think", "completion_review"] as const).reduce((current, stage) => recordExecutionProgress(current,

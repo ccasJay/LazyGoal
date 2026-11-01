@@ -6,7 +6,7 @@ import type {
 } from "../activity";
 import type {
     BrowserGoalActivityEvent,
-    BrowserGoalLiveEvent,
+    BrowserGoalEvent,
 } from "../events";
 import { hasUtf16LengthAtMost } from "./utf16";
 
@@ -194,15 +194,12 @@ export function isActivityEvent(event: BrowserGoalActivityEvent): boolean {
  * if (isLiveEventStructure(event)) console.log(event.type);
  * ```
  */
-export function isLiveEventStructure(event: BrowserGoalLiveEvent): boolean {
+export function isLiveEventStructure(event: BrowserGoalEvent): boolean {
     if (event.type === "activity") return isActivityEvent(event.activity);
     if (event.type === "message_committed") {
         return hasUtf16LengthAtMost(event.message.messageId, 200)
             && (event.message.previewId === undefined
                 || hasUtf16LengthAtMost(event.message.previewId, 200));
-    }
-    if (event.type === "interaction_required") {
-        return hasUtf16LengthAtMost(event.interaction.interactionId, 200);
     }
     return true;
 }

@@ -4,7 +4,7 @@ import { collectActivityProjections } from "../src/collect-activity-projections"
 import type {
   BrowserActivityFactItem,
   BrowserActivityPage,
-  BrowserGoalLiveEvent,
+  BrowserGoalEvent,
 } from "../../../packages/web-contracts/src/index";
 
 function toolFact(runId: string, sequence: number, actionId: string): BrowserActivityFactItem {
@@ -56,7 +56,7 @@ test("live events only participate in the current run projection", () => {
     goalId,
     runId: "run-2",
     activity: { kind: "activity_boundary", sourceEventId: "evt-1", sourceCursor: 1, reason: "assistant_reply" },
-  }] as unknown as readonly BrowserGoalLiveEvent[];
+  }] as unknown as readonly BrowserGoalEvent[];
 
   const withLive = collectActivityProjections(pageFixture(), goalId, live);
   const withoutLive = collectActivityProjections(pageFixture(), goalId, []);

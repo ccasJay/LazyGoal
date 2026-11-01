@@ -60,6 +60,6 @@ export { browserTrajectoryEntryBinding } from "./generated/trajectory-entry-bind
 export { browserTrajectoryRunsBinding } from "./generated/trajectory-runs-binding";
 export { browserTrajectoryPageBinding } from "./generated/trajectory-page-binding";
 export { browserTrajectoryDetailBinding } from "./generated/trajectory-detail-binding";
-export { browserGoalLiveEventBinding } from "./generated/goal-live-event-binding";
+export { browserGoalEventBinding } from "./generated/goal-event-binding";
 export { browserControlIntentCommandBinding } from "./generated/control-intent-command-binding";
 export { browserControlReceiptBinding } from "./generated/control-receipt-binding";

@@ -146,7 +146,7 @@ export function acceptedReview(intentId: string, review: BrowserActionReview): B
   return {
     intentId,
     status: "accepted",
-    result: { ok: true, goalId: "goal-1", runId: "run-1", review },
+    result: { kind: "action_review", result: { ok: true, goalId: "goal-1", runId: "run-1", review } },
   };
 }
 
@@ -154,7 +154,7 @@ export function acceptedInput(intentId: string, inputId: string): BrowserControl
   return {
     intentId,
     status: "accepted",
-    result: { ok: true, existing: false, receipt: inputReceipt(inputId) },
+    result: { kind: "session_input", result: { ok: true, existing: false, receipt: inputReceipt(inputId) } },
   };
 }
 

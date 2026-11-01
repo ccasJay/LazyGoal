@@ -1480,6 +1480,111 @@ function createMockApi() {
       json(response, { ok: false, error: "INVALID_INPUT" }, 400);
       return;
     }
+    if (request.url === "/api/control" && request.method === "POST") {
+      let body = "";
+      for await (const chunk of request) body += chunk;
+      const intent = JSON.parse(body);
+      const accept = (result, status = 200) => json(response, { intentId: intent.intentId, status: "accepted", result: { kind: intent.kind, result } }, status);
+      const reject = (error, status = 409) => json(response, { intentId: intent.intentId, status: "rejected", error }, status);
+      switch (intent.kind) {
+        case "create_session":
+          lastCreate = { goalId: intent.goalId, inputId: intent.inputId, intent: intent.intent, ...(intent.mode === undefined ? {} : { mode: intent.mode }), ...(intent.modelId === undefined ? {} : { modelId: intent.modelId }) };
+          if (rejectNextCreate) {
+            rejectNextCreate = false;
+            reject("goal_busy", 409);
+            return;
+          }
+          accept({ ok: true, existing: false, goalId: intent.goalId, runId: "new-run", receipt: sessionInputReceipt(intent.inputId, "message", "applied") }, 202);
+          return;
+        case "session_input": {
+          const command = intent.input;
+          if (command.kind === "respond") {
+            const existing = inputReceipts.get(command.inputId);
+            if (existing !== undefined) {
+              accept({ ok: true, existing: true, receipt: existing }, 200);
+              return;
+            }
+            lastInteraction = command;
+            session = completedSession(session);
+            currentListItem = listItem("completed");
+            const receipt = sessionInputReceipt(command.inputId, "respond", "applied");
+            inputReceipts.set(command.inputId, receipt);
+            accept({ ok: true, existing: false, receipt }, 202);
+            return;
+          }
+          if (command.kind === "message") {
+            lastMessage = command;
+            session = {
+              ...session,
+              currentRunId: "run-2",
+              runStatus: "waiting",
+              messages: [...session.messages, savedMessage("msg-queued", "user", command.content, 3, 3)],
+              runs: [
+                ...session.runs.map((run) => ({ ...run, current: false })),
+                { runId: "run-2", status: "waiting", stepCount: 0, steps: [], current: true },
+              ],
+            };
+            currentListItem = { ...listItem("waiting"), runId: "run-2" };
+            accept({ ok: true, existing: false, receipt: sessionInputReceipt(command.inputId, "message", "pending") }, 202);
+            return;
+          }
+          reject("INVALID_INPUT", 400);
+          return;
+        }
+        case "plan_mode":
+          lastPlanMode = { runId: intent.runId };
+          planModeRequests += 1;
+          session = { ...session, nextRunMode: "plan" };
+          accept({ ok: true, goalId: intent.goalId, runId: intent.runId, existing: planModeRequests > 1 });
+          return;
+        case "model_selection": {
+          lastModelSelection = { runId: intent.runId, modelId: intent.modelId, ...(intent.providerProfileId === undefined ? {} : { providerProfileId: intent.providerProfileId }) };
+          if (rejectNextSelection) {
+            rejectNextSelection = false;
+            reject("model_selection_failed", 503);
+            return;
+          }
+          selectedModelId = intent.modelId;
+          const defaultModelSaved = !failNextDefaultSave;
+          failNextDefaultSave = false;
+          if (defaultModelSaved) preferredModelId = selectedModelId;
+          accept({
+            ok: true,
+            goalId: intent.goalId,
+            runId: intent.runId,
+            selection: { modelId: selectedModelId },
+            ...(intent.persistAsDefault === true
+              ? { defaultPreference: defaultModelSaved ? { ok: true } : { ok: false, error: "model_preference_save_failed" } }
+              : {}),
+          });
+          return;
+        }
+        case "permission_mode": {
+          if (intent.expectedRevision !== permissionRevision) {
+            reject("conflict", 409);
+            return;
+          }
+          permissionMode = intent.mode;
+          permissionRevision += 1;
+          accept({ ok: true, mode: permissionMode, revision: permissionRevision, workspaceId: "workspace-1" });
+          return;
+        }
+        case "grant_revoke":
+          accept({ ok: true, goalId: intent.goalId, runId: intent.runId, grants: [] });
+          return;
+        case "goal_archive":
+          currentListItem = { ...currentListItem, archived: intent.archived };
+          accept({ ok: true, archived: intent.archived });
+          return;
+        case "goal_delete":
+          currentListItem = null;
+          accept({ ok: true, deleted: true });
+          return;
+        default:
+          reject("invalid_control_command", 400);
+          return;
+      }
+    }
     response.writeHead(404, { "content-type": "application/json" });
     response.end(JSON.stringify({ error: "not_found" }));
   });
@@ -1512,7 +1617,7 @@ function createMockApi() {
       assert.ok(activityResponse && !activityResponse.destroyed);
       session = interactionSession();
       currentListItem = listItem("waiting");
-      writeGoalEvent(activityResponse, { goalId: "goal-1", runId: "run-1", type: "snapshot_changed" });
+      writeGoalEvent(activityResponse, { goalId: "goal-1", runId: "run-1", type: "state_committed", commitRevision: 1, changed: ["session", "activity"] });
     },
     /** 显式结束当前 Goal 事件流，触发客户端按既有退避重连。 */
     endGoalEvents() {

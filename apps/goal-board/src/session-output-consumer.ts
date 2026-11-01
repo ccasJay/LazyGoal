@@ -1,4 +1,4 @@
-import type { BrowserActivityPage, BrowserGoalLiveEvent } from "../../../packages/web-contracts/src/index";
+import type { BrowserActivityPage, BrowserGoalEvent } from "../../../packages/web-contracts/src/index";
 
 /** 候选与正式消息使用的稳定 React 展示身份。 */
 export function candidatePresentationKey(goalId: string, runId: string, candidateId: string): string {
@@ -104,7 +104,7 @@ export const EMPTY_SESSION_OUTPUT_DISPLAY: SessionOutputDisplay = {
  */
 export function applySessionOutputEvent(
   current: SessionOutputDisplay,
-  event: BrowserGoalLiveEvent,
+  event: BrowserGoalEvent,
 ): SessionOutputDisplay | undefined {
   if (event.type === "message_committed") {
     const previewId = event.message.previewId;
@@ -125,9 +125,6 @@ export function applySessionOutputEvent(
       };
     }
     return { ...current, liveText: "", liveActivity: "The message was saved" };
-  }
-  if (event.type === "interaction_required") {
-    return { ...current, liveActivity: "Waiting for your answer" };
   }
   if (event.type !== "activity") return undefined;
 

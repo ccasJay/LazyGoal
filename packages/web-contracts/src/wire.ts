@@ -1748,12 +1748,12 @@ export interface BrowserGoalArchiveCommand {
 
 /** 归档 Goal 结果。 */
 export type BrowserGoalArchiveResult =
-    | { readonly ok: true }
+    | { readonly ok: true; readonly archived: boolean }
     | { readonly ok: false; readonly error: string };
 
 /** 删除 Goal 结果。 */
 export type BrowserGoalDeleteResult =
-    | { readonly ok: true }
+    | { readonly ok: true; readonly deleted: true }
     | { readonly ok: false; readonly error: string };
 
 /** 实时执行活动事件的稳定联合。 */
@@ -1909,7 +1909,7 @@ export interface BrowserInteractionRequiredEvent {
 }
 
 /** 浏览器端消费的 Goal 范围实时推送事件。 */
-export type BrowserGoalLiveEvent =
+export type BrowserGoalEvent =
     | {
         readonly type: "state_sync";
         /** @pattern \S */
@@ -1945,28 +1945,6 @@ export type BrowserGoalLiveEvent =
         /** @pattern \S */
         readonly runId: string;
         readonly message: BrowserCommittedMessageEvent;
-    }
-    | {
-        readonly type: "interaction_required";
-        /** @pattern \S */
-        readonly goalId: string;
-        /** @pattern \S */
-        readonly runId: string;
-        readonly interaction: BrowserInteractionRequiredEvent;
-    }
-    | {
-        readonly type: "snapshot_changed";
-        /** @pattern \S */
-        readonly goalId: string;
-        /** @pattern \S */
-        readonly runId?: string;
-    }
-    | {
-        readonly type: "refresh_required";
-        /** @pattern \S */
-        readonly goalId: string;
-        /** @pattern \S */
-        readonly runId?: string;
     }
     | {
         readonly type: "state_committed";
@@ -2639,17 +2617,24 @@ export type BrowserControlIntentCommand =
         readonly scope?: BrowserActionReviewScope;
     };
 
-/** 控制命令的原始结果；按 kind 复用现有 wire 结果，不维护第二份字段表。 */
+/**
+ * 控制命令的成功结果。
+ *
+ * @remarks
+ * `kind` 与 `BrowserControlIntentCommand` 的判别式一致，`result` 复用该命令既有的
+ * wire 结果类型。收据必须按命令类型校验结果：不同命令的结果字段高度重叠，缺少
+ * 判别式时无法把一份结果唯一归属到某个命令。
+ */
 export type BrowserControlIntentResult =
-    | BrowserCreateSessionResult
-    | BrowserSessionInputResult
-    | BrowserGoalPlanModeResult
-    | BrowserModelSelectionResult
-    | BrowserPermissionModeResult
-    | BrowserToolGrantResult
-    | BrowserGoalArchiveResult
-    | BrowserGoalDeleteResult
-    | BrowserActionReviewResult;
+    | { readonly kind: "create_session"; readonly result: BrowserCreateSessionResult }
+    | { readonly kind: "session_input"; readonly result: BrowserSessionInputResult }
+    | { readonly kind: "plan_mode"; readonly result: BrowserGoalPlanModeResult }
+    | { readonly kind: "model_selection"; readonly result: BrowserModelSelectionResult }
+    | { readonly kind: "permission_mode"; readonly result: BrowserPermissionModeResult }
+    | { readonly kind: "grant_revoke"; readonly result: BrowserToolGrantResult }
+    | { readonly kind: "goal_archive"; readonly result: BrowserGoalArchiveResult }
+    | { readonly kind: "goal_delete"; readonly result: BrowserGoalDeleteResult }
+    | { readonly kind: "action_review"; readonly result: BrowserActionReviewResult };
 
 /** 控制命令的受理收据；只表达受理结果，不表达 Runtime 事实。 */
 export type BrowserControlReceipt =
@@ -2687,12 +2672,14 @@ export interface BrowserToolActivity {
     readonly reason?: string;
 }
 
-/** 控制事实事件；不含生成正文与正式消息内容。 */
+/** 控制事实事件；包含同步、命令结果与 Run／交互控制事实。 */
 export type BrowserControlEvent = Extract<
-    BrowserGoalLiveEvent,
+    BrowserGoalEvent,
     {
         readonly type:
+            | "state_sync"
             | "state_committed"
+            | "input_result"
             | "run_status_changed"
             | "run_result"
             | "interaction_opened"
@@ -2703,20 +2690,13 @@ export type BrowserControlEvent = Extract<
     }
 >;
 
-/** 内容事实事件；生成正文、正式消息、预览与旧活动边界保持既有语义。 */
+/** 内容事实事件；生成正文、候选与正式消息保持既有语义。 */
 export type BrowserContentEvent = Extract<
-    BrowserGoalLiveEvent,
+    BrowserGoalEvent,
     {
         readonly type:
-            | "state_sync"
-            | "input_result"
             | "activity"
-            | "message_committed"
-            | "interaction_required"
-            | "snapshot_changed"
-            | "refresh_required";
+            | "message_committed";
     }
 >;
 
-/** Goal SSE 的完整事件联合。 */
-export type BrowserGoalEvent = BrowserGoalLiveEvent;

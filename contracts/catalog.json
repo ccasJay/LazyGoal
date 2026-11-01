@@ -9288,8 +9288,8 @@
             "role": "boundary-root"
         },
         {
-            "key": "web-contracts/src/wire#BrowserGoalLiveEvent",
-            "declaration": "BrowserGoalLiveEvent",
+            "key": "web-contracts/src/wire#BrowserGoalEvent",
+            "declaration": "BrowserGoalEvent",
             "source": {
                 "path": "packages/web-contracts/src/wire.ts",
                 "line": 1897
@@ -9316,9 +9316,9 @@
                 "state": "enabled",
                 "detail": "由 wire.ts 生成 Schema、Ajv standalone 校验器、Manifest 与 contract-binding 绑定。",
                 "strategy": "typescript-binding",
-                "rootType": "BrowserGoalLiveEvent",
+                "rootType": "BrowserGoalEvent",
                 "declaredTypes": [
-                    "BrowserGoalLiveEvent",
+                    "BrowserGoalEvent",
                     "BrowserSessionState",
                     "BrowserRunStatus",
                     "BrowserSessionStateInteraction",
@@ -9359,21 +9359,21 @@
                 ],
                 "outputDirectory": "packages/web-contracts/src/generated",
                 "artifacts": {
-                    "schemaModule": "goal-live-event-schema.ts",
-                    "validator": "goal-live-event-validator.mjs",
-                    "validatorTypes": "goal-live-event-validator.d.mts",
-                    "manifest": "goal-live-event-manifest.json",
-                    "binding": "goal-live-event-binding.ts"
+                    "schemaModule": "goal-event-schema.ts",
+                    "validator": "goal-event-validator.mjs",
+                    "validatorTypes": "goal-event-validator.d.mts",
+                    "manifest": "goal-event-manifest.json",
+                    "binding": "goal-event-binding.ts"
                 },
                 "binding": {
                     "module": "../../../contract-binding/src/index",
-                    "dataType": "BrowserGoalLiveEvent",
+                    "dataType": "BrowserGoalEvent",
                     "dataTypeModule": "../wire",
-                    "exportName": "browserGoalLiveEventBinding",
+                    "exportName": "browserGoalEventBinding",
                     "names": {
-                        "schema": "browserGoalLiveEventSchema",
-                        "metadata": "browserGoalLiveEventMetadata",
-                        "validator": "browserGoalLiveEventValidator"
+                        "schema": "browserGoalEventSchema",
+                        "metadata": "browserGoalEventMetadata",
+                        "validator": "browserGoalEventValidator"
                     }
                 }
             },

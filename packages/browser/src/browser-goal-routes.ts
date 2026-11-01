@@ -1008,7 +1008,7 @@ async function dispatchControlIntent(
                 ...(command.mode === undefined ? {} : { mode: command.mode }),
                 ...(command.modelId === undefined ? {} : { modelId: command.modelId }),
             });
-            if (result.ok) return acceptedControl(command.intentId, result, result.existing, result.existing ? 200 : 202);
+            if (result.ok) return acceptedControl(command.intentId, { kind: "create_session", result }, result.existing, result.existing ? 200 : 202);
             return rejectedControl(command.intentId, result.error);
         }
         case "session_input": {
@@ -1018,12 +1018,12 @@ async function dispatchControlIntent(
             const session = source.session;
             if (session === undefined) return rejectedControl(command.intentId, "session_unavailable");
             const result = await session.submit(command.goalId, command.input);
-            if (result.ok) return acceptedControl(command.intentId, result, result.existing, result.existing ? 200 : 202);
+            if (result.ok) return acceptedControl(command.intentId, { kind: "session_input", result }, result.existing, result.existing ? 200 : 202);
             return rejectedControl(command.intentId, result.error);
         }
         case "plan_mode": {
             const result = await source.enterPlanMode(command.goalId, { runId: command.runId });
-            if (result.ok) return acceptedControl(command.intentId, result, result.existing, result.existing ? 200 : 202);
+            if (result.ok) return acceptedControl(command.intentId, { kind: "plan_mode", result }, result.existing, result.existing ? 200 : 202);
             return rejectedControl(command.intentId, result.error);
         }
         case "model_selection": {
@@ -1033,7 +1033,7 @@ async function dispatchControlIntent(
                 ...(command.providerProfileId === undefined ? {} : { providerProfileId: command.providerProfileId }),
                 persistAsDefault: command.persistAsDefault,
             });
-            if (result.ok) return acceptedControl(command.intentId, result);
+            if (result.ok) return acceptedControl(command.intentId, { kind: "model_selection", result });
             return rejectedControl(command.intentId, result.error);
         }
         case "permission_mode": {
@@ -1042,7 +1042,7 @@ async function dispatchControlIntent(
                 mode: command.mode,
                 expectedRevision: command.expectedRevision,
             });
-            if (result.ok) return acceptedControl(command.intentId, result);
+            if (result.ok) return acceptedControl(command.intentId, { kind: "permission_mode", result });
             return rejectedControl(command.intentId, result.error);
         }
         case "grant_revoke": {
@@ -1053,19 +1053,19 @@ async function dispatchControlIntent(
                 scope: command.scope,
                 ...(command.grantKind === undefined ? {} : { kind: command.grantKind }),
             });
-            if (result.ok) return acceptedControl(command.intentId, result);
+            if (result.ok) return acceptedControl(command.intentId, { kind: "grant_revoke", result });
             return rejectedControl(command.intentId, result.error);
         }
         case "goal_archive": {
             if (source.setArchived === undefined) return rejectedControl(command.intentId, "goal_management_unavailable");
             const result = await source.setArchived(command.goalId, command.archived);
-            if (result.ok) return acceptedControl(command.intentId, result);
+            if (result.ok) return acceptedControl(command.intentId, { kind: "goal_archive", result: { ok: true, archived: command.archived } });
             return rejectedControl(command.intentId, result.error);
         }
         case "goal_delete": {
             if (source.deleteGoal === undefined) return rejectedControl(command.intentId, "goal_management_unavailable");
             const result = await source.deleteGoal(command.goalId);
-            if (result.ok) return acceptedControl(command.intentId, result);
+            if (result.ok) return acceptedControl(command.intentId, { kind: "goal_delete", result: { ok: true, deleted: true } });
             return rejectedControl(command.intentId, result.error);
         }
         case "action_review": {
@@ -1076,7 +1076,7 @@ async function dispatchControlIntent(
                 ...(command.input === undefined ? {} : { input: command.input }),
                 ...(command.scope === undefined ? {} : { scope: command.scope }),
             });
-            if (result.ok) return acceptedControl(command.intentId, result);
+            if (result.ok) return acceptedControl(command.intentId, { kind: "action_review", result });
             return rejectedControl(command.intentId, result.error);
         }
     }

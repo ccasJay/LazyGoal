@@ -196,6 +196,55 @@ export function useGoalSession({
     setSessionError(null);
   }, []);
 
+  /**
+   * 只重新读取窄会话状态。
+   *
+   * @remarks
+   * 用于 `state_committed` 声明 `session` 作用域的定向失效；不读取 Activity、
+   * 完整历史或 Goal 列表。
+   */
+  const refreshSessionState = useCallback(async (): Promise<void> => {
+    const goalId = selectedGoalId;
+    if (goalId === null) return;
+    try {
+      const next = await browserApi.readGoalSessionState(goalId);
+      if (selectedGoalIdRef.current !== goalId) return;
+      latestSession.current = next.goal;
+      setSession(next.goal);
+      setSessionState(next.session ?? null);
+      setSessionError(null);
+    } catch (error) {
+      if (selectedGoalIdRef.current === goalId) setSessionError(errorMessage(error));
+    }
+  }, [selectedGoalId]);
+
+  /**
+   * 只重新读取最新 Activity 窗口。
+   *
+   * @remarks
+   * 用于 `activity`／`trajectory` 作用域的定向失效；保留当前窗口的滚动与缺口
+   * 状态，不重读窄会话状态或完整历史。
+   */
+  const refreshActivity = useCallback(async (): Promise<void> => {
+    const goalId = selectedGoalId;
+    if (goalId === null) return;
+    try {
+      const nextActivity = await browserApi.readGoalActivity(goalId);
+      if (selectedGoalIdRef.current !== goalId) return;
+      const previousPage = latestActivityPage.current;
+      const previousMessageIds = new Set(previousPage?.items
+        .filter((item) => item.type === "message")
+        .map((item) => item.messageId) ?? []);
+      latestActivityPage.current = nextActivity;
+      setActivityPage(nextActivity);
+      setActivityWindow((current) => mergeLatestPage(current, nextActivity));
+      const hasNewSavedMessage = nextActivity.items.some((item) => item.type === "message" && !previousMessageIds.has(item.messageId));
+      if (previousPage !== null && hasNewSavedMessage) onClearLiveTextRef.current();
+    } catch {
+      // 读取失败保留当前窗口；后续提交边界或故障重同步会再读取。
+    }
+  }, [selectedGoalId]);
+
   const readActivityWindow = useCallback(async (query: BrowserActivityQuery): Promise<BrowserActivityPage | undefined> => {
     const goalId = selectedGoalId;
     if (goalId === null) return undefined;
@@ -335,6 +384,8 @@ export function useGoalSession({
     latestSession,
     refreshSelectedSession,
     applyControlSnapshot,
+    refreshSessionState,
+    refreshActivity,
     draftSessionOpen,
     setDraftSessionOpen,
     draftPlanMode,

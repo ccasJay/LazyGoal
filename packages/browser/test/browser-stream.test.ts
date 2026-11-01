@@ -23,7 +23,7 @@ import {
     createBrowserSessionAccess,
     createBrowserSessionFeed,
     readBrowserGoalSessionState,
-    type BrowserGoalLiveEvent,
+    type BrowserGoalEvent,
     type BrowserGoalLiveFeed,
     type BrowserGoalSessionPort,
 } from "../src/index";
@@ -139,11 +139,11 @@ function openFeed(store: GoalStore, publisher: InMemoryExecutionStreamPublisher,
 
 /** 读取若干条事件，直到观察到指定数量的公开活动；同步与刷新通知单独归类。 */
 async function collectActivities(
-    iterator: AsyncIterator<BrowserGoalLiveEvent>,
-    observed: BrowserGoalLiveEvent[],
+    iterator: AsyncIterator<BrowserGoalEvent>,
+    observed: BrowserGoalEvent[],
     expected: number,
-): Promise<BrowserGoalLiveEvent[]> {
-    const activities: BrowserGoalLiveEvent[] = [];
+): Promise<BrowserGoalEvent[]> {
+    const activities: BrowserGoalEvent[] = [];
     while (activities.length < expected) {
         const next = await nextEvent(iterator);
         if (next.done === true) break;
@@ -176,7 +176,7 @@ test("Goal 范围事件流先同步状态，再按白名单投影活动并覆盖
     assert.equal(sync?.type, "state_sync");
     assert.equal(sync?.type === "state_sync" ? sync.state.runId : undefined, goal.state.run.id);
     assert.equal(sync?.type === "state_sync" ? sync.state.commitRevision : undefined, 0);
-    const observed: BrowserGoalLiveEvent[] = [sync!];
+    const observed: BrowserGoalEvent[] = [sync!];
 
     publisher.publish({
         goalId: goal.id,
@@ -272,11 +272,9 @@ test("Goal 范围事件流先同步状态，再按白名单投影活动并覆盖
         delivery: "control",
         payload: { eventIds: ["secret-id"], eventTypes: ["decision_received"] },
     });
-    assert.deepEqual((await nextEvent(iterator)).value, {
-        type: "snapshot_changed",
-        goalId: goal.id,
-        runId: goal.state.run.id,
-    });
+    const committed = (await nextControlEvent(iterator)).value;
+    assert.equal(committed?.type, "state_committed");
+    assert.deepEqual(committed?.type === "state_committed" ? committed.changed : [], ["activity", "trajectory"]);
 
     // 后继 Run 的公开活动仍由同一个 Goal 订阅覆盖，不关闭、不遗漏。
     let modelStartedAt: string | undefined;
@@ -302,11 +300,11 @@ test("Goal 范围事件流先同步状态，再按白名单投影活动并覆盖
 
     publisher.closeGoal(goal.id, "publisher_closed");
     while (true) {
-        const next = await nextEvent(iterator);
+        const next = await iterator.next();
         if (next.done === true) break;
         observed.push(next.value);
     }
-    assert.equal(observed.some((event) => event.type === "refresh_required"), true);
+    assert.equal(observed.some((event) => event.type === "closed" && event.reason === "publisher_closed"), true);
 });
 
 test("实时工具活动携带独立来源身份并仅投影白名单输入摘要", async () => {
@@ -378,7 +376,7 @@ test("实时工具活动携带独立来源身份并仅投影白名单输入摘�
     assert.equal(opened.detached(), true);
 });
 
-test("实时公开回复、等待、阶段、终态、失败与未知活动映射为分组边界", async () => {
+test("实时公开回复与 Run 控制事实分别投影为内容与显式事件", async () => {
     const goal = goalFor("goal-stream-boundaries");
     const store = new MemoryStore();
     await store.save(goal);
@@ -387,15 +385,28 @@ test("实时公开回复、等待、阶段、终态、失败与未知活动映�
     const iterator = opened.feed.events[Symbol.asyncIterator]();
     await nextEvent(iterator);
 
+    publisher.publish({
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        kind: "decision_received",
+        visibility: "public",
+        durability: "trajectory",
+        delivery: "control",
+        payload: { decision: { kind: "complete" } },
+    });
+    assert.deepEqual((await nextEvent(iterator)).value, {
+        type: "activity", goalId: goal.id, runId: goal.state.run.id,
+        activity: { kind: "activity_boundary", sourceEventId: "event-1", sourceCursor: 1, reason: "assistant_reply" },
+    });
+
     const cases = [
-        ["decision_received", "assistant_reply", { decision: { kind: "complete" } }],
-        ["run_waiting", "user_wait", {}],
-        ["run_stage_declared", "stage_change", {}],
-        ["run_completed", "terminal", {}],
-        ["execution_error", "failure", {}],
-        ["future_public_event", "unknown", {}],
+        ["run_waiting", { type: "run_status_changed", status: "waiting" }],
+        ["run_stage_declared", { type: "run_status_changed", status: "running" }],
+        ["run_completed", { type: "run_result", result: "completed" }],
+        ["execution_error", { type: "run_status_changed", status: "failed" }],
+        ["future_public_event", { type: "run_status_changed", status: "running" }],
     ] as const;
-    for (const [index, [kind, reason, payload]] of cases.entries()) {
+    for (const [kind, expected] of cases) {
         publisher.publish({
             goalId: goal.id,
             runId: goal.state.run.id,
@@ -403,12 +414,11 @@ test("实时公开回复、等待、阶段、终态、失败与未知活动映�
             visibility: "public",
             durability: "trajectory",
             delivery: "control",
-            payload,
+            payload: {},
         });
-        assert.deepEqual((await nextEvent(iterator)).value, {
-            type: "activity", goalId: goal.id, runId: goal.state.run.id,
-            activity: { kind: "activity_boundary", sourceEventId: `event-${index + 1}`, sourceCursor: index + 1, reason },
-        });
+        const event = (await nextControlEvent(iterator)).value;
+        assert.equal(event?.type, expected.type, kind);
+        assert.deepEqual(event, { ...expected, goalId: goal.id, runId: goal.state.run.id }, kind);
     }
     opened.feed.close();
 });
@@ -612,11 +622,11 @@ test("事件缺口与同步读取失败都只要求刷新，不伪装运行终�
     assert.equal(resynced?.type, "state_sync");
     assert.equal(resynced?.type === "state_sync" ? resynced.state.runId : undefined, goal.state.run.id);
 
-    // 同步读取失败报告同步故障，不伪造 Run 终态。
+    // 同步读取失败报告流故障，不伪造 Run 终态。
     const missing = openFeed(store, publisher, "goal-absent");
     const missingIterator = missing.feed.events[Symbol.asyncIterator]();
-    const event = (await nextEvent(missingIterator)).value;
-    assert.deepEqual(event, { type: "refresh_required", goalId: "goal-absent" });
+    const event = (await nextControlEvent(missingIterator)).value;
+    assert.deepEqual(event, { type: "stream_fault", goalId: "goal-absent", code: "read_failed", resync: ["session"] });
     missing.feed.close();
     opened.feed.close();
 });
@@ -715,7 +725,7 @@ test("释放观察只关闭本连接的资源，其它 Goal 订阅不受影响",
 });
 
 test("HTTP 事件流是 Goal 范围事件，拒绝 run 绑定参数并在取消时清理订阅", async () => {
-    const events: BrowserGoalLiveEvent[] = [{
+    const events: BrowserGoalEvent[] = [{
         type: "activity",
         goalId: "goal-stream-3",
         runId: "run-1",
@@ -829,7 +839,7 @@ test("HTTP 消息入口按稳定身份返回有界列表与正文，并区分不
 /** 由测试显式推进的 Goal 事件流：关闭后迭代结束，并记录释放与消费次数。 */
 interface ControlledFeed {
     readonly feed: BrowserGoalLiveFeed;
-    push(event: BrowserGoalLiveEvent): void;
+    push(event: BrowserGoalEvent): void;
     end(): void;
     fail(error: Error): void;
     closeCalls(): number;
@@ -837,7 +847,7 @@ interface ControlledFeed {
 }
 
 function createControlledFeed(): ControlledFeed {
-    const queued: BrowserGoalLiveEvent[] = [];
+    const queued: BrowserGoalEvent[] = [];
     let pending: (() => void) | undefined;
     let ended = false;
     let failure: Error | undefined;
@@ -928,7 +938,7 @@ test("真实 HTTP Goal 事件流以 streamSSE 写出首事件并在正常结束�
     const address = await service.start(0);
     access.bindOrigin(address.origin);
     const token = new URL(access.createLaunchUrl(address.origin)).hash.slice(1);
-    const event: BrowserGoalLiveEvent = {
+    const event: BrowserGoalEvent = {
         type: "activity",
         goalId: "goal-http-end",
         runId: "run-1",
@@ -993,7 +1003,7 @@ test("真实 HTTP Goal 事件流在客户端取消与 feed 抛错时结束响应
     process.on("unhandledRejection", onUnhandled);
     const authorize = { authorization: `Bearer ${token}` };
     try {
-        const cancelledEvent: BrowserGoalLiveEvent = {
+        const cancelledEvent: BrowserGoalEvent = {
             type: "activity", goalId: "goal-http-cancel", runId: "run-1", activity: { kind: "model_started" },
         };
         cancellable.push(cancelledEvent);
@@ -1013,7 +1023,7 @@ test("真实 HTTP Goal 事件流在客户端取消与 feed 抛错时结束响应
         assert.equal(cancellable.consumed(), 1, "取消后不再消费后续事件");
         assert.equal(cancellable.closeCalls(), 1, "取消只释放一次订阅");
 
-        const failingEvent: BrowserGoalLiveEvent = {
+        const failingEvent: BrowserGoalEvent = {
             type: "activity", goalId: "goal-http-fail", runId: "run-1", activity: { kind: "model_started" },
         };
         failing.push(failingEvent);
@@ -1105,7 +1115,7 @@ test("真实模型调用链下的浏览器活动只包含公开正文与调用�
         stage: "decide",
     });
 
-    const activities: BrowserGoalLiveEvent[] = [];
+    const activities: BrowserGoalEvent[] = [];
     while (true) {
         const next = await nextEvent(iterator);
         if (next.done === true) break;
@@ -1114,7 +1124,7 @@ test("真实模型调用链下的浏览器活动只包含公开正文与调用�
     }
     opened.feed.close();
 
-    const projected = activities.filter((event): event is Extract<BrowserGoalLiveEvent, { type: "activity" }> => event.type === "activity");
+    const projected = activities.filter((event): event is Extract<BrowserGoalEvent, { type: "activity" }> => event.type === "activity");
     assert.deepEqual(projected.map(event => event.activity.kind), ["model_started", "assistant_text_delta", "model_completed"]);
     const text = projected.find(event => event.activity.kind === "assistant_text_delta");
     assert.equal(text?.activity.kind === "assistant_text_delta" ? text.activity.text : undefined, PLAIN_MARKER);

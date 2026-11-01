@@ -26,28 +26,25 @@ export function useToolGrants({
   const toolGrants = control.state.resources.grants ?? [];
   const revokingGrantId = pendingIntentOfKind(control.state, "grant_revoke")?.grantId ?? null;
 
-  useEffect(() => {
-    if (!enabled || session === null || selectedGoalId === null) return;
-    let active = true;
+  const reloadToolGrants = useCallback(async (): Promise<void> => {
+    if (session === null) return;
     setToolGrantsLoading(true);
     setToolGrantsError(null);
-    void browserApi
-      .listToolGrants(session.goalId, session.currentRunId)
-      .then((result) => {
-        if (!active) return;
-        if (!result.ok) throw new Error(result.error);
-        control.mergeResources({ grants: result.grants });
-      })
-      .catch(() => {
-        if (active) setToolGrantsError("Could not load saved permissions. Reopen this panel to retry.");
-      })
-      .finally(() => {
-        if (active) setToolGrantsLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [enabled, session?.goalId, session?.currentRunId, selectedGoalId, control.mergeResources]);
+    try {
+      const result = await browserApi.listToolGrants(session.goalId, session.currentRunId);
+      if (!result.ok) throw new Error(result.error);
+      control.mergeResources({ grants: result.grants });
+    } catch {
+      setToolGrantsError("Could not load saved permissions. Reopen this panel to retry.");
+    } finally {
+      setToolGrantsLoading(false);
+    }
+  }, [session, control.mergeResources]);
+
+  useEffect(() => {
+    if (!enabled || session === null || selectedGoalId === null) return;
+    void reloadToolGrants();
+  }, [enabled, session?.goalId, session?.currentRunId, selectedGoalId, reloadToolGrants]);
 
   const revokeToolGrant = useCallback(
     async (grant: BrowserToolGrantSummary) => {
@@ -93,5 +90,6 @@ export function useToolGrants({
     toolGrantsError,
     revokingGrantId,
     revokeToolGrant,
+    reloadToolGrants,
   };
 }

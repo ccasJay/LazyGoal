@@ -358,13 +358,13 @@ test("集成：审批等待按 action_approval 领域身份发布，修订后按
             // 复核一：审批等待按 action_approval 领域身份发布，引用指向真实 Action。
             const required = await waitForEvent(
                 harness,
-                (event) => event.type === "interaction_required",
+                (event) => event.type === "interaction_opened",
                 "the action approval wait",
             );
-            assert.equal(required.interaction.kind, "action_approval");
-            assert.match(required.interaction.interactionId, /^action_approval:.+/);
-            const actionId = required.interaction.interactionId.slice("action_approval:".length);
-            const runId = required.interaction.runId;
+            assert.equal(required.kind, "action_approval");
+            assert.match(required.interactionId, /^action_approval:.+/);
+            const actionId = required.interactionId.slice("action_approval:".length);
+            const runId = required.runId;
 
             // 复核二：只读预检给出原请求与最终参数的关联，且不产生执行授权。
             const review = await harness.request(`/api/goals/${goalId}/action-reviews`, "POST", {
@@ -505,12 +505,12 @@ test("集成：结果未知按 action_recovery 领域身份发布，恢复引用
         try {
             const required = await waitForEvent(
                 harness,
-                (event) => event.type === "interaction_required",
+                (event) => event.type === "interaction_opened",
                 "the action approval wait",
             );
-            assert.equal(required.interaction.kind, "action_approval");
-            const actionId = required.interaction.interactionId.slice("action_approval:".length);
-            const runId = required.interaction.runId;
+            assert.equal(required.kind, "action_approval");
+            const actionId = required.interactionId.slice("action_approval:".length);
+            const runId = required.runId;
 
             const responded = await harness.request(`/api/goals/${goalId}/inputs`, "POST", {
                 kind: "respond",
@@ -525,15 +525,15 @@ test("集成：结果未知按 action_recovery 领域身份发布，恢复引用
             // 复核：结果未知的等待按 action_recovery 领域身份发布，引用稳定。
             const recovery = await waitForEvent(
                 harness,
-                (event) => event.type === "interaction_required" && event.interaction?.kind === "action_recovery",
+                (event) => event.type === "interaction_opened" && event.kind === "action_recovery",
                 "the unknown outcome wait",
             );
-            assert.equal(recovery.interaction.interactionId, `action_recovery:${actionId}`);
-            assert.equal(recovery.interaction.runId, runId);
+            assert.equal(recovery.interactionId, `action_recovery:${actionId}`);
+            assert.equal(recovery.runId, runId);
 
             // 恢复引用只能来自当前等待视图。
             const details = await harness.request(
-                `/api/goals/${goalId}/interaction-details?runId=${runId}&interactionId=${encodeURIComponent(recovery.interaction.interactionId)}`,
+                `/api/goals/${goalId}/interaction-details?runId=${runId}&interactionId=${encodeURIComponent(recovery.interactionId)}`,
                 "GET",
             );
             assert.equal(details.status, 200);
@@ -660,12 +660,12 @@ test("集成：PTC 子操作工具活动保留子操作身份，父程序身份�
             // 复核：PTC 子操作的审批等待按子操作自身身份发布。
             const required = await waitForEvent(
                 harness,
-                (event) => event.type === "interaction_required",
+                (event) => event.type === "interaction_opened",
                 "the PTC child approval wait",
             );
-            assert.equal(required.interaction.kind, "action_approval");
-            const childActionId = required.interaction.interactionId.slice("action_approval:".length);
-            const runId = required.interaction.runId;
+            assert.equal(required.kind, "action_approval");
+            const childActionId = required.interactionId.slice("action_approval:".length);
+            const runId = required.runId;
             assert.notEqual(childActionId, "");
             // 子操作身份由父程序身份与调用序号派生，不与父程序 Action 混同。
             assert.equal(childActionId.includes(":"), true);
@@ -680,7 +680,7 @@ test("集成：PTC 子操作工具活动保留子操作身份，父程序身份�
 
             // 复核：浏览器 wire 能按 PTC 子操作身份寻址交互详情，并给出父程序身份。
             const details = await harness.request(
-                `/api/goals/${goalId}/interaction-details?runId=${runId}&interactionId=${encodeURIComponent(required.interaction.interactionId)}`,
+                `/api/goals/${goalId}/interaction-details?runId=${runId}&interactionId=${encodeURIComponent(required.interactionId)}`,
                 "GET",
             );
             assert.equal(details.status, 200);

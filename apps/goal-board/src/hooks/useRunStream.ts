@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { BrowserActivityPage, BrowserControlSnapshot, BrowserGoalActivityEvent, BrowserGoalLiveEvent, BrowserGoalSessionState } from "../../../../packages/web-contracts/src/index";
+import type { BrowserActivityPage, BrowserControlScope, BrowserControlSnapshot, BrowserGoalActivityEvent, BrowserGoalEvent, BrowserGoalSessionState } from "../../../../packages/web-contracts/src/index";
 import { browserApi } from "../api";
 import { createTextBatcher } from "../live-text-batch";
 import { recordExecutionProgress, type ExecutionProgressEntry } from "../execution-progress";
@@ -8,6 +8,7 @@ import {
   applySessionOutputEvent,
   reconcileCandidatePresentation,
 } from "../session-output-consumer";
+import { readScopesForEvent } from "../control/event-routing";
 import {
   INITIAL_STREAM_RECOVERY_STATE,
   reduceStreamRecovery,
@@ -29,6 +30,8 @@ export function useRunStream({
   sessionLoading,
   onRefresh,
   onControlSnapshot,
+  onControlEvent,
+  onReadScopes,
 }: {
   selectedGoalId: string | null;
   session: BrowserGoalSessionState | null;
@@ -36,15 +39,19 @@ export function useRunStream({
   sessionLoading: boolean;
   onRefresh: () => Promise<void>;
   onControlSnapshot: (snapshot: BrowserControlSnapshot) => void;
+  onControlEvent: (event: BrowserGoalEvent) => void;
+  onReadScopes: (scopes: readonly BrowserControlScope[]) => Promise<void>;
 }) {
   const [outputDisplay, setOutputDisplay] = useState(EMPTY_SESSION_OUTPUT_DISPLAY);
-  const [liveEvents, setLiveEvents] = useState<BrowserGoalLiveEvent[]>([]);
+  const [liveEvents, setLiveEvents] = useState<BrowserGoalEvent[]>([]);
   const [progressEntries, setProgressEntries] = useState<readonly ExecutionProgressEntry[]>([]);
   const [streamConnected, setStreamConnected] = useState(false);
   const [recovery, setRecovery] = useState<StreamRecoveryState>(INITIAL_STREAM_RECOVERY_STATE);
   const [livePreview, setLivePreview] = useState<LivePreviewState>(createLivePreviewState());
   const onRefreshRef = useRef(onRefresh);
   const onControlSnapshotRef = useRef(onControlSnapshot);
+  const onControlEventRef = useRef(onControlEvent);
+  const onReadScopesRef = useRef(onReadScopes);
   const liveText = latestSource(livePreview, session?.currentRunId ?? "")?.content ?? "";
   const liveActivity = outputDisplay.liveActivity || null;
 
@@ -110,6 +117,11 @@ export function useRunStream({
   }, [onControlSnapshot]);
 
   useEffect(() => {
+    onControlEventRef.current = onControlEvent;
+    onReadScopesRef.current = onReadScopes;
+  }, [onControlEvent, onReadScopes]);
+
+  useEffect(() => {
     if (selectedGoalId === null) {
       setLiveText("");
       setOutputDisplay(EMPTY_SESSION_OUTPUT_DISPLAY);
@@ -150,6 +162,12 @@ export function useRunStream({
       await onRefreshRef.current();
     };
 
+    /** 按事件声明的范围定向读取；空范围只更新本地控制状态。 */
+    const readScopes = async (scopes: readonly BrowserControlScope[]): Promise<void> => {
+      if (scopes.length === 0) return;
+      await onReadScopesRef.current(scopes);
+    };
+
     const delay = () =>
       new Promise<void>((resolve) => {
         const timeout = window.setTimeout(resolve, 800);
@@ -172,6 +190,7 @@ export function useRunStream({
             if (!active) return;
             setStreamConnected(true);
             setRecovery((current) => reduceStreamRecovery(current, { kind: "connected" }));
+            onControlEventRef.current(event);
             if (event.type === "state_sync") {
               if (!synced) {
                 synced = true;
@@ -199,8 +218,7 @@ export function useRunStream({
               await refreshLatest();
             }
             if (event.type === "input_result") {
-              // 一致状态与受理结果只用于同步：最新快照由读取接口给出。
-              await refreshLatest();
+              await readScopes(readScopesForEvent(event));
               continue;
             }
             if (event.type === "state_committed"
@@ -211,15 +229,10 @@ export function useRunStream({
               || event.type === "tool_activity"
               || event.type === "stream_fault"
               || event.type === "closed") {
-              // 控制 reducer 接管前，旧 activity／snapshot 事件仍驱动当前页面。
-              continue;
-            }
-            if (event.type === "snapshot_changed" || event.type === "refresh_required") {
-              setLiveEvents([]);
-              if (event.type === "refresh_required") {
-                setOutputDisplay((current) => ({ ...current, liveActivity: "Waiting for the saved result" }));
+              if (event.type === "interaction_opened") {
+                setOutputDisplay((current) => ({ ...current, liveActivity: "Waiting for your answer" }));
               }
-              await refreshLatest();
+              await readScopes(readScopesForEvent(event));
               continue;
             }
             if (event.type === "message_committed") {
@@ -231,12 +244,7 @@ export function useRunStream({
                 sourceRef.current = null;
               }
               setOutputDisplay((current) => applySessionOutputEvent(current, event) ?? current);
-              await refreshLatest();
-              continue;
-            }
-            if (event.type === "interaction_required") {
-              setOutputDisplay((current) => applySessionOutputEvent(current, event) ?? current);
-              await refreshLatest();
+              await readScopes(readScopesForEvent(event));
               continue;
             }
             if (event.type === "activity"
@@ -244,7 +252,6 @@ export function useRunStream({
               textBatcher.flush();
               setLiveText("");
               setOutputDisplay((current) => applySessionOutputEvent(current, event) ?? current);
-              await refreshLatest();
               continue;
             }
             setProgressEntries((current) => recordExecutionProgress(current, event, Date.now()));
@@ -302,18 +309,12 @@ export function useRunStream({
             // 单纯断开不是执行失败或取消：保留最后确认的正式内容与当前草稿，只标记可能过期。
             setStreamConnected(false);
             setRecovery((current) => reduceStreamRecovery(current, { kind: "disconnected" }));
-            await refreshLatest();
             await delay();
           }
         } catch {
           if (!active || controller.signal.aborted) return;
           setStreamConnected(false);
           setRecovery((current) => reduceStreamRecovery(current, { kind: "failed" }));
-          try {
-            await refreshLatest();
-          } catch {
-            // Snapshot read failures must not stop stream reconnection.
-          }
           await delay();
         }
       }

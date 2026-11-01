@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import type { BrowserControlReceipt } from "../../../packages/web-contracts/src/index";
+import type { BrowserControlReceipt, BrowserModelSelectionResult } from "../../../packages/web-contracts/src/index";
 import { modelSelectionOutcomeOf } from "../src/control/model-selection";
 
-const accepted = (result: unknown): BrowserControlReceipt => ({
+const accepted = (result: BrowserModelSelectionResult): BrowserControlReceipt => ({
   intentId: "model-intent-1",
   status: "accepted",
-  result: result as Extract<BrowserControlReceipt, { readonly status: "accepted" | "existing" }>["result"],
+  result: { kind: "model_selection", result },
 });
 
 test("模型选择与默认偏好分别报告子结果", () => {

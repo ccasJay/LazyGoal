@@ -13,7 +13,11 @@
 | Interaction view projection | 当前等待的类型化摘要：种类、稳定 `interactionId`、可用决定与字段级截断标记；完整请求正文由交互详情读取按同一引用提供，不在会话摘要中复制。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |
 | Interaction details route | 按当前 Goal／Run／交互引用读取完整问题、任务范围或 Action 输入；PTC 子操作按其真实 Action 身份寻址，父程序身份随详情给出；不匹配返回稳定错误且不推进等待。 | [浏览器服务边界](../README.md) | [Goal Routes](../src/browser-goal-routes.ts) |
 | Approved Plan route projection | 当前获批 Plan Run 的 Snapshot 权威完整路线及其 Runtime 状态；普通 Run 省略。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |
-| Session output projection | Runtime 的类型化会话输出按 wire 联合投影为单一 Goal SSE：状态同步、输入结果、公开生成、正式消息、工具活动、交互、Run 状态与终态、流故障与提交边界；不保留第二条事件流。 | [浏览器服务边界](../README.md) | [Browser Session Port](../src/browser-session-port.ts) |
+| Session output projection | Runtime 的类型化会话输出投影为单一 Goal SSE：权威控制快照、输入结果、控制事实与内容事实；不保留第二条事件流或旧事件双解析。 | [浏览器服务边界](../README.md) | [Browser Session Port](../src/browser-session-port.ts) |
+| 控制快照投影 | `state_sync` 在订阅建立／重建时读取一次同一 Run 的 Goal 控制投影与 Runtime 窄状态；不一致或读取失败时省略，不拼接不同提交。 | [浏览器服务边界](../README.md) | [Browser Session Port](../src/browser-session-port.ts) |
+| 提交作用域投影 | `state_committed.changed` 从提交批次的来源事件类型映射；授权撤销只声明 `grants`，无法识别时保守声明 `session`。 | [浏览器服务边界](../README.md) | [Browser Session Port](../src/browser-session-port.ts) |
+| Observation 提交投影 | 已提交 `observation_recorded` 边界额外投影 `observed_committed` 工具活动，使工具返回与已保存结果分离。 | [浏览器服务边界](../README.md) | [Browser Session Port](../src/browser-session-port.ts) |
+| 流故障投影 | 缺口、读取失败与背压映射为带稳定 `code` 与 `resync` 的 `stream_fault`；不得伪装为 Run 终态。 | [浏览器服务边界](../README.md) | [Browser Session Port](../src/browser-session-port.ts) |
 | 正式消息位置投影 | 状态摘要、消息读取和提交通知保留消息身份及 Snapshot 保存的 Run 事实锚点位置。 | [浏览器服务边界](../README.md) | [Browser Session Port](../src/browser-session-port.ts) |
 | Goal Session state view | `?view=state` 从 Snapshot 投影当前执行、等待、队列、控制与管理状态；消息／步骤／阶段历史明确由 Activity 提供。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |
 | Activity history page | 固定每个 Run 的消息数量、末消息身份与提交序号，按稳定位置返回最多 100 项、双向 cursor 及首尾未加载范围。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |

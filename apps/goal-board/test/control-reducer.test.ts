@@ -58,7 +58,7 @@ function receipt(intentId: string, status: "accepted" | "existing" | "rejected" 
     return {
       intentId,
       status,
-      result: { ok: true, existing: status === "existing", receipt: inputReceipt("input-1") },
+      result: { kind: "session_input", result: { ok: true, existing: status === "existing", receipt: inputReceipt("input-1") } },
     };
   }
   if (status === "rejected") return { intentId, status, error: "INPUT_CONFLICT" };
