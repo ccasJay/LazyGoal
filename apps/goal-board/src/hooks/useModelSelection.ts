@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
+  BrowserControlIntentCommand,
   BrowserGoalSessionState,
   BrowserModelCatalog,
   BrowserModelOption,
 } from "../../../../packages/web-contracts/src/index";
 import { BrowserApiError, browserApi } from "../api";
+import { modelSelectionOutcomeOf } from "../control/model-selection";
+import type { ControlIntents } from "./useControlIntents";
 import { type ModelPickerTarget, errorMessage } from "../types";
 
 export function useModelSelection({
@@ -19,6 +22,7 @@ export function useModelSelection({
   loadDraftDefault,
   onRefreshSession,
   onSetCommandError,
+  control,
 }: {
   session: BrowserGoalSessionState | null;
   draftGoalId: React.MutableRefObject<string | null>;
@@ -31,13 +35,14 @@ export function useModelSelection({
   loadDraftDefault: (generation: number) => Promise<void>;
   onRefreshSession: () => Promise<void>;
   onSetCommandError: (error: string | null) => void;
+  control: ControlIntents;
 }) {
   const [modelPickerTarget, setModelPickerTarget] = useState<ModelPickerTarget | null>(null);
   const [currentModelCatalog, setCurrentModelCatalog] = useState<BrowserModelCatalog | null>(null);
   const [modelCatalogRefreshKey, setModelCatalogRefreshKey] = useState(0);
   const [modelPreferenceRetry, setModelPreferenceRetry] = useState<string | null>(null);
-  /** 与偏好重试配对的来源标识；Goal 切换成功但默认偏好写入失败时保留。 */
-  const preferenceProfileRetry = useRef<string | undefined>(undefined);
+  /** 部分成功后重试所用的同一意图身份；不改写冻结载荷。 */
+  const modelSelectionIntent = useRef<Extract<BrowserControlIntentCommand, { readonly kind: "model_selection" }> | null>(null);
 
   useEffect(() => {
     if (session === null) {
@@ -95,15 +100,36 @@ export function useModelSelection({
         return;
       }
       try {
-        const result = await browserApi.selectModel(target.goalId, {
+        const intent: Extract<BrowserControlIntentCommand, { readonly kind: "model_selection" }> = {
+          kind: "model_selection",
+          intentId: crypto.randomUUID(),
+          goalId: target.goalId,
           runId: target.runId,
           modelId,
           ...(catalog.profileId === undefined ? {} : { providerProfileId: catalog.profileId }),
-        });
-        preferenceProfileRetry.current = catalog.profileId;
-        setModelPreferenceRetry(result.defaultModelSaved ? null : modelId);
+          persistAsDefault: true,
+        };
+        modelSelectionIntent.current = intent;
+        const receipt = await control.submit(intent);
+        let outcome = modelSelectionOutcomeOf(receipt);
+        if (outcome.kind === "unknown") {
+          const verification = await control.verify(intent.intentId);
+          if (verification !== "applied") {
+            onSetCommandError("The model change result is unknown. Reload before trying again.");
+            throw new Error("model_selection_unknown");
+          }
+          outcome = { kind: "applied", modelId, preference: "failed" };
+        }
+        if (outcome.kind === "rejected") {
+          if (outcome.refresh && session?.goalId === target.goalId) {
+            await onRefreshSession();
+          }
+          throw new BrowserApiError(outcome.error, 409, outcome.refresh);
+        }
+        const preferenceFailed = outcome.preference === "failed";
+        setModelPreferenceRetry(preferenceFailed ? modelId : null);
         onSetCommandError(
-          result.defaultModelSaved ? null : "Model switched, but the new Goal default was not saved."
+          preferenceFailed ? "Model switched, but the new Goal default was not saved." : null
         );
         if (session?.goalId === target.goalId) {
           setModelCatalogRefreshKey((current) => current + 1);
@@ -128,20 +154,33 @@ export function useModelSelection({
       setDraftModelError,
       onRefreshSession,
       onSetCommandError,
+      control.submit,
+      control.verify,
     ]
   );
 
   const retryModelPreference = useCallback(async () => {
-    const modelId = modelPreferenceRetry;
-    if (modelId === null) return;
-    try {
-      await browserApi.setModelPreference(modelId, preferenceProfileRetry.current);
+    const intent = modelSelectionIntent.current;
+    if (modelPreferenceRetry === null || intent === null) return;
+    const receipt = await control.submit(intent);
+    const outcome = modelSelectionOutcomeOf(receipt);
+    if (outcome.kind === "rejected") {
+      onSetCommandError(outcome.error === "model_switch_not_allowed"
+        ? "The new Goal default was not saved: this Run can no longer change models."
+        : `Could not save the new Goal default (${outcome.error}).`);
+      return;
+    }
+    if (outcome.kind === "unknown") {
+      onSetCommandError("Could not save the new Goal default. The result is unknown; retry the same command.");
+      return;
+    }
+    if (outcome.preference === "saved") {
       setModelPreferenceRetry(null);
       onSetCommandError(null);
-    } catch (error) {
-      onSetCommandError(`Could not save the new Goal default: ${errorMessage(error)}`);
+      return;
     }
-  }, [modelPreferenceRetry, onSetCommandError]);
+    onSetCommandError("Could not save the new Goal default: the local service rejected the preference write.");
+  }, [modelPreferenceRetry, control.submit, onSetCommandError]);
 
   return {
     modelPickerTarget,

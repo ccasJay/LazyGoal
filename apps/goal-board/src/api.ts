@@ -13,7 +13,6 @@ import {
   browserModelInputDetailBinding,
   browserModelInputsBinding,
   browserModelPreferenceResultBinding,
-  browserModelSelectionResultBinding,
   browserPermissionModeResultBinding,
   browserProviderModelsBinding,
   browserProviderProfileActivationResultBinding,
@@ -51,7 +50,6 @@ import {
   type BrowserModelCatalog,
   type BrowserModelInputDetail,
   type BrowserModelInputs,
-  type BrowserModelSelectionCommand,
   type BrowserPermissionModeCommand,
   type BrowserPermissionModeResult,
   type BrowserProviderModelQuery,
@@ -266,12 +264,6 @@ export const browserApi = {
       ? `/api/models${query}`
       : `/api/goals/${encodeURIComponent(target.goalId)}/models${query}`;
     return requestContract(path, browserModelCatalogBinding, signal);
-  },
-
-  async selectModel(goalId: string, command: BrowserModelSelectionCommand): Promise<{ readonly ok: true; readonly modelId: string; readonly defaultModelSaved: boolean }> {
-    const result = await postContract(`/api/goals/${encodeURIComponent(goalId)}/model-selection`, command, browserModelSelectionResultBinding);
-    if (!result.ok) throw new Error("invalid_api_response");
-    return result;
   },
 
   async setModelPreference(modelId: string, providerProfileId?: string): Promise<{ readonly ok: true; readonly modelId: string }> {

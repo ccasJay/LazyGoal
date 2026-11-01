@@ -262,15 +262,15 @@ test("浏览器只提交模型 ID，服务端目录生成并保存 OpenCode Go �
         assert.equal(afterForged?.state.modelSelection.contextWindowTokens, 1_000_000);
         assert.equal(afterForged?.state.modelSelection.maxOutputTokens, 524_288);
 
-        const selected = await request({ runId: "run-dynamic-browser", modelId: "minimax-m3.1-flash-free" });
+        const selected = await request({ runId: "run-dynamic-browser", modelId: "minimax-m3.1-flash-free", persistAsDefault: true });
         assert.ok(catalog.requests.length > 0, "selection resolves its model from the injected server catalog");
         assert.equal(selected.status, 200, await selected.clone().text());
         assert.deepEqual(await selected.json(), {
             ok: true,
             goalId: "goal-dynamic-browser",
             runId: "run-dynamic-browser",
-            modelId: "minimax-m3.1-flash-free",
-            defaultModelSaved: true,
+            selection: { modelId: "minimax-m3.1-flash-free" },
+            defaultPreference: { ok: true },
         });
         const saved = await root.workspaceGoalStore.restore("goal-dynamic-browser");
         assert.deepEqual(saved?.state.modelSelection, {

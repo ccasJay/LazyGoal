@@ -54,8 +54,7 @@ export function modelSelectionOf(
 ): Extract<BrowserModelSelectionResult, { readonly ok: true }> | undefined {
   if (typeof result !== "object" || result === null) return undefined;
   if (!("ok" in result) || result.ok !== true) return undefined;
-  if (!("goalId" in result) || !("runId" in result) || !("modelId" in result)) return undefined;
-  if (!("defaultModelSaved" in result)) return undefined;
+  if (!("goalId" in result) || !("runId" in result) || !("selection" in result)) return undefined;
   return result as Extract<BrowserModelSelectionResult, { readonly ok: true }>;
 }
 

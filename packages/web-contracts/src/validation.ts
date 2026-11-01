@@ -493,10 +493,12 @@ export function isModelCatalog(value: unknown): value is BrowserModelCatalog {
  *
  * @example
  * ```ts
- * if (isModelSelectionAccepted(res)) console.log(res.modelId);
+ * if (isModelSelectionAccepted(res)) console.log(res.selection.modelId);
  * ```
  */
-export function isModelSelectionAccepted(value: unknown): value is { readonly ok: true; readonly goalId: string; readonly runId: string; readonly modelId: string; readonly defaultModelSaved: boolean } {
+export function isModelSelectionAccepted(
+    value: unknown,
+): value is Extract<BrowserModelSelectionResult, { readonly ok: true }> {
     const result = browserModelSelectionResultBinding.read(value, "strip");
     return result.ok && result.data.ok;
 }

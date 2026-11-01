@@ -104,7 +104,7 @@ test("安全等待点保存服务端目录验证后的模型，旧 Run 与不可
     });
     assert.equal(store.saves, 0);
     assert.deepEqual(await service.selectModel("goal-1", { runId: "run-1", modelId: "gpt-new" }), {
-        ok: true, goalId: "goal-1", runId: "run-1", modelId: "gpt-new", defaultModelSaved: false,
+        ok: true, goalId: "goal-1", runId: "run-1", selection: { modelId: "gpt-new" },
     });
     assert.deepEqual(store.goal?.state.modelSelection, chosen);
     assert.equal(store.saves, 1);
@@ -121,11 +121,21 @@ test("Goal 切换成功后偏好写入失败报告部分成功，随后可单独
         preferred = selection.modelId;
     };
     const service = serviceFor(store, undefined, save);
-    assert.deepEqual(await service.selectModel("goal-1", { runId: "run-1", modelId: "gpt-new" }), {
-        ok: true, goalId: "goal-1", runId: "run-1", modelId: "gpt-new", defaultModelSaved: false,
+    assert.deepEqual(await service.selectModel("goal-1", { runId: "run-1", modelId: "gpt-new", persistAsDefault: true }), {
+        ok: true,
+        goalId: "goal-1",
+        runId: "run-1",
+        selection: { modelId: "gpt-new" },
+        defaultPreference: { ok: false, error: "model_preference_save_failed" },
     });
     assert.equal(store.goal?.state.modelSelection.modelId, "gpt-new");
-    await save(chosen);
+    assert.deepEqual(await service.selectModel("goal-1", { runId: "run-1", modelId: "gpt-new", persistAsDefault: true }), {
+        ok: true,
+        goalId: "goal-1",
+        runId: "run-1",
+        selection: { modelId: "gpt-new" },
+        defaultPreference: { ok: true },
+    });
     assert.equal(preferred, "gpt-new");
 });
 

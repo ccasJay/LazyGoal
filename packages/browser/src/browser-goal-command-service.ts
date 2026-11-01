@@ -23,6 +23,7 @@ import type {
     BrowserGoalPlanModeResult,
     BrowserInteractionDetail,
     BrowserInteractionDetailResult,
+    BrowserModelPreferenceOutcome,
     BrowserModelSelectionCommand,
     BrowserModelSelectionResult,
     BrowserPermissionModeCommand,
@@ -218,18 +219,28 @@ export class BrowserGoalCommandService {
                         : "model_selection_failed";
             return { ok: false, error };
         }
-        let defaultModelSaved = false;
-        if (command.persistAsDefault !== false
-            && this.dependencies.saveModelPreference !== undefined
-            && !this.isShuttingDown()) {
-            try {
-                await this.dependencies.saveModelPreference(selection);
-                defaultModelSaved = true;
-            } catch {
-                // Goal 模型已提交；偏好失败通过结果字段单独报告。
+        let defaultPreference: BrowserModelPreferenceOutcome | undefined;
+        if (command.persistAsDefault === true) {
+            defaultPreference = { ok: false, error: "model_preference_save_failed" };
+            if (this.dependencies.saveModelPreference !== undefined && !this.isShuttingDown()) {
+                try {
+                    await this.dependencies.saveModelPreference(selection);
+                    defaultPreference = { ok: true };
+                } catch {
+                    // Goal 模型已提交；偏好失败作为独立子结果报告，不回滚选择。
+                }
             }
         }
-        return { ok: true, goalId, runId: command.runId, modelId: selection.modelId, defaultModelSaved };
+        return {
+            ok: true,
+            goalId,
+            runId: command.runId,
+            selection: {
+                modelId: selection.modelId,
+                ...(selection.profileId === undefined ? {} : { providerProfileId: selection.profileId }),
+            },
+            ...(defaultPreference === undefined ? {} : { defaultPreference }),
+        };
     }
 
     /**

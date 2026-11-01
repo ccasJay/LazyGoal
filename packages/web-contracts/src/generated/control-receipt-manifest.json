@@ -3,8 +3,8 @@
   "version": 1,
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
-    "path": "packages/web-contracts/src/wire.ts#BrowserControlReceipt,BrowserControlIntentResult,BrowserCreateSessionResult,BrowserSessionInputResult,BrowserGoalPlanModeResult,BrowserModelSelectionResult,BrowserPermissionModeResult,BrowserToolGrantResult,BrowserGoalArchiveResult,BrowserGoalDeleteResult,BrowserActionReviewResult,BrowserSessionInputReceipt,BrowserToolGrantSummary,BrowserActionReview,BrowserActionCapability,BrowserToolGrantExtraFile,BrowserPermissionMode,BrowserGrantScope,BrowserSessionInputStatus,BrowserSessionInputKind,BrowserSessionInputErrorCode,BrowserActionReviewIssue,BrowserActionReviewScope",
-    "sha256": "64749d163f63511bb3bccff2b6a7ea3fd2fb0ffcb1754f09a941b27472f5888c"
+    "path": "packages/web-contracts/src/wire.ts#BrowserControlReceipt,BrowserControlIntentResult,BrowserCreateSessionResult,BrowserSessionInputResult,BrowserGoalPlanModeResult,BrowserModelSelectionResult,BrowserModelSelectionCommit,BrowserModelPreferenceOutcome,BrowserPermissionModeResult,BrowserToolGrantResult,BrowserGoalArchiveResult,BrowserGoalDeleteResult,BrowserActionReviewResult,BrowserSessionInputReceipt,BrowserToolGrantSummary,BrowserActionReview,BrowserActionCapability,BrowserToolGrantExtraFile,BrowserPermissionMode,BrowserGrantScope,BrowserSessionInputStatus,BrowserSessionInputKind,BrowserSessionInputErrorCode,BrowserActionReviewIssue,BrowserActionReviewScope",
+    "sha256": "d57ef015e47cedd8a274eb8a01699838d761e8b981751bdd61f1b30e00311480"
   },
   "generator": {
     "name": "ts-json-schema-generator",

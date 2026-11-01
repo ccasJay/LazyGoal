@@ -480,6 +480,8 @@
                     "BrowserSessionInputResult",
                     "BrowserGoalPlanModeResult",
                     "BrowserModelSelectionResult",
+                    "BrowserModelSelectionCommit",
+                    "BrowserModelPreferenceOutcome",
                     "BrowserPermissionModeResult",
                     "BrowserToolGrantResult",
                     "BrowserGoalArchiveResult",
@@ -7371,7 +7373,9 @@
                 "strategy": "typescript-binding",
                 "rootType": "BrowserModelSelectionResult",
                 "declaredTypes": [
-                    "BrowserModelSelectionResult"
+                    "BrowserModelSelectionResult",
+                    "BrowserModelSelectionCommit",
+                    "BrowserModelPreferenceOutcome"
                 ],
                 "outputDirectory": "packages/web-contracts/src/generated",
                 "artifacts": {

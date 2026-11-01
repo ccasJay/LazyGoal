@@ -1135,8 +1135,9 @@ test("Provider、模型与命令结果合同校验嵌套凭据键、声明字段
     }), true);
 
     assert.equal(isModelSelectionAccepted({
-        ok: true, goalId: "goal-1", runId: "run-1", modelId: "gpt-4o", defaultModelSaved: false,
+        ok: true, goalId: "goal-1", runId: "run-1", selection: { modelId: "gpt-4o" },
     }), true);
+    assert.equal(isModelSelectionAccepted({ ok: true, goalId: "goal-1", runId: "run-1", selection: { modelId: "gpt-4o" }, defaultPreference: { ok: false, error: "model_preference_save_failed" } }), true);
     assert.equal(isModelSelectionAccepted({ ok: true, modelId: "gpt-4o", defaultModelSaved: false }), false);
     assert.equal(isModelSelectionAccepted({ ok: true, goalId: "goal-1", modelId: "gpt-4o", defaultModelSaved: false }), false);
     assert.equal(isModelSelectionAccepted({ ok: false, error: "unknown_error" }), false);

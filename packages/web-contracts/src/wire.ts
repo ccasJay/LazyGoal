@@ -1565,9 +1565,22 @@ export interface BrowserModelSelectionCommand {
     readonly modelId: string;
     /** @pattern \S */
     readonly providerProfileId?: string;
-    /** 是否同时保存为当前工作区默认模型；省略时保持既有行为。 */
+    /** 是否同时保存为当前工作区默认模型；省略时只切换 Goal 模型。 */
     readonly persistAsDefault?: boolean;
 }
+
+/** 已提交的模型选择子结果。 */
+export interface BrowserModelSelectionCommit {
+    /** @pattern \S */
+    readonly modelId: string;
+    /** @pattern \S */
+    readonly providerProfileId?: string;
+}
+
+/** 可选的默认偏好子结果；未请求时省略。 */
+export type BrowserModelPreferenceOutcome =
+    | { readonly ok: true }
+    | { readonly ok: false; readonly error: "model_preference_save_failed" };
 
 /** 模型选择结果。 */
 export type BrowserModelSelectionResult =
@@ -1577,9 +1590,9 @@ export type BrowserModelSelectionResult =
         readonly goalId: string;
         /** @pattern \S */
         readonly runId: string;
-        /** @pattern \S */
-        readonly modelId: string;
-        readonly defaultModelSaved: boolean;
+        readonly selection: BrowserModelSelectionCommit;
+        /** 只在请求保存默认偏好时报告；模型切换已成功时仍可单独失败。 */
+        readonly defaultPreference?: BrowserModelPreferenceOutcome;
     }
     | {
         readonly ok: false;

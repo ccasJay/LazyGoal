@@ -106,6 +106,7 @@ export function useGoalBoardApp() {
     loadDraftDefault: sessionManager.loadDraftDefault,
     onRefreshSession: sessionManager.refreshSelectedSession,
     onSetCommandError: (err) => commandsManager.setCommandError(err),
+    control,
   });
 
   const commandsManager = useRunCommands({

@@ -32,7 +32,7 @@
   - 实施目标与场景：将 `useRunCommands`、`useQueue`、`usePermissions`、`useToolGrants` 迁移到控制 intent 与统一 reducer；实现 `verify(intentId)` 到 input 收据、权限 revision、grantId、Goal 状态、模型选择与 pendingAction 的映射。给定一次丢响应、一次明确拒绝和一次原身份重试，页面应分别显示“结果不明”“可编辑拒绝”“按原身份核验后重试”，且不产生第二个 `inputId` 或重复 list／revoke。
   - 验证手段：运行 `npx tsx --test apps/goal-board/test/session-controls.test.ts apps/goal-board/test/p0-fixes.test.ts`，并新增每类 intent 的核验用例。
 
-- [ ] //TODO 7. 模型选择与默认偏好原子化
+- [x] //TODO 7. 模型选择与默认偏好原子化
   - 落实标准：[8.1](./spec.md#spec-req-8-1), [8.2](./spec.md#spec-req-8-2), [8.3](./spec.md#spec-req-8-3)
   - 实施目标与场景：控制入口的 `model_selection` 接受 `persistAsDefault`，一次返回 `selection` 与 `defaultPreference` 子结果；Goal Board 不再调用第二次 `setModelPreference`。给定模型切换成功但偏好保存失败，页面应显示部分成功与可重试提示；给定当前 Run 已不允许切换，应返回稳定拒绝且不单独写入偏好。
   - 验证手段：运行 `npx tsx --test packages/browser/test/browser-model-selection.test.ts`，并新增 Goal Board 部分成功用例。
