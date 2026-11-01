@@ -10,6 +10,7 @@ import type {
     AgentDecision,
     AskUserAnswer,
     ExecutionErrorCode,
+    Goal,
     GoalTask,
     JsonValue,
     Observation,
@@ -716,6 +717,30 @@ export interface TrajectoryReadResult {
 }
 
 /**
+ * 读取一个 Run 的最新提交边界。
+ *
+ * @remarks
+ * 当前 Run 使用 `state.run.committedThroughSequence`；已完成的 Run 使用其
+ * `completedRuns` 记录；未知 Run 或无记录时返回 0。该值只来自 Goal Snapshot，
+ * 不得由 Trajectory 或索引自行推导。
+ *
+ * @param goal - 提供 Run 边界的 Goal Snapshot。
+ * @param runId - 目标 Run 的稳定标识。
+ * @returns 该 Run 的最大已提交序号；无记录时为 0。
+ *
+ * @example
+ * ```ts
+ * const watermark = trajectoryWatermark(goal, "run-1");
+ * ```
+ */
+export function trajectoryWatermark(goal: Pick<Goal, "state">, runId: string): number {
+    return goal.state.run.id === runId
+        ? goal.state.run.committedThroughSequence ?? 0
+        : goal.state.completedRuns?.find((record) => record.runId === runId)
+            ?.committedThroughSequence ?? 0;
+}
+
+/**
  * 读取 Trajectory 并使用最新有效 Goal Snapshot 的提交边界完成分类。
  *
  * @param goalStore - 提供恢复权威 Snapshot 的只读 Port。
@@ -739,12 +764,7 @@ export async function readTrajectoryAtSnapshot(
     query: TrajectoryReadQuery,
 ): Promise<Readonly<TrajectoryReadResult>> {
     const goal = await goalStore.restore(query.goalId);
-    const committedThroughSequence = goal === undefined
-        ? 0
-        : goal.state.run.id === query.runId
-            ? goal.state.run.committedThroughSequence ?? 0
-            : goal.state.completedRuns?.find((record) => record.runId === query.runId)
-                ?.committedThroughSequence ?? 0;
+    const committedThroughSequence = goal === undefined ? 0 : trajectoryWatermark(goal, query.runId);
 
     return trajectoryStore.readWithBoundary(query, committedThroughSequence);
 }
