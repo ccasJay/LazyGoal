@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   BrowserActivityPage,
   BrowserActivityQuery,
+  BrowserControlSnapshot,
   BrowserGoalSession,
   BrowserGoalSessionState,
   BrowserModelCatalog,
@@ -173,6 +174,28 @@ export function useGoalSession({
     }
   }, [loadFullSession, selectedGoalId]);
 
+  /**
+   * 直接应用权威控制快照。
+   *
+   * @remarks
+   * 流式 `state_sync` 携带完整快照时，只替换会话控制状态；不重读 Activity、
+   * Trajectory、Metrics 或完整历史。快照的 Goal 身份与当前选择不一致时忽略，
+   * 避免迟到快照覆盖新选择。
+   *
+   * @param snapshot - 同一提交边界的 Goal 与会话控制状态。
+   * @example
+   * ```ts
+   * applyControlSnapshot(event.snapshot);
+   * ```
+   */
+  const applyControlSnapshot = useCallback((snapshot: BrowserControlSnapshot) => {
+    if (selectedGoalIdRef.current === null || snapshot.goal.goalId !== selectedGoalIdRef.current) return;
+    latestSession.current = snapshot.goal;
+    setSession(snapshot.goal);
+    setSessionState(snapshot.session);
+    setSessionError(null);
+  }, []);
+
   const readActivityWindow = useCallback(async (query: BrowserActivityQuery): Promise<BrowserActivityPage | undefined> => {
     const goalId = selectedGoalId;
     if (goalId === null) return undefined;
@@ -311,6 +334,7 @@ export function useGoalSession({
     setSessionError,
     latestSession,
     refreshSelectedSession,
+    applyControlSnapshot,
     draftSessionOpen,
     setDraftSessionOpen,
     draftPlanMode,

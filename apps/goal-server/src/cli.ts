@@ -307,6 +307,11 @@ export async function runServerSession(
             sessions: root.sessions,
             profileId: root.profile.id,
             isShuttingDown: () => root.abortController.signal.aborted,
+            readGoalState: (goalId) => readBrowserGoalSessionState(
+                goalId,
+                root.workspaceGoalStore,
+                root.sessions.activeGoal,
+            ),
             resolveModelSelection: async (command) => {
                 if (command.modelId === undefined) {
                     try {

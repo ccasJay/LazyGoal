@@ -1902,6 +1902,14 @@ export type BrowserGoalLiveEvent =
         /** @pattern \S */
         readonly goalId: string;
         readonly state: BrowserSessionState;
+        /**
+         * 同一提交边界的完整控制快照；无法与 Runtime 状态对齐时省略。
+         *
+         * @remarks
+         * 存在时页面可直接替换控制状态，不再完整重读 session 与 activity 历史；
+         * 省略时页面按窄状态入口自行恢复。
+         */
+        readonly snapshot?: BrowserControlSnapshot;
     }
     | {
         readonly type: "input_result";
@@ -2477,6 +2485,29 @@ export interface BrowserTrajectoryDetail {
     readonly toolFinishedAt?: string;
     readonly toolDurationMs: number | null;
     readonly observationConfirmed: boolean;
+}
+
+/**
+ * 同一提交边界的 Browser 控制快照。
+ *
+ * @remarks
+ * `session` 是 Runtime 一致会话状态，拥有 Run 状态、队列修订、交互引用与执行
+ * 所有者；`goal` 是同一 Run 的完整 Goal 控制投影，拥有待处理 Action、完整交互
+ * 视图与队列明细。两者共同构成可直接替换页面控制状态的权威来源，仅由
+ * `state_sync` 携带；增量事件不得伪造快照。
+ *
+ * @example
+ * ```ts
+ * if (event.type === "state_sync" && event.snapshot !== undefined) {
+ *     applyControlSnapshot(event.snapshot);
+ * }
+ * ```
+ */
+export interface BrowserControlSnapshot {
+    /** 同一 Run 的完整 Goal 控制投影。 */
+    readonly goal: BrowserGoalSessionState;
+    /** 同一订阅的 Runtime 一致会话状态。 */
+    readonly session: BrowserSessionState;
 }
 
 /** Browser 控制投影的可失效作用域。 */

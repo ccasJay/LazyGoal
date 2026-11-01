@@ -12,7 +12,7 @@
   - 实施目标与场景：在 `packages/web-contracts` 定义 `BrowserControlEvent`、`BrowserContentEvent` 与 `BrowserGoalEvent`，原位替换 `BrowserGoalLiveEvent`；在 `packages/browser` 把 Runtime 的 `state_sync`、`state_committed`、`input_result`、`interaction_settled`、`run_status`、`run_result`、`tool_activity`、`stream_fault`、`closed` 投影为显式事件。给定一次 Run 从 waiting 到 completed、一次交互结算和一次流缺口，浏览器应分别收到 `run_status_changed`／`run_result`、`interaction_settled` 和带 `code`／`resync` 的 `stream_fault`，不再出现对应的 `activity_boundary`。
   - 验证手段：运行 `npx tsx --test packages/browser/test/browser-session-output.test.ts packages/browser/test/browser-stream.test.ts`，并新增迟到／重复事件断言。
 
-- [ ] //TODO 3. 权威控制快照与精确失效
+- [x] //TODO 3. 权威控制快照与精确失效
   - 落实标准：[3.1](./spec.md#spec-req-3-1), [3.2](./spec.md#spec-req-3-2), [3.3](./spec.md#spec-req-3-3), [3.4](./spec.md#spec-req-3-4), [3.5](./spec.md#spec-req-3-5), [2.2](./spec.md#spec-req-2-2)
   - 实施目标与场景：定义 `ControlSnapshot` 与 `ControlResources`；Browser 在首次同步／重连时组装包含 Goal／Run、队列、交互、待审批 Action、`commitRevision` 与执行所有者的完整快照；`state_committed` 只声明实际变化 scope。给定连接重建，页面应直接应用 `state_sync` 而不再完整读取 session／activity 历史；给定一次仅影响 `grants` 的提交，页面只失效 Grant 资源。
   - 验证手段：扩展 `packages/browser/test/browser-session-output.test.ts` 与 `packages/browser/test/browser-recovery.test.ts`，断言快照字段完整、scope 精确且无额外完整读取。

@@ -314,6 +314,14 @@ export type SessionStreamFaultEvent =
 export interface SessionCommitBoundaryEvent {
     /** 来源信封。 */
     readonly source: SessionEventSource;
+    /**
+     * 本次提交边界包含的来源事件类型。
+     *
+     * @remarks
+     * `step_committed` 报告整批已提交事件的类型；其它边界只报告其自身类型。
+     * 消费者据此推导实际变化范围，不需要读取 Trajectory 或按事件顺序猜测。
+     */
+    readonly eventTypes: readonly string[];
     /** 该提交边界的 Goal 提交修订；来源未提供时省略。 */
     readonly commitRevision?: number | undefined;
 }
@@ -610,8 +618,21 @@ function readCommitBoundary(event: ExecutionStreamEvent): SessionCommitBoundaryE
     const revision = readCommitRevision(event.payload);
     return {
         source: toSource(event),
+        eventTypes: readCommittedEventTypes(event),
         ...(revision === undefined ? {} : { commitRevision: revision }),
     };
+}
+
+const MAX_COMMITTED_EVENT_TYPES = 200;
+
+function readCommittedEventTypes(event: ExecutionStreamEvent): readonly string[] {
+    if (event.kind !== "step_committed" || !isRecord(event.payload)) return [event.kind];
+    const declared = event.payload.eventTypes;
+    if (!Array.isArray(declared)) return [event.kind];
+    const types = declared
+        .filter((type): type is string => typeof type === "string")
+        .slice(0, MAX_COMMITTED_EVENT_TYPES);
+    return types.length === 0 ? [event.kind] : types;
 }
 
 /**

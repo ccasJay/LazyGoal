@@ -244,6 +244,11 @@ const sessionPort = createBrowserGoalSessionPort({
     sessions: root.sessions,
     profileId: root.profile.id,
     isShuttingDown: () => root.abortController.signal.aborted,
+    readGoalState: (goalId) => readBrowserGoalSessionState(
+        goalId,
+        root.workspaceGoalStore,
+        root.sessions.activeGoal,
+    ),
     resolveModelSelection: async (command) => {
         const modelId = command.modelId ?? root.defaultModelSelection.modelId;
         if (modelId !== root.defaultModelSelection.modelId && modelId !== "model-b") {

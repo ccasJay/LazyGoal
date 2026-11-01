@@ -22,6 +22,7 @@ import {
     createBrowserGoalRoutes,
     createBrowserSessionAccess,
     createBrowserSessionFeed,
+    readBrowserGoalSessionState,
     type BrowserGoalLiveEvent,
     type BrowserGoalLiveFeed,
     type BrowserGoalSessionPort,
@@ -131,7 +132,7 @@ function openFeed(store: GoalStore, publisher: InMemoryExecutionStreamPublisher,
         detachSession: () => { detached = true; },
     });
     return {
-        feed: createBrowserSessionFeed(session, stream),
+        feed: createBrowserSessionFeed(session, stream, (target) => readBrowserGoalSessionState(target, store, undefined)),
         detached: () => detached,
     };
 }
@@ -480,6 +481,56 @@ test("控制事实以显式事件发布，而不是压扁为通用活动边界",
     const tool = (await nextControlEvent(iterator)).value;
     assert.equal(tool?.type, "tool_activity");
     assert.equal(tool?.type === "tool_activity" ? tool.activity.phase : undefined, "started");
+    opened.feed.close();
+});
+
+test("提交边界只声明实际变化的投影作用域", async () => {
+    const goal = goalFor("goal-stream-scopes");
+    const store = new MemoryStore();
+    await store.save(goal);
+    const publisher = new InMemoryExecutionStreamPublisher();
+    const opened = openFeed(store, publisher, goal.id);
+    const iterator = opened.feed.events[Symbol.asyncIterator]();
+    await nextEvent(iterator);
+
+    publisher.publish({
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        kind: "step_committed",
+        visibility: "public",
+        durability: "trajectory",
+        delivery: "control",
+        payload: { eventTypes: ["observation_recorded", "tool_finished"] },
+    });
+    const activityCommit = (await nextControlEvent(iterator)).value;
+    assert.equal(activityCommit?.type, "state_committed");
+    assert.deepEqual(activityCommit?.type === "state_committed" ? activityCommit.changed : [], ["activity", "trajectory"]);
+
+    publisher.publish({
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        kind: "step_committed",
+        visibility: "public",
+        durability: "checkpoint",
+        delivery: "control",
+        payload: { eventTypes: ["tool_grant_revoked"] },
+    });
+    const grantCommit = (await nextControlEvent(iterator)).value;
+    assert.equal(grantCommit?.type, "state_committed");
+    assert.deepEqual(grantCommit?.type === "state_committed" ? grantCommit.changed : [], ["grants"]);
+
+    publisher.publish({
+        goalId: goal.id,
+        runId: goal.state.run.id,
+        kind: "state_committed",
+        visibility: "public",
+        durability: "checkpoint",
+        delivery: "control",
+        payload: {},
+    });
+    const sessionCommit = (await nextControlEvent(iterator)).value;
+    assert.equal(sessionCommit?.type, "state_committed");
+    assert.deepEqual(sessionCommit?.type === "state_committed" ? sessionCommit.changed : [], ["session"]);
     opened.feed.close();
 });
 

@@ -161,6 +161,7 @@ export {
     type BrowserControlIntentResult,
     type BrowserControlReceipt,
     type BrowserControlScope,
+    type BrowserControlSnapshot,
 } from "./control";
 
 export {

@@ -19,8 +19,11 @@ import type {
 import type {
     BrowserCreateSessionCommand,
     BrowserCreateSessionResult,
+    BrowserControlScope,
+    BrowserControlSnapshot,
     BrowserGoalActivityEvent,
     BrowserGoalLiveEvent,
+    BrowserGoalSessionState,
     BrowserSessionInputCommand,
     BrowserSessionInputOutcome,
     BrowserSessionInputQueryResult,
@@ -32,7 +35,7 @@ import type {
     BrowserSessionState,
     BrowserToolActivity,
 } from "../../web-contracts/src/index";
-import { isJsonValue } from "../../web-contracts/src/index";
+import { BROWSER_ACTIVITY_EVENT_TYPES, isJsonValue } from "../../web-contracts/src/index";
 
 const MAX_PENDING_LIVE_EVENTS = 128;
 type ActivityBoundaryReason = "assistant_reply" | "user_wait" | "stage_change" | "terminal" | "failure" | "unknown";
@@ -237,7 +240,15 @@ export function createBrowserGoalSessionPort(
                     error: opened.error.code === "GOAL_NOT_FOUND" ? "goal_not_found" : "goal_unreadable",
                 };
             }
-            return { ok: true, feed: createBrowserSessionFeed(opened.session, opened.session.events(), signal) };
+            return {
+                ok: true,
+                feed: createBrowserSessionFeed(
+                    opened.session,
+                    opened.session.events(),
+                    dependencies.readGoalState,
+                    signal,
+                ),
+            };
         },
         listMessages: async (goalId, query) => {
             const result = await dependencies.sessions.readSessionMessages(goalId, query);
@@ -311,6 +322,18 @@ export interface BrowserGoalSessionPortDependencies {
     /** 创建新 Goal 时使用的 Profile 身份。 */
     readonly profileId: string;
     /**
+     * 读取同一提交边界的完整 Goal 控制投影。
+     *
+     * @remarks
+     * 每次订阅建立或重建时调用一次，用于在 `state_sync` 中携带可直接应用的
+     * 权威控制快照；增量事件不重复调用。读取失败或无法与 Runtime 状态对齐时，
+     * 快照被省略，客户端按既有窄状态入口自行恢复。
+     *
+     * @param goalId - 正在订阅的 Goal 身份。
+     * @returns 完整 Goal 控制投影；Goal 不存在时返回 `undefined`。
+     */
+    readGoalState(goalId: string): Promise<BrowserGoalSessionState | undefined>;
+    /**
      * 解析创建时的完整模型选择。
      *
      * @param command - 已通过 wire 校验的创建命令。
@@ -335,19 +358,21 @@ export interface BrowserGoalSessionPortDependencies {
  *
  * @param session - 由 `sessions.open` 返回的只读句柄。
  * @param stream - `session.events()` 返回的 Goal 范围输出流。
+ * @param readGoalState - 首次同步时读取一次完整 Goal 控制投影。
  * @param signal - 可选的 HTTP 断开信号。
  * @returns 有界、单消费者的安全事件流。
  * @example
  * ```ts
- * const feed = createBrowserSessionFeed(session, session.events(), signal);
+ * const feed = createBrowserSessionFeed(session, session.events(), readGoalState, signal);
  * ```
  */
 export function createBrowserSessionFeed(
     session: Session,
     stream: SessionOutputStream,
+    readGoalState: (goalId: string) => Promise<BrowserGoalSessionState | undefined>,
     signal?: AbortSignal,
 ): BrowserGoalLiveFeed {
-    return new BrowserSessionFeedImpl(session, stream, signal);
+    return new BrowserSessionFeedImpl(session, stream, readGoalState, signal);
 }
 
 class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
@@ -358,6 +383,7 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
     constructor(
         private readonly session: Session,
         private readonly stream: SessionOutputStream,
+        private readonly readGoalState: (goalId: string) => Promise<BrowserGoalSessionState | undefined>,
         private readonly signal?: AbortSignal,
     ) {
         this.onAbort = () => this.close();
@@ -391,7 +417,7 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
         try {
             for await (const event of this.stream) {
                 if (this.closed || this.signal?.aborted === true) return;
-                this.onSessionEvent(event);
+                await this.onSessionEvent(event);
             }
         } catch {
             if (!this.closed) this.push({ type: "refresh_required", goalId: this.session.goalId });
@@ -400,23 +426,31 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
         }
     }
 
-    private onSessionEvent(event: SessionOutputEvent): void {
+    private async onSessionEvent(event: SessionOutputEvent): Promise<void> {
         const goalId = this.session.goalId;
         switch (event.type) {
-            case "state_sync":
-                this.push({ type: "state_sync", goalId, state: projectSessionState(goalId, event.state) });
+            case "state_sync": {
+                const state = projectSessionState(goalId, event.state);
+                const snapshot = await this.readControlSnapshot(goalId, state);
+                this.push({
+                    type: "state_sync",
+                    goalId,
+                    state,
+                    ...(snapshot === undefined ? {} : { snapshot }),
+                });
                 return;
+            }
             case "input_result":
                 this.push({ type: "input_result", goalId, outcome: projectInputOutcome(goalId, event.outcome) });
                 return;
             case "generation_event":
                 if (!this.isOwnSource(goalId, event.event.source)) return;
-                if (this.pushCommittedBoundary(goalId, event.event.source)) return;
+                if (this.pushCommittedBoundary(goalId, event.event.source, ["activity", "trajectory"])) return;
                 this.onGenerationEvent(goalId, event.event);
                 return;
             case "tool_activity":
                 if (!this.isOwnSource(goalId, event.event.source)) return;
-                if (this.pushCommittedBoundary(goalId, event.event.source)) return;
+                if (this.pushCommittedBoundary(goalId, event.event.source, ["activity", "trajectory"])) return;
                 this.onToolActivity(goalId, event.event);
                 return;
             case "message_committed":
@@ -452,7 +486,7 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
                     interactionId: event.event.interactionId,
                     kind: projectInteractionKind(event.event.interactionKind),
                 });
-                if (this.pushCommittedBoundary(goalId, event.event.source)) return;
+                if (this.pushCommittedBoundary(goalId, event.event.source, ["session"])) return;
                 this.push({
                     type: "activity",
                     goalId,
@@ -467,7 +501,7 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
                     runId: event.event.source.runId,
                     status: projectRunStatus(event.event.kind),
                 });
-                if (this.pushCommittedBoundary(goalId, event.event.source)) return;
+                if (this.pushCommittedBoundary(goalId, event.event.source, ["session"])) return;
                 this.push({
                     type: "activity",
                     goalId,
@@ -482,7 +516,7 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
                     runId: event.event.runId,
                     result: event.event.kind,
                 });
-                if (this.pushCommittedBoundary(goalId, event.event.source)) return;
+                if (this.pushCommittedBoundary(goalId, event.event.source, ["session"])) return;
                 this.push({
                     type: "activity",
                     goalId,
@@ -504,9 +538,9 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
                 this.push({
                     type: "state_committed",
                     goalId,
-                    ...(event.event.source.runId === undefined ? {} : { runId: event.event.source.runId }),
+                    runId: event.event.source.runId,
                     commitRevision: event.event.commitRevision ?? 0,
-                    changed: ["session"],
+                    changed: projectCommittedScopes(event.event.eventTypes),
                 });
                 this.push({ type: "snapshot_changed", goalId, runId: event.event.source.runId });
                 return;
@@ -534,23 +568,52 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
     }
 
     /**
-     * 已随 Snapshot 落盘的来源事件只要求客户端重新核对快照。
+     * 已随 Snapshot 落盘的来源事件只要求客户端重新核对受影响投影。
      *
      * @param goalId - 观察的 Goal。
      * @param source - 来源信封。
+     * @param changed - 本次提交实际改变的作用域。
      * @returns 已按提交边界推送通知时返回 `true`。
      */
-    private pushCommittedBoundary(goalId: string, source: SessionEventSource): boolean {
+    private pushCommittedBoundary(
+        goalId: string,
+        source: SessionEventSource,
+        changed: readonly BrowserControlScope[],
+    ): boolean {
         if (source.durability !== "checkpoint") return false;
         this.push({
             type: "state_committed",
             goalId,
-            ...(source.runId === undefined ? {} : { runId: source.runId }),
+            runId: source.runId,
             commitRevision: 0,
-            changed: ["session"],
+            changed,
         });
         this.push({ type: "snapshot_changed", goalId, runId: source.runId });
         return true;
+    }
+
+    /**
+     * 组装可直接应用的权威控制快照。
+     *
+     * @remarks
+     * 只在首次同步或重连时读取一次完整 Goal 投影；Goal 缺失、读取失败或与
+     * Runtime 快照的 Run 身份不一致时省略快照，不拼接来自不同提交的字段。
+     *
+     * @param goalId - 订阅的 Goal。
+     * @param state - 同一订阅的窄会话状态。
+     * @returns 可直接应用的快照；无法对齐时返回 `undefined`。
+     */
+    private async readControlSnapshot(
+        goalId: string,
+        state: BrowserSessionState,
+    ): Promise<BrowserControlSnapshot | undefined> {
+        try {
+            const goal = await this.readGoalState(goalId);
+            if (goal === undefined || goal.goalId !== goalId || goal.currentRunId !== state.runId) return undefined;
+            return { goal, session: state };
+        } catch {
+            return undefined;
+        }
     }
 
     private onGenerationEvent(goalId: string, event: SessionGenerationEvent): void {
@@ -812,6 +875,81 @@ function projectActivityBoundary(
         sourceCursor: source.cursor,
         reason,
     };
+}
+
+/** 只改变会话控制快照的已提交事件类型。 */
+const SESSION_COMMIT_EVENT_TYPES: ReadonlySet<string> = new Set([
+    "state_committed",
+    "step_committed",
+    "goal_created",
+    "run_created",
+    "run_started",
+    "run_waiting",
+    "run_completed",
+    "run_failed",
+    "run_cancelled",
+    "run_resumed",
+    "run_interrupt_requested",
+    "run_interrupted_action_unknown",
+    "run_stage_declared",
+    "run_stage_accepted",
+    "run_stage_rejected",
+    "run_plan_route_revised",
+    "session_input_admitted",
+    "session_input_applied",
+    "session_input_cleared",
+    "steer_input_received",
+    "steer_input_applied",
+    "ask_user_answered",
+    "ask_user_replied",
+    "ask_user_skipped",
+    "task_approved",
+    "task_feedback_received",
+    "plan_mode_entered",
+    "goal_plan_updated",
+    "action_staged",
+    "action_approved",
+    "action_revised",
+    "action_rejected",
+    "action_recovered",
+    "action_reexecution_authorized",
+    "execution_error",
+]);
+
+/** 只改变 Tool／Sandbox Grant 摘要的已提交事件类型。 */
+const GRANT_COMMIT_EVENT_TYPES: ReadonlySet<string> = new Set([
+    "tool_grant_revoked",
+    "sandbox_grant_revoked",
+]);
+
+/**
+ * 从已提交来源事件类型推导实际失效作用域。
+ *
+ * @remarks
+ * 只有已知会改变会话控制、Grant 摘要或 Activity／Trajectory 投影的事件才会声明
+ * 对应作用域；无法识别的事件按 `session` 保守报告，不把全部作用域标为失效。
+ *
+ * @param eventTypes - 提交边界包含的来源事件类型。
+ * @returns 非空且去重的失效作用域。
+ */
+function projectCommittedScopes(eventTypes: readonly string[]): readonly BrowserControlScope[] {
+    const scopes = new Set<BrowserControlScope>();
+    for (const eventType of eventTypes) {
+        if (GRANT_COMMIT_EVENT_TYPES.has(eventType)) {
+            scopes.add("grants");
+            continue;
+        }
+        if (SESSION_COMMIT_EVENT_TYPES.has(eventType)) scopes.add("session");
+        if ((BROWSER_ACTIVITY_EVENT_TYPES as readonly string[]).includes(eventType)) {
+            scopes.add("activity");
+            scopes.add("trajectory");
+        }
+        if (!SESSION_COMMIT_EVENT_TYPES.has(eventType)
+            && !(BROWSER_ACTIVITY_EVENT_TYPES as readonly string[]).includes(eventType)) {
+            scopes.add("session");
+        }
+    }
+    return scopes.size === 0 ? ["session"] : [...scopes];
 }
 
 /**

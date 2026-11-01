@@ -10,4 +10,5 @@ export type {
     BrowserControlIntentResult,
     BrowserControlReceipt,
     BrowserControlScope,
+    BrowserControlSnapshot,
 } from "./wire";

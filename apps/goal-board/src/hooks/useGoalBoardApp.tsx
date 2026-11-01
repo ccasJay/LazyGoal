@@ -49,6 +49,7 @@ export function useGoalBoardApp() {
     activityPage: sessionManager.activityPage,
     sessionLoading: sessionManager.sessionLoading,
     onRefresh: sessionManager.refreshSelectedSession,
+    onControlSnapshot: sessionManager.applyControlSnapshot,
   });
 
   const permissionsManager = usePermissions({

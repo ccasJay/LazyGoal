@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { BrowserActivityPage, BrowserGoalActivityEvent, BrowserGoalLiveEvent, BrowserGoalSessionState } from "../../../../packages/web-contracts/src/index";
+import type { BrowserActivityPage, BrowserControlSnapshot, BrowserGoalActivityEvent, BrowserGoalLiveEvent, BrowserGoalSessionState } from "../../../../packages/web-contracts/src/index";
 import { browserApi } from "../api";
 import { createTextBatcher } from "../live-text-batch";
 import { recordExecutionProgress, type ExecutionProgressEntry } from "../execution-progress";
@@ -28,12 +28,14 @@ export function useRunStream({
   activityPage,
   sessionLoading,
   onRefresh,
+  onControlSnapshot,
 }: {
   selectedGoalId: string | null;
   session: BrowserGoalSessionState | null;
   activityPage: BrowserActivityPage | null;
   sessionLoading: boolean;
   onRefresh: () => Promise<void>;
+  onControlSnapshot: (snapshot: BrowserControlSnapshot) => void;
 }) {
   const [outputDisplay, setOutputDisplay] = useState(EMPTY_SESSION_OUTPUT_DISPLAY);
   const [liveEvents, setLiveEvents] = useState<BrowserGoalLiveEvent[]>([]);
@@ -42,6 +44,7 @@ export function useRunStream({
   const [recovery, setRecovery] = useState<StreamRecoveryState>(INITIAL_STREAM_RECOVERY_STATE);
   const [livePreview, setLivePreview] = useState<LivePreviewState>(createLivePreviewState());
   const onRefreshRef = useRef(onRefresh);
+  const onControlSnapshotRef = useRef(onControlSnapshot);
   const liveText = latestSource(livePreview, session?.currentRunId ?? "")?.content ?? "";
   const liveActivity = outputDisplay.liveActivity || null;
 
@@ -101,6 +104,10 @@ export function useRunStream({
   useEffect(() => {
     onRefreshRef.current = onRefresh;
   }, [onRefresh]);
+
+  useEffect(() => {
+    onControlSnapshotRef.current = onControlSnapshot;
+  }, [onControlSnapshot]);
 
   useEffect(() => {
     if (selectedGoalId === null) {
@@ -179,8 +186,12 @@ export function useRunStream({
                 }));
               }
               setRecovery((current) => reduceStreamRecovery(current, { kind: "state_sync" }));
-              // 一致状态与受理结果只用于同步：最新快照由读取接口给出。
-              await refreshLatest();
+              // 权威快照直接替换控制状态；只有无法组装时才回倒完整读取。
+              if (event.snapshot === undefined) {
+                await refreshLatest();
+              } else {
+                onControlSnapshotRef.current(event.snapshot);
+              }
               continue;
             }
             if (!synced) {

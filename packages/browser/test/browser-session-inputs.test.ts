@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
     createBrowserGoalRoutes,
     createBrowserGoalSessionPort,
+    readBrowserGoalSessionState,
     type BrowserGoalApiPort,
 } from "../src/index";
 import { createSessionHarness, goalFor, type SessionHarnessOptions } from "./session-harness";
@@ -47,6 +48,7 @@ function createApi(
             sessions: harness.sessions,
             profileId: "default",
             isShuttingDown: () => options.shuttingDown === true,
+            readGoalState: (goalId) => readBrowserGoalSessionState(goalId, harness.store, undefined),
             resolveModelSelection: async () => ({
                 ok: true,
                 selection: { provider: "openai", modelId: "model-1", structuredOutputMode: "prompt_only", inputEstimator: { kind: "character-v1" } },

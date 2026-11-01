@@ -12,13 +12,13 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
   "BrowserGoalLiveEvent-validator.cjs"(exports, module) {
     module.exports = validate10;
     module.exports.default = validate10;
-    var schema12 = { "anyOf": [{ "type": "object", "properties": { "type": { "type": "string", "const": "state_sync" }, "goalId": { "type": "string", "pattern": "\\S" }, "state": { "$ref": "#/definitions/BrowserSessionState" } }, "required": ["type", "goalId", "state"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "input_result" }, "goalId": { "type": "string", "pattern": "\\S" }, "outcome": { "$ref": "#/definitions/BrowserSessionInputOutcome" } }, "required": ["type", "goalId", "outcome"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "activity" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "activity": { "$ref": "#/definitions/BrowserGoalActivityEvent" } }, "required": ["type", "goalId", "runId", "activity"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "message_committed" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "message": { "$ref": "#/definitions/BrowserCommittedMessageEvent" } }, "required": ["type", "goalId", "runId", "message"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "interaction_required" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "interaction": { "$ref": "#/definitions/BrowserInteractionRequiredEvent" } }, "required": ["type", "goalId", "runId", "interaction"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "snapshot_changed" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" } }, "required": ["type", "goalId"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "refresh_required" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" } }, "required": ["type", "goalId"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "state_committed" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "commitRevision": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "changed": { "type": "array", "items": { "$ref": "#/definitions/BrowserControlScope" }, "minItems": 1 } }, "required": ["type", "goalId", "commitRevision", "changed"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "run_status_changed" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "status": { "$ref": "#/definitions/BrowserRunStatus" }, "commitRevision": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 } }, "required": ["type", "goalId", "runId", "status"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "run_result" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "result": { "type": "string", "enum": ["completed", "failed", "cancelled"] }, "commitRevision": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 } }, "required": ["type", "goalId", "runId", "result"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "interaction_opened" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "interactionId": { "type": "string", "pattern": "\\S" }, "kind": { "$ref": "#/definitions/BrowserInteractionKind" } }, "required": ["type", "goalId", "runId", "interactionId", "kind"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "interaction_settled" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "interactionId": { "type": "string", "pattern": "\\S" }, "kind": { "$ref": "#/definitions/BrowserInteractionKind" } }, "required": ["type", "goalId", "runId", "interactionId", "kind"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "tool_activity" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "activity": { "$ref": "#/definitions/BrowserToolActivity" } }, "required": ["type", "goalId", "runId", "activity"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "stream_fault" }, "goalId": { "type": "string", "pattern": "\\S" }, "code": { "type": "string", "enum": ["gap", "read_failed", "backpressure", "publisher_closed"] }, "resync": { "type": "array", "items": { "$ref": "#/definitions/BrowserControlScope" }, "minItems": 1 } }, "required": ["type", "goalId", "code", "resync"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "closed" }, "goalId": { "type": "string", "pattern": "\\S" }, "reason": { "type": "string", "enum": ["backpressure", "closed", "publisher_closed"] } }, "required": ["type", "goalId", "reason"], "additionalProperties": false }], "description": "\u6D4F\u89C8\u5668\u7AEF\u6D88\u8D39\u7684 Goal \u8303\u56F4\u5B9E\u65F6\u63A8\u9001\u4E8B\u4EF6\u3002" };
-    var schema26 = { "anyOf": [{ "type": "object", "properties": { "kind": { "type": "string", "const": "assistant_text_delta" }, "text": { "type": "string" }, "truncated": { "type": "boolean" }, "sourceEventId": { "type": "string", "pattern": "\\S" }, "sourceCursor": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 } }, "required": ["kind", "text", "truncated", "sourceEventId", "sourceCursor"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "model_started" }, "stage": { "type": "string", "enum": ["think", "decide", "completion_review"] }, "modelCallId": { "type": "string", "pattern": "\\S" }, "executionUnitId": { "type": "string", "pattern": "\\S" }, "occurredAt": { "type": "string" } }, "required": ["kind"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "model_completed" } }, "required": ["kind"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "step_started" } }, "required": ["kind"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "tool_started" }, "sourceEventId": { "type": "string", "pattern": "\\S" }, "sourceCursor": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "actionId": { "type": "string", "pattern": "\\S" }, "executionUnitId": { "type": "string", "pattern": "\\S" }, "toolId": { "type": "string", "pattern": "\\S" }, "inputSummary": { "type": "string" } }, "required": ["kind", "sourceEventId", "sourceCursor", "actionId", "executionUnitId", "toolId"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "tool_finished" }, "sourceEventId": { "type": "string", "pattern": "\\S" }, "sourceCursor": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "actionId": { "type": "string", "pattern": "\\S" }, "toolId": { "type": "string", "pattern": "\\S" }, "outcome": { "type": "string", "enum": ["success", "failure"] }, "summary": { "type": "string" } }, "required": ["kind", "sourceEventId", "sourceCursor", "actionId", "toolId", "outcome"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "tool_attempt_started" }, "sourceEventId": { "type": "string", "pattern": "\\S" }, "sourceCursor": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "actionId": { "type": "string", "pattern": "\\S" }, "attempt": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 } }, "required": ["kind", "sourceEventId", "sourceCursor", "actionId", "attempt"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "tool_attempt_failed" }, "sourceEventId": { "type": "string", "pattern": "\\S" }, "sourceCursor": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "actionId": { "type": "string", "pattern": "\\S" }, "attempt": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "reason": { "type": "string" } }, "required": ["kind", "sourceEventId", "sourceCursor", "actionId", "attempt", "reason"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "activity_boundary" }, "sourceEventId": { "type": "string", "pattern": "\\S" }, "sourceCursor": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "reason": { "type": "string", "enum": ["assistant_reply", "user_wait", "stage_change", "terminal", "failure", "unknown"] } }, "required": ["kind", "sourceEventId", "sourceCursor", "reason"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "candidate_preview" }, "sourceEventId": { "type": "string", "pattern": "\\S" }, "sourceCursor": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "candidateId": { "type": "string", "pattern": "\\S" }, "text": { "type": "string" }, "startOffset": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "truncated": { "type": "boolean" }, "complete": { "type": "boolean" } }, "required": ["kind", "sourceEventId", "sourceCursor", "candidateId", "text", "startOffset", "truncated", "complete"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "candidate_invalidated" }, "sourceEventId": { "type": "string", "pattern": "\\S" }, "sourceCursor": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "candidateId": { "type": "string", "pattern": "\\S" }, "reason": { "type": "string", "enum": ["rejected", "cancelled", "failed", "replaced", "ambiguous"] } }, "required": ["kind", "sourceEventId", "sourceCursor", "candidateId", "reason"], "additionalProperties": false }], "description": "\u5B9E\u65F6\u6267\u884C\u6D3B\u52A8\u4E8B\u4EF6\u7684\u7A33\u5B9A\u8054\u5408\u3002" };
-    var schema29 = { "type": "object", "properties": { "interactionId": { "type": "string", "pattern": "\\S" }, "kind": { "type": "string", "enum": ["ask_user", "task_approval", "action_approval", "action_recovery"] }, "runId": { "type": "string", "pattern": "\\S" } }, "required": ["interactionId", "kind", "runId"], "additionalProperties": false, "description": "\u4EA4\u4E92\u8981\u6C42\u7684\u5B9E\u65F6\u63A8\u9001\u6458\u8981\u3002" };
-    var schema30 = { "type": "string", "enum": ["session", "activity", "trajectory", "metrics", "goals", "grants", "permission", "model"], "description": "Browser \u63A7\u5236\u6295\u5F71\u7684\u53EF\u5931\u6548\u4F5C\u7528\u57DF\u3002" };
+    var schema12 = { "anyOf": [{ "type": "object", "properties": { "type": { "type": "string", "const": "state_sync" }, "goalId": { "type": "string", "pattern": "\\S" }, "state": { "$ref": "#/definitions/BrowserSessionState" }, "snapshot": { "$ref": "#/definitions/BrowserControlSnapshot", "description": "\u540C\u4E00\u63D0\u4EA4\u8FB9\u754C\u7684\u5B8C\u6574\u63A7\u5236\u5FEB\u7167\uFF1B\u65E0\u6CD5\u4E0E Runtime \u72B6\u6001\u5BF9\u9F50\u65F6\u7701\u7565\u3002" } }, "required": ["type", "goalId", "state"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "input_result" }, "goalId": { "type": "string", "pattern": "\\S" }, "outcome": { "$ref": "#/definitions/BrowserSessionInputOutcome" } }, "required": ["type", "goalId", "outcome"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "activity" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "activity": { "$ref": "#/definitions/BrowserGoalActivityEvent" } }, "required": ["type", "goalId", "runId", "activity"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "message_committed" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "message": { "$ref": "#/definitions/BrowserCommittedMessageEvent" } }, "required": ["type", "goalId", "runId", "message"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "interaction_required" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "interaction": { "$ref": "#/definitions/BrowserInteractionRequiredEvent" } }, "required": ["type", "goalId", "runId", "interaction"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "snapshot_changed" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" } }, "required": ["type", "goalId"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "refresh_required" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" } }, "required": ["type", "goalId"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "state_committed" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "commitRevision": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "changed": { "type": "array", "items": { "$ref": "#/definitions/BrowserControlScope" }, "minItems": 1 } }, "required": ["type", "goalId", "commitRevision", "changed"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "run_status_changed" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "status": { "$ref": "#/definitions/BrowserRunStatus" }, "commitRevision": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 } }, "required": ["type", "goalId", "runId", "status"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "run_result" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "result": { "type": "string", "enum": ["completed", "failed", "cancelled"] }, "commitRevision": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 } }, "required": ["type", "goalId", "runId", "result"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "interaction_opened" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "interactionId": { "type": "string", "pattern": "\\S" }, "kind": { "$ref": "#/definitions/BrowserInteractionKind" } }, "required": ["type", "goalId", "runId", "interactionId", "kind"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "interaction_settled" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "interactionId": { "type": "string", "pattern": "\\S" }, "kind": { "$ref": "#/definitions/BrowserInteractionKind" } }, "required": ["type", "goalId", "runId", "interactionId", "kind"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "tool_activity" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "activity": { "$ref": "#/definitions/BrowserToolActivity" } }, "required": ["type", "goalId", "runId", "activity"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "stream_fault" }, "goalId": { "type": "string", "pattern": "\\S" }, "code": { "type": "string", "enum": ["gap", "read_failed", "backpressure", "publisher_closed"] }, "resync": { "type": "array", "items": { "$ref": "#/definitions/BrowserControlScope" }, "minItems": 1 } }, "required": ["type", "goalId", "code", "resync"], "additionalProperties": false }, { "type": "object", "properties": { "type": { "type": "string", "const": "closed" }, "goalId": { "type": "string", "pattern": "\\S" }, "reason": { "type": "string", "enum": ["backpressure", "closed", "publisher_closed"] } }, "required": ["type", "goalId", "reason"], "additionalProperties": false }], "description": "\u6D4F\u89C8\u5668\u7AEF\u6D88\u8D39\u7684 Goal \u8303\u56F4\u5B9E\u65F6\u63A8\u9001\u4E8B\u4EF6\u3002" };
+    var schema50 = { "anyOf": [{ "type": "object", "properties": { "kind": { "type": "string", "const": "assistant_text_delta" }, "text": { "type": "string" }, "truncated": { "type": "boolean" }, "sourceEventId": { "type": "string", "pattern": "\\S" }, "sourceCursor": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 } }, "required": ["kind", "text", "truncated", "sourceEventId", "sourceCursor"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "model_started" }, "stage": { "type": "string", "enum": ["think", "decide", "completion_review"] }, "modelCallId": { "type": "string", "pattern": "\\S" }, "executionUnitId": { "type": "string", "pattern": "\\S" }, "occurredAt": { "type": "string" } }, "required": ["kind"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "model_completed" } }, "required": ["kind"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "step_started" } }, "required": ["kind"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "tool_started" }, "sourceEventId": { "type": "string", "pattern": "\\S" }, "sourceCursor": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "actionId": { "type": "string", "pattern": "\\S" }, "executionUnitId": { "type": "string", "pattern": "\\S" }, "toolId": { "type": "string", "pattern": "\\S" }, "inputSummary": { "type": "string" } }, "required": ["kind", "sourceEventId", "sourceCursor", "actionId", "executionUnitId", "toolId"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "tool_finished" }, "sourceEventId": { "type": "string", "pattern": "\\S" }, "sourceCursor": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "actionId": { "type": "string", "pattern": "\\S" }, "toolId": { "type": "string", "pattern": "\\S" }, "outcome": { "type": "string", "enum": ["success", "failure"] }, "summary": { "type": "string" } }, "required": ["kind", "sourceEventId", "sourceCursor", "actionId", "toolId", "outcome"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "tool_attempt_started" }, "sourceEventId": { "type": "string", "pattern": "\\S" }, "sourceCursor": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "actionId": { "type": "string", "pattern": "\\S" }, "attempt": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 } }, "required": ["kind", "sourceEventId", "sourceCursor", "actionId", "attempt"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "tool_attempt_failed" }, "sourceEventId": { "type": "string", "pattern": "\\S" }, "sourceCursor": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "actionId": { "type": "string", "pattern": "\\S" }, "attempt": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "reason": { "type": "string" } }, "required": ["kind", "sourceEventId", "sourceCursor", "actionId", "attempt", "reason"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "activity_boundary" }, "sourceEventId": { "type": "string", "pattern": "\\S" }, "sourceCursor": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "reason": { "type": "string", "enum": ["assistant_reply", "user_wait", "stage_change", "terminal", "failure", "unknown"] } }, "required": ["kind", "sourceEventId", "sourceCursor", "reason"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "candidate_preview" }, "sourceEventId": { "type": "string", "pattern": "\\S" }, "sourceCursor": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "candidateId": { "type": "string", "pattern": "\\S" }, "text": { "type": "string" }, "startOffset": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "truncated": { "type": "boolean" }, "complete": { "type": "boolean" } }, "required": ["kind", "sourceEventId", "sourceCursor", "candidateId", "text", "startOffset", "truncated", "complete"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "candidate_invalidated" }, "sourceEventId": { "type": "string", "pattern": "\\S" }, "sourceCursor": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "candidateId": { "type": "string", "pattern": "\\S" }, "reason": { "type": "string", "enum": ["rejected", "cancelled", "failed", "replaced", "ambiguous"] } }, "required": ["kind", "sourceEventId", "sourceCursor", "candidateId", "reason"], "additionalProperties": false }], "description": "\u5B9E\u65F6\u6267\u884C\u6D3B\u52A8\u4E8B\u4EF6\u7684\u7A33\u5B9A\u8054\u5408\u3002" };
+    var schema53 = { "type": "object", "properties": { "interactionId": { "type": "string", "pattern": "\\S" }, "kind": { "type": "string", "enum": ["ask_user", "task_approval", "action_approval", "action_recovery"] }, "runId": { "type": "string", "pattern": "\\S" } }, "required": ["interactionId", "kind", "runId"], "additionalProperties": false, "description": "\u4EA4\u4E92\u8981\u6C42\u7684\u5B9E\u65F6\u63A8\u9001\u6458\u8981\u3002" };
+    var schema54 = { "type": "string", "enum": ["session", "activity", "trajectory", "metrics", "goals", "grants", "permission", "model"], "description": "Browser \u63A7\u5236\u6295\u5F71\u7684\u53EF\u5931\u6548\u4F5C\u7528\u57DF\u3002" };
     var schema14 = { "type": "string", "enum": ["created", "running", "waiting", "completed", "failed", "cancelled"], "description": "Run \u751F\u547D\u5468\u671F\u72B6\u6001\u3002" };
     var schema16 = { "type": "string", "enum": ["question", "task_approval", "action_approval", "action_recovery"], "description": "\u5F53\u524D\u4EA4\u4E92\u89C6\u56FE\u7684\u79CD\u7C7B\u3002" };
-    var schema34 = { "type": "object", "properties": { "actionId": { "type": "string", "pattern": "\\S" }, "executionUnitId": { "type": "string", "pattern": "\\S" }, "toolId": { "type": "string", "pattern": "\\S" }, "attempt": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "phase": { "type": "string", "enum": ["started", "attempting", "retrying", "result_pending", "observed_committed", "unknown"] }, "outcome": { "type": "string", "enum": ["success", "failure"] }, "summary": { "type": "string" }, "reason": { "type": "string" } }, "required": ["actionId", "phase"], "additionalProperties": false, "description": "\u5355\u4E2A\u5DE5\u5177\u6D3B\u52A8\u7684\u516C\u5F00\u63A7\u5236\u72B6\u6001\u3002" };
+    var schema58 = { "type": "object", "properties": { "actionId": { "type": "string", "pattern": "\\S" }, "executionUnitId": { "type": "string", "pattern": "\\S" }, "toolId": { "type": "string", "pattern": "\\S" }, "attempt": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "phase": { "type": "string", "enum": ["started", "attempting", "retrying", "result_pending", "observed_committed", "unknown"] }, "outcome": { "type": "string", "enum": ["success", "failure"] }, "summary": { "type": "string" }, "reason": { "type": "string" } }, "required": ["actionId", "phase"], "additionalProperties": false, "description": "\u5355\u4E2A\u5DE5\u5177\u6D3B\u52A8\u7684\u516C\u5F00\u63A7\u5236\u72B6\u6001\u3002" };
     var pattern0 = new RegExp("\\S", "u");
     var schema13 = { "type": "object", "properties": { "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "runStatus": { "$ref": "#/definitions/BrowserRunStatus" }, "mode": { "type": "string", "enum": ["normal", "plan"] }, "commitRevision": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "queueRevision": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "queuePaused": { "type": "boolean" }, "queuePauseReason": { "type": "string", "enum": ["run_failed", "user_interrupt"] }, "pendingMessageCount": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "pendingSteerCount": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "waitingFor": { "type": "string", "enum": ["ask_user", "task_approval", "action_approval", "action_recovery", "blocked"] }, "interaction": { "$ref": "#/definitions/BrowserSessionStateInteraction" }, "messages": { "type": "object", "properties": { "count": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "throughMessageId": { "type": "string", "pattern": "\\S" }, "recent": { "type": "array", "items": { "$ref": "#/definitions/BrowserSessionStateMessage" } } }, "required": ["count", "recent"], "additionalProperties": false }, "needsRecovery": { "type": "boolean" }, "interruption": { "$ref": "#/definitions/BrowserSessionStateInterruption" }, "executionOwner": { "type": "boolean" } }, "required": ["goalId", "runId", "runStatus", "mode", "commitRevision", "queueRevision", "queuePaused", "pendingMessageCount", "pendingSteerCount", "messages", "needsRecovery", "executionOwner"], "additionalProperties": false, "description": "\u5B89\u5168\u4F1A\u8BDD\u72B6\u6001\u6295\u5F71\u3002" };
     var schema19 = { "type": "object", "properties": { "requestId": { "type": "string", "pattern": "\\S" }, "status": { "type": "string", "enum": ["requested", "finished"] }, "outcomeUnknown": { "type": "boolean" } }, "required": ["requestId", "status", "outcomeUnknown"], "additionalProperties": false, "description": "\u5F53\u524D Run \u7684\u7528\u6237\u4E2D\u65AD\u72B6\u6001\u3002" };
@@ -1155,11 +1155,2578 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
       validate12.errors = vErrors;
       return errors === 0;
     }
-    var schema21 = { "type": "string", "enum": ["message", "steer", "interrupt", "respond", "resume", "queue_control"], "description": "\u4F1A\u8BDD\u8F93\u5165\u79CD\u7C7B\u3002" };
-    var schema25 = { "type": "string", "enum": ["INVALID_INPUT", "INPUT_CONFLICT", "INPUT_NOT_FOUND", "GOAL_NOT_FOUND", "BUSY", "STEER_CONFLICT", "INTERRUPT_CONFLICT", "STALE_REVISION", "INTERACTION_MISMATCH", "INTERACTION_REQUIRED", "QUEUE_PAUSED", "RUN_NOT_RESUMABLE", "QUEUE_FULL", "QUEUE_TEXT_TOO_LARGE", "TEXT_TOO_LARGE", "QUEUE_NOT_PAUSED", "QUEUE_REVISION_MISMATCH", "QUEUED_MESSAGE_NOT_FOUND", "RUN_NOT_FOUND", "RUN_NOT_RUNNING", "RUN_CONTROL_UNAVAILABLE", "input_admission_failed", "session_unavailable"], "description": "\u8F93\u5165\u53D7\u7406\u4E0E\u67E5\u8BE2\u7684\u7A33\u5B9A wire \u62D2\u7EDD\u4EE3\u7801\u3002" };
-    var schema22 = { "type": "object", "properties": { "goalId": { "type": "string", "pattern": "\\S" }, "inputId": { "type": "string", "pattern": "\\S" }, "kind": { "$ref": "#/definitions/BrowserSessionInputKind" }, "sequence": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "status": { "$ref": "#/definitions/BrowserSessionInputStatus" }, "admittedAtRevision": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "targetRunId": { "type": "string", "pattern": "\\S" }, "appliedRunId": { "type": "string", "pattern": "\\S" }, "messageIndex": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 } }, "required": ["goalId", "inputId", "kind", "sequence", "status", "admittedAtRevision"], "additionalProperties": false, "description": "\u4E00\u6761\u5DF2\u6301\u4E45\u5316\u8F93\u5165\u7684\u53D7\u7406\u6536\u636E\u6295\u5F71\u3002" };
-    var schema24 = { "type": "string", "enum": ["pending", "applied", "cleared"], "description": "\u8F93\u5165\u8D26\u672C\u4E2D\u7684\u53D7\u7406\u72B6\u6001\u3002" };
+    var schema21 = { "type": "object", "properties": { "goalId": { "type": "string", "pattern": "\\S" }, "intent": { "type": "string" }, "currentRunId": { "type": "string", "pattern": "\\S" }, "runStatus": { "$ref": "#/definitions/BrowserRunStatus" }, "currentRunMode": { "type": "string", "enum": ["normal", "plan"] }, "nextRunMode": { "type": "string", "const": "plan" }, "currentRunStepCount": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "currentRunTerminalDetail": { "$ref": "#/definitions/BrowserSessionRunTerminalDetail" }, "currentPlanRoute": { "$ref": "#/definitions/BrowserPlanRoute" }, "execution": { "$ref": "#/definitions/BrowserGoalExecution" }, "pendingSteers": { "type": "array", "items": { "$ref": "#/definitions/BrowserPendingSteer" } }, "pendingMessages": { "type": "array", "items": { "$ref": "#/definitions/BrowserPendingMessage" } }, "queue": { "$ref": "#/definitions/BrowserQueueState" }, "interruption": { "$ref": "#/definitions/BrowserInterruption" }, "goalPlan": { "$ref": "#/definitions/BrowserGoalPlan" }, "interaction": { "$ref": "#/definitions/BrowserInteractionView" }, "pendingAction": { "$ref": "#/definitions/BrowserPendingAction" }, "history": { "type": "object", "properties": { "messages": { "$ref": "#/definitions/BrowserActivityHistoryMarker" }, "steps": { "$ref": "#/definitions/BrowserActivityHistoryMarker" }, "stages": { "$ref": "#/definitions/BrowserActivityHistoryMarker" } }, "required": ["messages", "steps", "stages"], "additionalProperties": false } }, "required": ["goalId", "intent", "currentRunId", "runStatus", "currentRunMode", "currentRunStepCount", "history"], "additionalProperties": false, "description": "\u521D\u59CB\u8BFB\u53D6\u548C\u5206\u9875\u4F7F\u7528\u7684\u7A84 Goal \u72B6\u6001\u3002" };
+    var schema30 = { "type": "object", "properties": { "revision": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "paused": { "type": "boolean" }, "pauseReason": { "type": "string", "enum": ["run_failed", "user_interrupt"] } }, "required": ["revision", "paused"], "additionalProperties": false, "description": "\u6D88\u606F\u961F\u5217\u4FEE\u8BA2\u4E0E\u6682\u505C\u4E8B\u5B9E\u3002" };
+    var schema31 = { "type": "object", "properties": { "requestId": { "type": "string", "pattern": "\\S" }, "status": { "type": "string", "enum": ["requested", "finished"] }, "outcomeUnknown": { "type": "boolean" } }, "required": ["requestId", "status"], "additionalProperties": false, "description": "\u5DF2\u53D7\u7406\u7684\u7528\u6237\u7EC8\u6B62\u53CA\u53D6\u6D88\u7ED3\u7B97\u72B6\u6001\u3002" };
+    var schema25 = { "type": "object", "properties": { "stageId": { "type": "string", "pattern": "\\S" }, "revision": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "status": { "type": "string", "enum": ["pending", "executing", "accepted"] }, "target": { "type": "string", "pattern": "\\S" }, "acceptanceCriteria": { "type": "array", "items": { "type": "string" }, "minItems": 1 }, "acceptedSequence": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 } }, "required": ["stageId", "revision", "status", "target", "acceptanceCriteria"], "additionalProperties": false, "description": "\u5DF2\u6279\u51C6 Plan Run \u4E2D\u5E26 Runtime \u8EAB\u4EFD\u7684\u9636\u6BB5\u72B6\u6001\u3002" };
+    function validate20(data, { instancePath = "", parentData, parentDataProperty, rootData = data } = {}) {
+      let vErrors = null;
+      let errors = 0;
+      if (data && typeof data == "object" && !Array.isArray(data)) {
+        if (data.revision === void 0) {
+          const err0 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "revision" }, message: "must have required property 'revision'" };
+          if (vErrors === null) {
+            vErrors = [err0];
+          } else {
+            vErrors.push(err0);
+          }
+          errors++;
+        }
+        if (data.nextStageIndex === void 0) {
+          const err1 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "nextStageIndex" }, message: "must have required property 'nextStageIndex'" };
+          if (vErrors === null) {
+            vErrors = [err1];
+          } else {
+            vErrors.push(err1);
+          }
+          errors++;
+        }
+        if (data.stages === void 0) {
+          const err2 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "stages" }, message: "must have required property 'stages'" };
+          if (vErrors === null) {
+            vErrors = [err2];
+          } else {
+            vErrors.push(err2);
+          }
+          errors++;
+        }
+        for (const key0 in data) {
+          if (!(key0 === "revision" || key0 === "revisionReason" || key0 === "nextStageIndex" || key0 === "stages")) {
+            const err3 = { instancePath, schemaPath: "#/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key0 }, message: "must NOT have additional properties" };
+            if (vErrors === null) {
+              vErrors = [err3];
+            } else {
+              vErrors.push(err3);
+            }
+            errors++;
+          }
+        }
+        if (data.revision !== void 0) {
+          let data0 = data.revision;
+          if (!(typeof data0 == "number" && (!(data0 % 1) && !isNaN(data0)) && isFinite(data0))) {
+            const err4 = { instancePath: instancePath + "/revision", schemaPath: "#/properties/revision/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
+            if (vErrors === null) {
+              vErrors = [err4];
+            } else {
+              vErrors.push(err4);
+            }
+            errors++;
+          }
+          if (typeof data0 == "number" && isFinite(data0)) {
+            if (data0 > 9007199254740991 || isNaN(data0)) {
+              const err5 = { instancePath: instancePath + "/revision", schemaPath: "#/properties/revision/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
+              if (vErrors === null) {
+                vErrors = [err5];
+              } else {
+                vErrors.push(err5);
+              }
+              errors++;
+            }
+            if (data0 < 1 || isNaN(data0)) {
+              const err6 = { instancePath: instancePath + "/revision", schemaPath: "#/properties/revision/minimum", keyword: "minimum", params: { comparison: ">=", limit: 1 }, message: "must be >= 1" };
+              if (vErrors === null) {
+                vErrors = [err6];
+              } else {
+                vErrors.push(err6);
+              }
+              errors++;
+            }
+          }
+        }
+        if (data.revisionReason !== void 0) {
+          let data1 = data.revisionReason;
+          if (typeof data1 === "string") {
+            if (!pattern0.test(data1)) {
+              const err7 = { instancePath: instancePath + "/revisionReason", schemaPath: "#/properties/revisionReason/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+              if (vErrors === null) {
+                vErrors = [err7];
+              } else {
+                vErrors.push(err7);
+              }
+              errors++;
+            }
+          } else {
+            const err8 = { instancePath: instancePath + "/revisionReason", schemaPath: "#/properties/revisionReason/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            if (vErrors === null) {
+              vErrors = [err8];
+            } else {
+              vErrors.push(err8);
+            }
+            errors++;
+          }
+        }
+        if (data.nextStageIndex !== void 0) {
+          let data2 = data.nextStageIndex;
+          if (!(typeof data2 == "number" && (!(data2 % 1) && !isNaN(data2)) && isFinite(data2))) {
+            const err9 = { instancePath: instancePath + "/nextStageIndex", schemaPath: "#/properties/nextStageIndex/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
+            if (vErrors === null) {
+              vErrors = [err9];
+            } else {
+              vErrors.push(err9);
+            }
+            errors++;
+          }
+          if (typeof data2 == "number" && isFinite(data2)) {
+            if (data2 > 9007199254740991 || isNaN(data2)) {
+              const err10 = { instancePath: instancePath + "/nextStageIndex", schemaPath: "#/properties/nextStageIndex/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
+              if (vErrors === null) {
+                vErrors = [err10];
+              } else {
+                vErrors.push(err10);
+              }
+              errors++;
+            }
+            if (data2 < 0 || isNaN(data2)) {
+              const err11 = { instancePath: instancePath + "/nextStageIndex", schemaPath: "#/properties/nextStageIndex/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
+              if (vErrors === null) {
+                vErrors = [err11];
+              } else {
+                vErrors.push(err11);
+              }
+              errors++;
+            }
+          }
+        }
+        if (data.stages !== void 0) {
+          let data3 = data.stages;
+          if (Array.isArray(data3)) {
+            if (data3.length < 1) {
+              const err12 = { instancePath: instancePath + "/stages", schemaPath: "#/properties/stages/minItems", keyword: "minItems", params: { limit: 1 }, message: "must NOT have fewer than 1 items" };
+              if (vErrors === null) {
+                vErrors = [err12];
+              } else {
+                vErrors.push(err12);
+              }
+              errors++;
+            }
+            const len0 = data3.length;
+            for (let i0 = 0; i0 < len0; i0++) {
+              let data4 = data3[i0];
+              if (data4 && typeof data4 == "object" && !Array.isArray(data4)) {
+                if (data4.stageId === void 0) {
+                  const err13 = { instancePath: instancePath + "/stages/" + i0, schemaPath: "#/definitions/BrowserPlanRouteStageState/required", keyword: "required", params: { missingProperty: "stageId" }, message: "must have required property 'stageId'" };
+                  if (vErrors === null) {
+                    vErrors = [err13];
+                  } else {
+                    vErrors.push(err13);
+                  }
+                  errors++;
+                }
+                if (data4.revision === void 0) {
+                  const err14 = { instancePath: instancePath + "/stages/" + i0, schemaPath: "#/definitions/BrowserPlanRouteStageState/required", keyword: "required", params: { missingProperty: "revision" }, message: "must have required property 'revision'" };
+                  if (vErrors === null) {
+                    vErrors = [err14];
+                  } else {
+                    vErrors.push(err14);
+                  }
+                  errors++;
+                }
+                if (data4.status === void 0) {
+                  const err15 = { instancePath: instancePath + "/stages/" + i0, schemaPath: "#/definitions/BrowserPlanRouteStageState/required", keyword: "required", params: { missingProperty: "status" }, message: "must have required property 'status'" };
+                  if (vErrors === null) {
+                    vErrors = [err15];
+                  } else {
+                    vErrors.push(err15);
+                  }
+                  errors++;
+                }
+                if (data4.target === void 0) {
+                  const err16 = { instancePath: instancePath + "/stages/" + i0, schemaPath: "#/definitions/BrowserPlanRouteStageState/required", keyword: "required", params: { missingProperty: "target" }, message: "must have required property 'target'" };
+                  if (vErrors === null) {
+                    vErrors = [err16];
+                  } else {
+                    vErrors.push(err16);
+                  }
+                  errors++;
+                }
+                if (data4.acceptanceCriteria === void 0) {
+                  const err17 = { instancePath: instancePath + "/stages/" + i0, schemaPath: "#/definitions/BrowserPlanRouteStageState/required", keyword: "required", params: { missingProperty: "acceptanceCriteria" }, message: "must have required property 'acceptanceCriteria'" };
+                  if (vErrors === null) {
+                    vErrors = [err17];
+                  } else {
+                    vErrors.push(err17);
+                  }
+                  errors++;
+                }
+                for (const key1 in data4) {
+                  if (!(key1 === "stageId" || key1 === "revision" || key1 === "status" || key1 === "target" || key1 === "acceptanceCriteria" || key1 === "acceptedSequence")) {
+                    const err18 = { instancePath: instancePath + "/stages/" + i0, schemaPath: "#/definitions/BrowserPlanRouteStageState/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key1 }, message: "must NOT have additional properties" };
+                    if (vErrors === null) {
+                      vErrors = [err18];
+                    } else {
+                      vErrors.push(err18);
+                    }
+                    errors++;
+                  }
+                }
+                if (data4.stageId !== void 0) {
+                  let data5 = data4.stageId;
+                  if (typeof data5 === "string") {
+                    if (!pattern0.test(data5)) {
+                      const err19 = { instancePath: instancePath + "/stages/" + i0 + "/stageId", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/stageId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                      if (vErrors === null) {
+                        vErrors = [err19];
+                      } else {
+                        vErrors.push(err19);
+                      }
+                      errors++;
+                    }
+                  } else {
+                    const err20 = { instancePath: instancePath + "/stages/" + i0 + "/stageId", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/stageId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    if (vErrors === null) {
+                      vErrors = [err20];
+                    } else {
+                      vErrors.push(err20);
+                    }
+                    errors++;
+                  }
+                }
+                if (data4.revision !== void 0) {
+                  let data6 = data4.revision;
+                  if (!(typeof data6 == "number" && (!(data6 % 1) && !isNaN(data6)) && isFinite(data6))) {
+                    const err21 = { instancePath: instancePath + "/stages/" + i0 + "/revision", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/revision/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
+                    if (vErrors === null) {
+                      vErrors = [err21];
+                    } else {
+                      vErrors.push(err21);
+                    }
+                    errors++;
+                  }
+                  if (typeof data6 == "number" && isFinite(data6)) {
+                    if (data6 > 9007199254740991 || isNaN(data6)) {
+                      const err22 = { instancePath: instancePath + "/stages/" + i0 + "/revision", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/revision/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
+                      if (vErrors === null) {
+                        vErrors = [err22];
+                      } else {
+                        vErrors.push(err22);
+                      }
+                      errors++;
+                    }
+                    if (data6 < 1 || isNaN(data6)) {
+                      const err23 = { instancePath: instancePath + "/stages/" + i0 + "/revision", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/revision/minimum", keyword: "minimum", params: { comparison: ">=", limit: 1 }, message: "must be >= 1" };
+                      if (vErrors === null) {
+                        vErrors = [err23];
+                      } else {
+                        vErrors.push(err23);
+                      }
+                      errors++;
+                    }
+                  }
+                }
+                if (data4.status !== void 0) {
+                  let data7 = data4.status;
+                  if (typeof data7 !== "string") {
+                    const err24 = { instancePath: instancePath + "/stages/" + i0 + "/status", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/status/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    if (vErrors === null) {
+                      vErrors = [err24];
+                    } else {
+                      vErrors.push(err24);
+                    }
+                    errors++;
+                  }
+                  if (!(data7 === "pending" || data7 === "executing" || data7 === "accepted")) {
+                    const err25 = { instancePath: instancePath + "/stages/" + i0 + "/status", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/status/enum", keyword: "enum", params: { allowedValues: schema25.properties.status.enum }, message: "must be equal to one of the allowed values" };
+                    if (vErrors === null) {
+                      vErrors = [err25];
+                    } else {
+                      vErrors.push(err25);
+                    }
+                    errors++;
+                  }
+                }
+                if (data4.target !== void 0) {
+                  let data8 = data4.target;
+                  if (typeof data8 === "string") {
+                    if (!pattern0.test(data8)) {
+                      const err26 = { instancePath: instancePath + "/stages/" + i0 + "/target", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/target/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                      if (vErrors === null) {
+                        vErrors = [err26];
+                      } else {
+                        vErrors.push(err26);
+                      }
+                      errors++;
+                    }
+                  } else {
+                    const err27 = { instancePath: instancePath + "/stages/" + i0 + "/target", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/target/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    if (vErrors === null) {
+                      vErrors = [err27];
+                    } else {
+                      vErrors.push(err27);
+                    }
+                    errors++;
+                  }
+                }
+                if (data4.acceptanceCriteria !== void 0) {
+                  let data9 = data4.acceptanceCriteria;
+                  if (Array.isArray(data9)) {
+                    if (data9.length < 1) {
+                      const err28 = { instancePath: instancePath + "/stages/" + i0 + "/acceptanceCriteria", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/acceptanceCriteria/minItems", keyword: "minItems", params: { limit: 1 }, message: "must NOT have fewer than 1 items" };
+                      if (vErrors === null) {
+                        vErrors = [err28];
+                      } else {
+                        vErrors.push(err28);
+                      }
+                      errors++;
+                    }
+                    const len1 = data9.length;
+                    for (let i1 = 0; i1 < len1; i1++) {
+                      if (typeof data9[i1] !== "string") {
+                        const err29 = { instancePath: instancePath + "/stages/" + i0 + "/acceptanceCriteria/" + i1, schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/acceptanceCriteria/items/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                        if (vErrors === null) {
+                          vErrors = [err29];
+                        } else {
+                          vErrors.push(err29);
+                        }
+                        errors++;
+                      }
+                    }
+                  } else {
+                    const err30 = { instancePath: instancePath + "/stages/" + i0 + "/acceptanceCriteria", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/acceptanceCriteria/type", keyword: "type", params: { type: "array" }, message: "must be array" };
+                    if (vErrors === null) {
+                      vErrors = [err30];
+                    } else {
+                      vErrors.push(err30);
+                    }
+                    errors++;
+                  }
+                }
+                if (data4.acceptedSequence !== void 0) {
+                  let data11 = data4.acceptedSequence;
+                  if (!(typeof data11 == "number" && (!(data11 % 1) && !isNaN(data11)) && isFinite(data11))) {
+                    const err31 = { instancePath: instancePath + "/stages/" + i0 + "/acceptedSequence", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/acceptedSequence/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
+                    if (vErrors === null) {
+                      vErrors = [err31];
+                    } else {
+                      vErrors.push(err31);
+                    }
+                    errors++;
+                  }
+                  if (typeof data11 == "number" && isFinite(data11)) {
+                    if (data11 > 9007199254740991 || isNaN(data11)) {
+                      const err32 = { instancePath: instancePath + "/stages/" + i0 + "/acceptedSequence", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/acceptedSequence/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
+                      if (vErrors === null) {
+                        vErrors = [err32];
+                      } else {
+                        vErrors.push(err32);
+                      }
+                      errors++;
+                    }
+                    if (data11 < 0 || isNaN(data11)) {
+                      const err33 = { instancePath: instancePath + "/stages/" + i0 + "/acceptedSequence", schemaPath: "#/definitions/BrowserPlanRouteStageState/properties/acceptedSequence/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
+                      if (vErrors === null) {
+                        vErrors = [err33];
+                      } else {
+                        vErrors.push(err33);
+                      }
+                      errors++;
+                    }
+                  }
+                }
+              } else {
+                const err34 = { instancePath: instancePath + "/stages/" + i0, schemaPath: "#/definitions/BrowserPlanRouteStageState/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                if (vErrors === null) {
+                  vErrors = [err34];
+                } else {
+                  vErrors.push(err34);
+                }
+                errors++;
+              }
+            }
+          } else {
+            const err35 = { instancePath: instancePath + "/stages", schemaPath: "#/properties/stages/type", keyword: "type", params: { type: "array" }, message: "must be array" };
+            if (vErrors === null) {
+              vErrors = [err35];
+            } else {
+              vErrors.push(err35);
+            }
+            errors++;
+          }
+        }
+      } else {
+        const err36 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+        if (vErrors === null) {
+          vErrors = [err36];
+        } else {
+          vErrors.push(err36);
+        }
+        errors++;
+      }
+      validate20.errors = vErrors;
+      return errors === 0;
+    }
+    var schema27 = { "type": "string", "enum": ["active", "recoverable", "inactive"], "description": "Run \u8FDB\u7A0B\u6D3B\u52A8\u72B6\u6001\u3002" };
+    function validate22(data, { instancePath = "", parentData, parentDataProperty, rootData = data } = {}) {
+      let vErrors = null;
+      let errors = 0;
+      if (data && typeof data == "object" && !Array.isArray(data)) {
+        if (data.state === void 0) {
+          const err0 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "state" }, message: "must have required property 'state'" };
+          if (vErrors === null) {
+            vErrors = [err0];
+          } else {
+            vErrors.push(err0);
+          }
+          errors++;
+        }
+        if (data.committedThroughSequence === void 0) {
+          const err1 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "committedThroughSequence" }, message: "must have required property 'committedThroughSequence'" };
+          if (vErrors === null) {
+            vErrors = [err1];
+          } else {
+            vErrors.push(err1);
+          }
+          errors++;
+        }
+        for (const key0 in data) {
+          if (!(key0 === "state" || key0 === "committedThroughSequence")) {
+            const err2 = { instancePath, schemaPath: "#/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key0 }, message: "must NOT have additional properties" };
+            if (vErrors === null) {
+              vErrors = [err2];
+            } else {
+              vErrors.push(err2);
+            }
+            errors++;
+          }
+        }
+        if (data.state !== void 0) {
+          let data0 = data.state;
+          if (typeof data0 !== "string") {
+            const err3 = { instancePath: instancePath + "/state", schemaPath: "#/definitions/BrowserExecutionState/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            if (vErrors === null) {
+              vErrors = [err3];
+            } else {
+              vErrors.push(err3);
+            }
+            errors++;
+          }
+          if (!(data0 === "active" || data0 === "recoverable" || data0 === "inactive")) {
+            const err4 = { instancePath: instancePath + "/state", schemaPath: "#/definitions/BrowserExecutionState/enum", keyword: "enum", params: { allowedValues: schema27.enum }, message: "must be equal to one of the allowed values" };
+            if (vErrors === null) {
+              vErrors = [err4];
+            } else {
+              vErrors.push(err4);
+            }
+            errors++;
+          }
+        }
+        if (data.committedThroughSequence !== void 0) {
+          let data1 = data.committedThroughSequence;
+          if (!(typeof data1 == "number" && isFinite(data1))) {
+            const err5 = { instancePath: instancePath + "/committedThroughSequence", schemaPath: "#/properties/committedThroughSequence/type", keyword: "type", params: { type: "number" }, message: "must be number" };
+            if (vErrors === null) {
+              vErrors = [err5];
+            } else {
+              vErrors.push(err5);
+            }
+            errors++;
+          }
+        }
+      } else {
+        const err6 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+        if (vErrors === null) {
+          vErrors = [err6];
+        } else {
+          vErrors.push(err6);
+        }
+        errors++;
+      }
+      validate22.errors = vErrors;
+      return errors === 0;
+    }
+    var schema33 = { "type": "object", "properties": { "id": { "type": "string", "pattern": "\\S" }, "content": { "type": "string" }, "position": { "type": "integer", "maximum": 9007199254740991 }, "status": { "type": "string", "enum": ["pending", "in_progress", "completed", "cancelled"] } }, "required": ["id", "content", "position", "status"], "additionalProperties": false, "description": "\u76EE\u6807\u62C6\u89E3\u8BA1\u5212\u4E2D\u7684\u6761\u76EE\u3002" };
+    function validate24(data, { instancePath = "", parentData, parentDataProperty, rootData = data } = {}) {
+      let vErrors = null;
+      let errors = 0;
+      if (data && typeof data == "object" && !Array.isArray(data)) {
+        if (data.revision === void 0) {
+          const err0 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "revision" }, message: "must have required property 'revision'" };
+          if (vErrors === null) {
+            vErrors = [err0];
+          } else {
+            vErrors.push(err0);
+          }
+          errors++;
+        }
+        if (data.items === void 0) {
+          const err1 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "items" }, message: "must have required property 'items'" };
+          if (vErrors === null) {
+            vErrors = [err1];
+          } else {
+            vErrors.push(err1);
+          }
+          errors++;
+        }
+        for (const key0 in data) {
+          if (!(key0 === "revision" || key0 === "items")) {
+            const err2 = { instancePath, schemaPath: "#/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key0 }, message: "must NOT have additional properties" };
+            if (vErrors === null) {
+              vErrors = [err2];
+            } else {
+              vErrors.push(err2);
+            }
+            errors++;
+          }
+        }
+        if (data.revision !== void 0) {
+          let data0 = data.revision;
+          if (!(typeof data0 == "number" && (!(data0 % 1) && !isNaN(data0)) && isFinite(data0))) {
+            const err3 = { instancePath: instancePath + "/revision", schemaPath: "#/properties/revision/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
+            if (vErrors === null) {
+              vErrors = [err3];
+            } else {
+              vErrors.push(err3);
+            }
+            errors++;
+          }
+          if (typeof data0 == "number" && isFinite(data0)) {
+            if (data0 > 9007199254740991 || isNaN(data0)) {
+              const err4 = { instancePath: instancePath + "/revision", schemaPath: "#/properties/revision/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
+              if (vErrors === null) {
+                vErrors = [err4];
+              } else {
+                vErrors.push(err4);
+              }
+              errors++;
+            }
+          }
+        }
+        if (data.items !== void 0) {
+          let data1 = data.items;
+          if (Array.isArray(data1)) {
+            const len0 = data1.length;
+            for (let i0 = 0; i0 < len0; i0++) {
+              let data2 = data1[i0];
+              if (data2 && typeof data2 == "object" && !Array.isArray(data2)) {
+                if (data2.id === void 0) {
+                  const err5 = { instancePath: instancePath + "/items/" + i0, schemaPath: "#/definitions/BrowserGoalPlanItem/required", keyword: "required", params: { missingProperty: "id" }, message: "must have required property 'id'" };
+                  if (vErrors === null) {
+                    vErrors = [err5];
+                  } else {
+                    vErrors.push(err5);
+                  }
+                  errors++;
+                }
+                if (data2.content === void 0) {
+                  const err6 = { instancePath: instancePath + "/items/" + i0, schemaPath: "#/definitions/BrowserGoalPlanItem/required", keyword: "required", params: { missingProperty: "content" }, message: "must have required property 'content'" };
+                  if (vErrors === null) {
+                    vErrors = [err6];
+                  } else {
+                    vErrors.push(err6);
+                  }
+                  errors++;
+                }
+                if (data2.position === void 0) {
+                  const err7 = { instancePath: instancePath + "/items/" + i0, schemaPath: "#/definitions/BrowserGoalPlanItem/required", keyword: "required", params: { missingProperty: "position" }, message: "must have required property 'position'" };
+                  if (vErrors === null) {
+                    vErrors = [err7];
+                  } else {
+                    vErrors.push(err7);
+                  }
+                  errors++;
+                }
+                if (data2.status === void 0) {
+                  const err8 = { instancePath: instancePath + "/items/" + i0, schemaPath: "#/definitions/BrowserGoalPlanItem/required", keyword: "required", params: { missingProperty: "status" }, message: "must have required property 'status'" };
+                  if (vErrors === null) {
+                    vErrors = [err8];
+                  } else {
+                    vErrors.push(err8);
+                  }
+                  errors++;
+                }
+                for (const key1 in data2) {
+                  if (!(key1 === "id" || key1 === "content" || key1 === "position" || key1 === "status")) {
+                    const err9 = { instancePath: instancePath + "/items/" + i0, schemaPath: "#/definitions/BrowserGoalPlanItem/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key1 }, message: "must NOT have additional properties" };
+                    if (vErrors === null) {
+                      vErrors = [err9];
+                    } else {
+                      vErrors.push(err9);
+                    }
+                    errors++;
+                  }
+                }
+                if (data2.id !== void 0) {
+                  let data3 = data2.id;
+                  if (typeof data3 === "string") {
+                    if (!pattern0.test(data3)) {
+                      const err10 = { instancePath: instancePath + "/items/" + i0 + "/id", schemaPath: "#/definitions/BrowserGoalPlanItem/properties/id/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                      if (vErrors === null) {
+                        vErrors = [err10];
+                      } else {
+                        vErrors.push(err10);
+                      }
+                      errors++;
+                    }
+                  } else {
+                    const err11 = { instancePath: instancePath + "/items/" + i0 + "/id", schemaPath: "#/definitions/BrowserGoalPlanItem/properties/id/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    if (vErrors === null) {
+                      vErrors = [err11];
+                    } else {
+                      vErrors.push(err11);
+                    }
+                    errors++;
+                  }
+                }
+                if (data2.content !== void 0) {
+                  if (typeof data2.content !== "string") {
+                    const err12 = { instancePath: instancePath + "/items/" + i0 + "/content", schemaPath: "#/definitions/BrowserGoalPlanItem/properties/content/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    if (vErrors === null) {
+                      vErrors = [err12];
+                    } else {
+                      vErrors.push(err12);
+                    }
+                    errors++;
+                  }
+                }
+                if (data2.position !== void 0) {
+                  let data5 = data2.position;
+                  if (!(typeof data5 == "number" && (!(data5 % 1) && !isNaN(data5)) && isFinite(data5))) {
+                    const err13 = { instancePath: instancePath + "/items/" + i0 + "/position", schemaPath: "#/definitions/BrowserGoalPlanItem/properties/position/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
+                    if (vErrors === null) {
+                      vErrors = [err13];
+                    } else {
+                      vErrors.push(err13);
+                    }
+                    errors++;
+                  }
+                  if (typeof data5 == "number" && isFinite(data5)) {
+                    if (data5 > 9007199254740991 || isNaN(data5)) {
+                      const err14 = { instancePath: instancePath + "/items/" + i0 + "/position", schemaPath: "#/definitions/BrowserGoalPlanItem/properties/position/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
+                      if (vErrors === null) {
+                        vErrors = [err14];
+                      } else {
+                        vErrors.push(err14);
+                      }
+                      errors++;
+                    }
+                  }
+                }
+                if (data2.status !== void 0) {
+                  let data6 = data2.status;
+                  if (typeof data6 !== "string") {
+                    const err15 = { instancePath: instancePath + "/items/" + i0 + "/status", schemaPath: "#/definitions/BrowserGoalPlanItem/properties/status/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    if (vErrors === null) {
+                      vErrors = [err15];
+                    } else {
+                      vErrors.push(err15);
+                    }
+                    errors++;
+                  }
+                  if (!(data6 === "pending" || data6 === "in_progress" || data6 === "completed" || data6 === "cancelled")) {
+                    const err16 = { instancePath: instancePath + "/items/" + i0 + "/status", schemaPath: "#/definitions/BrowserGoalPlanItem/properties/status/enum", keyword: "enum", params: { allowedValues: schema33.properties.status.enum }, message: "must be equal to one of the allowed values" };
+                    if (vErrors === null) {
+                      vErrors = [err16];
+                    } else {
+                      vErrors.push(err16);
+                    }
+                    errors++;
+                  }
+                }
+              } else {
+                const err17 = { instancePath: instancePath + "/items/" + i0, schemaPath: "#/definitions/BrowserGoalPlanItem/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                if (vErrors === null) {
+                  vErrors = [err17];
+                } else {
+                  vErrors.push(err17);
+                }
+                errors++;
+              }
+            }
+          } else {
+            const err18 = { instancePath: instancePath + "/items", schemaPath: "#/properties/items/type", keyword: "type", params: { type: "array" }, message: "must be array" };
+            if (vErrors === null) {
+              vErrors = [err18];
+            } else {
+              vErrors.push(err18);
+            }
+            errors++;
+          }
+        }
+      } else {
+        const err19 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+        if (vErrors === null) {
+          vErrors = [err19];
+        } else {
+          vErrors.push(err19);
+        }
+        errors++;
+      }
+      validate24.errors = vErrors;
+      return errors === 0;
+    }
+    var schema34 = { "type": "object", "properties": { "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "kind": { "$ref": "#/definitions/BrowserInteractionKind" }, "interactionId": { "type": "string", "pattern": "\\S" }, "requestId": { "type": "string", "pattern": "\\S" }, "actionId": { "type": "string", "pattern": "\\S" }, "recoveryRef": { "type": "string", "pattern": "\\S" }, "decisions": { "type": "array", "items": { "$ref": "#/definitions/BrowserInteractionDecision" }, "minItems": 1 }, "truncated": { "type": "boolean" } }, "required": ["goalId", "runId", "kind", "interactionId", "decisions", "truncated"], "additionalProperties": false, "description": "\u5F53\u524D\u5DF2\u63D0\u4EA4\u7B49\u5F85\u7684\u7C7B\u578B\u5316\u4EA4\u4E92\u89C6\u56FE\u6458\u8981\u3002" };
+    var schema36 = { "type": "string", "enum": ["answer_questions", "reply_to_question", "skip_question", "approve_task", "send_task_feedback", "approve_action", "approve_action_revision", "reject_action", "retry_unknown_action", "decline_unknown_action_retry"], "description": "\u5F53\u524D\u4EA4\u4E92\u5141\u8BB8\u7684\u51B3\u5B9A\u3002" };
+    function validate26(data, { instancePath = "", parentData, parentDataProperty, rootData = data } = {}) {
+      let vErrors = null;
+      let errors = 0;
+      if (data && typeof data == "object" && !Array.isArray(data)) {
+        if (data.goalId === void 0) {
+          const err0 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "goalId" }, message: "must have required property 'goalId'" };
+          if (vErrors === null) {
+            vErrors = [err0];
+          } else {
+            vErrors.push(err0);
+          }
+          errors++;
+        }
+        if (data.runId === void 0) {
+          const err1 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "runId" }, message: "must have required property 'runId'" };
+          if (vErrors === null) {
+            vErrors = [err1];
+          } else {
+            vErrors.push(err1);
+          }
+          errors++;
+        }
+        if (data.kind === void 0) {
+          const err2 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
+          if (vErrors === null) {
+            vErrors = [err2];
+          } else {
+            vErrors.push(err2);
+          }
+          errors++;
+        }
+        if (data.interactionId === void 0) {
+          const err3 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "interactionId" }, message: "must have required property 'interactionId'" };
+          if (vErrors === null) {
+            vErrors = [err3];
+          } else {
+            vErrors.push(err3);
+          }
+          errors++;
+        }
+        if (data.decisions === void 0) {
+          const err4 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "decisions" }, message: "must have required property 'decisions'" };
+          if (vErrors === null) {
+            vErrors = [err4];
+          } else {
+            vErrors.push(err4);
+          }
+          errors++;
+        }
+        if (data.truncated === void 0) {
+          const err5 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "truncated" }, message: "must have required property 'truncated'" };
+          if (vErrors === null) {
+            vErrors = [err5];
+          } else {
+            vErrors.push(err5);
+          }
+          errors++;
+        }
+        for (const key0 in data) {
+          if (!func2.call(schema34.properties, key0)) {
+            const err6 = { instancePath, schemaPath: "#/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key0 }, message: "must NOT have additional properties" };
+            if (vErrors === null) {
+              vErrors = [err6];
+            } else {
+              vErrors.push(err6);
+            }
+            errors++;
+          }
+        }
+        if (data.goalId !== void 0) {
+          let data0 = data.goalId;
+          if (typeof data0 === "string") {
+            if (!pattern0.test(data0)) {
+              const err7 = { instancePath: instancePath + "/goalId", schemaPath: "#/properties/goalId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+              if (vErrors === null) {
+                vErrors = [err7];
+              } else {
+                vErrors.push(err7);
+              }
+              errors++;
+            }
+          } else {
+            const err8 = { instancePath: instancePath + "/goalId", schemaPath: "#/properties/goalId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            if (vErrors === null) {
+              vErrors = [err8];
+            } else {
+              vErrors.push(err8);
+            }
+            errors++;
+          }
+        }
+        if (data.runId !== void 0) {
+          let data1 = data.runId;
+          if (typeof data1 === "string") {
+            if (!pattern0.test(data1)) {
+              const err9 = { instancePath: instancePath + "/runId", schemaPath: "#/properties/runId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+              if (vErrors === null) {
+                vErrors = [err9];
+              } else {
+                vErrors.push(err9);
+              }
+              errors++;
+            }
+          } else {
+            const err10 = { instancePath: instancePath + "/runId", schemaPath: "#/properties/runId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            if (vErrors === null) {
+              vErrors = [err10];
+            } else {
+              vErrors.push(err10);
+            }
+            errors++;
+          }
+        }
+        if (data.kind !== void 0) {
+          let data2 = data.kind;
+          if (typeof data2 !== "string") {
+            const err11 = { instancePath: instancePath + "/kind", schemaPath: "#/definitions/BrowserInteractionKind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            if (vErrors === null) {
+              vErrors = [err11];
+            } else {
+              vErrors.push(err11);
+            }
+            errors++;
+          }
+          if (!(data2 === "question" || data2 === "task_approval" || data2 === "action_approval" || data2 === "action_recovery")) {
+            const err12 = { instancePath: instancePath + "/kind", schemaPath: "#/definitions/BrowserInteractionKind/enum", keyword: "enum", params: { allowedValues: schema16.enum }, message: "must be equal to one of the allowed values" };
+            if (vErrors === null) {
+              vErrors = [err12];
+            } else {
+              vErrors.push(err12);
+            }
+            errors++;
+          }
+        }
+        if (data.interactionId !== void 0) {
+          let data3 = data.interactionId;
+          if (typeof data3 === "string") {
+            if (!pattern0.test(data3)) {
+              const err13 = { instancePath: instancePath + "/interactionId", schemaPath: "#/properties/interactionId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+              if (vErrors === null) {
+                vErrors = [err13];
+              } else {
+                vErrors.push(err13);
+              }
+              errors++;
+            }
+          } else {
+            const err14 = { instancePath: instancePath + "/interactionId", schemaPath: "#/properties/interactionId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            if (vErrors === null) {
+              vErrors = [err14];
+            } else {
+              vErrors.push(err14);
+            }
+            errors++;
+          }
+        }
+        if (data.requestId !== void 0) {
+          let data4 = data.requestId;
+          if (typeof data4 === "string") {
+            if (!pattern0.test(data4)) {
+              const err15 = { instancePath: instancePath + "/requestId", schemaPath: "#/properties/requestId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+              if (vErrors === null) {
+                vErrors = [err15];
+              } else {
+                vErrors.push(err15);
+              }
+              errors++;
+            }
+          } else {
+            const err16 = { instancePath: instancePath + "/requestId", schemaPath: "#/properties/requestId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            if (vErrors === null) {
+              vErrors = [err16];
+            } else {
+              vErrors.push(err16);
+            }
+            errors++;
+          }
+        }
+        if (data.actionId !== void 0) {
+          let data5 = data.actionId;
+          if (typeof data5 === "string") {
+            if (!pattern0.test(data5)) {
+              const err17 = { instancePath: instancePath + "/actionId", schemaPath: "#/properties/actionId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+              if (vErrors === null) {
+                vErrors = [err17];
+              } else {
+                vErrors.push(err17);
+              }
+              errors++;
+            }
+          } else {
+            const err18 = { instancePath: instancePath + "/actionId", schemaPath: "#/properties/actionId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            if (vErrors === null) {
+              vErrors = [err18];
+            } else {
+              vErrors.push(err18);
+            }
+            errors++;
+          }
+        }
+        if (data.recoveryRef !== void 0) {
+          let data6 = data.recoveryRef;
+          if (typeof data6 === "string") {
+            if (!pattern0.test(data6)) {
+              const err19 = { instancePath: instancePath + "/recoveryRef", schemaPath: "#/properties/recoveryRef/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+              if (vErrors === null) {
+                vErrors = [err19];
+              } else {
+                vErrors.push(err19);
+              }
+              errors++;
+            }
+          } else {
+            const err20 = { instancePath: instancePath + "/recoveryRef", schemaPath: "#/properties/recoveryRef/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            if (vErrors === null) {
+              vErrors = [err20];
+            } else {
+              vErrors.push(err20);
+            }
+            errors++;
+          }
+        }
+        if (data.decisions !== void 0) {
+          let data7 = data.decisions;
+          if (Array.isArray(data7)) {
+            if (data7.length < 1) {
+              const err21 = { instancePath: instancePath + "/decisions", schemaPath: "#/properties/decisions/minItems", keyword: "minItems", params: { limit: 1 }, message: "must NOT have fewer than 1 items" };
+              if (vErrors === null) {
+                vErrors = [err21];
+              } else {
+                vErrors.push(err21);
+              }
+              errors++;
+            }
+            const len0 = data7.length;
+            for (let i0 = 0; i0 < len0; i0++) {
+              let data8 = data7[i0];
+              if (typeof data8 !== "string") {
+                const err22 = { instancePath: instancePath + "/decisions/" + i0, schemaPath: "#/definitions/BrowserInteractionDecision/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                if (vErrors === null) {
+                  vErrors = [err22];
+                } else {
+                  vErrors.push(err22);
+                }
+                errors++;
+              }
+              if (!(data8 === "answer_questions" || data8 === "reply_to_question" || data8 === "skip_question" || data8 === "approve_task" || data8 === "send_task_feedback" || data8 === "approve_action" || data8 === "approve_action_revision" || data8 === "reject_action" || data8 === "retry_unknown_action" || data8 === "decline_unknown_action_retry")) {
+                const err23 = { instancePath: instancePath + "/decisions/" + i0, schemaPath: "#/definitions/BrowserInteractionDecision/enum", keyword: "enum", params: { allowedValues: schema36.enum }, message: "must be equal to one of the allowed values" };
+                if (vErrors === null) {
+                  vErrors = [err23];
+                } else {
+                  vErrors.push(err23);
+                }
+                errors++;
+              }
+            }
+          } else {
+            const err24 = { instancePath: instancePath + "/decisions", schemaPath: "#/properties/decisions/type", keyword: "type", params: { type: "array" }, message: "must be array" };
+            if (vErrors === null) {
+              vErrors = [err24];
+            } else {
+              vErrors.push(err24);
+            }
+            errors++;
+          }
+        }
+        if (data.truncated !== void 0) {
+          if (typeof data.truncated !== "boolean") {
+            const err25 = { instancePath: instancePath + "/truncated", schemaPath: "#/properties/truncated/type", keyword: "type", params: { type: "boolean" }, message: "must be boolean" };
+            if (vErrors === null) {
+              vErrors = [err25];
+            } else {
+              vErrors.push(err25);
+            }
+            errors++;
+          }
+        }
+      } else {
+        const err26 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+        if (vErrors === null) {
+          vErrors = [err26];
+        } else {
+          vErrors.push(err26);
+        }
+        errors++;
+      }
+      validate26.errors = vErrors;
+      return errors === 0;
+    }
+    var schema37 = { "type": "object", "properties": { "actionId": { "type": "string", "pattern": "\\S" }, "toolId": { "type": "string", "pattern": "\\S" }, "status": { "type": "string", "enum": ["approved", "awaiting_approval", "outcome_unknown"] }, "inputSummary": { "type": "string" }, "inputPreview": { "type": "string" }, "inputPreviewTruncated": { "type": "boolean" }, "targetPath": { "type": "string" }, "approvalKind": { "type": "string", "enum": ["tool", "sandbox"] }, "sandboxReview": { "$ref": "#/definitions/BrowserSandboxReview" }, "parentProgram": { "$ref": "#/definitions/BrowserParentProgram" } }, "required": ["actionId", "toolId", "status", "inputPreview", "inputPreviewTruncated"], "additionalProperties": false, "description": "\u5F85\u7528\u6237\u5BA1\u6279\u7684\u5DE5\u5177\u6216\u6C99\u7BB1 Action \u89C6\u56FE\u3002" };
+    var schema38 = { "type": "object", "properties": { "extraFiles": { "type": "array", "items": { "$ref": "#/definitions/BrowserToolGrantExtraFile" } }, "network": { "type": "string", "enum": ["none", "all_outbound"] }, "networkNotice": { "type": "string" } }, "required": ["extraFiles", "network"], "additionalProperties": false, "description": "\u6C99\u7BB1\u6743\u9650\u5BA1\u9605\u6458\u8981\u3002" };
+    var schema39 = { "type": "object", "properties": { "canonicalPath": { "type": "string", "pattern": "\\S" }, "access": { "type": "string", "enum": ["read", "write"] }, "kind": { "type": "string", "enum": ["file", "directory_tree"] } }, "required": ["canonicalPath", "access", "kind"], "additionalProperties": false, "description": "\u5DE5\u5177\u6388\u6743\u6216\u6C99\u7BB1\u8BBF\u95EE\u4E2D\u7684\u5355\u4E2A\u5916\u90E8\u6587\u4EF6/\u76EE\u5F55\u6761\u76EE\u3002" };
+    function validate29(data, { instancePath = "", parentData, parentDataProperty, rootData = data } = {}) {
+      let vErrors = null;
+      let errors = 0;
+      if (data && typeof data == "object" && !Array.isArray(data)) {
+        if (data.extraFiles === void 0) {
+          const err0 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "extraFiles" }, message: "must have required property 'extraFiles'" };
+          if (vErrors === null) {
+            vErrors = [err0];
+          } else {
+            vErrors.push(err0);
+          }
+          errors++;
+        }
+        if (data.network === void 0) {
+          const err1 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "network" }, message: "must have required property 'network'" };
+          if (vErrors === null) {
+            vErrors = [err1];
+          } else {
+            vErrors.push(err1);
+          }
+          errors++;
+        }
+        for (const key0 in data) {
+          if (!(key0 === "extraFiles" || key0 === "network" || key0 === "networkNotice")) {
+            const err2 = { instancePath, schemaPath: "#/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key0 }, message: "must NOT have additional properties" };
+            if (vErrors === null) {
+              vErrors = [err2];
+            } else {
+              vErrors.push(err2);
+            }
+            errors++;
+          }
+        }
+        if (data.extraFiles !== void 0) {
+          let data0 = data.extraFiles;
+          if (Array.isArray(data0)) {
+            const len0 = data0.length;
+            for (let i0 = 0; i0 < len0; i0++) {
+              let data1 = data0[i0];
+              if (data1 && typeof data1 == "object" && !Array.isArray(data1)) {
+                if (data1.canonicalPath === void 0) {
+                  const err3 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserToolGrantExtraFile/required", keyword: "required", params: { missingProperty: "canonicalPath" }, message: "must have required property 'canonicalPath'" };
+                  if (vErrors === null) {
+                    vErrors = [err3];
+                  } else {
+                    vErrors.push(err3);
+                  }
+                  errors++;
+                }
+                if (data1.access === void 0) {
+                  const err4 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserToolGrantExtraFile/required", keyword: "required", params: { missingProperty: "access" }, message: "must have required property 'access'" };
+                  if (vErrors === null) {
+                    vErrors = [err4];
+                  } else {
+                    vErrors.push(err4);
+                  }
+                  errors++;
+                }
+                if (data1.kind === void 0) {
+                  const err5 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserToolGrantExtraFile/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
+                  if (vErrors === null) {
+                    vErrors = [err5];
+                  } else {
+                    vErrors.push(err5);
+                  }
+                  errors++;
+                }
+                for (const key1 in data1) {
+                  if (!(key1 === "canonicalPath" || key1 === "access" || key1 === "kind")) {
+                    const err6 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserToolGrantExtraFile/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key1 }, message: "must NOT have additional properties" };
+                    if (vErrors === null) {
+                      vErrors = [err6];
+                    } else {
+                      vErrors.push(err6);
+                    }
+                    errors++;
+                  }
+                }
+                if (data1.canonicalPath !== void 0) {
+                  let data2 = data1.canonicalPath;
+                  if (typeof data2 === "string") {
+                    if (!pattern0.test(data2)) {
+                      const err7 = { instancePath: instancePath + "/extraFiles/" + i0 + "/canonicalPath", schemaPath: "#/definitions/BrowserToolGrantExtraFile/properties/canonicalPath/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                      if (vErrors === null) {
+                        vErrors = [err7];
+                      } else {
+                        vErrors.push(err7);
+                      }
+                      errors++;
+                    }
+                  } else {
+                    const err8 = { instancePath: instancePath + "/extraFiles/" + i0 + "/canonicalPath", schemaPath: "#/definitions/BrowserToolGrantExtraFile/properties/canonicalPath/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    if (vErrors === null) {
+                      vErrors = [err8];
+                    } else {
+                      vErrors.push(err8);
+                    }
+                    errors++;
+                  }
+                }
+                if (data1.access !== void 0) {
+                  let data3 = data1.access;
+                  if (typeof data3 !== "string") {
+                    const err9 = { instancePath: instancePath + "/extraFiles/" + i0 + "/access", schemaPath: "#/definitions/BrowserToolGrantExtraFile/properties/access/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    if (vErrors === null) {
+                      vErrors = [err9];
+                    } else {
+                      vErrors.push(err9);
+                    }
+                    errors++;
+                  }
+                  if (!(data3 === "read" || data3 === "write")) {
+                    const err10 = { instancePath: instancePath + "/extraFiles/" + i0 + "/access", schemaPath: "#/definitions/BrowserToolGrantExtraFile/properties/access/enum", keyword: "enum", params: { allowedValues: schema39.properties.access.enum }, message: "must be equal to one of the allowed values" };
+                    if (vErrors === null) {
+                      vErrors = [err10];
+                    } else {
+                      vErrors.push(err10);
+                    }
+                    errors++;
+                  }
+                }
+                if (data1.kind !== void 0) {
+                  let data4 = data1.kind;
+                  if (typeof data4 !== "string") {
+                    const err11 = { instancePath: instancePath + "/extraFiles/" + i0 + "/kind", schemaPath: "#/definitions/BrowserToolGrantExtraFile/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    if (vErrors === null) {
+                      vErrors = [err11];
+                    } else {
+                      vErrors.push(err11);
+                    }
+                    errors++;
+                  }
+                  if (!(data4 === "file" || data4 === "directory_tree")) {
+                    const err12 = { instancePath: instancePath + "/extraFiles/" + i0 + "/kind", schemaPath: "#/definitions/BrowserToolGrantExtraFile/properties/kind/enum", keyword: "enum", params: { allowedValues: schema39.properties.kind.enum }, message: "must be equal to one of the allowed values" };
+                    if (vErrors === null) {
+                      vErrors = [err12];
+                    } else {
+                      vErrors.push(err12);
+                    }
+                    errors++;
+                  }
+                }
+              } else {
+                const err13 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserToolGrantExtraFile/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                if (vErrors === null) {
+                  vErrors = [err13];
+                } else {
+                  vErrors.push(err13);
+                }
+                errors++;
+              }
+            }
+          } else {
+            const err14 = { instancePath: instancePath + "/extraFiles", schemaPath: "#/properties/extraFiles/type", keyword: "type", params: { type: "array" }, message: "must be array" };
+            if (vErrors === null) {
+              vErrors = [err14];
+            } else {
+              vErrors.push(err14);
+            }
+            errors++;
+          }
+        }
+        if (data.network !== void 0) {
+          let data5 = data.network;
+          if (typeof data5 !== "string") {
+            const err15 = { instancePath: instancePath + "/network", schemaPath: "#/properties/network/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            if (vErrors === null) {
+              vErrors = [err15];
+            } else {
+              vErrors.push(err15);
+            }
+            errors++;
+          }
+          if (!(data5 === "none" || data5 === "all_outbound")) {
+            const err16 = { instancePath: instancePath + "/network", schemaPath: "#/properties/network/enum", keyword: "enum", params: { allowedValues: schema38.properties.network.enum }, message: "must be equal to one of the allowed values" };
+            if (vErrors === null) {
+              vErrors = [err16];
+            } else {
+              vErrors.push(err16);
+            }
+            errors++;
+          }
+        }
+        if (data.networkNotice !== void 0) {
+          if (typeof data.networkNotice !== "string") {
+            const err17 = { instancePath: instancePath + "/networkNotice", schemaPath: "#/properties/networkNotice/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            if (vErrors === null) {
+              vErrors = [err17];
+            } else {
+              vErrors.push(err17);
+            }
+            errors++;
+          }
+        }
+      } else {
+        const err18 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+        if (vErrors === null) {
+          vErrors = [err18];
+        } else {
+          vErrors.push(err18);
+        }
+        errors++;
+      }
+      validate29.errors = vErrors;
+      return errors === 0;
+    }
+    function validate28(data, { instancePath = "", parentData, parentDataProperty, rootData = data } = {}) {
+      let vErrors = null;
+      let errors = 0;
+      if (data && typeof data == "object" && !Array.isArray(data)) {
+        if (data.actionId === void 0) {
+          const err0 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "actionId" }, message: "must have required property 'actionId'" };
+          if (vErrors === null) {
+            vErrors = [err0];
+          } else {
+            vErrors.push(err0);
+          }
+          errors++;
+        }
+        if (data.toolId === void 0) {
+          const err1 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "toolId" }, message: "must have required property 'toolId'" };
+          if (vErrors === null) {
+            vErrors = [err1];
+          } else {
+            vErrors.push(err1);
+          }
+          errors++;
+        }
+        if (data.status === void 0) {
+          const err2 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "status" }, message: "must have required property 'status'" };
+          if (vErrors === null) {
+            vErrors = [err2];
+          } else {
+            vErrors.push(err2);
+          }
+          errors++;
+        }
+        if (data.inputPreview === void 0) {
+          const err3 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "inputPreview" }, message: "must have required property 'inputPreview'" };
+          if (vErrors === null) {
+            vErrors = [err3];
+          } else {
+            vErrors.push(err3);
+          }
+          errors++;
+        }
+        if (data.inputPreviewTruncated === void 0) {
+          const err4 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "inputPreviewTruncated" }, message: "must have required property 'inputPreviewTruncated'" };
+          if (vErrors === null) {
+            vErrors = [err4];
+          } else {
+            vErrors.push(err4);
+          }
+          errors++;
+        }
+        for (const key0 in data) {
+          if (!func2.call(schema37.properties, key0)) {
+            const err5 = { instancePath, schemaPath: "#/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key0 }, message: "must NOT have additional properties" };
+            if (vErrors === null) {
+              vErrors = [err5];
+            } else {
+              vErrors.push(err5);
+            }
+            errors++;
+          }
+        }
+        if (data.actionId !== void 0) {
+          let data0 = data.actionId;
+          if (typeof data0 === "string") {
+            if (!pattern0.test(data0)) {
+              const err6 = { instancePath: instancePath + "/actionId", schemaPath: "#/properties/actionId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+              if (vErrors === null) {
+                vErrors = [err6];
+              } else {
+                vErrors.push(err6);
+              }
+              errors++;
+            }
+          } else {
+            const err7 = { instancePath: instancePath + "/actionId", schemaPath: "#/properties/actionId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            if (vErrors === null) {
+              vErrors = [err7];
+            } else {
+              vErrors.push(err7);
+            }
+            errors++;
+          }
+        }
+        if (data.toolId !== void 0) {
+          let data1 = data.toolId;
+          if (typeof data1 === "string") {
+            if (!pattern0.test(data1)) {
+              const err8 = { instancePath: instancePath + "/toolId", schemaPath: "#/properties/toolId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+              if (vErrors === null) {
+                vErrors = [err8];
+              } else {
+                vErrors.push(err8);
+              }
+              errors++;
+            }
+          } else {
+            const err9 = { instancePath: instancePath + "/toolId", schemaPath: "#/properties/toolId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            if (vErrors === null) {
+              vErrors = [err9];
+            } else {
+              vErrors.push(err9);
+            }
+            errors++;
+          }
+        }
+        if (data.status !== void 0) {
+          let data2 = data.status;
+          if (typeof data2 !== "string") {
+            const err10 = { instancePath: instancePath + "/status", schemaPath: "#/properties/status/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            if (vErrors === null) {
+              vErrors = [err10];
+            } else {
+              vErrors.push(err10);
+            }
+            errors++;
+          }
+          if (!(data2 === "approved" || data2 === "awaiting_approval" || data2 === "outcome_unknown")) {
+            const err11 = { instancePath: instancePath + "/status", schemaPath: "#/properties/status/enum", keyword: "enum", params: { allowedValues: schema37.properties.status.enum }, message: "must be equal to one of the allowed values" };
+            if (vErrors === null) {
+              vErrors = [err11];
+            } else {
+              vErrors.push(err11);
+            }
+            errors++;
+          }
+        }
+        if (data.inputSummary !== void 0) {
+          if (typeof data.inputSummary !== "string") {
+            const err12 = { instancePath: instancePath + "/inputSummary", schemaPath: "#/properties/inputSummary/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            if (vErrors === null) {
+              vErrors = [err12];
+            } else {
+              vErrors.push(err12);
+            }
+            errors++;
+          }
+        }
+        if (data.inputPreview !== void 0) {
+          if (typeof data.inputPreview !== "string") {
+            const err13 = { instancePath: instancePath + "/inputPreview", schemaPath: "#/properties/inputPreview/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            if (vErrors === null) {
+              vErrors = [err13];
+            } else {
+              vErrors.push(err13);
+            }
+            errors++;
+          }
+        }
+        if (data.inputPreviewTruncated !== void 0) {
+          if (typeof data.inputPreviewTruncated !== "boolean") {
+            const err14 = { instancePath: instancePath + "/inputPreviewTruncated", schemaPath: "#/properties/inputPreviewTruncated/type", keyword: "type", params: { type: "boolean" }, message: "must be boolean" };
+            if (vErrors === null) {
+              vErrors = [err14];
+            } else {
+              vErrors.push(err14);
+            }
+            errors++;
+          }
+        }
+        if (data.targetPath !== void 0) {
+          if (typeof data.targetPath !== "string") {
+            const err15 = { instancePath: instancePath + "/targetPath", schemaPath: "#/properties/targetPath/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            if (vErrors === null) {
+              vErrors = [err15];
+            } else {
+              vErrors.push(err15);
+            }
+            errors++;
+          }
+        }
+        if (data.approvalKind !== void 0) {
+          let data7 = data.approvalKind;
+          if (typeof data7 !== "string") {
+            const err16 = { instancePath: instancePath + "/approvalKind", schemaPath: "#/properties/approvalKind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            if (vErrors === null) {
+              vErrors = [err16];
+            } else {
+              vErrors.push(err16);
+            }
+            errors++;
+          }
+          if (!(data7 === "tool" || data7 === "sandbox")) {
+            const err17 = { instancePath: instancePath + "/approvalKind", schemaPath: "#/properties/approvalKind/enum", keyword: "enum", params: { allowedValues: schema37.properties.approvalKind.enum }, message: "must be equal to one of the allowed values" };
+            if (vErrors === null) {
+              vErrors = [err17];
+            } else {
+              vErrors.push(err17);
+            }
+            errors++;
+          }
+        }
+        if (data.sandboxReview !== void 0) {
+          if (!validate29(data.sandboxReview, { instancePath: instancePath + "/sandboxReview", parentData: data, parentDataProperty: "sandboxReview", rootData })) {
+            vErrors = vErrors === null ? validate29.errors : vErrors.concat(validate29.errors);
+            errors = vErrors.length;
+          }
+        }
+        if (data.parentProgram !== void 0) {
+          let data9 = data.parentProgram;
+          if (data9 && typeof data9 == "object" && !Array.isArray(data9)) {
+            if (data9.actionId === void 0) {
+              const err18 = { instancePath: instancePath + "/parentProgram", schemaPath: "#/definitions/BrowserParentProgram/required", keyword: "required", params: { missingProperty: "actionId" }, message: "must have required property 'actionId'" };
+              if (vErrors === null) {
+                vErrors = [err18];
+              } else {
+                vErrors.push(err18);
+              }
+              errors++;
+            }
+            if (data9.callNumber === void 0) {
+              const err19 = { instancePath: instancePath + "/parentProgram", schemaPath: "#/definitions/BrowserParentProgram/required", keyword: "required", params: { missingProperty: "callNumber" }, message: "must have required property 'callNumber'" };
+              if (vErrors === null) {
+                vErrors = [err19];
+              } else {
+                vErrors.push(err19);
+              }
+              errors++;
+            }
+            for (const key1 in data9) {
+              if (!(key1 === "actionId" || key1 === "callNumber")) {
+                const err20 = { instancePath: instancePath + "/parentProgram", schemaPath: "#/definitions/BrowserParentProgram/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key1 }, message: "must NOT have additional properties" };
+                if (vErrors === null) {
+                  vErrors = [err20];
+                } else {
+                  vErrors.push(err20);
+                }
+                errors++;
+              }
+            }
+            if (data9.actionId !== void 0) {
+              let data10 = data9.actionId;
+              if (typeof data10 === "string") {
+                if (!pattern0.test(data10)) {
+                  const err21 = { instancePath: instancePath + "/parentProgram/actionId", schemaPath: "#/definitions/BrowserParentProgram/properties/actionId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                  if (vErrors === null) {
+                    vErrors = [err21];
+                  } else {
+                    vErrors.push(err21);
+                  }
+                  errors++;
+                }
+              } else {
+                const err22 = { instancePath: instancePath + "/parentProgram/actionId", schemaPath: "#/definitions/BrowserParentProgram/properties/actionId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                if (vErrors === null) {
+                  vErrors = [err22];
+                } else {
+                  vErrors.push(err22);
+                }
+                errors++;
+              }
+            }
+            if (data9.callNumber !== void 0) {
+              let data11 = data9.callNumber;
+              if (!(typeof data11 == "number" && (!(data11 % 1) && !isNaN(data11)) && isFinite(data11))) {
+                const err23 = { instancePath: instancePath + "/parentProgram/callNumber", schemaPath: "#/definitions/BrowserParentProgram/properties/callNumber/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
+                if (vErrors === null) {
+                  vErrors = [err23];
+                } else {
+                  vErrors.push(err23);
+                }
+                errors++;
+              }
+              if (typeof data11 == "number" && isFinite(data11)) {
+                if (data11 > 9007199254740991 || isNaN(data11)) {
+                  const err24 = { instancePath: instancePath + "/parentProgram/callNumber", schemaPath: "#/definitions/BrowserParentProgram/properties/callNumber/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
+                  if (vErrors === null) {
+                    vErrors = [err24];
+                  } else {
+                    vErrors.push(err24);
+                  }
+                  errors++;
+                }
+                if (data11 < 1 || isNaN(data11)) {
+                  const err25 = { instancePath: instancePath + "/parentProgram/callNumber", schemaPath: "#/definitions/BrowserParentProgram/properties/callNumber/minimum", keyword: "minimum", params: { comparison: ">=", limit: 1 }, message: "must be >= 1" };
+                  if (vErrors === null) {
+                    vErrors = [err25];
+                  } else {
+                    vErrors.push(err25);
+                  }
+                  errors++;
+                }
+              }
+            }
+          } else {
+            const err26 = { instancePath: instancePath + "/parentProgram", schemaPath: "#/definitions/BrowserParentProgram/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+            if (vErrors === null) {
+              vErrors = [err26];
+            } else {
+              vErrors.push(err26);
+            }
+            errors++;
+          }
+        }
+      } else {
+        const err27 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+        if (vErrors === null) {
+          vErrors = [err27];
+        } else {
+          vErrors.push(err27);
+        }
+        errors++;
+      }
+      validate28.errors = vErrors;
+      return errors === 0;
+    }
     function validate19(data, { instancePath = "", parentData, parentDataProperty, rootData = data } = {}) {
+      let vErrors = null;
+      let errors = 0;
+      if (data && typeof data == "object" && !Array.isArray(data)) {
+        if (data.goalId === void 0) {
+          const err0 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "goalId" }, message: "must have required property 'goalId'" };
+          if (vErrors === null) {
+            vErrors = [err0];
+          } else {
+            vErrors.push(err0);
+          }
+          errors++;
+        }
+        if (data.intent === void 0) {
+          const err1 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "intent" }, message: "must have required property 'intent'" };
+          if (vErrors === null) {
+            vErrors = [err1];
+          } else {
+            vErrors.push(err1);
+          }
+          errors++;
+        }
+        if (data.currentRunId === void 0) {
+          const err2 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "currentRunId" }, message: "must have required property 'currentRunId'" };
+          if (vErrors === null) {
+            vErrors = [err2];
+          } else {
+            vErrors.push(err2);
+          }
+          errors++;
+        }
+        if (data.runStatus === void 0) {
+          const err3 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "runStatus" }, message: "must have required property 'runStatus'" };
+          if (vErrors === null) {
+            vErrors = [err3];
+          } else {
+            vErrors.push(err3);
+          }
+          errors++;
+        }
+        if (data.currentRunMode === void 0) {
+          const err4 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "currentRunMode" }, message: "must have required property 'currentRunMode'" };
+          if (vErrors === null) {
+            vErrors = [err4];
+          } else {
+            vErrors.push(err4);
+          }
+          errors++;
+        }
+        if (data.currentRunStepCount === void 0) {
+          const err5 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "currentRunStepCount" }, message: "must have required property 'currentRunStepCount'" };
+          if (vErrors === null) {
+            vErrors = [err5];
+          } else {
+            vErrors.push(err5);
+          }
+          errors++;
+        }
+        if (data.history === void 0) {
+          const err6 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "history" }, message: "must have required property 'history'" };
+          if (vErrors === null) {
+            vErrors = [err6];
+          } else {
+            vErrors.push(err6);
+          }
+          errors++;
+        }
+        for (const key0 in data) {
+          if (!func2.call(schema21.properties, key0)) {
+            const err7 = { instancePath, schemaPath: "#/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key0 }, message: "must NOT have additional properties" };
+            if (vErrors === null) {
+              vErrors = [err7];
+            } else {
+              vErrors.push(err7);
+            }
+            errors++;
+          }
+        }
+        if (data.goalId !== void 0) {
+          let data0 = data.goalId;
+          if (typeof data0 === "string") {
+            if (!pattern0.test(data0)) {
+              const err8 = { instancePath: instancePath + "/goalId", schemaPath: "#/properties/goalId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+              if (vErrors === null) {
+                vErrors = [err8];
+              } else {
+                vErrors.push(err8);
+              }
+              errors++;
+            }
+          } else {
+            const err9 = { instancePath: instancePath + "/goalId", schemaPath: "#/properties/goalId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            if (vErrors === null) {
+              vErrors = [err9];
+            } else {
+              vErrors.push(err9);
+            }
+            errors++;
+          }
+        }
+        if (data.intent !== void 0) {
+          if (typeof data.intent !== "string") {
+            const err10 = { instancePath: instancePath + "/intent", schemaPath: "#/properties/intent/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            if (vErrors === null) {
+              vErrors = [err10];
+            } else {
+              vErrors.push(err10);
+            }
+            errors++;
+          }
+        }
+        if (data.currentRunId !== void 0) {
+          let data2 = data.currentRunId;
+          if (typeof data2 === "string") {
+            if (!pattern0.test(data2)) {
+              const err11 = { instancePath: instancePath + "/currentRunId", schemaPath: "#/properties/currentRunId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+              if (vErrors === null) {
+                vErrors = [err11];
+              } else {
+                vErrors.push(err11);
+              }
+              errors++;
+            }
+          } else {
+            const err12 = { instancePath: instancePath + "/currentRunId", schemaPath: "#/properties/currentRunId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            if (vErrors === null) {
+              vErrors = [err12];
+            } else {
+              vErrors.push(err12);
+            }
+            errors++;
+          }
+        }
+        if (data.runStatus !== void 0) {
+          let data3 = data.runStatus;
+          if (typeof data3 !== "string") {
+            const err13 = { instancePath: instancePath + "/runStatus", schemaPath: "#/definitions/BrowserRunStatus/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            if (vErrors === null) {
+              vErrors = [err13];
+            } else {
+              vErrors.push(err13);
+            }
+            errors++;
+          }
+          if (!(data3 === "created" || data3 === "running" || data3 === "waiting" || data3 === "completed" || data3 === "failed" || data3 === "cancelled")) {
+            const err14 = { instancePath: instancePath + "/runStatus", schemaPath: "#/definitions/BrowserRunStatus/enum", keyword: "enum", params: { allowedValues: schema14.enum }, message: "must be equal to one of the allowed values" };
+            if (vErrors === null) {
+              vErrors = [err14];
+            } else {
+              vErrors.push(err14);
+            }
+            errors++;
+          }
+        }
+        if (data.currentRunMode !== void 0) {
+          let data4 = data.currentRunMode;
+          if (typeof data4 !== "string") {
+            const err15 = { instancePath: instancePath + "/currentRunMode", schemaPath: "#/properties/currentRunMode/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            if (vErrors === null) {
+              vErrors = [err15];
+            } else {
+              vErrors.push(err15);
+            }
+            errors++;
+          }
+          if (!(data4 === "normal" || data4 === "plan")) {
+            const err16 = { instancePath: instancePath + "/currentRunMode", schemaPath: "#/properties/currentRunMode/enum", keyword: "enum", params: { allowedValues: schema21.properties.currentRunMode.enum }, message: "must be equal to one of the allowed values" };
+            if (vErrors === null) {
+              vErrors = [err16];
+            } else {
+              vErrors.push(err16);
+            }
+            errors++;
+          }
+        }
+        if (data.nextRunMode !== void 0) {
+          let data5 = data.nextRunMode;
+          if (typeof data5 !== "string") {
+            const err17 = { instancePath: instancePath + "/nextRunMode", schemaPath: "#/properties/nextRunMode/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            if (vErrors === null) {
+              vErrors = [err17];
+            } else {
+              vErrors.push(err17);
+            }
+            errors++;
+          }
+          if ("plan" !== data5) {
+            const err18 = { instancePath: instancePath + "/nextRunMode", schemaPath: "#/properties/nextRunMode/const", keyword: "const", params: { allowedValue: "plan" }, message: "must be equal to constant" };
+            if (vErrors === null) {
+              vErrors = [err18];
+            } else {
+              vErrors.push(err18);
+            }
+            errors++;
+          }
+        }
+        if (data.currentRunStepCount !== void 0) {
+          let data6 = data.currentRunStepCount;
+          if (!(typeof data6 == "number" && (!(data6 % 1) && !isNaN(data6)) && isFinite(data6))) {
+            const err19 = { instancePath: instancePath + "/currentRunStepCount", schemaPath: "#/properties/currentRunStepCount/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
+            if (vErrors === null) {
+              vErrors = [err19];
+            } else {
+              vErrors.push(err19);
+            }
+            errors++;
+          }
+          if (typeof data6 == "number" && isFinite(data6)) {
+            if (data6 > 9007199254740991 || isNaN(data6)) {
+              const err20 = { instancePath: instancePath + "/currentRunStepCount", schemaPath: "#/properties/currentRunStepCount/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
+              if (vErrors === null) {
+                vErrors = [err20];
+              } else {
+                vErrors.push(err20);
+              }
+              errors++;
+            }
+            if (data6 < 0 || isNaN(data6)) {
+              const err21 = { instancePath: instancePath + "/currentRunStepCount", schemaPath: "#/properties/currentRunStepCount/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
+              if (vErrors === null) {
+                vErrors = [err21];
+              } else {
+                vErrors.push(err21);
+              }
+              errors++;
+            }
+          }
+        }
+        if (data.currentRunTerminalDetail !== void 0) {
+          let data7 = data.currentRunTerminalDetail;
+          if (data7 && typeof data7 == "object" && !Array.isArray(data7)) {
+            if (data7.message === void 0) {
+              const err22 = { instancePath: instancePath + "/currentRunTerminalDetail", schemaPath: "#/definitions/BrowserSessionRunTerminalDetail/required", keyword: "required", params: { missingProperty: "message" }, message: "must have required property 'message'" };
+              if (vErrors === null) {
+                vErrors = [err22];
+              } else {
+                vErrors.push(err22);
+              }
+              errors++;
+            }
+            for (const key1 in data7) {
+              if (!(key1 === "code" || key1 === "message")) {
+                const err23 = { instancePath: instancePath + "/currentRunTerminalDetail", schemaPath: "#/definitions/BrowserSessionRunTerminalDetail/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key1 }, message: "must NOT have additional properties" };
+                if (vErrors === null) {
+                  vErrors = [err23];
+                } else {
+                  vErrors.push(err23);
+                }
+                errors++;
+              }
+            }
+            if (data7.code !== void 0) {
+              if (typeof data7.code !== "string") {
+                const err24 = { instancePath: instancePath + "/currentRunTerminalDetail/code", schemaPath: "#/definitions/BrowserSessionRunTerminalDetail/properties/code/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                if (vErrors === null) {
+                  vErrors = [err24];
+                } else {
+                  vErrors.push(err24);
+                }
+                errors++;
+              }
+            }
+            if (data7.message !== void 0) {
+              if (typeof data7.message !== "string") {
+                const err25 = { instancePath: instancePath + "/currentRunTerminalDetail/message", schemaPath: "#/definitions/BrowserSessionRunTerminalDetail/properties/message/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                if (vErrors === null) {
+                  vErrors = [err25];
+                } else {
+                  vErrors.push(err25);
+                }
+                errors++;
+              }
+            }
+          } else {
+            const err26 = { instancePath: instancePath + "/currentRunTerminalDetail", schemaPath: "#/definitions/BrowserSessionRunTerminalDetail/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+            if (vErrors === null) {
+              vErrors = [err26];
+            } else {
+              vErrors.push(err26);
+            }
+            errors++;
+          }
+        }
+        if (data.currentPlanRoute !== void 0) {
+          if (!validate20(data.currentPlanRoute, { instancePath: instancePath + "/currentPlanRoute", parentData: data, parentDataProperty: "currentPlanRoute", rootData })) {
+            vErrors = vErrors === null ? validate20.errors : vErrors.concat(validate20.errors);
+            errors = vErrors.length;
+          }
+        }
+        if (data.execution !== void 0) {
+          if (!validate22(data.execution, { instancePath: instancePath + "/execution", parentData: data, parentDataProperty: "execution", rootData })) {
+            vErrors = vErrors === null ? validate22.errors : vErrors.concat(validate22.errors);
+            errors = vErrors.length;
+          }
+        }
+        if (data.pendingSteers !== void 0) {
+          let data12 = data.pendingSteers;
+          if (Array.isArray(data12)) {
+            const len0 = data12.length;
+            for (let i0 = 0; i0 < len0; i0++) {
+              let data13 = data12[i0];
+              if (data13 && typeof data13 == "object" && !Array.isArray(data13)) {
+                if (data13.messageId === void 0) {
+                  const err27 = { instancePath: instancePath + "/pendingSteers/" + i0, schemaPath: "#/definitions/BrowserPendingSteer/required", keyword: "required", params: { missingProperty: "messageId" }, message: "must have required property 'messageId'" };
+                  if (vErrors === null) {
+                    vErrors = [err27];
+                  } else {
+                    vErrors.push(err27);
+                  }
+                  errors++;
+                }
+                if (data13.content === void 0) {
+                  const err28 = { instancePath: instancePath + "/pendingSteers/" + i0, schemaPath: "#/definitions/BrowserPendingSteer/required", keyword: "required", params: { missingProperty: "content" }, message: "must have required property 'content'" };
+                  if (vErrors === null) {
+                    vErrors = [err28];
+                  } else {
+                    vErrors.push(err28);
+                  }
+                  errors++;
+                }
+                for (const key2 in data13) {
+                  if (!(key2 === "messageId" || key2 === "content")) {
+                    const err29 = { instancePath: instancePath + "/pendingSteers/" + i0, schemaPath: "#/definitions/BrowserPendingSteer/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key2 }, message: "must NOT have additional properties" };
+                    if (vErrors === null) {
+                      vErrors = [err29];
+                    } else {
+                      vErrors.push(err29);
+                    }
+                    errors++;
+                  }
+                }
+                if (data13.messageId !== void 0) {
+                  let data14 = data13.messageId;
+                  if (typeof data14 === "string") {
+                    if (!pattern0.test(data14)) {
+                      const err30 = { instancePath: instancePath + "/pendingSteers/" + i0 + "/messageId", schemaPath: "#/definitions/BrowserPendingSteer/properties/messageId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                      if (vErrors === null) {
+                        vErrors = [err30];
+                      } else {
+                        vErrors.push(err30);
+                      }
+                      errors++;
+                    }
+                  } else {
+                    const err31 = { instancePath: instancePath + "/pendingSteers/" + i0 + "/messageId", schemaPath: "#/definitions/BrowserPendingSteer/properties/messageId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    if (vErrors === null) {
+                      vErrors = [err31];
+                    } else {
+                      vErrors.push(err31);
+                    }
+                    errors++;
+                  }
+                }
+                if (data13.content !== void 0) {
+                  if (typeof data13.content !== "string") {
+                    const err32 = { instancePath: instancePath + "/pendingSteers/" + i0 + "/content", schemaPath: "#/definitions/BrowserPendingSteer/properties/content/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    if (vErrors === null) {
+                      vErrors = [err32];
+                    } else {
+                      vErrors.push(err32);
+                    }
+                    errors++;
+                  }
+                }
+              } else {
+                const err33 = { instancePath: instancePath + "/pendingSteers/" + i0, schemaPath: "#/definitions/BrowserPendingSteer/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                if (vErrors === null) {
+                  vErrors = [err33];
+                } else {
+                  vErrors.push(err33);
+                }
+                errors++;
+              }
+            }
+          } else {
+            const err34 = { instancePath: instancePath + "/pendingSteers", schemaPath: "#/properties/pendingSteers/type", keyword: "type", params: { type: "array" }, message: "must be array" };
+            if (vErrors === null) {
+              vErrors = [err34];
+            } else {
+              vErrors.push(err34);
+            }
+            errors++;
+          }
+        }
+        if (data.pendingMessages !== void 0) {
+          let data16 = data.pendingMessages;
+          if (Array.isArray(data16)) {
+            const len1 = data16.length;
+            for (let i1 = 0; i1 < len1; i1++) {
+              let data17 = data16[i1];
+              if (data17 && typeof data17 == "object" && !Array.isArray(data17)) {
+                if (data17.inputId === void 0) {
+                  const err35 = { instancePath: instancePath + "/pendingMessages/" + i1, schemaPath: "#/definitions/BrowserPendingMessage/required", keyword: "required", params: { missingProperty: "inputId" }, message: "must have required property 'inputId'" };
+                  if (vErrors === null) {
+                    vErrors = [err35];
+                  } else {
+                    vErrors.push(err35);
+                  }
+                  errors++;
+                }
+                if (data17.content === void 0) {
+                  const err36 = { instancePath: instancePath + "/pendingMessages/" + i1, schemaPath: "#/definitions/BrowserPendingMessage/required", keyword: "required", params: { missingProperty: "content" }, message: "must have required property 'content'" };
+                  if (vErrors === null) {
+                    vErrors = [err36];
+                  } else {
+                    vErrors.push(err36);
+                  }
+                  errors++;
+                }
+                for (const key3 in data17) {
+                  if (!(key3 === "inputId" || key3 === "content")) {
+                    const err37 = { instancePath: instancePath + "/pendingMessages/" + i1, schemaPath: "#/definitions/BrowserPendingMessage/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key3 }, message: "must NOT have additional properties" };
+                    if (vErrors === null) {
+                      vErrors = [err37];
+                    } else {
+                      vErrors.push(err37);
+                    }
+                    errors++;
+                  }
+                }
+                if (data17.inputId !== void 0) {
+                  let data18 = data17.inputId;
+                  if (typeof data18 === "string") {
+                    if (!pattern0.test(data18)) {
+                      const err38 = { instancePath: instancePath + "/pendingMessages/" + i1 + "/inputId", schemaPath: "#/definitions/BrowserPendingMessage/properties/inputId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                      if (vErrors === null) {
+                        vErrors = [err38];
+                      } else {
+                        vErrors.push(err38);
+                      }
+                      errors++;
+                    }
+                  } else {
+                    const err39 = { instancePath: instancePath + "/pendingMessages/" + i1 + "/inputId", schemaPath: "#/definitions/BrowserPendingMessage/properties/inputId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    if (vErrors === null) {
+                      vErrors = [err39];
+                    } else {
+                      vErrors.push(err39);
+                    }
+                    errors++;
+                  }
+                }
+                if (data17.content !== void 0) {
+                  if (typeof data17.content !== "string") {
+                    const err40 = { instancePath: instancePath + "/pendingMessages/" + i1 + "/content", schemaPath: "#/definitions/BrowserPendingMessage/properties/content/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    if (vErrors === null) {
+                      vErrors = [err40];
+                    } else {
+                      vErrors.push(err40);
+                    }
+                    errors++;
+                  }
+                }
+              } else {
+                const err41 = { instancePath: instancePath + "/pendingMessages/" + i1, schemaPath: "#/definitions/BrowserPendingMessage/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                if (vErrors === null) {
+                  vErrors = [err41];
+                } else {
+                  vErrors.push(err41);
+                }
+                errors++;
+              }
+            }
+          } else {
+            const err42 = { instancePath: instancePath + "/pendingMessages", schemaPath: "#/properties/pendingMessages/type", keyword: "type", params: { type: "array" }, message: "must be array" };
+            if (vErrors === null) {
+              vErrors = [err42];
+            } else {
+              vErrors.push(err42);
+            }
+            errors++;
+          }
+        }
+        if (data.queue !== void 0) {
+          let data20 = data.queue;
+          if (data20 && typeof data20 == "object" && !Array.isArray(data20)) {
+            if (data20.revision === void 0) {
+              const err43 = { instancePath: instancePath + "/queue", schemaPath: "#/definitions/BrowserQueueState/required", keyword: "required", params: { missingProperty: "revision" }, message: "must have required property 'revision'" };
+              if (vErrors === null) {
+                vErrors = [err43];
+              } else {
+                vErrors.push(err43);
+              }
+              errors++;
+            }
+            if (data20.paused === void 0) {
+              const err44 = { instancePath: instancePath + "/queue", schemaPath: "#/definitions/BrowserQueueState/required", keyword: "required", params: { missingProperty: "paused" }, message: "must have required property 'paused'" };
+              if (vErrors === null) {
+                vErrors = [err44];
+              } else {
+                vErrors.push(err44);
+              }
+              errors++;
+            }
+            for (const key4 in data20) {
+              if (!(key4 === "revision" || key4 === "paused" || key4 === "pauseReason")) {
+                const err45 = { instancePath: instancePath + "/queue", schemaPath: "#/definitions/BrowserQueueState/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key4 }, message: "must NOT have additional properties" };
+                if (vErrors === null) {
+                  vErrors = [err45];
+                } else {
+                  vErrors.push(err45);
+                }
+                errors++;
+              }
+            }
+            if (data20.revision !== void 0) {
+              let data21 = data20.revision;
+              if (!(typeof data21 == "number" && (!(data21 % 1) && !isNaN(data21)) && isFinite(data21))) {
+                const err46 = { instancePath: instancePath + "/queue/revision", schemaPath: "#/definitions/BrowserQueueState/properties/revision/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
+                if (vErrors === null) {
+                  vErrors = [err46];
+                } else {
+                  vErrors.push(err46);
+                }
+                errors++;
+              }
+              if (typeof data21 == "number" && isFinite(data21)) {
+                if (data21 > 9007199254740991 || isNaN(data21)) {
+                  const err47 = { instancePath: instancePath + "/queue/revision", schemaPath: "#/definitions/BrowserQueueState/properties/revision/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
+                  if (vErrors === null) {
+                    vErrors = [err47];
+                  } else {
+                    vErrors.push(err47);
+                  }
+                  errors++;
+                }
+                if (data21 < 0 || isNaN(data21)) {
+                  const err48 = { instancePath: instancePath + "/queue/revision", schemaPath: "#/definitions/BrowserQueueState/properties/revision/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
+                  if (vErrors === null) {
+                    vErrors = [err48];
+                  } else {
+                    vErrors.push(err48);
+                  }
+                  errors++;
+                }
+              }
+            }
+            if (data20.paused !== void 0) {
+              if (typeof data20.paused !== "boolean") {
+                const err49 = { instancePath: instancePath + "/queue/paused", schemaPath: "#/definitions/BrowserQueueState/properties/paused/type", keyword: "type", params: { type: "boolean" }, message: "must be boolean" };
+                if (vErrors === null) {
+                  vErrors = [err49];
+                } else {
+                  vErrors.push(err49);
+                }
+                errors++;
+              }
+            }
+            if (data20.pauseReason !== void 0) {
+              let data23 = data20.pauseReason;
+              if (typeof data23 !== "string") {
+                const err50 = { instancePath: instancePath + "/queue/pauseReason", schemaPath: "#/definitions/BrowserQueueState/properties/pauseReason/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                if (vErrors === null) {
+                  vErrors = [err50];
+                } else {
+                  vErrors.push(err50);
+                }
+                errors++;
+              }
+              if (!(data23 === "run_failed" || data23 === "user_interrupt")) {
+                const err51 = { instancePath: instancePath + "/queue/pauseReason", schemaPath: "#/definitions/BrowserQueueState/properties/pauseReason/enum", keyword: "enum", params: { allowedValues: schema30.properties.pauseReason.enum }, message: "must be equal to one of the allowed values" };
+                if (vErrors === null) {
+                  vErrors = [err51];
+                } else {
+                  vErrors.push(err51);
+                }
+                errors++;
+              }
+            }
+          } else {
+            const err52 = { instancePath: instancePath + "/queue", schemaPath: "#/definitions/BrowserQueueState/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+            if (vErrors === null) {
+              vErrors = [err52];
+            } else {
+              vErrors.push(err52);
+            }
+            errors++;
+          }
+        }
+        if (data.interruption !== void 0) {
+          let data24 = data.interruption;
+          if (data24 && typeof data24 == "object" && !Array.isArray(data24)) {
+            if (data24.requestId === void 0) {
+              const err53 = { instancePath: instancePath + "/interruption", schemaPath: "#/definitions/BrowserInterruption/required", keyword: "required", params: { missingProperty: "requestId" }, message: "must have required property 'requestId'" };
+              if (vErrors === null) {
+                vErrors = [err53];
+              } else {
+                vErrors.push(err53);
+              }
+              errors++;
+            }
+            if (data24.status === void 0) {
+              const err54 = { instancePath: instancePath + "/interruption", schemaPath: "#/definitions/BrowserInterruption/required", keyword: "required", params: { missingProperty: "status" }, message: "must have required property 'status'" };
+              if (vErrors === null) {
+                vErrors = [err54];
+              } else {
+                vErrors.push(err54);
+              }
+              errors++;
+            }
+            for (const key5 in data24) {
+              if (!(key5 === "requestId" || key5 === "status" || key5 === "outcomeUnknown")) {
+                const err55 = { instancePath: instancePath + "/interruption", schemaPath: "#/definitions/BrowserInterruption/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key5 }, message: "must NOT have additional properties" };
+                if (vErrors === null) {
+                  vErrors = [err55];
+                } else {
+                  vErrors.push(err55);
+                }
+                errors++;
+              }
+            }
+            if (data24.requestId !== void 0) {
+              let data25 = data24.requestId;
+              if (typeof data25 === "string") {
+                if (!pattern0.test(data25)) {
+                  const err56 = { instancePath: instancePath + "/interruption/requestId", schemaPath: "#/definitions/BrowserInterruption/properties/requestId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                  if (vErrors === null) {
+                    vErrors = [err56];
+                  } else {
+                    vErrors.push(err56);
+                  }
+                  errors++;
+                }
+              } else {
+                const err57 = { instancePath: instancePath + "/interruption/requestId", schemaPath: "#/definitions/BrowserInterruption/properties/requestId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                if (vErrors === null) {
+                  vErrors = [err57];
+                } else {
+                  vErrors.push(err57);
+                }
+                errors++;
+              }
+            }
+            if (data24.status !== void 0) {
+              let data26 = data24.status;
+              if (typeof data26 !== "string") {
+                const err58 = { instancePath: instancePath + "/interruption/status", schemaPath: "#/definitions/BrowserInterruption/properties/status/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                if (vErrors === null) {
+                  vErrors = [err58];
+                } else {
+                  vErrors.push(err58);
+                }
+                errors++;
+              }
+              if (!(data26 === "requested" || data26 === "finished")) {
+                const err59 = { instancePath: instancePath + "/interruption/status", schemaPath: "#/definitions/BrowserInterruption/properties/status/enum", keyword: "enum", params: { allowedValues: schema31.properties.status.enum }, message: "must be equal to one of the allowed values" };
+                if (vErrors === null) {
+                  vErrors = [err59];
+                } else {
+                  vErrors.push(err59);
+                }
+                errors++;
+              }
+            }
+            if (data24.outcomeUnknown !== void 0) {
+              if (typeof data24.outcomeUnknown !== "boolean") {
+                const err60 = { instancePath: instancePath + "/interruption/outcomeUnknown", schemaPath: "#/definitions/BrowserInterruption/properties/outcomeUnknown/type", keyword: "type", params: { type: "boolean" }, message: "must be boolean" };
+                if (vErrors === null) {
+                  vErrors = [err60];
+                } else {
+                  vErrors.push(err60);
+                }
+                errors++;
+              }
+            }
+          } else {
+            const err61 = { instancePath: instancePath + "/interruption", schemaPath: "#/definitions/BrowserInterruption/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+            if (vErrors === null) {
+              vErrors = [err61];
+            } else {
+              vErrors.push(err61);
+            }
+            errors++;
+          }
+        }
+        if (data.goalPlan !== void 0) {
+          if (!validate24(data.goalPlan, { instancePath: instancePath + "/goalPlan", parentData: data, parentDataProperty: "goalPlan", rootData })) {
+            vErrors = vErrors === null ? validate24.errors : vErrors.concat(validate24.errors);
+            errors = vErrors.length;
+          }
+        }
+        if (data.interaction !== void 0) {
+          if (!validate26(data.interaction, { instancePath: instancePath + "/interaction", parentData: data, parentDataProperty: "interaction", rootData })) {
+            vErrors = vErrors === null ? validate26.errors : vErrors.concat(validate26.errors);
+            errors = vErrors.length;
+          }
+        }
+        if (data.pendingAction !== void 0) {
+          if (!validate28(data.pendingAction, { instancePath: instancePath + "/pendingAction", parentData: data, parentDataProperty: "pendingAction", rootData })) {
+            vErrors = vErrors === null ? validate28.errors : vErrors.concat(validate28.errors);
+            errors = vErrors.length;
+          }
+        }
+        if (data.history !== void 0) {
+          let data31 = data.history;
+          if (data31 && typeof data31 == "object" && !Array.isArray(data31)) {
+            if (data31.messages === void 0) {
+              const err62 = { instancePath: instancePath + "/history", schemaPath: "#/properties/history/required", keyword: "required", params: { missingProperty: "messages" }, message: "must have required property 'messages'" };
+              if (vErrors === null) {
+                vErrors = [err62];
+              } else {
+                vErrors.push(err62);
+              }
+              errors++;
+            }
+            if (data31.steps === void 0) {
+              const err63 = { instancePath: instancePath + "/history", schemaPath: "#/properties/history/required", keyword: "required", params: { missingProperty: "steps" }, message: "must have required property 'steps'" };
+              if (vErrors === null) {
+                vErrors = [err63];
+              } else {
+                vErrors.push(err63);
+              }
+              errors++;
+            }
+            if (data31.stages === void 0) {
+              const err64 = { instancePath: instancePath + "/history", schemaPath: "#/properties/history/required", keyword: "required", params: { missingProperty: "stages" }, message: "must have required property 'stages'" };
+              if (vErrors === null) {
+                vErrors = [err64];
+              } else {
+                vErrors.push(err64);
+              }
+              errors++;
+            }
+            for (const key6 in data31) {
+              if (!(key6 === "messages" || key6 === "steps" || key6 === "stages")) {
+                const err65 = { instancePath: instancePath + "/history", schemaPath: "#/properties/history/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key6 }, message: "must NOT have additional properties" };
+                if (vErrors === null) {
+                  vErrors = [err65];
+                } else {
+                  vErrors.push(err65);
+                }
+                errors++;
+              }
+            }
+            if (data31.messages !== void 0) {
+              let data32 = data31.messages;
+              if (data32 && typeof data32 == "object" && !Array.isArray(data32)) {
+                if (data32.included === void 0) {
+                  const err66 = { instancePath: instancePath + "/history/messages", schemaPath: "#/definitions/BrowserActivityHistoryMarker/required", keyword: "required", params: { missingProperty: "included" }, message: "must have required property 'included'" };
+                  if (vErrors === null) {
+                    vErrors = [err66];
+                  } else {
+                    vErrors.push(err66);
+                  }
+                  errors++;
+                }
+                if (data32.source === void 0) {
+                  const err67 = { instancePath: instancePath + "/history/messages", schemaPath: "#/definitions/BrowserActivityHistoryMarker/required", keyword: "required", params: { missingProperty: "source" }, message: "must have required property 'source'" };
+                  if (vErrors === null) {
+                    vErrors = [err67];
+                  } else {
+                    vErrors.push(err67);
+                  }
+                  errors++;
+                }
+                for (const key7 in data32) {
+                  if (!(key7 === "included" || key7 === "source")) {
+                    const err68 = { instancePath: instancePath + "/history/messages", schemaPath: "#/definitions/BrowserActivityHistoryMarker/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key7 }, message: "must NOT have additional properties" };
+                    if (vErrors === null) {
+                      vErrors = [err68];
+                    } else {
+                      vErrors.push(err68);
+                    }
+                    errors++;
+                  }
+                }
+                if (data32.included !== void 0) {
+                  let data33 = data32.included;
+                  if (typeof data33 !== "boolean") {
+                    const err69 = { instancePath: instancePath + "/history/messages/included", schemaPath: "#/definitions/BrowserActivityHistoryMarker/properties/included/type", keyword: "type", params: { type: "boolean" }, message: "must be boolean" };
+                    if (vErrors === null) {
+                      vErrors = [err69];
+                    } else {
+                      vErrors.push(err69);
+                    }
+                    errors++;
+                  }
+                  if (false !== data33) {
+                    const err70 = { instancePath: instancePath + "/history/messages/included", schemaPath: "#/definitions/BrowserActivityHistoryMarker/properties/included/const", keyword: "const", params: { allowedValue: false }, message: "must be equal to constant" };
+                    if (vErrors === null) {
+                      vErrors = [err70];
+                    } else {
+                      vErrors.push(err70);
+                    }
+                    errors++;
+                  }
+                }
+                if (data32.source !== void 0) {
+                  let data34 = data32.source;
+                  if (typeof data34 !== "string") {
+                    const err71 = { instancePath: instancePath + "/history/messages/source", schemaPath: "#/definitions/BrowserActivityHistoryMarker/properties/source/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    if (vErrors === null) {
+                      vErrors = [err71];
+                    } else {
+                      vErrors.push(err71);
+                    }
+                    errors++;
+                  }
+                  if ("activity" !== data34) {
+                    const err72 = { instancePath: instancePath + "/history/messages/source", schemaPath: "#/definitions/BrowserActivityHistoryMarker/properties/source/const", keyword: "const", params: { allowedValue: "activity" }, message: "must be equal to constant" };
+                    if (vErrors === null) {
+                      vErrors = [err72];
+                    } else {
+                      vErrors.push(err72);
+                    }
+                    errors++;
+                  }
+                }
+              } else {
+                const err73 = { instancePath: instancePath + "/history/messages", schemaPath: "#/definitions/BrowserActivityHistoryMarker/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                if (vErrors === null) {
+                  vErrors = [err73];
+                } else {
+                  vErrors.push(err73);
+                }
+                errors++;
+              }
+            }
+            if (data31.steps !== void 0) {
+              let data35 = data31.steps;
+              if (data35 && typeof data35 == "object" && !Array.isArray(data35)) {
+                if (data35.included === void 0) {
+                  const err74 = { instancePath: instancePath + "/history/steps", schemaPath: "#/definitions/BrowserActivityHistoryMarker/required", keyword: "required", params: { missingProperty: "included" }, message: "must have required property 'included'" };
+                  if (vErrors === null) {
+                    vErrors = [err74];
+                  } else {
+                    vErrors.push(err74);
+                  }
+                  errors++;
+                }
+                if (data35.source === void 0) {
+                  const err75 = { instancePath: instancePath + "/history/steps", schemaPath: "#/definitions/BrowserActivityHistoryMarker/required", keyword: "required", params: { missingProperty: "source" }, message: "must have required property 'source'" };
+                  if (vErrors === null) {
+                    vErrors = [err75];
+                  } else {
+                    vErrors.push(err75);
+                  }
+                  errors++;
+                }
+                for (const key8 in data35) {
+                  if (!(key8 === "included" || key8 === "source")) {
+                    const err76 = { instancePath: instancePath + "/history/steps", schemaPath: "#/definitions/BrowserActivityHistoryMarker/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key8 }, message: "must NOT have additional properties" };
+                    if (vErrors === null) {
+                      vErrors = [err76];
+                    } else {
+                      vErrors.push(err76);
+                    }
+                    errors++;
+                  }
+                }
+                if (data35.included !== void 0) {
+                  let data36 = data35.included;
+                  if (typeof data36 !== "boolean") {
+                    const err77 = { instancePath: instancePath + "/history/steps/included", schemaPath: "#/definitions/BrowserActivityHistoryMarker/properties/included/type", keyword: "type", params: { type: "boolean" }, message: "must be boolean" };
+                    if (vErrors === null) {
+                      vErrors = [err77];
+                    } else {
+                      vErrors.push(err77);
+                    }
+                    errors++;
+                  }
+                  if (false !== data36) {
+                    const err78 = { instancePath: instancePath + "/history/steps/included", schemaPath: "#/definitions/BrowserActivityHistoryMarker/properties/included/const", keyword: "const", params: { allowedValue: false }, message: "must be equal to constant" };
+                    if (vErrors === null) {
+                      vErrors = [err78];
+                    } else {
+                      vErrors.push(err78);
+                    }
+                    errors++;
+                  }
+                }
+                if (data35.source !== void 0) {
+                  let data37 = data35.source;
+                  if (typeof data37 !== "string") {
+                    const err79 = { instancePath: instancePath + "/history/steps/source", schemaPath: "#/definitions/BrowserActivityHistoryMarker/properties/source/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    if (vErrors === null) {
+                      vErrors = [err79];
+                    } else {
+                      vErrors.push(err79);
+                    }
+                    errors++;
+                  }
+                  if ("activity" !== data37) {
+                    const err80 = { instancePath: instancePath + "/history/steps/source", schemaPath: "#/definitions/BrowserActivityHistoryMarker/properties/source/const", keyword: "const", params: { allowedValue: "activity" }, message: "must be equal to constant" };
+                    if (vErrors === null) {
+                      vErrors = [err80];
+                    } else {
+                      vErrors.push(err80);
+                    }
+                    errors++;
+                  }
+                }
+              } else {
+                const err81 = { instancePath: instancePath + "/history/steps", schemaPath: "#/definitions/BrowserActivityHistoryMarker/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                if (vErrors === null) {
+                  vErrors = [err81];
+                } else {
+                  vErrors.push(err81);
+                }
+                errors++;
+              }
+            }
+            if (data31.stages !== void 0) {
+              let data38 = data31.stages;
+              if (data38 && typeof data38 == "object" && !Array.isArray(data38)) {
+                if (data38.included === void 0) {
+                  const err82 = { instancePath: instancePath + "/history/stages", schemaPath: "#/definitions/BrowserActivityHistoryMarker/required", keyword: "required", params: { missingProperty: "included" }, message: "must have required property 'included'" };
+                  if (vErrors === null) {
+                    vErrors = [err82];
+                  } else {
+                    vErrors.push(err82);
+                  }
+                  errors++;
+                }
+                if (data38.source === void 0) {
+                  const err83 = { instancePath: instancePath + "/history/stages", schemaPath: "#/definitions/BrowserActivityHistoryMarker/required", keyword: "required", params: { missingProperty: "source" }, message: "must have required property 'source'" };
+                  if (vErrors === null) {
+                    vErrors = [err83];
+                  } else {
+                    vErrors.push(err83);
+                  }
+                  errors++;
+                }
+                for (const key9 in data38) {
+                  if (!(key9 === "included" || key9 === "source")) {
+                    const err84 = { instancePath: instancePath + "/history/stages", schemaPath: "#/definitions/BrowserActivityHistoryMarker/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key9 }, message: "must NOT have additional properties" };
+                    if (vErrors === null) {
+                      vErrors = [err84];
+                    } else {
+                      vErrors.push(err84);
+                    }
+                    errors++;
+                  }
+                }
+                if (data38.included !== void 0) {
+                  let data39 = data38.included;
+                  if (typeof data39 !== "boolean") {
+                    const err85 = { instancePath: instancePath + "/history/stages/included", schemaPath: "#/definitions/BrowserActivityHistoryMarker/properties/included/type", keyword: "type", params: { type: "boolean" }, message: "must be boolean" };
+                    if (vErrors === null) {
+                      vErrors = [err85];
+                    } else {
+                      vErrors.push(err85);
+                    }
+                    errors++;
+                  }
+                  if (false !== data39) {
+                    const err86 = { instancePath: instancePath + "/history/stages/included", schemaPath: "#/definitions/BrowserActivityHistoryMarker/properties/included/const", keyword: "const", params: { allowedValue: false }, message: "must be equal to constant" };
+                    if (vErrors === null) {
+                      vErrors = [err86];
+                    } else {
+                      vErrors.push(err86);
+                    }
+                    errors++;
+                  }
+                }
+                if (data38.source !== void 0) {
+                  let data40 = data38.source;
+                  if (typeof data40 !== "string") {
+                    const err87 = { instancePath: instancePath + "/history/stages/source", schemaPath: "#/definitions/BrowserActivityHistoryMarker/properties/source/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    if (vErrors === null) {
+                      vErrors = [err87];
+                    } else {
+                      vErrors.push(err87);
+                    }
+                    errors++;
+                  }
+                  if ("activity" !== data40) {
+                    const err88 = { instancePath: instancePath + "/history/stages/source", schemaPath: "#/definitions/BrowserActivityHistoryMarker/properties/source/const", keyword: "const", params: { allowedValue: "activity" }, message: "must be equal to constant" };
+                    if (vErrors === null) {
+                      vErrors = [err88];
+                    } else {
+                      vErrors.push(err88);
+                    }
+                    errors++;
+                  }
+                }
+              } else {
+                const err89 = { instancePath: instancePath + "/history/stages", schemaPath: "#/definitions/BrowserActivityHistoryMarker/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                if (vErrors === null) {
+                  vErrors = [err89];
+                } else {
+                  vErrors.push(err89);
+                }
+                errors++;
+              }
+            }
+          } else {
+            const err90 = { instancePath: instancePath + "/history", schemaPath: "#/properties/history/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+            if (vErrors === null) {
+              vErrors = [err90];
+            } else {
+              vErrors.push(err90);
+            }
+            errors++;
+          }
+        }
+      } else {
+        const err91 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+        if (vErrors === null) {
+          vErrors = [err91];
+        } else {
+          vErrors.push(err91);
+        }
+        errors++;
+      }
+      validate19.errors = vErrors;
+      return errors === 0;
+    }
+    function validate18(data, { instancePath = "", parentData, parentDataProperty, rootData = data } = {}) {
+      let vErrors = null;
+      let errors = 0;
+      if (data && typeof data == "object" && !Array.isArray(data)) {
+        if (data.goal === void 0) {
+          const err0 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "goal" }, message: "must have required property 'goal'" };
+          if (vErrors === null) {
+            vErrors = [err0];
+          } else {
+            vErrors.push(err0);
+          }
+          errors++;
+        }
+        if (data.session === void 0) {
+          const err1 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "session" }, message: "must have required property 'session'" };
+          if (vErrors === null) {
+            vErrors = [err1];
+          } else {
+            vErrors.push(err1);
+          }
+          errors++;
+        }
+        for (const key0 in data) {
+          if (!(key0 === "goal" || key0 === "session")) {
+            const err2 = { instancePath, schemaPath: "#/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key0 }, message: "must NOT have additional properties" };
+            if (vErrors === null) {
+              vErrors = [err2];
+            } else {
+              vErrors.push(err2);
+            }
+            errors++;
+          }
+        }
+        if (data.goal !== void 0) {
+          if (!validate19(data.goal, { instancePath: instancePath + "/goal", parentData: data, parentDataProperty: "goal", rootData })) {
+            vErrors = vErrors === null ? validate19.errors : vErrors.concat(validate19.errors);
+            errors = vErrors.length;
+          }
+        }
+        if (data.session !== void 0) {
+          if (!validate12(data.session, { instancePath: instancePath + "/session", parentData: data, parentDataProperty: "session", rootData })) {
+            vErrors = vErrors === null ? validate12.errors : vErrors.concat(validate12.errors);
+            errors = vErrors.length;
+          }
+        }
+      } else {
+        const err3 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+        if (vErrors === null) {
+          vErrors = [err3];
+        } else {
+          vErrors.push(err3);
+        }
+        errors++;
+      }
+      validate18.errors = vErrors;
+      return errors === 0;
+    }
+    var schema45 = { "type": "string", "enum": ["message", "steer", "interrupt", "respond", "resume", "queue_control"], "description": "\u4F1A\u8BDD\u8F93\u5165\u79CD\u7C7B\u3002" };
+    var schema49 = { "type": "string", "enum": ["INVALID_INPUT", "INPUT_CONFLICT", "INPUT_NOT_FOUND", "GOAL_NOT_FOUND", "BUSY", "STEER_CONFLICT", "INTERRUPT_CONFLICT", "STALE_REVISION", "INTERACTION_MISMATCH", "INTERACTION_REQUIRED", "QUEUE_PAUSED", "RUN_NOT_RESUMABLE", "QUEUE_FULL", "QUEUE_TEXT_TOO_LARGE", "TEXT_TOO_LARGE", "QUEUE_NOT_PAUSED", "QUEUE_REVISION_MISMATCH", "QUEUED_MESSAGE_NOT_FOUND", "RUN_NOT_FOUND", "RUN_NOT_RUNNING", "RUN_CONTROL_UNAVAILABLE", "input_admission_failed", "session_unavailable"], "description": "\u8F93\u5165\u53D7\u7406\u4E0E\u67E5\u8BE2\u7684\u7A33\u5B9A wire \u62D2\u7EDD\u4EE3\u7801\u3002" };
+    var schema46 = { "type": "object", "properties": { "goalId": { "type": "string", "pattern": "\\S" }, "inputId": { "type": "string", "pattern": "\\S" }, "kind": { "$ref": "#/definitions/BrowserSessionInputKind" }, "sequence": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "status": { "$ref": "#/definitions/BrowserSessionInputStatus" }, "admittedAtRevision": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "targetRunId": { "type": "string", "pattern": "\\S" }, "appliedRunId": { "type": "string", "pattern": "\\S" }, "messageIndex": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 } }, "required": ["goalId", "inputId", "kind", "sequence", "status", "admittedAtRevision"], "additionalProperties": false, "description": "\u4E00\u6761\u5DF2\u6301\u4E45\u5316\u8F93\u5165\u7684\u53D7\u7406\u6536\u636E\u6295\u5F71\u3002" };
+    var schema48 = { "type": "string", "enum": ["pending", "applied", "cleared"], "description": "\u8F93\u5165\u8D26\u672C\u4E2D\u7684\u53D7\u7406\u72B6\u6001\u3002" };
+    function validate36(data, { instancePath = "", parentData, parentDataProperty, rootData = data } = {}) {
       let vErrors = null;
       let errors = 0;
       if (data && typeof data == "object" && !Array.isArray(data)) {
@@ -1218,7 +3785,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
           errors++;
         }
         for (const key0 in data) {
-          if (!func2.call(schema22.properties, key0)) {
+          if (!func2.call(schema46.properties, key0)) {
             const err6 = { instancePath, schemaPath: "#/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key0 }, message: "must NOT have additional properties" };
             if (vErrors === null) {
               vErrors = [err6];
@@ -1284,7 +3851,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
             errors++;
           }
           if (!(data2 === "message" || data2 === "steer" || data2 === "interrupt" || data2 === "respond" || data2 === "resume" || data2 === "queue_control")) {
-            const err12 = { instancePath: instancePath + "/kind", schemaPath: "#/definitions/BrowserSessionInputKind/enum", keyword: "enum", params: { allowedValues: schema21.enum }, message: "must be equal to one of the allowed values" };
+            const err12 = { instancePath: instancePath + "/kind", schemaPath: "#/definitions/BrowserSessionInputKind/enum", keyword: "enum", params: { allowedValues: schema45.enum }, message: "must be equal to one of the allowed values" };
             if (vErrors === null) {
               vErrors = [err12];
             } else {
@@ -1337,7 +3904,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
             errors++;
           }
           if (!(data4 === "pending" || data4 === "applied" || data4 === "cleared")) {
-            const err17 = { instancePath: instancePath + "/status", schemaPath: "#/definitions/BrowserSessionInputStatus/enum", keyword: "enum", params: { allowedValues: schema24.enum }, message: "must be equal to one of the allowed values" };
+            const err17 = { instancePath: instancePath + "/status", schemaPath: "#/definitions/BrowserSessionInputStatus/enum", keyword: "enum", params: { allowedValues: schema48.enum }, message: "must be equal to one of the allowed values" };
             if (vErrors === null) {
               vErrors = [err17];
             } else {
@@ -1463,10 +4030,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
         }
         errors++;
       }
-      validate19.errors = vErrors;
+      validate36.errors = vErrors;
       return errors === 0;
     }
-    function validate18(data, { instancePath = "", parentData, parentDataProperty, rootData = data } = {}) {
+    function validate35(data, { instancePath = "", parentData, parentDataProperty, rootData = data } = {}) {
       let vErrors = null;
       let errors = 0;
       if (data && typeof data == "object" && !Array.isArray(data)) {
@@ -1573,7 +4140,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
             errors++;
           }
           if (!(data2 === "message" || data2 === "steer" || data2 === "interrupt" || data2 === "respond" || data2 === "resume" || data2 === "queue_control")) {
-            const err10 = { instancePath: instancePath + "/kind", schemaPath: "#/definitions/BrowserSessionInputKind/enum", keyword: "enum", params: { allowedValues: schema21.enum }, message: "must be equal to one of the allowed values" };
+            const err10 = { instancePath: instancePath + "/kind", schemaPath: "#/definitions/BrowserSessionInputKind/enum", keyword: "enum", params: { allowedValues: schema45.enum }, message: "must be equal to one of the allowed values" };
             if (vErrors === null) {
               vErrors = [err10];
             } else {
@@ -1605,8 +4172,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
           }
         }
         if (data.receipt !== void 0) {
-          if (!validate19(data.receipt, { instancePath: instancePath + "/receipt", parentData: data, parentDataProperty: "receipt", rootData })) {
-            vErrors = vErrors === null ? validate19.errors : vErrors.concat(validate19.errors);
+          if (!validate36(data.receipt, { instancePath: instancePath + "/receipt", parentData: data, parentDataProperty: "receipt", rootData })) {
+            vErrors = vErrors === null ? validate36.errors : vErrors.concat(validate36.errors);
             errors = vErrors.length;
           }
         }
@@ -1622,7 +4189,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
             errors++;
           }
           if (!(data6 === "INVALID_INPUT" || data6 === "INPUT_CONFLICT" || data6 === "INPUT_NOT_FOUND" || data6 === "GOAL_NOT_FOUND" || data6 === "BUSY" || data6 === "STEER_CONFLICT" || data6 === "INTERRUPT_CONFLICT" || data6 === "STALE_REVISION" || data6 === "INTERACTION_MISMATCH" || data6 === "INTERACTION_REQUIRED" || data6 === "QUEUE_PAUSED" || data6 === "RUN_NOT_RESUMABLE" || data6 === "QUEUE_FULL" || data6 === "QUEUE_TEXT_TOO_LARGE" || data6 === "TEXT_TOO_LARGE" || data6 === "QUEUE_NOT_PAUSED" || data6 === "QUEUE_REVISION_MISMATCH" || data6 === "QUEUED_MESSAGE_NOT_FOUND" || data6 === "RUN_NOT_FOUND" || data6 === "RUN_NOT_RUNNING" || data6 === "RUN_CONTROL_UNAVAILABLE" || data6 === "input_admission_failed" || data6 === "session_unavailable")) {
-            const err14 = { instancePath: instancePath + "/code", schemaPath: "#/definitions/BrowserSessionInputErrorCode/enum", keyword: "enum", params: { allowedValues: schema25.enum }, message: "must be equal to one of the allowed values" };
+            const err14 = { instancePath: instancePath + "/code", schemaPath: "#/definitions/BrowserSessionInputErrorCode/enum", keyword: "enum", params: { allowedValues: schema49.enum }, message: "must be equal to one of the allowed values" };
             if (vErrors === null) {
               vErrors = [err14];
             } else {
@@ -1640,11 +4207,11 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
         }
         errors++;
       }
-      validate18.errors = vErrors;
+      validate35.errors = vErrors;
       return errors === 0;
     }
-    var schema27 = { "type": "object", "properties": { "messageId": { "type": "string", "pattern": "\\S" }, "role": { "type": "string", "enum": ["user", "assistant"] }, "runId": { "type": "string", "pattern": "\\S" }, "position": { "$ref": "#/definitions/BrowserMessagePosition" }, "purpose": { "type": "string", "enum": ["process", "answer", "notice"] }, "commitRevision": { "type": "integer", "maximum": 9007199254740991 }, "previewId": { "type": "string", "pattern": "\\S" } }, "required": ["messageId", "role", "runId", "position", "commitRevision"], "additionalProperties": false, "description": "\u5DF2\u63D0\u4EA4\u6D88\u606F\u7684\u5B9E\u65F6\u63A8\u9001\u6458\u8981\u3002" };
-    function validate22(data, { instancePath = "", parentData, parentDataProperty, rootData = data } = {}) {
+    var schema51 = { "type": "object", "properties": { "messageId": { "type": "string", "pattern": "\\S" }, "role": { "type": "string", "enum": ["user", "assistant"] }, "runId": { "type": "string", "pattern": "\\S" }, "position": { "$ref": "#/definitions/BrowserMessagePosition" }, "purpose": { "type": "string", "enum": ["process", "answer", "notice"] }, "commitRevision": { "type": "integer", "maximum": 9007199254740991 }, "previewId": { "type": "string", "pattern": "\\S" } }, "required": ["messageId", "role", "runId", "position", "commitRevision"], "additionalProperties": false, "description": "\u5DF2\u63D0\u4EA4\u6D88\u606F\u7684\u5B9E\u65F6\u63A8\u9001\u6458\u8981\u3002" };
+    function validate39(data, { instancePath = "", parentData, parentDataProperty, rootData = data } = {}) {
       let vErrors = null;
       let errors = 0;
       if (data && typeof data == "object" && !Array.isArray(data)) {
@@ -1738,7 +4305,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
             errors++;
           }
           if (!(data1 === "user" || data1 === "assistant")) {
-            const err9 = { instancePath: instancePath + "/role", schemaPath: "#/properties/role/enum", keyword: "enum", params: { allowedValues: schema27.properties.role.enum }, message: "must be equal to one of the allowed values" };
+            const err9 = { instancePath: instancePath + "/role", schemaPath: "#/properties/role/enum", keyword: "enum", params: { allowedValues: schema51.properties.role.enum }, message: "must be equal to one of the allowed values" };
             if (vErrors === null) {
               vErrors = [err9];
             } else {
@@ -1887,7 +4454,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
             errors++;
           }
           if (!(data6 === "process" || data6 === "answer" || data6 === "notice")) {
-            const err23 = { instancePath: instancePath + "/purpose", schemaPath: "#/properties/purpose/enum", keyword: "enum", params: { allowedValues: schema27.properties.purpose.enum }, message: "must be equal to one of the allowed values" };
+            const err23 = { instancePath: instancePath + "/purpose", schemaPath: "#/properties/purpose/enum", keyword: "enum", params: { allowedValues: schema51.properties.purpose.enum }, message: "must be equal to one of the allowed values" };
             if (vErrors === null) {
               vErrors = [err23];
             } else {
@@ -1950,7 +4517,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
         }
         errors++;
       }
-      validate22.errors = vErrors;
+      validate39.errors = vErrors;
       return errors === 0;
     }
     function validate11(data, { instancePath = "", parentData, parentDataProperty, rootData = data } = {}) {
@@ -1988,7 +4555,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
           errors++;
         }
         for (const key0 in data) {
-          if (!(key0 === "type" || key0 === "goalId" || key0 === "state")) {
+          if (!(key0 === "type" || key0 === "goalId" || key0 === "state" || key0 === "snapshot")) {
             const err3 = { instancePath, schemaPath: "#/anyOf/0/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key0 }, message: "must NOT have additional properties" };
             if (vErrors === null) {
               vErrors = [err3];
@@ -2047,6 +4614,12 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
             errors = vErrors.length;
           }
         }
+        if (data.snapshot !== void 0) {
+          if (!validate18(data.snapshot, { instancePath: instancePath + "/snapshot", parentData: data, parentDataProperty: "snapshot", rootData })) {
+            vErrors = vErrors === null ? validate18.errors : vErrors.concat(validate18.errors);
+            errors = vErrors.length;
+          }
+        }
       } else {
         const err8 = { instancePath, schemaPath: "#/anyOf/0/type", keyword: "type", params: { type: "object" }, message: "must be object" };
         if (vErrors === null) {
@@ -2059,7 +4632,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
       var _valid0 = _errs1 === errors;
       valid0 = valid0 || _valid0;
       if (!valid0) {
-        const _errs9 = errors;
+        const _errs10 = errors;
         if (data && typeof data == "object" && !Array.isArray(data)) {
           if (data.type === void 0) {
             const err9 = { instancePath, schemaPath: "#/anyOf/1/required", keyword: "required", params: { missingProperty: "type" }, message: "must have required property 'type'" };
@@ -2100,8 +4673,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
             }
           }
           if (data.type !== void 0) {
-            let data3 = data.type;
-            if (typeof data3 !== "string") {
+            let data4 = data.type;
+            if (typeof data4 !== "string") {
               const err13 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/1/properties/type/type", keyword: "type", params: { type: "string" }, message: "must be string" };
               if (vErrors === null) {
                 vErrors = [err13];
@@ -2110,7 +4683,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
               }
               errors++;
             }
-            if ("input_result" !== data3) {
+            if ("input_result" !== data4) {
               const err14 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/1/properties/type/const", keyword: "const", params: { allowedValue: "input_result" }, message: "must be equal to constant" };
               if (vErrors === null) {
                 vErrors = [err14];
@@ -2121,9 +4694,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
             }
           }
           if (data.goalId !== void 0) {
-            let data4 = data.goalId;
-            if (typeof data4 === "string") {
-              if (!pattern0.test(data4)) {
+            let data5 = data.goalId;
+            if (typeof data5 === "string") {
+              if (!pattern0.test(data5)) {
                 const err15 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/1/properties/goalId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                 if (vErrors === null) {
                   vErrors = [err15];
@@ -2143,8 +4716,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
             }
           }
           if (data.outcome !== void 0) {
-            if (!validate18(data.outcome, { instancePath: instancePath + "/outcome", parentData: data, parentDataProperty: "outcome", rootData })) {
-              vErrors = vErrors === null ? validate18.errors : vErrors.concat(validate18.errors);
+            if (!validate35(data.outcome, { instancePath: instancePath + "/outcome", parentData: data, parentDataProperty: "outcome", rootData })) {
+              vErrors = vErrors === null ? validate35.errors : vErrors.concat(validate35.errors);
               errors = vErrors.length;
             }
           }
@@ -2157,10 +4730,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
           }
           errors++;
         }
-        var _valid0 = _errs9 === errors;
+        var _valid0 = _errs10 === errors;
         valid0 = valid0 || _valid0;
         if (!valid0) {
-          const _errs17 = errors;
+          const _errs18 = errors;
           if (data && typeof data == "object" && !Array.isArray(data)) {
             if (data.type === void 0) {
               const err18 = { instancePath, schemaPath: "#/anyOf/2/required", keyword: "required", params: { missingProperty: "type" }, message: "must have required property 'type'" };
@@ -2210,8 +4783,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
               }
             }
             if (data.type !== void 0) {
-              let data6 = data.type;
-              if (typeof data6 !== "string") {
+              let data7 = data.type;
+              if (typeof data7 !== "string") {
                 const err23 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/2/properties/type/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                 if (vErrors === null) {
                   vErrors = [err23];
@@ -2220,7 +4793,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                 }
                 errors++;
               }
-              if ("activity" !== data6) {
+              if ("activity" !== data7) {
                 const err24 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/2/properties/type/const", keyword: "const", params: { allowedValue: "activity" }, message: "must be equal to constant" };
                 if (vErrors === null) {
                   vErrors = [err24];
@@ -2231,9 +4804,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
               }
             }
             if (data.goalId !== void 0) {
-              let data7 = data.goalId;
-              if (typeof data7 === "string") {
-                if (!pattern0.test(data7)) {
+              let data8 = data.goalId;
+              if (typeof data8 === "string") {
+                if (!pattern0.test(data8)) {
                   const err25 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/2/properties/goalId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                   if (vErrors === null) {
                     vErrors = [err25];
@@ -2253,9 +4826,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
               }
             }
             if (data.runId !== void 0) {
-              let data8 = data.runId;
-              if (typeof data8 === "string") {
-                if (!pattern0.test(data8)) {
+              let data9 = data.runId;
+              if (typeof data9 === "string") {
+                if (!pattern0.test(data9)) {
                   const err27 = { instancePath: instancePath + "/runId", schemaPath: "#/anyOf/2/properties/runId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                   if (vErrors === null) {
                     vErrors = [err27];
@@ -2275,12 +4848,12 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
               }
             }
             if (data.activity !== void 0) {
-              let data9 = data.activity;
-              const _errs28 = errors;
-              let valid5 = false;
+              let data10 = data.activity;
               const _errs29 = errors;
-              if (data9 && typeof data9 == "object" && !Array.isArray(data9)) {
-                if (data9.kind === void 0) {
+              let valid5 = false;
+              const _errs30 = errors;
+              if (data10 && typeof data10 == "object" && !Array.isArray(data10)) {
+                if (data10.kind === void 0) {
                   const err29 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/0/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
                   if (vErrors === null) {
                     vErrors = [err29];
@@ -2289,7 +4862,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                   }
                   errors++;
                 }
-                if (data9.text === void 0) {
+                if (data10.text === void 0) {
                   const err30 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/0/required", keyword: "required", params: { missingProperty: "text" }, message: "must have required property 'text'" };
                   if (vErrors === null) {
                     vErrors = [err30];
@@ -2298,7 +4871,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                   }
                   errors++;
                 }
-                if (data9.truncated === void 0) {
+                if (data10.truncated === void 0) {
                   const err31 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/0/required", keyword: "required", params: { missingProperty: "truncated" }, message: "must have required property 'truncated'" };
                   if (vErrors === null) {
                     vErrors = [err31];
@@ -2307,7 +4880,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                   }
                   errors++;
                 }
-                if (data9.sourceEventId === void 0) {
+                if (data10.sourceEventId === void 0) {
                   const err32 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/0/required", keyword: "required", params: { missingProperty: "sourceEventId" }, message: "must have required property 'sourceEventId'" };
                   if (vErrors === null) {
                     vErrors = [err32];
@@ -2316,7 +4889,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                   }
                   errors++;
                 }
-                if (data9.sourceCursor === void 0) {
+                if (data10.sourceCursor === void 0) {
                   const err33 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/0/required", keyword: "required", params: { missingProperty: "sourceCursor" }, message: "must have required property 'sourceCursor'" };
                   if (vErrors === null) {
                     vErrors = [err33];
@@ -2325,7 +4898,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                   }
                   errors++;
                 }
-                for (const key3 in data9) {
+                for (const key3 in data10) {
                   if (!(key3 === "kind" || key3 === "text" || key3 === "truncated" || key3 === "sourceEventId" || key3 === "sourceCursor")) {
                     const err34 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/0/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key3 }, message: "must NOT have additional properties" };
                     if (vErrors === null) {
@@ -2336,9 +4909,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                     errors++;
                   }
                 }
-                if (data9.kind !== void 0) {
-                  let data10 = data9.kind;
-                  if (typeof data10 !== "string") {
+                if (data10.kind !== void 0) {
+                  let data11 = data10.kind;
+                  if (typeof data11 !== "string") {
                     const err35 = { instancePath: instancePath + "/activity/kind", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/0/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                     if (vErrors === null) {
                       vErrors = [err35];
@@ -2347,7 +4920,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                     }
                     errors++;
                   }
-                  if ("assistant_text_delta" !== data10) {
+                  if ("assistant_text_delta" !== data11) {
                     const err36 = { instancePath: instancePath + "/activity/kind", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/0/properties/kind/const", keyword: "const", params: { allowedValue: "assistant_text_delta" }, message: "must be equal to constant" };
                     if (vErrors === null) {
                       vErrors = [err36];
@@ -2357,8 +4930,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                     errors++;
                   }
                 }
-                if (data9.text !== void 0) {
-                  if (typeof data9.text !== "string") {
+                if (data10.text !== void 0) {
+                  if (typeof data10.text !== "string") {
                     const err37 = { instancePath: instancePath + "/activity/text", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/0/properties/text/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                     if (vErrors === null) {
                       vErrors = [err37];
@@ -2368,8 +4941,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                     errors++;
                   }
                 }
-                if (data9.truncated !== void 0) {
-                  if (typeof data9.truncated !== "boolean") {
+                if (data10.truncated !== void 0) {
+                  if (typeof data10.truncated !== "boolean") {
                     const err38 = { instancePath: instancePath + "/activity/truncated", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/0/properties/truncated/type", keyword: "type", params: { type: "boolean" }, message: "must be boolean" };
                     if (vErrors === null) {
                       vErrors = [err38];
@@ -2379,10 +4952,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                     errors++;
                   }
                 }
-                if (data9.sourceEventId !== void 0) {
-                  let data13 = data9.sourceEventId;
-                  if (typeof data13 === "string") {
-                    if (!pattern0.test(data13)) {
+                if (data10.sourceEventId !== void 0) {
+                  let data14 = data10.sourceEventId;
+                  if (typeof data14 === "string") {
+                    if (!pattern0.test(data14)) {
                       const err39 = { instancePath: instancePath + "/activity/sourceEventId", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/0/properties/sourceEventId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                       if (vErrors === null) {
                         vErrors = [err39];
@@ -2401,9 +4974,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                     errors++;
                   }
                 }
-                if (data9.sourceCursor !== void 0) {
-                  let data14 = data9.sourceCursor;
-                  if (!(typeof data14 == "number" && (!(data14 % 1) && !isNaN(data14)) && isFinite(data14))) {
+                if (data10.sourceCursor !== void 0) {
+                  let data15 = data10.sourceCursor;
+                  if (!(typeof data15 == "number" && (!(data15 % 1) && !isNaN(data15)) && isFinite(data15))) {
                     const err41 = { instancePath: instancePath + "/activity/sourceCursor", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/0/properties/sourceCursor/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
                     if (vErrors === null) {
                       vErrors = [err41];
@@ -2412,8 +4985,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                     }
                     errors++;
                   }
-                  if (typeof data14 == "number" && isFinite(data14)) {
-                    if (data14 > 9007199254740991 || isNaN(data14)) {
+                  if (typeof data15 == "number" && isFinite(data15)) {
+                    if (data15 > 9007199254740991 || isNaN(data15)) {
                       const err42 = { instancePath: instancePath + "/activity/sourceCursor", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/0/properties/sourceCursor/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
                       if (vErrors === null) {
                         vErrors = [err42];
@@ -2422,7 +4995,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                       }
                       errors++;
                     }
-                    if (data14 < 1 || isNaN(data14)) {
+                    if (data15 < 1 || isNaN(data15)) {
                       const err43 = { instancePath: instancePath + "/activity/sourceCursor", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/0/properties/sourceCursor/minimum", keyword: "minimum", params: { comparison: ">=", limit: 1 }, message: "must be >= 1" };
                       if (vErrors === null) {
                         vErrors = [err43];
@@ -2442,12 +5015,12 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                 }
                 errors++;
               }
-              var _valid1 = _errs29 === errors;
+              var _valid1 = _errs30 === errors;
               valid5 = valid5 || _valid1;
               if (!valid5) {
-                const _errs42 = errors;
-                if (data9 && typeof data9 == "object" && !Array.isArray(data9)) {
-                  if (data9.kind === void 0) {
+                const _errs43 = errors;
+                if (data10 && typeof data10 == "object" && !Array.isArray(data10)) {
+                  if (data10.kind === void 0) {
                     const err45 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/1/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
                     if (vErrors === null) {
                       vErrors = [err45];
@@ -2456,7 +5029,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                     }
                     errors++;
                   }
-                  for (const key4 in data9) {
+                  for (const key4 in data10) {
                     if (!(key4 === "kind" || key4 === "stage" || key4 === "modelCallId" || key4 === "executionUnitId" || key4 === "occurredAt")) {
                       const err46 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/1/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key4 }, message: "must NOT have additional properties" };
                       if (vErrors === null) {
@@ -2467,9 +5040,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                       errors++;
                     }
                   }
-                  if (data9.kind !== void 0) {
-                    let data15 = data9.kind;
-                    if (typeof data15 !== "string") {
+                  if (data10.kind !== void 0) {
+                    let data16 = data10.kind;
+                    if (typeof data16 !== "string") {
                       const err47 = { instancePath: instancePath + "/activity/kind", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/1/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                       if (vErrors === null) {
                         vErrors = [err47];
@@ -2478,7 +5051,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                       }
                       errors++;
                     }
-                    if ("model_started" !== data15) {
+                    if ("model_started" !== data16) {
                       const err48 = { instancePath: instancePath + "/activity/kind", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/1/properties/kind/const", keyword: "const", params: { allowedValue: "model_started" }, message: "must be equal to constant" };
                       if (vErrors === null) {
                         vErrors = [err48];
@@ -2488,9 +5061,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                       errors++;
                     }
                   }
-                  if (data9.stage !== void 0) {
-                    let data16 = data9.stage;
-                    if (typeof data16 !== "string") {
+                  if (data10.stage !== void 0) {
+                    let data17 = data10.stage;
+                    if (typeof data17 !== "string") {
                       const err49 = { instancePath: instancePath + "/activity/stage", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/1/properties/stage/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                       if (vErrors === null) {
                         vErrors = [err49];
@@ -2499,8 +5072,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                       }
                       errors++;
                     }
-                    if (!(data16 === "think" || data16 === "decide" || data16 === "completion_review")) {
-                      const err50 = { instancePath: instancePath + "/activity/stage", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/1/properties/stage/enum", keyword: "enum", params: { allowedValues: schema26.anyOf[1].properties.stage.enum }, message: "must be equal to one of the allowed values" };
+                    if (!(data17 === "think" || data17 === "decide" || data17 === "completion_review")) {
+                      const err50 = { instancePath: instancePath + "/activity/stage", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/1/properties/stage/enum", keyword: "enum", params: { allowedValues: schema50.anyOf[1].properties.stage.enum }, message: "must be equal to one of the allowed values" };
                       if (vErrors === null) {
                         vErrors = [err50];
                       } else {
@@ -2509,10 +5082,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                       errors++;
                     }
                   }
-                  if (data9.modelCallId !== void 0) {
-                    let data17 = data9.modelCallId;
-                    if (typeof data17 === "string") {
-                      if (!pattern0.test(data17)) {
+                  if (data10.modelCallId !== void 0) {
+                    let data18 = data10.modelCallId;
+                    if (typeof data18 === "string") {
+                      if (!pattern0.test(data18)) {
                         const err51 = { instancePath: instancePath + "/activity/modelCallId", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/1/properties/modelCallId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                         if (vErrors === null) {
                           vErrors = [err51];
@@ -2531,10 +5104,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                       errors++;
                     }
                   }
-                  if (data9.executionUnitId !== void 0) {
-                    let data18 = data9.executionUnitId;
-                    if (typeof data18 === "string") {
-                      if (!pattern0.test(data18)) {
+                  if (data10.executionUnitId !== void 0) {
+                    let data19 = data10.executionUnitId;
+                    if (typeof data19 === "string") {
+                      if (!pattern0.test(data19)) {
                         const err53 = { instancePath: instancePath + "/activity/executionUnitId", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/1/properties/executionUnitId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                         if (vErrors === null) {
                           vErrors = [err53];
@@ -2553,8 +5126,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                       errors++;
                     }
                   }
-                  if (data9.occurredAt !== void 0) {
-                    if (typeof data9.occurredAt !== "string") {
+                  if (data10.occurredAt !== void 0) {
+                    if (typeof data10.occurredAt !== "string") {
                       const err55 = { instancePath: instancePath + "/activity/occurredAt", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/1/properties/occurredAt/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                       if (vErrors === null) {
                         vErrors = [err55];
@@ -2573,12 +5146,12 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                   }
                   errors++;
                 }
-                var _valid1 = _errs42 === errors;
+                var _valid1 = _errs43 === errors;
                 valid5 = valid5 || _valid1;
                 if (!valid5) {
-                  const _errs55 = errors;
-                  if (data9 && typeof data9 == "object" && !Array.isArray(data9)) {
-                    if (data9.kind === void 0) {
+                  const _errs56 = errors;
+                  if (data10 && typeof data10 == "object" && !Array.isArray(data10)) {
+                    if (data10.kind === void 0) {
                       const err57 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/2/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
                       if (vErrors === null) {
                         vErrors = [err57];
@@ -2587,7 +5160,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                       }
                       errors++;
                     }
-                    for (const key5 in data9) {
+                    for (const key5 in data10) {
                       if (!(key5 === "kind")) {
                         const err58 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/2/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key5 }, message: "must NOT have additional properties" };
                         if (vErrors === null) {
@@ -2598,9 +5171,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                         errors++;
                       }
                     }
-                    if (data9.kind !== void 0) {
-                      let data20 = data9.kind;
-                      if (typeof data20 !== "string") {
+                    if (data10.kind !== void 0) {
+                      let data21 = data10.kind;
+                      if (typeof data21 !== "string") {
                         const err59 = { instancePath: instancePath + "/activity/kind", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/2/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                         if (vErrors === null) {
                           vErrors = [err59];
@@ -2609,7 +5182,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                         }
                         errors++;
                       }
-                      if ("model_completed" !== data20) {
+                      if ("model_completed" !== data21) {
                         const err60 = { instancePath: instancePath + "/activity/kind", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/2/properties/kind/const", keyword: "const", params: { allowedValue: "model_completed" }, message: "must be equal to constant" };
                         if (vErrors === null) {
                           vErrors = [err60];
@@ -2628,12 +5201,12 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                     }
                     errors++;
                   }
-                  var _valid1 = _errs55 === errors;
+                  var _valid1 = _errs56 === errors;
                   valid5 = valid5 || _valid1;
                   if (!valid5) {
-                    const _errs60 = errors;
-                    if (data9 && typeof data9 == "object" && !Array.isArray(data9)) {
-                      if (data9.kind === void 0) {
+                    const _errs61 = errors;
+                    if (data10 && typeof data10 == "object" && !Array.isArray(data10)) {
+                      if (data10.kind === void 0) {
                         const err62 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/3/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
                         if (vErrors === null) {
                           vErrors = [err62];
@@ -2642,7 +5215,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                         }
                         errors++;
                       }
-                      for (const key6 in data9) {
+                      for (const key6 in data10) {
                         if (!(key6 === "kind")) {
                           const err63 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/3/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key6 }, message: "must NOT have additional properties" };
                           if (vErrors === null) {
@@ -2653,9 +5226,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                           errors++;
                         }
                       }
-                      if (data9.kind !== void 0) {
-                        let data21 = data9.kind;
-                        if (typeof data21 !== "string") {
+                      if (data10.kind !== void 0) {
+                        let data22 = data10.kind;
+                        if (typeof data22 !== "string") {
                           const err64 = { instancePath: instancePath + "/activity/kind", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/3/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                           if (vErrors === null) {
                             vErrors = [err64];
@@ -2664,7 +5237,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                           }
                           errors++;
                         }
-                        if ("step_started" !== data21) {
+                        if ("step_started" !== data22) {
                           const err65 = { instancePath: instancePath + "/activity/kind", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/3/properties/kind/const", keyword: "const", params: { allowedValue: "step_started" }, message: "must be equal to constant" };
                           if (vErrors === null) {
                             vErrors = [err65];
@@ -2683,12 +5256,12 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                       }
                       errors++;
                     }
-                    var _valid1 = _errs60 === errors;
+                    var _valid1 = _errs61 === errors;
                     valid5 = valid5 || _valid1;
                     if (!valid5) {
-                      const _errs65 = errors;
-                      if (data9 && typeof data9 == "object" && !Array.isArray(data9)) {
-                        if (data9.kind === void 0) {
+                      const _errs66 = errors;
+                      if (data10 && typeof data10 == "object" && !Array.isArray(data10)) {
+                        if (data10.kind === void 0) {
                           const err67 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/4/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
                           if (vErrors === null) {
                             vErrors = [err67];
@@ -2697,7 +5270,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                           }
                           errors++;
                         }
-                        if (data9.sourceEventId === void 0) {
+                        if (data10.sourceEventId === void 0) {
                           const err68 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/4/required", keyword: "required", params: { missingProperty: "sourceEventId" }, message: "must have required property 'sourceEventId'" };
                           if (vErrors === null) {
                             vErrors = [err68];
@@ -2706,7 +5279,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                           }
                           errors++;
                         }
-                        if (data9.sourceCursor === void 0) {
+                        if (data10.sourceCursor === void 0) {
                           const err69 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/4/required", keyword: "required", params: { missingProperty: "sourceCursor" }, message: "must have required property 'sourceCursor'" };
                           if (vErrors === null) {
                             vErrors = [err69];
@@ -2715,7 +5288,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                           }
                           errors++;
                         }
-                        if (data9.actionId === void 0) {
+                        if (data10.actionId === void 0) {
                           const err70 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/4/required", keyword: "required", params: { missingProperty: "actionId" }, message: "must have required property 'actionId'" };
                           if (vErrors === null) {
                             vErrors = [err70];
@@ -2724,7 +5297,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                           }
                           errors++;
                         }
-                        if (data9.executionUnitId === void 0) {
+                        if (data10.executionUnitId === void 0) {
                           const err71 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/4/required", keyword: "required", params: { missingProperty: "executionUnitId" }, message: "must have required property 'executionUnitId'" };
                           if (vErrors === null) {
                             vErrors = [err71];
@@ -2733,7 +5306,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                           }
                           errors++;
                         }
-                        if (data9.toolId === void 0) {
+                        if (data10.toolId === void 0) {
                           const err72 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/4/required", keyword: "required", params: { missingProperty: "toolId" }, message: "must have required property 'toolId'" };
                           if (vErrors === null) {
                             vErrors = [err72];
@@ -2742,7 +5315,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                           }
                           errors++;
                         }
-                        for (const key7 in data9) {
+                        for (const key7 in data10) {
                           if (!(key7 === "kind" || key7 === "sourceEventId" || key7 === "sourceCursor" || key7 === "actionId" || key7 === "executionUnitId" || key7 === "toolId" || key7 === "inputSummary")) {
                             const err73 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/4/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key7 }, message: "must NOT have additional properties" };
                             if (vErrors === null) {
@@ -2753,9 +5326,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                             errors++;
                           }
                         }
-                        if (data9.kind !== void 0) {
-                          let data22 = data9.kind;
-                          if (typeof data22 !== "string") {
+                        if (data10.kind !== void 0) {
+                          let data23 = data10.kind;
+                          if (typeof data23 !== "string") {
                             const err74 = { instancePath: instancePath + "/activity/kind", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/4/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                             if (vErrors === null) {
                               vErrors = [err74];
@@ -2764,7 +5337,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                             }
                             errors++;
                           }
-                          if ("tool_started" !== data22) {
+                          if ("tool_started" !== data23) {
                             const err75 = { instancePath: instancePath + "/activity/kind", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/4/properties/kind/const", keyword: "const", params: { allowedValue: "tool_started" }, message: "must be equal to constant" };
                             if (vErrors === null) {
                               vErrors = [err75];
@@ -2774,10 +5347,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                             errors++;
                           }
                         }
-                        if (data9.sourceEventId !== void 0) {
-                          let data23 = data9.sourceEventId;
-                          if (typeof data23 === "string") {
-                            if (!pattern0.test(data23)) {
+                        if (data10.sourceEventId !== void 0) {
+                          let data24 = data10.sourceEventId;
+                          if (typeof data24 === "string") {
+                            if (!pattern0.test(data24)) {
                               const err76 = { instancePath: instancePath + "/activity/sourceEventId", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/4/properties/sourceEventId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                               if (vErrors === null) {
                                 vErrors = [err76];
@@ -2796,9 +5369,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                             errors++;
                           }
                         }
-                        if (data9.sourceCursor !== void 0) {
-                          let data24 = data9.sourceCursor;
-                          if (!(typeof data24 == "number" && (!(data24 % 1) && !isNaN(data24)) && isFinite(data24))) {
+                        if (data10.sourceCursor !== void 0) {
+                          let data25 = data10.sourceCursor;
+                          if (!(typeof data25 == "number" && (!(data25 % 1) && !isNaN(data25)) && isFinite(data25))) {
                             const err78 = { instancePath: instancePath + "/activity/sourceCursor", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/4/properties/sourceCursor/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
                             if (vErrors === null) {
                               vErrors = [err78];
@@ -2807,8 +5380,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                             }
                             errors++;
                           }
-                          if (typeof data24 == "number" && isFinite(data24)) {
-                            if (data24 > 9007199254740991 || isNaN(data24)) {
+                          if (typeof data25 == "number" && isFinite(data25)) {
+                            if (data25 > 9007199254740991 || isNaN(data25)) {
                               const err79 = { instancePath: instancePath + "/activity/sourceCursor", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/4/properties/sourceCursor/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
                               if (vErrors === null) {
                                 vErrors = [err79];
@@ -2817,7 +5390,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                               }
                               errors++;
                             }
-                            if (data24 < 1 || isNaN(data24)) {
+                            if (data25 < 1 || isNaN(data25)) {
                               const err80 = { instancePath: instancePath + "/activity/sourceCursor", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/4/properties/sourceCursor/minimum", keyword: "minimum", params: { comparison: ">=", limit: 1 }, message: "must be >= 1" };
                               if (vErrors === null) {
                                 vErrors = [err80];
@@ -2828,10 +5401,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                             }
                           }
                         }
-                        if (data9.actionId !== void 0) {
-                          let data25 = data9.actionId;
-                          if (typeof data25 === "string") {
-                            if (!pattern0.test(data25)) {
+                        if (data10.actionId !== void 0) {
+                          let data26 = data10.actionId;
+                          if (typeof data26 === "string") {
+                            if (!pattern0.test(data26)) {
                               const err81 = { instancePath: instancePath + "/activity/actionId", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/4/properties/actionId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                               if (vErrors === null) {
                                 vErrors = [err81];
@@ -2850,10 +5423,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                             errors++;
                           }
                         }
-                        if (data9.executionUnitId !== void 0) {
-                          let data26 = data9.executionUnitId;
-                          if (typeof data26 === "string") {
-                            if (!pattern0.test(data26)) {
+                        if (data10.executionUnitId !== void 0) {
+                          let data27 = data10.executionUnitId;
+                          if (typeof data27 === "string") {
+                            if (!pattern0.test(data27)) {
                               const err83 = { instancePath: instancePath + "/activity/executionUnitId", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/4/properties/executionUnitId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                               if (vErrors === null) {
                                 vErrors = [err83];
@@ -2872,10 +5445,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                             errors++;
                           }
                         }
-                        if (data9.toolId !== void 0) {
-                          let data27 = data9.toolId;
-                          if (typeof data27 === "string") {
-                            if (!pattern0.test(data27)) {
+                        if (data10.toolId !== void 0) {
+                          let data28 = data10.toolId;
+                          if (typeof data28 === "string") {
+                            if (!pattern0.test(data28)) {
                               const err85 = { instancePath: instancePath + "/activity/toolId", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/4/properties/toolId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                               if (vErrors === null) {
                                 vErrors = [err85];
@@ -2894,8 +5467,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                             errors++;
                           }
                         }
-                        if (data9.inputSummary !== void 0) {
-                          if (typeof data9.inputSummary !== "string") {
+                        if (data10.inputSummary !== void 0) {
+                          if (typeof data10.inputSummary !== "string") {
                             const err87 = { instancePath: instancePath + "/activity/inputSummary", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/4/properties/inputSummary/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                             if (vErrors === null) {
                               vErrors = [err87];
@@ -2914,12 +5487,12 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                         }
                         errors++;
                       }
-                      var _valid1 = _errs65 === errors;
+                      var _valid1 = _errs66 === errors;
                       valid5 = valid5 || _valid1;
                       if (!valid5) {
-                        const _errs82 = errors;
-                        if (data9 && typeof data9 == "object" && !Array.isArray(data9)) {
-                          if (data9.kind === void 0) {
+                        const _errs83 = errors;
+                        if (data10 && typeof data10 == "object" && !Array.isArray(data10)) {
+                          if (data10.kind === void 0) {
                             const err89 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/5/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
                             if (vErrors === null) {
                               vErrors = [err89];
@@ -2928,7 +5501,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                             }
                             errors++;
                           }
-                          if (data9.sourceEventId === void 0) {
+                          if (data10.sourceEventId === void 0) {
                             const err90 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/5/required", keyword: "required", params: { missingProperty: "sourceEventId" }, message: "must have required property 'sourceEventId'" };
                             if (vErrors === null) {
                               vErrors = [err90];
@@ -2937,7 +5510,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                             }
                             errors++;
                           }
-                          if (data9.sourceCursor === void 0) {
+                          if (data10.sourceCursor === void 0) {
                             const err91 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/5/required", keyword: "required", params: { missingProperty: "sourceCursor" }, message: "must have required property 'sourceCursor'" };
                             if (vErrors === null) {
                               vErrors = [err91];
@@ -2946,7 +5519,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                             }
                             errors++;
                           }
-                          if (data9.actionId === void 0) {
+                          if (data10.actionId === void 0) {
                             const err92 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/5/required", keyword: "required", params: { missingProperty: "actionId" }, message: "must have required property 'actionId'" };
                             if (vErrors === null) {
                               vErrors = [err92];
@@ -2955,7 +5528,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                             }
                             errors++;
                           }
-                          if (data9.toolId === void 0) {
+                          if (data10.toolId === void 0) {
                             const err93 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/5/required", keyword: "required", params: { missingProperty: "toolId" }, message: "must have required property 'toolId'" };
                             if (vErrors === null) {
                               vErrors = [err93];
@@ -2964,7 +5537,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                             }
                             errors++;
                           }
-                          if (data9.outcome === void 0) {
+                          if (data10.outcome === void 0) {
                             const err94 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/5/required", keyword: "required", params: { missingProperty: "outcome" }, message: "must have required property 'outcome'" };
                             if (vErrors === null) {
                               vErrors = [err94];
@@ -2973,7 +5546,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                             }
                             errors++;
                           }
-                          for (const key8 in data9) {
+                          for (const key8 in data10) {
                             if (!(key8 === "kind" || key8 === "sourceEventId" || key8 === "sourceCursor" || key8 === "actionId" || key8 === "toolId" || key8 === "outcome" || key8 === "summary")) {
                               const err95 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/5/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key8 }, message: "must NOT have additional properties" };
                               if (vErrors === null) {
@@ -2984,9 +5557,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                               errors++;
                             }
                           }
-                          if (data9.kind !== void 0) {
-                            let data29 = data9.kind;
-                            if (typeof data29 !== "string") {
+                          if (data10.kind !== void 0) {
+                            let data30 = data10.kind;
+                            if (typeof data30 !== "string") {
                               const err96 = { instancePath: instancePath + "/activity/kind", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/5/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                               if (vErrors === null) {
                                 vErrors = [err96];
@@ -2995,7 +5568,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                               }
                               errors++;
                             }
-                            if ("tool_finished" !== data29) {
+                            if ("tool_finished" !== data30) {
                               const err97 = { instancePath: instancePath + "/activity/kind", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/5/properties/kind/const", keyword: "const", params: { allowedValue: "tool_finished" }, message: "must be equal to constant" };
                               if (vErrors === null) {
                                 vErrors = [err97];
@@ -3005,10 +5578,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                               errors++;
                             }
                           }
-                          if (data9.sourceEventId !== void 0) {
-                            let data30 = data9.sourceEventId;
-                            if (typeof data30 === "string") {
-                              if (!pattern0.test(data30)) {
+                          if (data10.sourceEventId !== void 0) {
+                            let data31 = data10.sourceEventId;
+                            if (typeof data31 === "string") {
+                              if (!pattern0.test(data31)) {
                                 const err98 = { instancePath: instancePath + "/activity/sourceEventId", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/5/properties/sourceEventId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                                 if (vErrors === null) {
                                   vErrors = [err98];
@@ -3027,9 +5600,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                               errors++;
                             }
                           }
-                          if (data9.sourceCursor !== void 0) {
-                            let data31 = data9.sourceCursor;
-                            if (!(typeof data31 == "number" && (!(data31 % 1) && !isNaN(data31)) && isFinite(data31))) {
+                          if (data10.sourceCursor !== void 0) {
+                            let data32 = data10.sourceCursor;
+                            if (!(typeof data32 == "number" && (!(data32 % 1) && !isNaN(data32)) && isFinite(data32))) {
                               const err100 = { instancePath: instancePath + "/activity/sourceCursor", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/5/properties/sourceCursor/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
                               if (vErrors === null) {
                                 vErrors = [err100];
@@ -3038,8 +5611,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                               }
                               errors++;
                             }
-                            if (typeof data31 == "number" && isFinite(data31)) {
-                              if (data31 > 9007199254740991 || isNaN(data31)) {
+                            if (typeof data32 == "number" && isFinite(data32)) {
+                              if (data32 > 9007199254740991 || isNaN(data32)) {
                                 const err101 = { instancePath: instancePath + "/activity/sourceCursor", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/5/properties/sourceCursor/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
                                 if (vErrors === null) {
                                   vErrors = [err101];
@@ -3048,7 +5621,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                 }
                                 errors++;
                               }
-                              if (data31 < 1 || isNaN(data31)) {
+                              if (data32 < 1 || isNaN(data32)) {
                                 const err102 = { instancePath: instancePath + "/activity/sourceCursor", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/5/properties/sourceCursor/minimum", keyword: "minimum", params: { comparison: ">=", limit: 1 }, message: "must be >= 1" };
                                 if (vErrors === null) {
                                   vErrors = [err102];
@@ -3059,10 +5632,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                               }
                             }
                           }
-                          if (data9.actionId !== void 0) {
-                            let data32 = data9.actionId;
-                            if (typeof data32 === "string") {
-                              if (!pattern0.test(data32)) {
+                          if (data10.actionId !== void 0) {
+                            let data33 = data10.actionId;
+                            if (typeof data33 === "string") {
+                              if (!pattern0.test(data33)) {
                                 const err103 = { instancePath: instancePath + "/activity/actionId", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/5/properties/actionId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                                 if (vErrors === null) {
                                   vErrors = [err103];
@@ -3081,10 +5654,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                               errors++;
                             }
                           }
-                          if (data9.toolId !== void 0) {
-                            let data33 = data9.toolId;
-                            if (typeof data33 === "string") {
-                              if (!pattern0.test(data33)) {
+                          if (data10.toolId !== void 0) {
+                            let data34 = data10.toolId;
+                            if (typeof data34 === "string") {
+                              if (!pattern0.test(data34)) {
                                 const err105 = { instancePath: instancePath + "/activity/toolId", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/5/properties/toolId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                                 if (vErrors === null) {
                                   vErrors = [err105];
@@ -3103,9 +5676,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                               errors++;
                             }
                           }
-                          if (data9.outcome !== void 0) {
-                            let data34 = data9.outcome;
-                            if (typeof data34 !== "string") {
+                          if (data10.outcome !== void 0) {
+                            let data35 = data10.outcome;
+                            if (typeof data35 !== "string") {
                               const err107 = { instancePath: instancePath + "/activity/outcome", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/5/properties/outcome/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                               if (vErrors === null) {
                                 vErrors = [err107];
@@ -3114,8 +5687,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                               }
                               errors++;
                             }
-                            if (!(data34 === "success" || data34 === "failure")) {
-                              const err108 = { instancePath: instancePath + "/activity/outcome", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/5/properties/outcome/enum", keyword: "enum", params: { allowedValues: schema26.anyOf[5].properties.outcome.enum }, message: "must be equal to one of the allowed values" };
+                            if (!(data35 === "success" || data35 === "failure")) {
+                              const err108 = { instancePath: instancePath + "/activity/outcome", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/5/properties/outcome/enum", keyword: "enum", params: { allowedValues: schema50.anyOf[5].properties.outcome.enum }, message: "must be equal to one of the allowed values" };
                               if (vErrors === null) {
                                 vErrors = [err108];
                               } else {
@@ -3124,8 +5697,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                               errors++;
                             }
                           }
-                          if (data9.summary !== void 0) {
-                            if (typeof data9.summary !== "string") {
+                          if (data10.summary !== void 0) {
+                            if (typeof data10.summary !== "string") {
                               const err109 = { instancePath: instancePath + "/activity/summary", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/5/properties/summary/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                               if (vErrors === null) {
                                 vErrors = [err109];
@@ -3144,12 +5717,12 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                           }
                           errors++;
                         }
-                        var _valid1 = _errs82 === errors;
+                        var _valid1 = _errs83 === errors;
                         valid5 = valid5 || _valid1;
                         if (!valid5) {
-                          const _errs99 = errors;
-                          if (data9 && typeof data9 == "object" && !Array.isArray(data9)) {
-                            if (data9.kind === void 0) {
+                          const _errs100 = errors;
+                          if (data10 && typeof data10 == "object" && !Array.isArray(data10)) {
+                            if (data10.kind === void 0) {
                               const err111 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/6/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
                               if (vErrors === null) {
                                 vErrors = [err111];
@@ -3158,7 +5731,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                               }
                               errors++;
                             }
-                            if (data9.sourceEventId === void 0) {
+                            if (data10.sourceEventId === void 0) {
                               const err112 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/6/required", keyword: "required", params: { missingProperty: "sourceEventId" }, message: "must have required property 'sourceEventId'" };
                               if (vErrors === null) {
                                 vErrors = [err112];
@@ -3167,7 +5740,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                               }
                               errors++;
                             }
-                            if (data9.sourceCursor === void 0) {
+                            if (data10.sourceCursor === void 0) {
                               const err113 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/6/required", keyword: "required", params: { missingProperty: "sourceCursor" }, message: "must have required property 'sourceCursor'" };
                               if (vErrors === null) {
                                 vErrors = [err113];
@@ -3176,7 +5749,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                               }
                               errors++;
                             }
-                            if (data9.actionId === void 0) {
+                            if (data10.actionId === void 0) {
                               const err114 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/6/required", keyword: "required", params: { missingProperty: "actionId" }, message: "must have required property 'actionId'" };
                               if (vErrors === null) {
                                 vErrors = [err114];
@@ -3185,7 +5758,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                               }
                               errors++;
                             }
-                            if (data9.attempt === void 0) {
+                            if (data10.attempt === void 0) {
                               const err115 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/6/required", keyword: "required", params: { missingProperty: "attempt" }, message: "must have required property 'attempt'" };
                               if (vErrors === null) {
                                 vErrors = [err115];
@@ -3194,7 +5767,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                               }
                               errors++;
                             }
-                            for (const key9 in data9) {
+                            for (const key9 in data10) {
                               if (!(key9 === "kind" || key9 === "sourceEventId" || key9 === "sourceCursor" || key9 === "actionId" || key9 === "attempt")) {
                                 const err116 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/6/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key9 }, message: "must NOT have additional properties" };
                                 if (vErrors === null) {
@@ -3205,9 +5778,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                 errors++;
                               }
                             }
-                            if (data9.kind !== void 0) {
-                              let data36 = data9.kind;
-                              if (typeof data36 !== "string") {
+                            if (data10.kind !== void 0) {
+                              let data37 = data10.kind;
+                              if (typeof data37 !== "string") {
                                 const err117 = { instancePath: instancePath + "/activity/kind", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/6/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                 if (vErrors === null) {
                                   vErrors = [err117];
@@ -3216,7 +5789,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                 }
                                 errors++;
                               }
-                              if ("tool_attempt_started" !== data36) {
+                              if ("tool_attempt_started" !== data37) {
                                 const err118 = { instancePath: instancePath + "/activity/kind", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/6/properties/kind/const", keyword: "const", params: { allowedValue: "tool_attempt_started" }, message: "must be equal to constant" };
                                 if (vErrors === null) {
                                   vErrors = [err118];
@@ -3226,10 +5799,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                 errors++;
                               }
                             }
-                            if (data9.sourceEventId !== void 0) {
-                              let data37 = data9.sourceEventId;
-                              if (typeof data37 === "string") {
-                                if (!pattern0.test(data37)) {
+                            if (data10.sourceEventId !== void 0) {
+                              let data38 = data10.sourceEventId;
+                              if (typeof data38 === "string") {
+                                if (!pattern0.test(data38)) {
                                   const err119 = { instancePath: instancePath + "/activity/sourceEventId", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/6/properties/sourceEventId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                                   if (vErrors === null) {
                                     vErrors = [err119];
@@ -3248,9 +5821,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                 errors++;
                               }
                             }
-                            if (data9.sourceCursor !== void 0) {
-                              let data38 = data9.sourceCursor;
-                              if (!(typeof data38 == "number" && (!(data38 % 1) && !isNaN(data38)) && isFinite(data38))) {
+                            if (data10.sourceCursor !== void 0) {
+                              let data39 = data10.sourceCursor;
+                              if (!(typeof data39 == "number" && (!(data39 % 1) && !isNaN(data39)) && isFinite(data39))) {
                                 const err121 = { instancePath: instancePath + "/activity/sourceCursor", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/6/properties/sourceCursor/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
                                 if (vErrors === null) {
                                   vErrors = [err121];
@@ -3259,8 +5832,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                 }
                                 errors++;
                               }
-                              if (typeof data38 == "number" && isFinite(data38)) {
-                                if (data38 > 9007199254740991 || isNaN(data38)) {
+                              if (typeof data39 == "number" && isFinite(data39)) {
+                                if (data39 > 9007199254740991 || isNaN(data39)) {
                                   const err122 = { instancePath: instancePath + "/activity/sourceCursor", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/6/properties/sourceCursor/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
                                   if (vErrors === null) {
                                     vErrors = [err122];
@@ -3269,7 +5842,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                   }
                                   errors++;
                                 }
-                                if (data38 < 1 || isNaN(data38)) {
+                                if (data39 < 1 || isNaN(data39)) {
                                   const err123 = { instancePath: instancePath + "/activity/sourceCursor", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/6/properties/sourceCursor/minimum", keyword: "minimum", params: { comparison: ">=", limit: 1 }, message: "must be >= 1" };
                                   if (vErrors === null) {
                                     vErrors = [err123];
@@ -3280,10 +5853,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                 }
                               }
                             }
-                            if (data9.actionId !== void 0) {
-                              let data39 = data9.actionId;
-                              if (typeof data39 === "string") {
-                                if (!pattern0.test(data39)) {
+                            if (data10.actionId !== void 0) {
+                              let data40 = data10.actionId;
+                              if (typeof data40 === "string") {
+                                if (!pattern0.test(data40)) {
                                   const err124 = { instancePath: instancePath + "/activity/actionId", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/6/properties/actionId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                                   if (vErrors === null) {
                                     vErrors = [err124];
@@ -3302,9 +5875,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                 errors++;
                               }
                             }
-                            if (data9.attempt !== void 0) {
-                              let data40 = data9.attempt;
-                              if (!(typeof data40 == "number" && (!(data40 % 1) && !isNaN(data40)) && isFinite(data40))) {
+                            if (data10.attempt !== void 0) {
+                              let data41 = data10.attempt;
+                              if (!(typeof data41 == "number" && (!(data41 % 1) && !isNaN(data41)) && isFinite(data41))) {
                                 const err126 = { instancePath: instancePath + "/activity/attempt", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/6/properties/attempt/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
                                 if (vErrors === null) {
                                   vErrors = [err126];
@@ -3313,8 +5886,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                 }
                                 errors++;
                               }
-                              if (typeof data40 == "number" && isFinite(data40)) {
-                                if (data40 > 9007199254740991 || isNaN(data40)) {
+                              if (typeof data41 == "number" && isFinite(data41)) {
+                                if (data41 > 9007199254740991 || isNaN(data41)) {
                                   const err127 = { instancePath: instancePath + "/activity/attempt", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/6/properties/attempt/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
                                   if (vErrors === null) {
                                     vErrors = [err127];
@@ -3323,7 +5896,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                   }
                                   errors++;
                                 }
-                                if (data40 < 1 || isNaN(data40)) {
+                                if (data41 < 1 || isNaN(data41)) {
                                   const err128 = { instancePath: instancePath + "/activity/attempt", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/6/properties/attempt/minimum", keyword: "minimum", params: { comparison: ">=", limit: 1 }, message: "must be >= 1" };
                                   if (vErrors === null) {
                                     vErrors = [err128];
@@ -3343,12 +5916,12 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                             }
                             errors++;
                           }
-                          var _valid1 = _errs99 === errors;
+                          var _valid1 = _errs100 === errors;
                           valid5 = valid5 || _valid1;
                           if (!valid5) {
-                            const _errs112 = errors;
-                            if (data9 && typeof data9 == "object" && !Array.isArray(data9)) {
-                              if (data9.kind === void 0) {
+                            const _errs113 = errors;
+                            if (data10 && typeof data10 == "object" && !Array.isArray(data10)) {
+                              if (data10.kind === void 0) {
                                 const err130 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/7/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
                                 if (vErrors === null) {
                                   vErrors = [err130];
@@ -3357,7 +5930,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                 }
                                 errors++;
                               }
-                              if (data9.sourceEventId === void 0) {
+                              if (data10.sourceEventId === void 0) {
                                 const err131 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/7/required", keyword: "required", params: { missingProperty: "sourceEventId" }, message: "must have required property 'sourceEventId'" };
                                 if (vErrors === null) {
                                   vErrors = [err131];
@@ -3366,7 +5939,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                 }
                                 errors++;
                               }
-                              if (data9.sourceCursor === void 0) {
+                              if (data10.sourceCursor === void 0) {
                                 const err132 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/7/required", keyword: "required", params: { missingProperty: "sourceCursor" }, message: "must have required property 'sourceCursor'" };
                                 if (vErrors === null) {
                                   vErrors = [err132];
@@ -3375,7 +5948,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                 }
                                 errors++;
                               }
-                              if (data9.actionId === void 0) {
+                              if (data10.actionId === void 0) {
                                 const err133 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/7/required", keyword: "required", params: { missingProperty: "actionId" }, message: "must have required property 'actionId'" };
                                 if (vErrors === null) {
                                   vErrors = [err133];
@@ -3384,7 +5957,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                 }
                                 errors++;
                               }
-                              if (data9.attempt === void 0) {
+                              if (data10.attempt === void 0) {
                                 const err134 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/7/required", keyword: "required", params: { missingProperty: "attempt" }, message: "must have required property 'attempt'" };
                                 if (vErrors === null) {
                                   vErrors = [err134];
@@ -3393,7 +5966,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                 }
                                 errors++;
                               }
-                              if (data9.reason === void 0) {
+                              if (data10.reason === void 0) {
                                 const err135 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/7/required", keyword: "required", params: { missingProperty: "reason" }, message: "must have required property 'reason'" };
                                 if (vErrors === null) {
                                   vErrors = [err135];
@@ -3402,7 +5975,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                 }
                                 errors++;
                               }
-                              for (const key10 in data9) {
+                              for (const key10 in data10) {
                                 if (!(key10 === "kind" || key10 === "sourceEventId" || key10 === "sourceCursor" || key10 === "actionId" || key10 === "attempt" || key10 === "reason")) {
                                   const err136 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/7/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key10 }, message: "must NOT have additional properties" };
                                   if (vErrors === null) {
@@ -3413,9 +5986,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                   errors++;
                                 }
                               }
-                              if (data9.kind !== void 0) {
-                                let data41 = data9.kind;
-                                if (typeof data41 !== "string") {
+                              if (data10.kind !== void 0) {
+                                let data42 = data10.kind;
+                                if (typeof data42 !== "string") {
                                   const err137 = { instancePath: instancePath + "/activity/kind", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/7/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                   if (vErrors === null) {
                                     vErrors = [err137];
@@ -3424,7 +5997,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                   }
                                   errors++;
                                 }
-                                if ("tool_attempt_failed" !== data41) {
+                                if ("tool_attempt_failed" !== data42) {
                                   const err138 = { instancePath: instancePath + "/activity/kind", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/7/properties/kind/const", keyword: "const", params: { allowedValue: "tool_attempt_failed" }, message: "must be equal to constant" };
                                   if (vErrors === null) {
                                     vErrors = [err138];
@@ -3434,10 +6007,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                   errors++;
                                 }
                               }
-                              if (data9.sourceEventId !== void 0) {
-                                let data42 = data9.sourceEventId;
-                                if (typeof data42 === "string") {
-                                  if (!pattern0.test(data42)) {
+                              if (data10.sourceEventId !== void 0) {
+                                let data43 = data10.sourceEventId;
+                                if (typeof data43 === "string") {
+                                  if (!pattern0.test(data43)) {
                                     const err139 = { instancePath: instancePath + "/activity/sourceEventId", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/7/properties/sourceEventId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                                     if (vErrors === null) {
                                       vErrors = [err139];
@@ -3456,9 +6029,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                   errors++;
                                 }
                               }
-                              if (data9.sourceCursor !== void 0) {
-                                let data43 = data9.sourceCursor;
-                                if (!(typeof data43 == "number" && (!(data43 % 1) && !isNaN(data43)) && isFinite(data43))) {
+                              if (data10.sourceCursor !== void 0) {
+                                let data44 = data10.sourceCursor;
+                                if (!(typeof data44 == "number" && (!(data44 % 1) && !isNaN(data44)) && isFinite(data44))) {
                                   const err141 = { instancePath: instancePath + "/activity/sourceCursor", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/7/properties/sourceCursor/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
                                   if (vErrors === null) {
                                     vErrors = [err141];
@@ -3467,8 +6040,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                   }
                                   errors++;
                                 }
-                                if (typeof data43 == "number" && isFinite(data43)) {
-                                  if (data43 > 9007199254740991 || isNaN(data43)) {
+                                if (typeof data44 == "number" && isFinite(data44)) {
+                                  if (data44 > 9007199254740991 || isNaN(data44)) {
                                     const err142 = { instancePath: instancePath + "/activity/sourceCursor", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/7/properties/sourceCursor/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
                                     if (vErrors === null) {
                                       vErrors = [err142];
@@ -3477,7 +6050,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                     }
                                     errors++;
                                   }
-                                  if (data43 < 1 || isNaN(data43)) {
+                                  if (data44 < 1 || isNaN(data44)) {
                                     const err143 = { instancePath: instancePath + "/activity/sourceCursor", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/7/properties/sourceCursor/minimum", keyword: "minimum", params: { comparison: ">=", limit: 1 }, message: "must be >= 1" };
                                     if (vErrors === null) {
                                       vErrors = [err143];
@@ -3488,10 +6061,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                   }
                                 }
                               }
-                              if (data9.actionId !== void 0) {
-                                let data44 = data9.actionId;
-                                if (typeof data44 === "string") {
-                                  if (!pattern0.test(data44)) {
+                              if (data10.actionId !== void 0) {
+                                let data45 = data10.actionId;
+                                if (typeof data45 === "string") {
+                                  if (!pattern0.test(data45)) {
                                     const err144 = { instancePath: instancePath + "/activity/actionId", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/7/properties/actionId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                                     if (vErrors === null) {
                                       vErrors = [err144];
@@ -3510,9 +6083,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                   errors++;
                                 }
                               }
-                              if (data9.attempt !== void 0) {
-                                let data45 = data9.attempt;
-                                if (!(typeof data45 == "number" && (!(data45 % 1) && !isNaN(data45)) && isFinite(data45))) {
+                              if (data10.attempt !== void 0) {
+                                let data46 = data10.attempt;
+                                if (!(typeof data46 == "number" && (!(data46 % 1) && !isNaN(data46)) && isFinite(data46))) {
                                   const err146 = { instancePath: instancePath + "/activity/attempt", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/7/properties/attempt/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
                                   if (vErrors === null) {
                                     vErrors = [err146];
@@ -3521,8 +6094,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                   }
                                   errors++;
                                 }
-                                if (typeof data45 == "number" && isFinite(data45)) {
-                                  if (data45 > 9007199254740991 || isNaN(data45)) {
+                                if (typeof data46 == "number" && isFinite(data46)) {
+                                  if (data46 > 9007199254740991 || isNaN(data46)) {
                                     const err147 = { instancePath: instancePath + "/activity/attempt", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/7/properties/attempt/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
                                     if (vErrors === null) {
                                       vErrors = [err147];
@@ -3531,7 +6104,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                     }
                                     errors++;
                                   }
-                                  if (data45 < 1 || isNaN(data45)) {
+                                  if (data46 < 1 || isNaN(data46)) {
                                     const err148 = { instancePath: instancePath + "/activity/attempt", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/7/properties/attempt/minimum", keyword: "minimum", params: { comparison: ">=", limit: 1 }, message: "must be >= 1" };
                                     if (vErrors === null) {
                                       vErrors = [err148];
@@ -3542,8 +6115,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                   }
                                 }
                               }
-                              if (data9.reason !== void 0) {
-                                if (typeof data9.reason !== "string") {
+                              if (data10.reason !== void 0) {
+                                if (typeof data10.reason !== "string") {
                                   const err149 = { instancePath: instancePath + "/activity/reason", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/7/properties/reason/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                   if (vErrors === null) {
                                     vErrors = [err149];
@@ -3562,12 +6135,12 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                               }
                               errors++;
                             }
-                            var _valid1 = _errs112 === errors;
+                            var _valid1 = _errs113 === errors;
                             valid5 = valid5 || _valid1;
                             if (!valid5) {
-                              const _errs127 = errors;
-                              if (data9 && typeof data9 == "object" && !Array.isArray(data9)) {
-                                if (data9.kind === void 0) {
+                              const _errs128 = errors;
+                              if (data10 && typeof data10 == "object" && !Array.isArray(data10)) {
+                                if (data10.kind === void 0) {
                                   const err151 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/8/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
                                   if (vErrors === null) {
                                     vErrors = [err151];
@@ -3576,7 +6149,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                   }
                                   errors++;
                                 }
-                                if (data9.sourceEventId === void 0) {
+                                if (data10.sourceEventId === void 0) {
                                   const err152 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/8/required", keyword: "required", params: { missingProperty: "sourceEventId" }, message: "must have required property 'sourceEventId'" };
                                   if (vErrors === null) {
                                     vErrors = [err152];
@@ -3585,7 +6158,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                   }
                                   errors++;
                                 }
-                                if (data9.sourceCursor === void 0) {
+                                if (data10.sourceCursor === void 0) {
                                   const err153 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/8/required", keyword: "required", params: { missingProperty: "sourceCursor" }, message: "must have required property 'sourceCursor'" };
                                   if (vErrors === null) {
                                     vErrors = [err153];
@@ -3594,7 +6167,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                   }
                                   errors++;
                                 }
-                                if (data9.reason === void 0) {
+                                if (data10.reason === void 0) {
                                   const err154 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/8/required", keyword: "required", params: { missingProperty: "reason" }, message: "must have required property 'reason'" };
                                   if (vErrors === null) {
                                     vErrors = [err154];
@@ -3603,7 +6176,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                   }
                                   errors++;
                                 }
-                                for (const key11 in data9) {
+                                for (const key11 in data10) {
                                   if (!(key11 === "kind" || key11 === "sourceEventId" || key11 === "sourceCursor" || key11 === "reason")) {
                                     const err155 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/8/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key11 }, message: "must NOT have additional properties" };
                                     if (vErrors === null) {
@@ -3614,9 +6187,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                     errors++;
                                   }
                                 }
-                                if (data9.kind !== void 0) {
-                                  let data47 = data9.kind;
-                                  if (typeof data47 !== "string") {
+                                if (data10.kind !== void 0) {
+                                  let data48 = data10.kind;
+                                  if (typeof data48 !== "string") {
                                     const err156 = { instancePath: instancePath + "/activity/kind", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/8/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                     if (vErrors === null) {
                                       vErrors = [err156];
@@ -3625,7 +6198,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                     }
                                     errors++;
                                   }
-                                  if ("activity_boundary" !== data47) {
+                                  if ("activity_boundary" !== data48) {
                                     const err157 = { instancePath: instancePath + "/activity/kind", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/8/properties/kind/const", keyword: "const", params: { allowedValue: "activity_boundary" }, message: "must be equal to constant" };
                                     if (vErrors === null) {
                                       vErrors = [err157];
@@ -3635,10 +6208,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                     errors++;
                                   }
                                 }
-                                if (data9.sourceEventId !== void 0) {
-                                  let data48 = data9.sourceEventId;
-                                  if (typeof data48 === "string") {
-                                    if (!pattern0.test(data48)) {
+                                if (data10.sourceEventId !== void 0) {
+                                  let data49 = data10.sourceEventId;
+                                  if (typeof data49 === "string") {
+                                    if (!pattern0.test(data49)) {
                                       const err158 = { instancePath: instancePath + "/activity/sourceEventId", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/8/properties/sourceEventId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                                       if (vErrors === null) {
                                         vErrors = [err158];
@@ -3657,9 +6230,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                     errors++;
                                   }
                                 }
-                                if (data9.sourceCursor !== void 0) {
-                                  let data49 = data9.sourceCursor;
-                                  if (!(typeof data49 == "number" && (!(data49 % 1) && !isNaN(data49)) && isFinite(data49))) {
+                                if (data10.sourceCursor !== void 0) {
+                                  let data50 = data10.sourceCursor;
+                                  if (!(typeof data50 == "number" && (!(data50 % 1) && !isNaN(data50)) && isFinite(data50))) {
                                     const err160 = { instancePath: instancePath + "/activity/sourceCursor", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/8/properties/sourceCursor/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
                                     if (vErrors === null) {
                                       vErrors = [err160];
@@ -3668,8 +6241,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                     }
                                     errors++;
                                   }
-                                  if (typeof data49 == "number" && isFinite(data49)) {
-                                    if (data49 > 9007199254740991 || isNaN(data49)) {
+                                  if (typeof data50 == "number" && isFinite(data50)) {
+                                    if (data50 > 9007199254740991 || isNaN(data50)) {
                                       const err161 = { instancePath: instancePath + "/activity/sourceCursor", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/8/properties/sourceCursor/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
                                       if (vErrors === null) {
                                         vErrors = [err161];
@@ -3678,7 +6251,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                       }
                                       errors++;
                                     }
-                                    if (data49 < 1 || isNaN(data49)) {
+                                    if (data50 < 1 || isNaN(data50)) {
                                       const err162 = { instancePath: instancePath + "/activity/sourceCursor", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/8/properties/sourceCursor/minimum", keyword: "minimum", params: { comparison: ">=", limit: 1 }, message: "must be >= 1" };
                                       if (vErrors === null) {
                                         vErrors = [err162];
@@ -3689,9 +6262,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                     }
                                   }
                                 }
-                                if (data9.reason !== void 0) {
-                                  let data50 = data9.reason;
-                                  if (typeof data50 !== "string") {
+                                if (data10.reason !== void 0) {
+                                  let data51 = data10.reason;
+                                  if (typeof data51 !== "string") {
                                     const err163 = { instancePath: instancePath + "/activity/reason", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/8/properties/reason/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                     if (vErrors === null) {
                                       vErrors = [err163];
@@ -3700,8 +6273,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                     }
                                     errors++;
                                   }
-                                  if (!(data50 === "assistant_reply" || data50 === "user_wait" || data50 === "stage_change" || data50 === "terminal" || data50 === "failure" || data50 === "unknown")) {
-                                    const err164 = { instancePath: instancePath + "/activity/reason", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/8/properties/reason/enum", keyword: "enum", params: { allowedValues: schema26.anyOf[8].properties.reason.enum }, message: "must be equal to one of the allowed values" };
+                                  if (!(data51 === "assistant_reply" || data51 === "user_wait" || data51 === "stage_change" || data51 === "terminal" || data51 === "failure" || data51 === "unknown")) {
+                                    const err164 = { instancePath: instancePath + "/activity/reason", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/8/properties/reason/enum", keyword: "enum", params: { allowedValues: schema50.anyOf[8].properties.reason.enum }, message: "must be equal to one of the allowed values" };
                                     if (vErrors === null) {
                                       vErrors = [err164];
                                     } else {
@@ -3719,12 +6292,12 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                 }
                                 errors++;
                               }
-                              var _valid1 = _errs127 === errors;
+                              var _valid1 = _errs128 === errors;
                               valid5 = valid5 || _valid1;
                               if (!valid5) {
-                                const _errs138 = errors;
-                                if (data9 && typeof data9 == "object" && !Array.isArray(data9)) {
-                                  if (data9.kind === void 0) {
+                                const _errs139 = errors;
+                                if (data10 && typeof data10 == "object" && !Array.isArray(data10)) {
+                                  if (data10.kind === void 0) {
                                     const err166 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/9/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
                                     if (vErrors === null) {
                                       vErrors = [err166];
@@ -3733,7 +6306,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                     }
                                     errors++;
                                   }
-                                  if (data9.sourceEventId === void 0) {
+                                  if (data10.sourceEventId === void 0) {
                                     const err167 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/9/required", keyword: "required", params: { missingProperty: "sourceEventId" }, message: "must have required property 'sourceEventId'" };
                                     if (vErrors === null) {
                                       vErrors = [err167];
@@ -3742,7 +6315,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                     }
                                     errors++;
                                   }
-                                  if (data9.sourceCursor === void 0) {
+                                  if (data10.sourceCursor === void 0) {
                                     const err168 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/9/required", keyword: "required", params: { missingProperty: "sourceCursor" }, message: "must have required property 'sourceCursor'" };
                                     if (vErrors === null) {
                                       vErrors = [err168];
@@ -3751,7 +6324,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                     }
                                     errors++;
                                   }
-                                  if (data9.candidateId === void 0) {
+                                  if (data10.candidateId === void 0) {
                                     const err169 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/9/required", keyword: "required", params: { missingProperty: "candidateId" }, message: "must have required property 'candidateId'" };
                                     if (vErrors === null) {
                                       vErrors = [err169];
@@ -3760,7 +6333,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                     }
                                     errors++;
                                   }
-                                  if (data9.text === void 0) {
+                                  if (data10.text === void 0) {
                                     const err170 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/9/required", keyword: "required", params: { missingProperty: "text" }, message: "must have required property 'text'" };
                                     if (vErrors === null) {
                                       vErrors = [err170];
@@ -3769,7 +6342,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                     }
                                     errors++;
                                   }
-                                  if (data9.startOffset === void 0) {
+                                  if (data10.startOffset === void 0) {
                                     const err171 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/9/required", keyword: "required", params: { missingProperty: "startOffset" }, message: "must have required property 'startOffset'" };
                                     if (vErrors === null) {
                                       vErrors = [err171];
@@ -3778,7 +6351,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                     }
                                     errors++;
                                   }
-                                  if (data9.truncated === void 0) {
+                                  if (data10.truncated === void 0) {
                                     const err172 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/9/required", keyword: "required", params: { missingProperty: "truncated" }, message: "must have required property 'truncated'" };
                                     if (vErrors === null) {
                                       vErrors = [err172];
@@ -3787,7 +6360,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                     }
                                     errors++;
                                   }
-                                  if (data9.complete === void 0) {
+                                  if (data10.complete === void 0) {
                                     const err173 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/9/required", keyword: "required", params: { missingProperty: "complete" }, message: "must have required property 'complete'" };
                                     if (vErrors === null) {
                                       vErrors = [err173];
@@ -3796,7 +6369,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                     }
                                     errors++;
                                   }
-                                  for (const key12 in data9) {
+                                  for (const key12 in data10) {
                                     if (!(key12 === "kind" || key12 === "sourceEventId" || key12 === "sourceCursor" || key12 === "candidateId" || key12 === "text" || key12 === "startOffset" || key12 === "truncated" || key12 === "complete")) {
                                       const err174 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/9/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key12 }, message: "must NOT have additional properties" };
                                       if (vErrors === null) {
@@ -3807,9 +6380,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                       errors++;
                                     }
                                   }
-                                  if (data9.kind !== void 0) {
-                                    let data51 = data9.kind;
-                                    if (typeof data51 !== "string") {
+                                  if (data10.kind !== void 0) {
+                                    let data52 = data10.kind;
+                                    if (typeof data52 !== "string") {
                                       const err175 = { instancePath: instancePath + "/activity/kind", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/9/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                       if (vErrors === null) {
                                         vErrors = [err175];
@@ -3818,7 +6391,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                       }
                                       errors++;
                                     }
-                                    if ("candidate_preview" !== data51) {
+                                    if ("candidate_preview" !== data52) {
                                       const err176 = { instancePath: instancePath + "/activity/kind", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/9/properties/kind/const", keyword: "const", params: { allowedValue: "candidate_preview" }, message: "must be equal to constant" };
                                       if (vErrors === null) {
                                         vErrors = [err176];
@@ -3828,10 +6401,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                       errors++;
                                     }
                                   }
-                                  if (data9.sourceEventId !== void 0) {
-                                    let data52 = data9.sourceEventId;
-                                    if (typeof data52 === "string") {
-                                      if (!pattern0.test(data52)) {
+                                  if (data10.sourceEventId !== void 0) {
+                                    let data53 = data10.sourceEventId;
+                                    if (typeof data53 === "string") {
+                                      if (!pattern0.test(data53)) {
                                         const err177 = { instancePath: instancePath + "/activity/sourceEventId", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/9/properties/sourceEventId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                                         if (vErrors === null) {
                                           vErrors = [err177];
@@ -3850,9 +6423,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                       errors++;
                                     }
                                   }
-                                  if (data9.sourceCursor !== void 0) {
-                                    let data53 = data9.sourceCursor;
-                                    if (!(typeof data53 == "number" && (!(data53 % 1) && !isNaN(data53)) && isFinite(data53))) {
+                                  if (data10.sourceCursor !== void 0) {
+                                    let data54 = data10.sourceCursor;
+                                    if (!(typeof data54 == "number" && (!(data54 % 1) && !isNaN(data54)) && isFinite(data54))) {
                                       const err179 = { instancePath: instancePath + "/activity/sourceCursor", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/9/properties/sourceCursor/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
                                       if (vErrors === null) {
                                         vErrors = [err179];
@@ -3861,8 +6434,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                       }
                                       errors++;
                                     }
-                                    if (typeof data53 == "number" && isFinite(data53)) {
-                                      if (data53 > 9007199254740991 || isNaN(data53)) {
+                                    if (typeof data54 == "number" && isFinite(data54)) {
+                                      if (data54 > 9007199254740991 || isNaN(data54)) {
                                         const err180 = { instancePath: instancePath + "/activity/sourceCursor", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/9/properties/sourceCursor/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
                                         if (vErrors === null) {
                                           vErrors = [err180];
@@ -3871,7 +6444,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                         }
                                         errors++;
                                       }
-                                      if (data53 < 1 || isNaN(data53)) {
+                                      if (data54 < 1 || isNaN(data54)) {
                                         const err181 = { instancePath: instancePath + "/activity/sourceCursor", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/9/properties/sourceCursor/minimum", keyword: "minimum", params: { comparison: ">=", limit: 1 }, message: "must be >= 1" };
                                         if (vErrors === null) {
                                           vErrors = [err181];
@@ -3882,10 +6455,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                       }
                                     }
                                   }
-                                  if (data9.candidateId !== void 0) {
-                                    let data54 = data9.candidateId;
-                                    if (typeof data54 === "string") {
-                                      if (!pattern0.test(data54)) {
+                                  if (data10.candidateId !== void 0) {
+                                    let data55 = data10.candidateId;
+                                    if (typeof data55 === "string") {
+                                      if (!pattern0.test(data55)) {
                                         const err182 = { instancePath: instancePath + "/activity/candidateId", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/9/properties/candidateId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                                         if (vErrors === null) {
                                           vErrors = [err182];
@@ -3904,8 +6477,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                       errors++;
                                     }
                                   }
-                                  if (data9.text !== void 0) {
-                                    if (typeof data9.text !== "string") {
+                                  if (data10.text !== void 0) {
+                                    if (typeof data10.text !== "string") {
                                       const err184 = { instancePath: instancePath + "/activity/text", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/9/properties/text/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                       if (vErrors === null) {
                                         vErrors = [err184];
@@ -3915,9 +6488,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                       errors++;
                                     }
                                   }
-                                  if (data9.startOffset !== void 0) {
-                                    let data56 = data9.startOffset;
-                                    if (!(typeof data56 == "number" && (!(data56 % 1) && !isNaN(data56)) && isFinite(data56))) {
+                                  if (data10.startOffset !== void 0) {
+                                    let data57 = data10.startOffset;
+                                    if (!(typeof data57 == "number" && (!(data57 % 1) && !isNaN(data57)) && isFinite(data57))) {
                                       const err185 = { instancePath: instancePath + "/activity/startOffset", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/9/properties/startOffset/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
                                       if (vErrors === null) {
                                         vErrors = [err185];
@@ -3926,8 +6499,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                       }
                                       errors++;
                                     }
-                                    if (typeof data56 == "number" && isFinite(data56)) {
-                                      if (data56 > 9007199254740991 || isNaN(data56)) {
+                                    if (typeof data57 == "number" && isFinite(data57)) {
+                                      if (data57 > 9007199254740991 || isNaN(data57)) {
                                         const err186 = { instancePath: instancePath + "/activity/startOffset", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/9/properties/startOffset/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
                                         if (vErrors === null) {
                                           vErrors = [err186];
@@ -3936,7 +6509,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                         }
                                         errors++;
                                       }
-                                      if (data56 < 0 || isNaN(data56)) {
+                                      if (data57 < 0 || isNaN(data57)) {
                                         const err187 = { instancePath: instancePath + "/activity/startOffset", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/9/properties/startOffset/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
                                         if (vErrors === null) {
                                           vErrors = [err187];
@@ -3947,8 +6520,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                       }
                                     }
                                   }
-                                  if (data9.truncated !== void 0) {
-                                    if (typeof data9.truncated !== "boolean") {
+                                  if (data10.truncated !== void 0) {
+                                    if (typeof data10.truncated !== "boolean") {
                                       const err188 = { instancePath: instancePath + "/activity/truncated", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/9/properties/truncated/type", keyword: "type", params: { type: "boolean" }, message: "must be boolean" };
                                       if (vErrors === null) {
                                         vErrors = [err188];
@@ -3958,8 +6531,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                       errors++;
                                     }
                                   }
-                                  if (data9.complete !== void 0) {
-                                    if (typeof data9.complete !== "boolean") {
+                                  if (data10.complete !== void 0) {
+                                    if (typeof data10.complete !== "boolean") {
                                       const err189 = { instancePath: instancePath + "/activity/complete", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/9/properties/complete/type", keyword: "type", params: { type: "boolean" }, message: "must be boolean" };
                                       if (vErrors === null) {
                                         vErrors = [err189];
@@ -3978,12 +6551,12 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                   }
                                   errors++;
                                 }
-                                var _valid1 = _errs138 === errors;
+                                var _valid1 = _errs139 === errors;
                                 valid5 = valid5 || _valid1;
                                 if (!valid5) {
-                                  const _errs157 = errors;
-                                  if (data9 && typeof data9 == "object" && !Array.isArray(data9)) {
-                                    if (data9.kind === void 0) {
+                                  const _errs158 = errors;
+                                  if (data10 && typeof data10 == "object" && !Array.isArray(data10)) {
+                                    if (data10.kind === void 0) {
                                       const err191 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/10/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
                                       if (vErrors === null) {
                                         vErrors = [err191];
@@ -3992,7 +6565,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                       }
                                       errors++;
                                     }
-                                    if (data9.sourceEventId === void 0) {
+                                    if (data10.sourceEventId === void 0) {
                                       const err192 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/10/required", keyword: "required", params: { missingProperty: "sourceEventId" }, message: "must have required property 'sourceEventId'" };
                                       if (vErrors === null) {
                                         vErrors = [err192];
@@ -4001,7 +6574,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                       }
                                       errors++;
                                     }
-                                    if (data9.sourceCursor === void 0) {
+                                    if (data10.sourceCursor === void 0) {
                                       const err193 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/10/required", keyword: "required", params: { missingProperty: "sourceCursor" }, message: "must have required property 'sourceCursor'" };
                                       if (vErrors === null) {
                                         vErrors = [err193];
@@ -4010,7 +6583,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                       }
                                       errors++;
                                     }
-                                    if (data9.candidateId === void 0) {
+                                    if (data10.candidateId === void 0) {
                                       const err194 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/10/required", keyword: "required", params: { missingProperty: "candidateId" }, message: "must have required property 'candidateId'" };
                                       if (vErrors === null) {
                                         vErrors = [err194];
@@ -4019,7 +6592,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                       }
                                       errors++;
                                     }
-                                    if (data9.reason === void 0) {
+                                    if (data10.reason === void 0) {
                                       const err195 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/10/required", keyword: "required", params: { missingProperty: "reason" }, message: "must have required property 'reason'" };
                                       if (vErrors === null) {
                                         vErrors = [err195];
@@ -4028,7 +6601,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                       }
                                       errors++;
                                     }
-                                    for (const key13 in data9) {
+                                    for (const key13 in data10) {
                                       if (!(key13 === "kind" || key13 === "sourceEventId" || key13 === "sourceCursor" || key13 === "candidateId" || key13 === "reason")) {
                                         const err196 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/10/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key13 }, message: "must NOT have additional properties" };
                                         if (vErrors === null) {
@@ -4039,9 +6612,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                         errors++;
                                       }
                                     }
-                                    if (data9.kind !== void 0) {
-                                      let data59 = data9.kind;
-                                      if (typeof data59 !== "string") {
+                                    if (data10.kind !== void 0) {
+                                      let data60 = data10.kind;
+                                      if (typeof data60 !== "string") {
                                         const err197 = { instancePath: instancePath + "/activity/kind", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/10/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                         if (vErrors === null) {
                                           vErrors = [err197];
@@ -4050,7 +6623,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                         }
                                         errors++;
                                       }
-                                      if ("candidate_invalidated" !== data59) {
+                                      if ("candidate_invalidated" !== data60) {
                                         const err198 = { instancePath: instancePath + "/activity/kind", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/10/properties/kind/const", keyword: "const", params: { allowedValue: "candidate_invalidated" }, message: "must be equal to constant" };
                                         if (vErrors === null) {
                                           vErrors = [err198];
@@ -4060,10 +6633,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                         errors++;
                                       }
                                     }
-                                    if (data9.sourceEventId !== void 0) {
-                                      let data60 = data9.sourceEventId;
-                                      if (typeof data60 === "string") {
-                                        if (!pattern0.test(data60)) {
+                                    if (data10.sourceEventId !== void 0) {
+                                      let data61 = data10.sourceEventId;
+                                      if (typeof data61 === "string") {
+                                        if (!pattern0.test(data61)) {
                                           const err199 = { instancePath: instancePath + "/activity/sourceEventId", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/10/properties/sourceEventId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                                           if (vErrors === null) {
                                             vErrors = [err199];
@@ -4082,9 +6655,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                         errors++;
                                       }
                                     }
-                                    if (data9.sourceCursor !== void 0) {
-                                      let data61 = data9.sourceCursor;
-                                      if (!(typeof data61 == "number" && (!(data61 % 1) && !isNaN(data61)) && isFinite(data61))) {
+                                    if (data10.sourceCursor !== void 0) {
+                                      let data62 = data10.sourceCursor;
+                                      if (!(typeof data62 == "number" && (!(data62 % 1) && !isNaN(data62)) && isFinite(data62))) {
                                         const err201 = { instancePath: instancePath + "/activity/sourceCursor", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/10/properties/sourceCursor/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
                                         if (vErrors === null) {
                                           vErrors = [err201];
@@ -4093,8 +6666,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                         }
                                         errors++;
                                       }
-                                      if (typeof data61 == "number" && isFinite(data61)) {
-                                        if (data61 > 9007199254740991 || isNaN(data61)) {
+                                      if (typeof data62 == "number" && isFinite(data62)) {
+                                        if (data62 > 9007199254740991 || isNaN(data62)) {
                                           const err202 = { instancePath: instancePath + "/activity/sourceCursor", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/10/properties/sourceCursor/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
                                           if (vErrors === null) {
                                             vErrors = [err202];
@@ -4103,7 +6676,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                           }
                                           errors++;
                                         }
-                                        if (data61 < 1 || isNaN(data61)) {
+                                        if (data62 < 1 || isNaN(data62)) {
                                           const err203 = { instancePath: instancePath + "/activity/sourceCursor", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/10/properties/sourceCursor/minimum", keyword: "minimum", params: { comparison: ">=", limit: 1 }, message: "must be >= 1" };
                                           if (vErrors === null) {
                                             vErrors = [err203];
@@ -4114,10 +6687,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                         }
                                       }
                                     }
-                                    if (data9.candidateId !== void 0) {
-                                      let data62 = data9.candidateId;
-                                      if (typeof data62 === "string") {
-                                        if (!pattern0.test(data62)) {
+                                    if (data10.candidateId !== void 0) {
+                                      let data63 = data10.candidateId;
+                                      if (typeof data63 === "string") {
+                                        if (!pattern0.test(data63)) {
                                           const err204 = { instancePath: instancePath + "/activity/candidateId", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/10/properties/candidateId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                                           if (vErrors === null) {
                                             vErrors = [err204];
@@ -4136,9 +6709,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                         errors++;
                                       }
                                     }
-                                    if (data9.reason !== void 0) {
-                                      let data63 = data9.reason;
-                                      if (typeof data63 !== "string") {
+                                    if (data10.reason !== void 0) {
+                                      let data64 = data10.reason;
+                                      if (typeof data64 !== "string") {
                                         const err206 = { instancePath: instancePath + "/activity/reason", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/10/properties/reason/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                         if (vErrors === null) {
                                           vErrors = [err206];
@@ -4147,8 +6720,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                         }
                                         errors++;
                                       }
-                                      if (!(data63 === "rejected" || data63 === "cancelled" || data63 === "failed" || data63 === "replaced" || data63 === "ambiguous")) {
-                                        const err207 = { instancePath: instancePath + "/activity/reason", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/10/properties/reason/enum", keyword: "enum", params: { allowedValues: schema26.anyOf[10].properties.reason.enum }, message: "must be equal to one of the allowed values" };
+                                      if (!(data64 === "rejected" || data64 === "cancelled" || data64 === "failed" || data64 === "replaced" || data64 === "ambiguous")) {
+                                        const err207 = { instancePath: instancePath + "/activity/reason", schemaPath: "#/definitions/BrowserGoalActivityEvent/anyOf/10/properties/reason/enum", keyword: "enum", params: { allowedValues: schema50.anyOf[10].properties.reason.enum }, message: "must be equal to one of the allowed values" };
                                         if (vErrors === null) {
                                           vErrors = [err207];
                                         } else {
@@ -4166,7 +6739,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                     }
                                     errors++;
                                   }
-                                  var _valid1 = _errs157 === errors;
+                                  var _valid1 = _errs158 === errors;
                                   valid5 = valid5 || _valid1;
                                 }
                               }
@@ -4187,10 +6760,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                 }
                 errors++;
               } else {
-                errors = _errs28;
+                errors = _errs29;
                 if (vErrors !== null) {
-                  if (_errs28) {
-                    vErrors.length = _errs28;
+                  if (_errs29) {
+                    vErrors.length = _errs29;
                   } else {
                     vErrors = null;
                   }
@@ -4206,10 +6779,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
             }
             errors++;
           }
-          var _valid0 = _errs17 === errors;
+          var _valid0 = _errs18 === errors;
           valid0 = valid0 || _valid0;
           if (!valid0) {
-            const _errs170 = errors;
+            const _errs171 = errors;
             if (data && typeof data == "object" && !Array.isArray(data)) {
               if (data.type === void 0) {
                 const err211 = { instancePath, schemaPath: "#/anyOf/3/required", keyword: "required", params: { missingProperty: "type" }, message: "must have required property 'type'" };
@@ -4259,8 +6832,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                 }
               }
               if (data.type !== void 0) {
-                let data64 = data.type;
-                if (typeof data64 !== "string") {
+                let data65 = data.type;
+                if (typeof data65 !== "string") {
                   const err216 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/3/properties/type/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                   if (vErrors === null) {
                     vErrors = [err216];
@@ -4269,7 +6842,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                   }
                   errors++;
                 }
-                if ("message_committed" !== data64) {
+                if ("message_committed" !== data65) {
                   const err217 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/3/properties/type/const", keyword: "const", params: { allowedValue: "message_committed" }, message: "must be equal to constant" };
                   if (vErrors === null) {
                     vErrors = [err217];
@@ -4280,9 +6853,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                 }
               }
               if (data.goalId !== void 0) {
-                let data65 = data.goalId;
-                if (typeof data65 === "string") {
-                  if (!pattern0.test(data65)) {
+                let data66 = data.goalId;
+                if (typeof data66 === "string") {
+                  if (!pattern0.test(data66)) {
                     const err218 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/3/properties/goalId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                     if (vErrors === null) {
                       vErrors = [err218];
@@ -4302,9 +6875,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                 }
               }
               if (data.runId !== void 0) {
-                let data66 = data.runId;
-                if (typeof data66 === "string") {
-                  if (!pattern0.test(data66)) {
+                let data67 = data.runId;
+                if (typeof data67 === "string") {
+                  if (!pattern0.test(data67)) {
                     const err220 = { instancePath: instancePath + "/runId", schemaPath: "#/anyOf/3/properties/runId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                     if (vErrors === null) {
                       vErrors = [err220];
@@ -4324,8 +6897,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                 }
               }
               if (data.message !== void 0) {
-                if (!validate22(data.message, { instancePath: instancePath + "/message", parentData: data, parentDataProperty: "message", rootData })) {
-                  vErrors = vErrors === null ? validate22.errors : vErrors.concat(validate22.errors);
+                if (!validate39(data.message, { instancePath: instancePath + "/message", parentData: data, parentDataProperty: "message", rootData })) {
+                  vErrors = vErrors === null ? validate39.errors : vErrors.concat(validate39.errors);
                   errors = vErrors.length;
                 }
               }
@@ -4338,10 +6911,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
               }
               errors++;
             }
-            var _valid0 = _errs170 === errors;
+            var _valid0 = _errs171 === errors;
             valid0 = valid0 || _valid0;
             if (!valid0) {
-              const _errs180 = errors;
+              const _errs181 = errors;
               if (data && typeof data == "object" && !Array.isArray(data)) {
                 if (data.type === void 0) {
                   const err223 = { instancePath, schemaPath: "#/anyOf/4/required", keyword: "required", params: { missingProperty: "type" }, message: "must have required property 'type'" };
@@ -4391,8 +6964,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                   }
                 }
                 if (data.type !== void 0) {
-                  let data68 = data.type;
-                  if (typeof data68 !== "string") {
+                  let data69 = data.type;
+                  if (typeof data69 !== "string") {
                     const err228 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/4/properties/type/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                     if (vErrors === null) {
                       vErrors = [err228];
@@ -4401,7 +6974,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                     }
                     errors++;
                   }
-                  if ("interaction_required" !== data68) {
+                  if ("interaction_required" !== data69) {
                     const err229 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/4/properties/type/const", keyword: "const", params: { allowedValue: "interaction_required" }, message: "must be equal to constant" };
                     if (vErrors === null) {
                       vErrors = [err229];
@@ -4412,9 +6985,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                   }
                 }
                 if (data.goalId !== void 0) {
-                  let data69 = data.goalId;
-                  if (typeof data69 === "string") {
-                    if (!pattern0.test(data69)) {
+                  let data70 = data.goalId;
+                  if (typeof data70 === "string") {
+                    if (!pattern0.test(data70)) {
                       const err230 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/4/properties/goalId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                       if (vErrors === null) {
                         vErrors = [err230];
@@ -4434,9 +7007,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                   }
                 }
                 if (data.runId !== void 0) {
-                  let data70 = data.runId;
-                  if (typeof data70 === "string") {
-                    if (!pattern0.test(data70)) {
+                  let data71 = data.runId;
+                  if (typeof data71 === "string") {
+                    if (!pattern0.test(data71)) {
                       const err232 = { instancePath: instancePath + "/runId", schemaPath: "#/anyOf/4/properties/runId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                       if (vErrors === null) {
                         vErrors = [err232];
@@ -4456,9 +7029,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                   }
                 }
                 if (data.interaction !== void 0) {
-                  let data71 = data.interaction;
-                  if (data71 && typeof data71 == "object" && !Array.isArray(data71)) {
-                    if (data71.interactionId === void 0) {
+                  let data72 = data.interaction;
+                  if (data72 && typeof data72 == "object" && !Array.isArray(data72)) {
+                    if (data72.interactionId === void 0) {
                       const err234 = { instancePath: instancePath + "/interaction", schemaPath: "#/definitions/BrowserInteractionRequiredEvent/required", keyword: "required", params: { missingProperty: "interactionId" }, message: "must have required property 'interactionId'" };
                       if (vErrors === null) {
                         vErrors = [err234];
@@ -4467,7 +7040,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                       }
                       errors++;
                     }
-                    if (data71.kind === void 0) {
+                    if (data72.kind === void 0) {
                       const err235 = { instancePath: instancePath + "/interaction", schemaPath: "#/definitions/BrowserInteractionRequiredEvent/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
                       if (vErrors === null) {
                         vErrors = [err235];
@@ -4476,7 +7049,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                       }
                       errors++;
                     }
-                    if (data71.runId === void 0) {
+                    if (data72.runId === void 0) {
                       const err236 = { instancePath: instancePath + "/interaction", schemaPath: "#/definitions/BrowserInteractionRequiredEvent/required", keyword: "required", params: { missingProperty: "runId" }, message: "must have required property 'runId'" };
                       if (vErrors === null) {
                         vErrors = [err236];
@@ -4485,7 +7058,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                       }
                       errors++;
                     }
-                    for (const key16 in data71) {
+                    for (const key16 in data72) {
                       if (!(key16 === "interactionId" || key16 === "kind" || key16 === "runId")) {
                         const err237 = { instancePath: instancePath + "/interaction", schemaPath: "#/definitions/BrowserInteractionRequiredEvent/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key16 }, message: "must NOT have additional properties" };
                         if (vErrors === null) {
@@ -4496,10 +7069,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                         errors++;
                       }
                     }
-                    if (data71.interactionId !== void 0) {
-                      let data72 = data71.interactionId;
-                      if (typeof data72 === "string") {
-                        if (!pattern0.test(data72)) {
+                    if (data72.interactionId !== void 0) {
+                      let data73 = data72.interactionId;
+                      if (typeof data73 === "string") {
+                        if (!pattern0.test(data73)) {
                           const err238 = { instancePath: instancePath + "/interaction/interactionId", schemaPath: "#/definitions/BrowserInteractionRequiredEvent/properties/interactionId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                           if (vErrors === null) {
                             vErrors = [err238];
@@ -4518,9 +7091,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                         errors++;
                       }
                     }
-                    if (data71.kind !== void 0) {
-                      let data73 = data71.kind;
-                      if (typeof data73 !== "string") {
+                    if (data72.kind !== void 0) {
+                      let data74 = data72.kind;
+                      if (typeof data74 !== "string") {
                         const err240 = { instancePath: instancePath + "/interaction/kind", schemaPath: "#/definitions/BrowserInteractionRequiredEvent/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                         if (vErrors === null) {
                           vErrors = [err240];
@@ -4529,8 +7102,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                         }
                         errors++;
                       }
-                      if (!(data73 === "ask_user" || data73 === "task_approval" || data73 === "action_approval" || data73 === "action_recovery")) {
-                        const err241 = { instancePath: instancePath + "/interaction/kind", schemaPath: "#/definitions/BrowserInteractionRequiredEvent/properties/kind/enum", keyword: "enum", params: { allowedValues: schema29.properties.kind.enum }, message: "must be equal to one of the allowed values" };
+                      if (!(data74 === "ask_user" || data74 === "task_approval" || data74 === "action_approval" || data74 === "action_recovery")) {
+                        const err241 = { instancePath: instancePath + "/interaction/kind", schemaPath: "#/definitions/BrowserInteractionRequiredEvent/properties/kind/enum", keyword: "enum", params: { allowedValues: schema53.properties.kind.enum }, message: "must be equal to one of the allowed values" };
                         if (vErrors === null) {
                           vErrors = [err241];
                         } else {
@@ -4539,10 +7112,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                         errors++;
                       }
                     }
-                    if (data71.runId !== void 0) {
-                      let data74 = data71.runId;
-                      if (typeof data74 === "string") {
-                        if (!pattern0.test(data74)) {
+                    if (data72.runId !== void 0) {
+                      let data75 = data72.runId;
+                      if (typeof data75 === "string") {
+                        if (!pattern0.test(data75)) {
                           const err242 = { instancePath: instancePath + "/interaction/runId", schemaPath: "#/definitions/BrowserInteractionRequiredEvent/properties/runId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                           if (vErrors === null) {
                             vErrors = [err242];
@@ -4580,10 +7153,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                 }
                 errors++;
               }
-              var _valid0 = _errs180 === errors;
+              var _valid0 = _errs181 === errors;
               valid0 = valid0 || _valid0;
               if (!valid0) {
-                const _errs199 = errors;
+                const _errs200 = errors;
                 if (data && typeof data == "object" && !Array.isArray(data)) {
                   if (data.type === void 0) {
                     const err246 = { instancePath, schemaPath: "#/anyOf/5/required", keyword: "required", params: { missingProperty: "type" }, message: "must have required property 'type'" };
@@ -4615,8 +7188,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                     }
                   }
                   if (data.type !== void 0) {
-                    let data75 = data.type;
-                    if (typeof data75 !== "string") {
+                    let data76 = data.type;
+                    if (typeof data76 !== "string") {
                       const err249 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/5/properties/type/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                       if (vErrors === null) {
                         vErrors = [err249];
@@ -4625,7 +7198,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                       }
                       errors++;
                     }
-                    if ("snapshot_changed" !== data75) {
+                    if ("snapshot_changed" !== data76) {
                       const err250 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/5/properties/type/const", keyword: "const", params: { allowedValue: "snapshot_changed" }, message: "must be equal to constant" };
                       if (vErrors === null) {
                         vErrors = [err250];
@@ -4636,9 +7209,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                     }
                   }
                   if (data.goalId !== void 0) {
-                    let data76 = data.goalId;
-                    if (typeof data76 === "string") {
-                      if (!pattern0.test(data76)) {
+                    let data77 = data.goalId;
+                    if (typeof data77 === "string") {
+                      if (!pattern0.test(data77)) {
                         const err251 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/5/properties/goalId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                         if (vErrors === null) {
                           vErrors = [err251];
@@ -4658,9 +7231,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                     }
                   }
                   if (data.runId !== void 0) {
-                    let data77 = data.runId;
-                    if (typeof data77 === "string") {
-                      if (!pattern0.test(data77)) {
+                    let data78 = data.runId;
+                    if (typeof data78 === "string") {
+                      if (!pattern0.test(data78)) {
                         const err253 = { instancePath: instancePath + "/runId", schemaPath: "#/anyOf/5/properties/runId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                         if (vErrors === null) {
                           vErrors = [err253];
@@ -4688,10 +7261,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                   }
                   errors++;
                 }
-                var _valid0 = _errs199 === errors;
+                var _valid0 = _errs200 === errors;
                 valid0 = valid0 || _valid0;
                 if (!valid0) {
-                  const _errs208 = errors;
+                  const _errs209 = errors;
                   if (data && typeof data == "object" && !Array.isArray(data)) {
                     if (data.type === void 0) {
                       const err256 = { instancePath, schemaPath: "#/anyOf/6/required", keyword: "required", params: { missingProperty: "type" }, message: "must have required property 'type'" };
@@ -4723,8 +7296,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                       }
                     }
                     if (data.type !== void 0) {
-                      let data78 = data.type;
-                      if (typeof data78 !== "string") {
+                      let data79 = data.type;
+                      if (typeof data79 !== "string") {
                         const err259 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/6/properties/type/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                         if (vErrors === null) {
                           vErrors = [err259];
@@ -4733,7 +7306,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                         }
                         errors++;
                       }
-                      if ("refresh_required" !== data78) {
+                      if ("refresh_required" !== data79) {
                         const err260 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/6/properties/type/const", keyword: "const", params: { allowedValue: "refresh_required" }, message: "must be equal to constant" };
                         if (vErrors === null) {
                           vErrors = [err260];
@@ -4744,9 +7317,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                       }
                     }
                     if (data.goalId !== void 0) {
-                      let data79 = data.goalId;
-                      if (typeof data79 === "string") {
-                        if (!pattern0.test(data79)) {
+                      let data80 = data.goalId;
+                      if (typeof data80 === "string") {
+                        if (!pattern0.test(data80)) {
                           const err261 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/6/properties/goalId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                           if (vErrors === null) {
                             vErrors = [err261];
@@ -4766,9 +7339,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                       }
                     }
                     if (data.runId !== void 0) {
-                      let data80 = data.runId;
-                      if (typeof data80 === "string") {
-                        if (!pattern0.test(data80)) {
+                      let data81 = data.runId;
+                      if (typeof data81 === "string") {
+                        if (!pattern0.test(data81)) {
                           const err263 = { instancePath: instancePath + "/runId", schemaPath: "#/anyOf/6/properties/runId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                           if (vErrors === null) {
                             vErrors = [err263];
@@ -4796,10 +7369,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                     }
                     errors++;
                   }
-                  var _valid0 = _errs208 === errors;
+                  var _valid0 = _errs209 === errors;
                   valid0 = valid0 || _valid0;
                   if (!valid0) {
-                    const _errs217 = errors;
+                    const _errs218 = errors;
                     if (data && typeof data == "object" && !Array.isArray(data)) {
                       if (data.type === void 0) {
                         const err266 = { instancePath, schemaPath: "#/anyOf/7/required", keyword: "required", params: { missingProperty: "type" }, message: "must have required property 'type'" };
@@ -4849,8 +7422,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                         }
                       }
                       if (data.type !== void 0) {
-                        let data81 = data.type;
-                        if (typeof data81 !== "string") {
+                        let data82 = data.type;
+                        if (typeof data82 !== "string") {
                           const err271 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/7/properties/type/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                           if (vErrors === null) {
                             vErrors = [err271];
@@ -4859,7 +7432,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                           }
                           errors++;
                         }
-                        if ("state_committed" !== data81) {
+                        if ("state_committed" !== data82) {
                           const err272 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/7/properties/type/const", keyword: "const", params: { allowedValue: "state_committed" }, message: "must be equal to constant" };
                           if (vErrors === null) {
                             vErrors = [err272];
@@ -4870,9 +7443,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                         }
                       }
                       if (data.goalId !== void 0) {
-                        let data82 = data.goalId;
-                        if (typeof data82 === "string") {
-                          if (!pattern0.test(data82)) {
+                        let data83 = data.goalId;
+                        if (typeof data83 === "string") {
+                          if (!pattern0.test(data83)) {
                             const err273 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/7/properties/goalId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                             if (vErrors === null) {
                               vErrors = [err273];
@@ -4892,9 +7465,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                         }
                       }
                       if (data.runId !== void 0) {
-                        let data83 = data.runId;
-                        if (typeof data83 === "string") {
-                          if (!pattern0.test(data83)) {
+                        let data84 = data.runId;
+                        if (typeof data84 === "string") {
+                          if (!pattern0.test(data84)) {
                             const err275 = { instancePath: instancePath + "/runId", schemaPath: "#/anyOf/7/properties/runId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                             if (vErrors === null) {
                               vErrors = [err275];
@@ -4914,8 +7487,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                         }
                       }
                       if (data.commitRevision !== void 0) {
-                        let data84 = data.commitRevision;
-                        if (!(typeof data84 == "number" && (!(data84 % 1) && !isNaN(data84)) && isFinite(data84))) {
+                        let data85 = data.commitRevision;
+                        if (!(typeof data85 == "number" && (!(data85 % 1) && !isNaN(data85)) && isFinite(data85))) {
                           const err277 = { instancePath: instancePath + "/commitRevision", schemaPath: "#/anyOf/7/properties/commitRevision/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
                           if (vErrors === null) {
                             vErrors = [err277];
@@ -4924,8 +7497,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                           }
                           errors++;
                         }
-                        if (typeof data84 == "number" && isFinite(data84)) {
-                          if (data84 > 9007199254740991 || isNaN(data84)) {
+                        if (typeof data85 == "number" && isFinite(data85)) {
+                          if (data85 > 9007199254740991 || isNaN(data85)) {
                             const err278 = { instancePath: instancePath + "/commitRevision", schemaPath: "#/anyOf/7/properties/commitRevision/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
                             if (vErrors === null) {
                               vErrors = [err278];
@@ -4934,7 +7507,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                             }
                             errors++;
                           }
-                          if (data84 < 0 || isNaN(data84)) {
+                          if (data85 < 0 || isNaN(data85)) {
                             const err279 = { instancePath: instancePath + "/commitRevision", schemaPath: "#/anyOf/7/properties/commitRevision/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
                             if (vErrors === null) {
                               vErrors = [err279];
@@ -4946,9 +7519,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                         }
                       }
                       if (data.changed !== void 0) {
-                        let data85 = data.changed;
-                        if (Array.isArray(data85)) {
-                          if (data85.length < 1) {
+                        let data86 = data.changed;
+                        if (Array.isArray(data86)) {
+                          if (data86.length < 1) {
                             const err280 = { instancePath: instancePath + "/changed", schemaPath: "#/anyOf/7/properties/changed/minItems", keyword: "minItems", params: { limit: 1 }, message: "must NOT have fewer than 1 items" };
                             if (vErrors === null) {
                               vErrors = [err280];
@@ -4957,10 +7530,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                             }
                             errors++;
                           }
-                          const len0 = data85.length;
+                          const len0 = data86.length;
                           for (let i0 = 0; i0 < len0; i0++) {
-                            let data86 = data85[i0];
-                            if (typeof data86 !== "string") {
+                            let data87 = data86[i0];
+                            if (typeof data87 !== "string") {
                               const err281 = { instancePath: instancePath + "/changed/" + i0, schemaPath: "#/definitions/BrowserControlScope/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                               if (vErrors === null) {
                                 vErrors = [err281];
@@ -4969,8 +7542,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                               }
                               errors++;
                             }
-                            if (!(data86 === "session" || data86 === "activity" || data86 === "trajectory" || data86 === "metrics" || data86 === "goals" || data86 === "grants" || data86 === "permission" || data86 === "model")) {
-                              const err282 = { instancePath: instancePath + "/changed/" + i0, schemaPath: "#/definitions/BrowserControlScope/enum", keyword: "enum", params: { allowedValues: schema30.enum }, message: "must be equal to one of the allowed values" };
+                            if (!(data87 === "session" || data87 === "activity" || data87 === "trajectory" || data87 === "metrics" || data87 === "goals" || data87 === "grants" || data87 === "permission" || data87 === "model")) {
+                              const err282 = { instancePath: instancePath + "/changed/" + i0, schemaPath: "#/definitions/BrowserControlScope/enum", keyword: "enum", params: { allowedValues: schema54.enum }, message: "must be equal to one of the allowed values" };
                               if (vErrors === null) {
                                 vErrors = [err282];
                               } else {
@@ -4998,10 +7571,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                       }
                       errors++;
                     }
-                    var _valid0 = _errs217 === errors;
+                    var _valid0 = _errs218 === errors;
                     valid0 = valid0 || _valid0;
                     if (!valid0) {
-                      const _errs233 = errors;
+                      const _errs234 = errors;
                       if (data && typeof data == "object" && !Array.isArray(data)) {
                         if (data.type === void 0) {
                           const err285 = { instancePath, schemaPath: "#/anyOf/8/required", keyword: "required", params: { missingProperty: "type" }, message: "must have required property 'type'" };
@@ -5051,8 +7624,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                           }
                         }
                         if (data.type !== void 0) {
-                          let data87 = data.type;
-                          if (typeof data87 !== "string") {
+                          let data88 = data.type;
+                          if (typeof data88 !== "string") {
                             const err290 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/8/properties/type/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                             if (vErrors === null) {
                               vErrors = [err290];
@@ -5061,7 +7634,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                             }
                             errors++;
                           }
-                          if ("run_status_changed" !== data87) {
+                          if ("run_status_changed" !== data88) {
                             const err291 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/8/properties/type/const", keyword: "const", params: { allowedValue: "run_status_changed" }, message: "must be equal to constant" };
                             if (vErrors === null) {
                               vErrors = [err291];
@@ -5072,9 +7645,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                           }
                         }
                         if (data.goalId !== void 0) {
-                          let data88 = data.goalId;
-                          if (typeof data88 === "string") {
-                            if (!pattern0.test(data88)) {
+                          let data89 = data.goalId;
+                          if (typeof data89 === "string") {
+                            if (!pattern0.test(data89)) {
                               const err292 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/8/properties/goalId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                               if (vErrors === null) {
                                 vErrors = [err292];
@@ -5094,9 +7667,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                           }
                         }
                         if (data.runId !== void 0) {
-                          let data89 = data.runId;
-                          if (typeof data89 === "string") {
-                            if (!pattern0.test(data89)) {
+                          let data90 = data.runId;
+                          if (typeof data90 === "string") {
+                            if (!pattern0.test(data90)) {
                               const err294 = { instancePath: instancePath + "/runId", schemaPath: "#/anyOf/8/properties/runId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                               if (vErrors === null) {
                                 vErrors = [err294];
@@ -5116,8 +7689,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                           }
                         }
                         if (data.status !== void 0) {
-                          let data90 = data.status;
-                          if (typeof data90 !== "string") {
+                          let data91 = data.status;
+                          if (typeof data91 !== "string") {
                             const err296 = { instancePath: instancePath + "/status", schemaPath: "#/definitions/BrowserRunStatus/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                             if (vErrors === null) {
                               vErrors = [err296];
@@ -5126,7 +7699,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                             }
                             errors++;
                           }
-                          if (!(data90 === "created" || data90 === "running" || data90 === "waiting" || data90 === "completed" || data90 === "failed" || data90 === "cancelled")) {
+                          if (!(data91 === "created" || data91 === "running" || data91 === "waiting" || data91 === "completed" || data91 === "failed" || data91 === "cancelled")) {
                             const err297 = { instancePath: instancePath + "/status", schemaPath: "#/definitions/BrowserRunStatus/enum", keyword: "enum", params: { allowedValues: schema14.enum }, message: "must be equal to one of the allowed values" };
                             if (vErrors === null) {
                               vErrors = [err297];
@@ -5137,8 +7710,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                           }
                         }
                         if (data.commitRevision !== void 0) {
-                          let data91 = data.commitRevision;
-                          if (!(typeof data91 == "number" && (!(data91 % 1) && !isNaN(data91)) && isFinite(data91))) {
+                          let data92 = data.commitRevision;
+                          if (!(typeof data92 == "number" && (!(data92 % 1) && !isNaN(data92)) && isFinite(data92))) {
                             const err298 = { instancePath: instancePath + "/commitRevision", schemaPath: "#/anyOf/8/properties/commitRevision/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
                             if (vErrors === null) {
                               vErrors = [err298];
@@ -5147,8 +7720,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                             }
                             errors++;
                           }
-                          if (typeof data91 == "number" && isFinite(data91)) {
-                            if (data91 > 9007199254740991 || isNaN(data91)) {
+                          if (typeof data92 == "number" && isFinite(data92)) {
+                            if (data92 > 9007199254740991 || isNaN(data92)) {
                               const err299 = { instancePath: instancePath + "/commitRevision", schemaPath: "#/anyOf/8/properties/commitRevision/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
                               if (vErrors === null) {
                                 vErrors = [err299];
@@ -5157,7 +7730,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                               }
                               errors++;
                             }
-                            if (data91 < 0 || isNaN(data91)) {
+                            if (data92 < 0 || isNaN(data92)) {
                               const err300 = { instancePath: instancePath + "/commitRevision", schemaPath: "#/anyOf/8/properties/commitRevision/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
                               if (vErrors === null) {
                                 vErrors = [err300];
@@ -5177,10 +7750,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                         }
                         errors++;
                       }
-                      var _valid0 = _errs233 === errors;
+                      var _valid0 = _errs234 === errors;
                       valid0 = valid0 || _valid0;
                       if (!valid0) {
-                        const _errs247 = errors;
+                        const _errs248 = errors;
                         if (data && typeof data == "object" && !Array.isArray(data)) {
                           if (data.type === void 0) {
                             const err302 = { instancePath, schemaPath: "#/anyOf/9/required", keyword: "required", params: { missingProperty: "type" }, message: "must have required property 'type'" };
@@ -5230,8 +7803,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                             }
                           }
                           if (data.type !== void 0) {
-                            let data92 = data.type;
-                            if (typeof data92 !== "string") {
+                            let data93 = data.type;
+                            if (typeof data93 !== "string") {
                               const err307 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/9/properties/type/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                               if (vErrors === null) {
                                 vErrors = [err307];
@@ -5240,7 +7813,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                               }
                               errors++;
                             }
-                            if ("run_result" !== data92) {
+                            if ("run_result" !== data93) {
                               const err308 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/9/properties/type/const", keyword: "const", params: { allowedValue: "run_result" }, message: "must be equal to constant" };
                               if (vErrors === null) {
                                 vErrors = [err308];
@@ -5251,9 +7824,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                             }
                           }
                           if (data.goalId !== void 0) {
-                            let data93 = data.goalId;
-                            if (typeof data93 === "string") {
-                              if (!pattern0.test(data93)) {
+                            let data94 = data.goalId;
+                            if (typeof data94 === "string") {
+                              if (!pattern0.test(data94)) {
                                 const err309 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/9/properties/goalId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                                 if (vErrors === null) {
                                   vErrors = [err309];
@@ -5273,9 +7846,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                             }
                           }
                           if (data.runId !== void 0) {
-                            let data94 = data.runId;
-                            if (typeof data94 === "string") {
-                              if (!pattern0.test(data94)) {
+                            let data95 = data.runId;
+                            if (typeof data95 === "string") {
+                              if (!pattern0.test(data95)) {
                                 const err311 = { instancePath: instancePath + "/runId", schemaPath: "#/anyOf/9/properties/runId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                                 if (vErrors === null) {
                                   vErrors = [err311];
@@ -5295,8 +7868,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                             }
                           }
                           if (data.result !== void 0) {
-                            let data95 = data.result;
-                            if (typeof data95 !== "string") {
+                            let data96 = data.result;
+                            if (typeof data96 !== "string") {
                               const err313 = { instancePath: instancePath + "/result", schemaPath: "#/anyOf/9/properties/result/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                               if (vErrors === null) {
                                 vErrors = [err313];
@@ -5305,7 +7878,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                               }
                               errors++;
                             }
-                            if (!(data95 === "completed" || data95 === "failed" || data95 === "cancelled")) {
+                            if (!(data96 === "completed" || data96 === "failed" || data96 === "cancelled")) {
                               const err314 = { instancePath: instancePath + "/result", schemaPath: "#/anyOf/9/properties/result/enum", keyword: "enum", params: { allowedValues: schema12.anyOf[9].properties.result.enum }, message: "must be equal to one of the allowed values" };
                               if (vErrors === null) {
                                 vErrors = [err314];
@@ -5316,8 +7889,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                             }
                           }
                           if (data.commitRevision !== void 0) {
-                            let data96 = data.commitRevision;
-                            if (!(typeof data96 == "number" && (!(data96 % 1) && !isNaN(data96)) && isFinite(data96))) {
+                            let data97 = data.commitRevision;
+                            if (!(typeof data97 == "number" && (!(data97 % 1) && !isNaN(data97)) && isFinite(data97))) {
                               const err315 = { instancePath: instancePath + "/commitRevision", schemaPath: "#/anyOf/9/properties/commitRevision/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
                               if (vErrors === null) {
                                 vErrors = [err315];
@@ -5326,8 +7899,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                               }
                               errors++;
                             }
-                            if (typeof data96 == "number" && isFinite(data96)) {
-                              if (data96 > 9007199254740991 || isNaN(data96)) {
+                            if (typeof data97 == "number" && isFinite(data97)) {
+                              if (data97 > 9007199254740991 || isNaN(data97)) {
                                 const err316 = { instancePath: instancePath + "/commitRevision", schemaPath: "#/anyOf/9/properties/commitRevision/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
                                 if (vErrors === null) {
                                   vErrors = [err316];
@@ -5336,7 +7909,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                 }
                                 errors++;
                               }
-                              if (data96 < 0 || isNaN(data96)) {
+                              if (data97 < 0 || isNaN(data97)) {
                                 const err317 = { instancePath: instancePath + "/commitRevision", schemaPath: "#/anyOf/9/properties/commitRevision/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
                                 if (vErrors === null) {
                                   vErrors = [err317];
@@ -5356,10 +7929,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                           }
                           errors++;
                         }
-                        var _valid0 = _errs247 === errors;
+                        var _valid0 = _errs248 === errors;
                         valid0 = valid0 || _valid0;
                         if (!valid0) {
-                          const _errs260 = errors;
+                          const _errs261 = errors;
                           if (data && typeof data == "object" && !Array.isArray(data)) {
                             if (data.type === void 0) {
                               const err319 = { instancePath, schemaPath: "#/anyOf/10/required", keyword: "required", params: { missingProperty: "type" }, message: "must have required property 'type'" };
@@ -5418,8 +7991,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                               }
                             }
                             if (data.type !== void 0) {
-                              let data97 = data.type;
-                              if (typeof data97 !== "string") {
+                              let data98 = data.type;
+                              if (typeof data98 !== "string") {
                                 const err325 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/10/properties/type/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                 if (vErrors === null) {
                                   vErrors = [err325];
@@ -5428,7 +8001,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                 }
                                 errors++;
                               }
-                              if ("interaction_opened" !== data97) {
+                              if ("interaction_opened" !== data98) {
                                 const err326 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/10/properties/type/const", keyword: "const", params: { allowedValue: "interaction_opened" }, message: "must be equal to constant" };
                                 if (vErrors === null) {
                                   vErrors = [err326];
@@ -5439,9 +8012,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                               }
                             }
                             if (data.goalId !== void 0) {
-                              let data98 = data.goalId;
-                              if (typeof data98 === "string") {
-                                if (!pattern0.test(data98)) {
+                              let data99 = data.goalId;
+                              if (typeof data99 === "string") {
+                                if (!pattern0.test(data99)) {
                                   const err327 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/10/properties/goalId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                                   if (vErrors === null) {
                                     vErrors = [err327];
@@ -5461,9 +8034,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                               }
                             }
                             if (data.runId !== void 0) {
-                              let data99 = data.runId;
-                              if (typeof data99 === "string") {
-                                if (!pattern0.test(data99)) {
+                              let data100 = data.runId;
+                              if (typeof data100 === "string") {
+                                if (!pattern0.test(data100)) {
                                   const err329 = { instancePath: instancePath + "/runId", schemaPath: "#/anyOf/10/properties/runId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                                   if (vErrors === null) {
                                     vErrors = [err329];
@@ -5483,9 +8056,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                               }
                             }
                             if (data.interactionId !== void 0) {
-                              let data100 = data.interactionId;
-                              if (typeof data100 === "string") {
-                                if (!pattern0.test(data100)) {
+                              let data101 = data.interactionId;
+                              if (typeof data101 === "string") {
+                                if (!pattern0.test(data101)) {
                                   const err331 = { instancePath: instancePath + "/interactionId", schemaPath: "#/anyOf/10/properties/interactionId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                                   if (vErrors === null) {
                                     vErrors = [err331];
@@ -5505,8 +8078,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                               }
                             }
                             if (data.kind !== void 0) {
-                              let data101 = data.kind;
-                              if (typeof data101 !== "string") {
+                              let data102 = data.kind;
+                              if (typeof data102 !== "string") {
                                 const err333 = { instancePath: instancePath + "/kind", schemaPath: "#/definitions/BrowserInteractionKind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                 if (vErrors === null) {
                                   vErrors = [err333];
@@ -5515,7 +8088,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                 }
                                 errors++;
                               }
-                              if (!(data101 === "question" || data101 === "task_approval" || data101 === "action_approval" || data101 === "action_recovery")) {
+                              if (!(data102 === "question" || data102 === "task_approval" || data102 === "action_approval" || data102 === "action_recovery")) {
                                 const err334 = { instancePath: instancePath + "/kind", schemaPath: "#/definitions/BrowserInteractionKind/enum", keyword: "enum", params: { allowedValues: schema16.enum }, message: "must be equal to one of the allowed values" };
                                 if (vErrors === null) {
                                   vErrors = [err334];
@@ -5534,10 +8107,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                             }
                             errors++;
                           }
-                          var _valid0 = _errs260 === errors;
+                          var _valid0 = _errs261 === errors;
                           valid0 = valid0 || _valid0;
                           if (!valid0) {
-                            const _errs274 = errors;
+                            const _errs275 = errors;
                             if (data && typeof data == "object" && !Array.isArray(data)) {
                               if (data.type === void 0) {
                                 const err336 = { instancePath, schemaPath: "#/anyOf/11/required", keyword: "required", params: { missingProperty: "type" }, message: "must have required property 'type'" };
@@ -5596,8 +8169,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                 }
                               }
                               if (data.type !== void 0) {
-                                let data102 = data.type;
-                                if (typeof data102 !== "string") {
+                                let data103 = data.type;
+                                if (typeof data103 !== "string") {
                                   const err342 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/11/properties/type/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                   if (vErrors === null) {
                                     vErrors = [err342];
@@ -5606,7 +8179,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                   }
                                   errors++;
                                 }
-                                if ("interaction_settled" !== data102) {
+                                if ("interaction_settled" !== data103) {
                                   const err343 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/11/properties/type/const", keyword: "const", params: { allowedValue: "interaction_settled" }, message: "must be equal to constant" };
                                   if (vErrors === null) {
                                     vErrors = [err343];
@@ -5617,9 +8190,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                 }
                               }
                               if (data.goalId !== void 0) {
-                                let data103 = data.goalId;
-                                if (typeof data103 === "string") {
-                                  if (!pattern0.test(data103)) {
+                                let data104 = data.goalId;
+                                if (typeof data104 === "string") {
+                                  if (!pattern0.test(data104)) {
                                     const err344 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/11/properties/goalId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                                     if (vErrors === null) {
                                       vErrors = [err344];
@@ -5639,9 +8212,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                 }
                               }
                               if (data.runId !== void 0) {
-                                let data104 = data.runId;
-                                if (typeof data104 === "string") {
-                                  if (!pattern0.test(data104)) {
+                                let data105 = data.runId;
+                                if (typeof data105 === "string") {
+                                  if (!pattern0.test(data105)) {
                                     const err346 = { instancePath: instancePath + "/runId", schemaPath: "#/anyOf/11/properties/runId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                                     if (vErrors === null) {
                                       vErrors = [err346];
@@ -5661,9 +8234,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                 }
                               }
                               if (data.interactionId !== void 0) {
-                                let data105 = data.interactionId;
-                                if (typeof data105 === "string") {
-                                  if (!pattern0.test(data105)) {
+                                let data106 = data.interactionId;
+                                if (typeof data106 === "string") {
+                                  if (!pattern0.test(data106)) {
                                     const err348 = { instancePath: instancePath + "/interactionId", schemaPath: "#/anyOf/11/properties/interactionId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                                     if (vErrors === null) {
                                       vErrors = [err348];
@@ -5683,8 +8256,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                 }
                               }
                               if (data.kind !== void 0) {
-                                let data106 = data.kind;
-                                if (typeof data106 !== "string") {
+                                let data107 = data.kind;
+                                if (typeof data107 !== "string") {
                                   const err350 = { instancePath: instancePath + "/kind", schemaPath: "#/definitions/BrowserInteractionKind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                   if (vErrors === null) {
                                     vErrors = [err350];
@@ -5693,7 +8266,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                   }
                                   errors++;
                                 }
-                                if (!(data106 === "question" || data106 === "task_approval" || data106 === "action_approval" || data106 === "action_recovery")) {
+                                if (!(data107 === "question" || data107 === "task_approval" || data107 === "action_approval" || data107 === "action_recovery")) {
                                   const err351 = { instancePath: instancePath + "/kind", schemaPath: "#/definitions/BrowserInteractionKind/enum", keyword: "enum", params: { allowedValues: schema16.enum }, message: "must be equal to one of the allowed values" };
                                   if (vErrors === null) {
                                     vErrors = [err351];
@@ -5712,10 +8285,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                               }
                               errors++;
                             }
-                            var _valid0 = _errs274 === errors;
+                            var _valid0 = _errs275 === errors;
                             valid0 = valid0 || _valid0;
                             if (!valid0) {
-                              const _errs288 = errors;
+                              const _errs289 = errors;
                               if (data && typeof data == "object" && !Array.isArray(data)) {
                                 if (data.type === void 0) {
                                   const err353 = { instancePath, schemaPath: "#/anyOf/12/required", keyword: "required", params: { missingProperty: "type" }, message: "must have required property 'type'" };
@@ -5765,8 +8338,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                   }
                                 }
                                 if (data.type !== void 0) {
-                                  let data107 = data.type;
-                                  if (typeof data107 !== "string") {
+                                  let data108 = data.type;
+                                  if (typeof data108 !== "string") {
                                     const err358 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/12/properties/type/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                     if (vErrors === null) {
                                       vErrors = [err358];
@@ -5775,7 +8348,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                     }
                                     errors++;
                                   }
-                                  if ("tool_activity" !== data107) {
+                                  if ("tool_activity" !== data108) {
                                     const err359 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/12/properties/type/const", keyword: "const", params: { allowedValue: "tool_activity" }, message: "must be equal to constant" };
                                     if (vErrors === null) {
                                       vErrors = [err359];
@@ -5786,9 +8359,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                   }
                                 }
                                 if (data.goalId !== void 0) {
-                                  let data108 = data.goalId;
-                                  if (typeof data108 === "string") {
-                                    if (!pattern0.test(data108)) {
+                                  let data109 = data.goalId;
+                                  if (typeof data109 === "string") {
+                                    if (!pattern0.test(data109)) {
                                       const err360 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/12/properties/goalId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                                       if (vErrors === null) {
                                         vErrors = [err360];
@@ -5808,9 +8381,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                   }
                                 }
                                 if (data.runId !== void 0) {
-                                  let data109 = data.runId;
-                                  if (typeof data109 === "string") {
-                                    if (!pattern0.test(data109)) {
+                                  let data110 = data.runId;
+                                  if (typeof data110 === "string") {
+                                    if (!pattern0.test(data110)) {
                                       const err362 = { instancePath: instancePath + "/runId", schemaPath: "#/anyOf/12/properties/runId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                                       if (vErrors === null) {
                                         vErrors = [err362];
@@ -5830,9 +8403,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                   }
                                 }
                                 if (data.activity !== void 0) {
-                                  let data110 = data.activity;
-                                  if (data110 && typeof data110 == "object" && !Array.isArray(data110)) {
-                                    if (data110.actionId === void 0) {
+                                  let data111 = data.activity;
+                                  if (data111 && typeof data111 == "object" && !Array.isArray(data111)) {
+                                    if (data111.actionId === void 0) {
                                       const err364 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserToolActivity/required", keyword: "required", params: { missingProperty: "actionId" }, message: "must have required property 'actionId'" };
                                       if (vErrors === null) {
                                         vErrors = [err364];
@@ -5841,7 +8414,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                       }
                                       errors++;
                                     }
-                                    if (data110.phase === void 0) {
+                                    if (data111.phase === void 0) {
                                       const err365 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserToolActivity/required", keyword: "required", params: { missingProperty: "phase" }, message: "must have required property 'phase'" };
                                       if (vErrors === null) {
                                         vErrors = [err365];
@@ -5850,7 +8423,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                       }
                                       errors++;
                                     }
-                                    for (const key25 in data110) {
+                                    for (const key25 in data111) {
                                       if (!(key25 === "actionId" || key25 === "executionUnitId" || key25 === "toolId" || key25 === "attempt" || key25 === "phase" || key25 === "outcome" || key25 === "summary" || key25 === "reason")) {
                                         const err366 = { instancePath: instancePath + "/activity", schemaPath: "#/definitions/BrowserToolActivity/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key25 }, message: "must NOT have additional properties" };
                                         if (vErrors === null) {
@@ -5861,10 +8434,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                         errors++;
                                       }
                                     }
-                                    if (data110.actionId !== void 0) {
-                                      let data111 = data110.actionId;
-                                      if (typeof data111 === "string") {
-                                        if (!pattern0.test(data111)) {
+                                    if (data111.actionId !== void 0) {
+                                      let data112 = data111.actionId;
+                                      if (typeof data112 === "string") {
+                                        if (!pattern0.test(data112)) {
                                           const err367 = { instancePath: instancePath + "/activity/actionId", schemaPath: "#/definitions/BrowserToolActivity/properties/actionId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                                           if (vErrors === null) {
                                             vErrors = [err367];
@@ -5883,10 +8456,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                         errors++;
                                       }
                                     }
-                                    if (data110.executionUnitId !== void 0) {
-                                      let data112 = data110.executionUnitId;
-                                      if (typeof data112 === "string") {
-                                        if (!pattern0.test(data112)) {
+                                    if (data111.executionUnitId !== void 0) {
+                                      let data113 = data111.executionUnitId;
+                                      if (typeof data113 === "string") {
+                                        if (!pattern0.test(data113)) {
                                           const err369 = { instancePath: instancePath + "/activity/executionUnitId", schemaPath: "#/definitions/BrowserToolActivity/properties/executionUnitId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                                           if (vErrors === null) {
                                             vErrors = [err369];
@@ -5905,10 +8478,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                         errors++;
                                       }
                                     }
-                                    if (data110.toolId !== void 0) {
-                                      let data113 = data110.toolId;
-                                      if (typeof data113 === "string") {
-                                        if (!pattern0.test(data113)) {
+                                    if (data111.toolId !== void 0) {
+                                      let data114 = data111.toolId;
+                                      if (typeof data114 === "string") {
+                                        if (!pattern0.test(data114)) {
                                           const err371 = { instancePath: instancePath + "/activity/toolId", schemaPath: "#/definitions/BrowserToolActivity/properties/toolId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                                           if (vErrors === null) {
                                             vErrors = [err371];
@@ -5927,9 +8500,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                         errors++;
                                       }
                                     }
-                                    if (data110.attempt !== void 0) {
-                                      let data114 = data110.attempt;
-                                      if (!(typeof data114 == "number" && (!(data114 % 1) && !isNaN(data114)) && isFinite(data114))) {
+                                    if (data111.attempt !== void 0) {
+                                      let data115 = data111.attempt;
+                                      if (!(typeof data115 == "number" && (!(data115 % 1) && !isNaN(data115)) && isFinite(data115))) {
                                         const err373 = { instancePath: instancePath + "/activity/attempt", schemaPath: "#/definitions/BrowserToolActivity/properties/attempt/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
                                         if (vErrors === null) {
                                           vErrors = [err373];
@@ -5938,8 +8511,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                         }
                                         errors++;
                                       }
-                                      if (typeof data114 == "number" && isFinite(data114)) {
-                                        if (data114 > 9007199254740991 || isNaN(data114)) {
+                                      if (typeof data115 == "number" && isFinite(data115)) {
+                                        if (data115 > 9007199254740991 || isNaN(data115)) {
                                           const err374 = { instancePath: instancePath + "/activity/attempt", schemaPath: "#/definitions/BrowserToolActivity/properties/attempt/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
                                           if (vErrors === null) {
                                             vErrors = [err374];
@@ -5948,7 +8521,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                           }
                                           errors++;
                                         }
-                                        if (data114 < 1 || isNaN(data114)) {
+                                        if (data115 < 1 || isNaN(data115)) {
                                           const err375 = { instancePath: instancePath + "/activity/attempt", schemaPath: "#/definitions/BrowserToolActivity/properties/attempt/minimum", keyword: "minimum", params: { comparison: ">=", limit: 1 }, message: "must be >= 1" };
                                           if (vErrors === null) {
                                             vErrors = [err375];
@@ -5959,9 +8532,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                         }
                                       }
                                     }
-                                    if (data110.phase !== void 0) {
-                                      let data115 = data110.phase;
-                                      if (typeof data115 !== "string") {
+                                    if (data111.phase !== void 0) {
+                                      let data116 = data111.phase;
+                                      if (typeof data116 !== "string") {
                                         const err376 = { instancePath: instancePath + "/activity/phase", schemaPath: "#/definitions/BrowserToolActivity/properties/phase/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                         if (vErrors === null) {
                                           vErrors = [err376];
@@ -5970,8 +8543,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                         }
                                         errors++;
                                       }
-                                      if (!(data115 === "started" || data115 === "attempting" || data115 === "retrying" || data115 === "result_pending" || data115 === "observed_committed" || data115 === "unknown")) {
-                                        const err377 = { instancePath: instancePath + "/activity/phase", schemaPath: "#/definitions/BrowserToolActivity/properties/phase/enum", keyword: "enum", params: { allowedValues: schema34.properties.phase.enum }, message: "must be equal to one of the allowed values" };
+                                      if (!(data116 === "started" || data116 === "attempting" || data116 === "retrying" || data116 === "result_pending" || data116 === "observed_committed" || data116 === "unknown")) {
+                                        const err377 = { instancePath: instancePath + "/activity/phase", schemaPath: "#/definitions/BrowserToolActivity/properties/phase/enum", keyword: "enum", params: { allowedValues: schema58.properties.phase.enum }, message: "must be equal to one of the allowed values" };
                                         if (vErrors === null) {
                                           vErrors = [err377];
                                         } else {
@@ -5980,9 +8553,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                         errors++;
                                       }
                                     }
-                                    if (data110.outcome !== void 0) {
-                                      let data116 = data110.outcome;
-                                      if (typeof data116 !== "string") {
+                                    if (data111.outcome !== void 0) {
+                                      let data117 = data111.outcome;
+                                      if (typeof data117 !== "string") {
                                         const err378 = { instancePath: instancePath + "/activity/outcome", schemaPath: "#/definitions/BrowserToolActivity/properties/outcome/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                         if (vErrors === null) {
                                           vErrors = [err378];
@@ -5991,8 +8564,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                         }
                                         errors++;
                                       }
-                                      if (!(data116 === "success" || data116 === "failure")) {
-                                        const err379 = { instancePath: instancePath + "/activity/outcome", schemaPath: "#/definitions/BrowserToolActivity/properties/outcome/enum", keyword: "enum", params: { allowedValues: schema34.properties.outcome.enum }, message: "must be equal to one of the allowed values" };
+                                      if (!(data117 === "success" || data117 === "failure")) {
+                                        const err379 = { instancePath: instancePath + "/activity/outcome", schemaPath: "#/definitions/BrowserToolActivity/properties/outcome/enum", keyword: "enum", params: { allowedValues: schema58.properties.outcome.enum }, message: "must be equal to one of the allowed values" };
                                         if (vErrors === null) {
                                           vErrors = [err379];
                                         } else {
@@ -6001,8 +8574,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                         errors++;
                                       }
                                     }
-                                    if (data110.summary !== void 0) {
-                                      if (typeof data110.summary !== "string") {
+                                    if (data111.summary !== void 0) {
+                                      if (typeof data111.summary !== "string") {
                                         const err380 = { instancePath: instancePath + "/activity/summary", schemaPath: "#/definitions/BrowserToolActivity/properties/summary/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                         if (vErrors === null) {
                                           vErrors = [err380];
@@ -6012,8 +8585,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                         errors++;
                                       }
                                     }
-                                    if (data110.reason !== void 0) {
-                                      if (typeof data110.reason !== "string") {
+                                    if (data111.reason !== void 0) {
+                                      if (typeof data111.reason !== "string") {
                                         const err381 = { instancePath: instancePath + "/activity/reason", schemaPath: "#/definitions/BrowserToolActivity/properties/reason/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                         if (vErrors === null) {
                                           vErrors = [err381];
@@ -6042,10 +8615,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                 }
                                 errors++;
                               }
-                              var _valid0 = _errs288 === errors;
+                              var _valid0 = _errs289 === errors;
                               valid0 = valid0 || _valid0;
                               if (!valid0) {
-                                const _errs317 = errors;
+                                const _errs318 = errors;
                                 if (data && typeof data == "object" && !Array.isArray(data)) {
                                   if (data.type === void 0) {
                                     const err384 = { instancePath, schemaPath: "#/anyOf/13/required", keyword: "required", params: { missingProperty: "type" }, message: "must have required property 'type'" };
@@ -6095,8 +8668,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                     }
                                   }
                                   if (data.type !== void 0) {
-                                    let data119 = data.type;
-                                    if (typeof data119 !== "string") {
+                                    let data120 = data.type;
+                                    if (typeof data120 !== "string") {
                                       const err389 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/13/properties/type/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                       if (vErrors === null) {
                                         vErrors = [err389];
@@ -6105,7 +8678,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                       }
                                       errors++;
                                     }
-                                    if ("stream_fault" !== data119) {
+                                    if ("stream_fault" !== data120) {
                                       const err390 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/13/properties/type/const", keyword: "const", params: { allowedValue: "stream_fault" }, message: "must be equal to constant" };
                                       if (vErrors === null) {
                                         vErrors = [err390];
@@ -6116,9 +8689,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                     }
                                   }
                                   if (data.goalId !== void 0) {
-                                    let data120 = data.goalId;
-                                    if (typeof data120 === "string") {
-                                      if (!pattern0.test(data120)) {
+                                    let data121 = data.goalId;
+                                    if (typeof data121 === "string") {
+                                      if (!pattern0.test(data121)) {
                                         const err391 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/13/properties/goalId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                                         if (vErrors === null) {
                                           vErrors = [err391];
@@ -6138,8 +8711,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                     }
                                   }
                                   if (data.code !== void 0) {
-                                    let data121 = data.code;
-                                    if (typeof data121 !== "string") {
+                                    let data122 = data.code;
+                                    if (typeof data122 !== "string") {
                                       const err393 = { instancePath: instancePath + "/code", schemaPath: "#/anyOf/13/properties/code/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                       if (vErrors === null) {
                                         vErrors = [err393];
@@ -6148,7 +8721,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                       }
                                       errors++;
                                     }
-                                    if (!(data121 === "gap" || data121 === "read_failed" || data121 === "backpressure" || data121 === "publisher_closed")) {
+                                    if (!(data122 === "gap" || data122 === "read_failed" || data122 === "backpressure" || data122 === "publisher_closed")) {
                                       const err394 = { instancePath: instancePath + "/code", schemaPath: "#/anyOf/13/properties/code/enum", keyword: "enum", params: { allowedValues: schema12.anyOf[13].properties.code.enum }, message: "must be equal to one of the allowed values" };
                                       if (vErrors === null) {
                                         vErrors = [err394];
@@ -6159,9 +8732,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                     }
                                   }
                                   if (data.resync !== void 0) {
-                                    let data122 = data.resync;
-                                    if (Array.isArray(data122)) {
-                                      if (data122.length < 1) {
+                                    let data123 = data.resync;
+                                    if (Array.isArray(data123)) {
+                                      if (data123.length < 1) {
                                         const err395 = { instancePath: instancePath + "/resync", schemaPath: "#/anyOf/13/properties/resync/minItems", keyword: "minItems", params: { limit: 1 }, message: "must NOT have fewer than 1 items" };
                                         if (vErrors === null) {
                                           vErrors = [err395];
@@ -6170,10 +8743,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                         }
                                         errors++;
                                       }
-                                      const len1 = data122.length;
+                                      const len1 = data123.length;
                                       for (let i1 = 0; i1 < len1; i1++) {
-                                        let data123 = data122[i1];
-                                        if (typeof data123 !== "string") {
+                                        let data124 = data123[i1];
+                                        if (typeof data124 !== "string") {
                                           const err396 = { instancePath: instancePath + "/resync/" + i1, schemaPath: "#/definitions/BrowserControlScope/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                           if (vErrors === null) {
                                             vErrors = [err396];
@@ -6182,8 +8755,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                           }
                                           errors++;
                                         }
-                                        if (!(data123 === "session" || data123 === "activity" || data123 === "trajectory" || data123 === "metrics" || data123 === "goals" || data123 === "grants" || data123 === "permission" || data123 === "model")) {
-                                          const err397 = { instancePath: instancePath + "/resync/" + i1, schemaPath: "#/definitions/BrowserControlScope/enum", keyword: "enum", params: { allowedValues: schema30.enum }, message: "must be equal to one of the allowed values" };
+                                        if (!(data124 === "session" || data124 === "activity" || data124 === "trajectory" || data124 === "metrics" || data124 === "goals" || data124 === "grants" || data124 === "permission" || data124 === "model")) {
+                                          const err397 = { instancePath: instancePath + "/resync/" + i1, schemaPath: "#/definitions/BrowserControlScope/enum", keyword: "enum", params: { allowedValues: schema54.enum }, message: "must be equal to one of the allowed values" };
                                           if (vErrors === null) {
                                             vErrors = [err397];
                                           } else {
@@ -6211,10 +8784,10 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                   }
                                   errors++;
                                 }
-                                var _valid0 = _errs317 === errors;
+                                var _valid0 = _errs318 === errors;
                                 valid0 = valid0 || _valid0;
                                 if (!valid0) {
-                                  const _errs331 = errors;
+                                  const _errs332 = errors;
                                   if (data && typeof data == "object" && !Array.isArray(data)) {
                                     if (data.type === void 0) {
                                       const err400 = { instancePath, schemaPath: "#/anyOf/14/required", keyword: "required", params: { missingProperty: "type" }, message: "must have required property 'type'" };
@@ -6255,8 +8828,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                       }
                                     }
                                     if (data.type !== void 0) {
-                                      let data124 = data.type;
-                                      if (typeof data124 !== "string") {
+                                      let data125 = data.type;
+                                      if (typeof data125 !== "string") {
                                         const err404 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/14/properties/type/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                         if (vErrors === null) {
                                           vErrors = [err404];
@@ -6265,7 +8838,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                         }
                                         errors++;
                                       }
-                                      if ("closed" !== data124) {
+                                      if ("closed" !== data125) {
                                         const err405 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/14/properties/type/const", keyword: "const", params: { allowedValue: "closed" }, message: "must be equal to constant" };
                                         if (vErrors === null) {
                                           vErrors = [err405];
@@ -6276,9 +8849,9 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                       }
                                     }
                                     if (data.goalId !== void 0) {
-                                      let data125 = data.goalId;
-                                      if (typeof data125 === "string") {
-                                        if (!pattern0.test(data125)) {
+                                      let data126 = data.goalId;
+                                      if (typeof data126 === "string") {
+                                        if (!pattern0.test(data126)) {
                                           const err406 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/14/properties/goalId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                                           if (vErrors === null) {
                                             vErrors = [err406];
@@ -6298,8 +8871,8 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                       }
                                     }
                                     if (data.reason !== void 0) {
-                                      let data126 = data.reason;
-                                      if (typeof data126 !== "string") {
+                                      let data127 = data.reason;
+                                      if (typeof data127 !== "string") {
                                         const err408 = { instancePath: instancePath + "/reason", schemaPath: "#/anyOf/14/properties/reason/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                         if (vErrors === null) {
                                           vErrors = [err408];
@@ -6308,7 +8881,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                         }
                                         errors++;
                                       }
-                                      if (!(data126 === "backpressure" || data126 === "closed" || data126 === "publisher_closed")) {
+                                      if (!(data127 === "backpressure" || data127 === "closed" || data127 === "publisher_closed")) {
                                         const err409 = { instancePath: instancePath + "/reason", schemaPath: "#/anyOf/14/properties/reason/enum", keyword: "enum", params: { allowedValues: schema12.anyOf[14].properties.reason.enum }, message: "must be equal to one of the allowed values" };
                                         if (vErrors === null) {
                                           vErrors = [err409];
@@ -6327,7 +8900,7 @@ var require_BrowserGoalLiveEvent_validator = __commonJS({
                                     }
                                     errors++;
                                   }
-                                  var _valid0 = _errs331 === errors;
+                                  var _valid0 = _errs332 === errors;
                                   valid0 = valid0 || _valid0;
                                 }
                               }

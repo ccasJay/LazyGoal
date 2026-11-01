@@ -37,6 +37,7 @@ import {
     listBrowserGoals,
     projectSessionState,
     readBrowserGoalSession,
+    readBrowserGoalSessionState,
 } from "../src/index";
 import { bindMessagesToRun, testAssistantMessage, testUserMessage } from "../../runtime/test/current-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
@@ -181,6 +182,9 @@ test("manual Tool result recovered after restart stays unknown and stream reconn
         const payload = new TextDecoder().decode(firstEvent.value);
         assert.equal(payload.includes("state_sync"), true);
         assert.equal(payload.includes('"runStatus":"waiting"'), true);
+        assert.equal(payload.includes('"snapshot":'), true);
+        assert.equal(payload.includes('"pendingAction":{"actionId":"action-recovery-1"'), true);
+        assert.equal(payload.includes('"executionOwner":false'), true);
         await reader.cancel();
         assert.equal(toolCalls, 1);
     } finally {
@@ -389,7 +393,12 @@ function createApi(store: JsonFileGoalStore, trajectory: JsonFileTrajectoryStore
                     consumeSessionInputs: async () => ({ reason: "completed" }),
                     detachSession: () => undefined,
                 });
-                return { ok: true as const, feed: createBrowserSessionFeed(session, stream, signal) };
+                return { ok: true as const, feed: createBrowserSessionFeed(
+                    session,
+                    stream,
+                    (target) => readBrowserGoalSessionState(target, store, undefined),
+                    signal,
+                ) };
             },
             async listMessages() { return { ok: true as const, messages: [], total: 0 }; },
             async readMessage() { return { ok: false as const, error: "message_not_found" as const }; },

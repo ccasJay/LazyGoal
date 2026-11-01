@@ -5,6 +5,7 @@ import {
     createGoal,
     GoalSessionStream,
     projectGoalSessionState,
+    transition,
     type Goal,
     type GoalStore,
     type SessionOutputEvent,
@@ -13,6 +14,7 @@ import { InMemoryExecutionStreamPublisher } from "../../execution-stream/src/ind
 import {
     createBrowserGoalRoutes,
     createBrowserSessionFeed,
+    readBrowserGoalSessionState,
     type BrowserGoalLiveEvent,
 } from "../src/index";
 
@@ -58,7 +60,7 @@ function openFeed(store: GoalStore, publisher: InMemoryExecutionStreamPublisher,
         goalId,
         sessionId: "s1",
         detach: () => undefined,
-    } as never, stream);
+    } as never, stream, (target) => readBrowserGoalSessionState(target, store, undefined));
 }
 
 test("内部句柄与真实 SSE 对同一受控会话输出一致公开语义", async () => {
@@ -214,6 +216,97 @@ test("公开序列只含允许字段，不泄漏工具参数、reasoning 与原�
     assert.equal(serialized.includes("PRIVATE_REASONING"), false);
     assert.equal(serialized.includes("PRIVATE_ARGUMENT"), false);
     assert.equal(serialized.includes("PRIVATE_OBSERVATION"), false);
+    feed.close();
+});
+
+test("state_sync 携带可直接应用的完整控制快照且每次同步只读取一次 Goal", async () => {
+    const store = new MemoryStore();
+    const initial = goalFor("goal-control-snapshot");
+    const started = transition(initial.state.run, { kind: "start" });
+    assert.equal(started.ok, true);
+    if (!started.ok) return;
+    const staged = transition(started.state, {
+        kind: "stage_action",
+        status: "approved",
+        action: { actionId: "action-snapshot-1", toolId: "manual_write", input: { value: "once" } },
+    });
+    assert.equal(staged.ok, true);
+    if (!staged.ok) return;
+    const goal: Goal = {
+        ...initial,
+        state: { ...initial.state, workflow: { phase: "executing" }, run: staged.state },
+    };
+    await store.save(goal);
+
+    let goalReads = 0;
+    const stream = new GoalSessionStream({
+        publisher: new InMemoryExecutionStreamPublisher(),
+        goalId: goal.id,
+        readState: async (target) => {
+            const current = await store.restore(target);
+            return current === undefined ? undefined : projectGoalSessionState({ goal: current, executionOwner: true });
+        },
+    });
+    const feed = createBrowserSessionFeed({ goalId: goal.id, sessionId: "s1", detach: () => undefined } as never, stream, async (target) => {
+        goalReads += 1;
+        return readBrowserGoalSessionState(target, store, goal.id);
+    });
+    const iterator = feed.events[Symbol.asyncIterator]();
+    const first = await iterator.next();
+
+    assert.equal(first.value?.type, "state_sync");
+    const snapshot = first.value?.type === "state_sync" ? first.value.snapshot : undefined;
+    assert.ok(snapshot);
+    assert.equal(snapshot.goal.goalId, goal.id);
+    assert.equal(snapshot.goal.currentRunId, goal.state.run.id);
+    assert.equal(snapshot.goal.runStatus, "running");
+    assert.equal(snapshot.goal.currentRunMode, "normal");
+    assert.equal(snapshot.goal.pendingAction?.actionId, "action-snapshot-1");
+    assert.equal(snapshot.goal.pendingAction?.status, "approved");
+    assert.equal(snapshot.goal.execution?.state, "active");
+    assert.equal(snapshot.session.goalId, goal.id);
+    assert.equal(snapshot.session.runId, goal.state.run.id);
+    assert.equal(snapshot.session.commitRevision, 0);
+    assert.equal(snapshot.session.queueRevision, 0);
+    assert.equal(snapshot.session.queuePaused, false);
+    assert.equal(snapshot.session.executionOwner, true);
+    assert.equal(snapshot.session.needsRecovery, false);
+    assert.equal(goalReads, 1);
+
+    feed.close();
+});
+
+test("快照无法与 Runtime 状态对齐时省略，不拼接不同提交的字段", async () => {
+    const store = new MemoryStore();
+    const goal = goalFor("goal-control-snapshot-mismatch");
+    await store.save(goal);
+    const publisher = new InMemoryExecutionStreamPublisher();
+    const feed = createBrowserSessionFeed({
+        goalId: goal.id,
+        sessionId: "s1",
+        detach: () => undefined,
+    } as never, new GoalSessionStream({
+        publisher,
+        goalId: goal.id,
+        readState: async () => ({
+            goalId: goal.id,
+            runId: "run-other",
+            runStatus: "running",
+            mode: "normal",
+            commitRevision: 3,
+            queueRevision: 0,
+            queuePaused: false,
+            pendingMessageCount: 0,
+            pendingSteerCount: 0,
+            needsRecovery: false,
+            executionOwner: true,
+            messages: { count: 0, recent: [] },
+        }),
+    }), (target) => readBrowserGoalSessionState(target, store, goal.id));
+    const iterator = feed.events[Symbol.asyncIterator]();
+    const first = await iterator.next();
+    assert.equal(first.value?.type, "state_sync");
+    assert.equal(first.value?.type === "state_sync" ? first.value.snapshot : "present", undefined);
     feed.close();
 });
 

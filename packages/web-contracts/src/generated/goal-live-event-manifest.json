@@ -3,8 +3,8 @@
   "version": 1,
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
-    "path": "packages/web-contracts/src/wire.ts#BrowserGoalLiveEvent,BrowserSessionState,BrowserRunStatus,BrowserSessionStateInteraction,BrowserInteractionKind,BrowserSessionStateMessage,BrowserMessagePosition,BrowserSessionStateInterruption,BrowserSessionInputOutcome,BrowserSessionInputKind,BrowserSessionInputReceipt,BrowserSessionInputStatus,BrowserSessionInputErrorCode,BrowserGoalActivityEvent,BrowserControlScope,BrowserToolActivity,BrowserCommittedMessageEvent,BrowserInteractionRequiredEvent",
-    "sha256": "a7f761d71a7d520560108b8f042e1f3f9f516993b05ea45319699f81894df658"
+    "path": "packages/web-contracts/src/wire.ts#BrowserGoalLiveEvent,BrowserSessionState,BrowserRunStatus,BrowserSessionStateInteraction,BrowserInteractionKind,BrowserSessionStateMessage,BrowserMessagePosition,BrowserSessionStateInterruption,BrowserSessionInputOutcome,BrowserSessionInputKind,BrowserSessionInputReceipt,BrowserSessionInputStatus,BrowserSessionInputErrorCode,BrowserGoalActivityEvent,BrowserControlScope,BrowserControlSnapshot,BrowserGoalSessionState,BrowserSessionRunTerminalDetail,BrowserPlanRoute,BrowserPlanRouteStageState,BrowserGoalExecution,BrowserExecutionState,BrowserPendingSteer,BrowserPendingMessage,BrowserQueueState,BrowserInterruption,BrowserGoalPlan,BrowserGoalPlanItem,BrowserInteractionView,BrowserInteractionDecision,BrowserPendingAction,BrowserSandboxReview,BrowserToolGrantExtraFile,BrowserParentProgram,BrowserActivityHistoryMarker,BrowserToolActivity,BrowserCommittedMessageEvent,BrowserInteractionRequiredEvent",
+    "sha256": "cc13654fd53b734619b2557a9c457724498e510ec33b19bfe3a97b2232090846"
   },
   "generator": {
     "name": "ts-json-schema-generator",
