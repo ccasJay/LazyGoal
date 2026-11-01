@@ -117,6 +117,7 @@ export function GoalSession({
   } = useGoalSessionContext();
 
   const {
+    control,
     commandBusy,
     commandError,
     draftGoalBusy,
@@ -715,6 +716,7 @@ export function GoalSession({
                         stoppingRunId === session.currentRunId ||
                         (session.interruption !== undefined && session.interruption.status !== "finished")
                       }
+                      control={control}
                       onInterrupt={onInterrupt}
                       onRefreshSession={refreshSelectedSession}
                       onDecisionAccepted={(summary) => {

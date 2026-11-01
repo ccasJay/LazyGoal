@@ -6,7 +6,7 @@ import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { Textarea } from "./components/ui/textarea";
 import { Label } from "./components/ui/label";
-import { useCallback, useEffect, useId, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Check, CircleHelp, Eye, Loader, Shield, ShieldAlert, X, Zap } from "lucide-react";
 
 import type {
@@ -24,15 +24,15 @@ import {
   buildReview,
   canSubmitAnswers,
   canSubmitDecision,
-  createInteractionSubmissionState,
   createQuestionDraft,
   decisionSummary,
+  isInvalidatingInteractionCode,
   isQuestionAnswered,
   moveQuestion,
   needsVerification,
   questionDraftFor,
-  reduceInteractionSubmission,
   resolveDecisionInputId,
+  selectInteractionSubmission,
   selectQuestion,
   setOtherText,
   setReplyText,
@@ -42,6 +42,8 @@ import {
   type QuestionDraftState,
 } from "./interaction-state";
 import { errorMessage, toSessionInteractionResponse, type BrowserGoalInteractionCommand } from "./types";
+import type { ControlIntents } from "./hooks/useControlIntents";
+import { reviewOf } from "./control/results";
 
 /** 完整审阅详情的加载结果。 */
 type InteractionDetailState =
@@ -193,77 +195,80 @@ function shouldRecordDecisionSummary(command: BrowserGoalInteractionCommand): bo
 /** 统一交互提交与结果核验；冻结身份、复用原身份重试并保留编辑草稿。 */
 export function useInteractionSubmission({
   view,
+  control,
   onRefreshSession,
   onDecisionAccepted,
 }: {
   readonly view: BrowserInteractionView;
+  readonly control: ControlIntents;
   readonly onRefreshSession: () => Promise<void>;
   readonly onDecisionAccepted: (summary: AcceptedDecisionSummary) => void;
 }) {
-  const [submission, dispatch] = useReducer(reduceInteractionSubmission, undefined, createInteractionSubmissionState);
+  const [error, setError] = useState<string | null>(null);
+  const derived = selectInteractionSubmission(control.state.intents, view, receiptErrorText);
+  const submission: InteractionSubmissionState = error === null ? derived : { ...derived, error };
 
   const submitCommand = useCallback(async (command: BrowserGoalInteractionCommand): Promise<void> => {
     const inputId = resolveDecisionInputId(submission, command, () => crypto.randomUUID());
-    dispatch({ kind: "submit", decision: { inputId, command } });
-    try {
-      const accepted = await browserApi.submitInput(view.goalId, {
+    setError(null);
+    const receipt = await control.submit({
+      kind: "session_input",
+      intentId: inputId,
+      goalId: view.goalId,
+      input: {
         kind: "respond",
         inputId,
         runId: view.runId,
         requestId: view.requestId ?? view.actionId ?? "",
         response: toSessionInteractionResponse(command),
-      });
-      if (!accepted.ok) {
-        const message = errorMessage(new BrowserApiError(accepted.error, 409, true));
-        if (isInvalidatingCode(accepted.error)) dispatch({ kind: "invalidated", message });
-        else dispatch({ kind: "rejected", message });
-        return;
-      }
-      dispatch({ kind: "accepted" });
-      if (shouldRecordDecisionSummary(command)) {
-        onDecisionAccepted({ interactionId: view.interactionId, runId: view.runId, summary: decisionSummary(command) });
-      }
-      await onRefreshSession();
-    } catch (error) {
-      if (error instanceof BrowserApiError && isInvalidatingCode(error.code)) {
-        dispatch({ kind: "invalidated", message: errorMessage(error) });
-        return;
-      }
-      dispatch({ kind: "unverified", message: errorMessage(error) });
+      },
+    });
+    if (receipt.status === "rejected") {
+      setError(receiptErrorText(receipt.error));
+      return;
     }
-  }, [submission, view, onRefreshSession, onDecisionAccepted]);
+    if (receipt.status === "unknown") {
+      setError("The decision result is unknown. Verify it before sending it again.");
+      return;
+    }
+    if (shouldRecordDecisionSummary(command)) {
+      onDecisionAccepted({ interactionId: view.interactionId, runId: view.runId, summary: decisionSummary(command) });
+    }
+    await onRefreshSession();
+  }, [submission, view, control.submit, onRefreshSession, onDecisionAccepted]);
 
   const verifyFrozen = useCallback(async (): Promise<void> => {
     if (submission.frozen === null) return;
-    try {
-      const queried = await browserApi.readInputReceipt(view.goalId, submission.frozen.inputId);
-      if (!queried.ok) {
-        dispatch({ kind: "unverified", message: "The saved decision could not be read. Check again before sending anything else." });
-        return;
-      }
-      if (!queried.found) {
-        dispatch({ kind: "verified_absent", message: "This decision was not saved. You can retry the same decision." });
-        return;
-      }
-      dispatch({ kind: "verified_accepted" });
-      if (shouldRecordDecisionSummary(submission.frozen.command)) {
-        onDecisionAccepted({
-          interactionId: view.interactionId,
-          runId: view.runId,
-          summary: decisionSummary(submission.frozen.command),
-        });
-      }
-      await onRefreshSession();
-    } catch (error) {
-      dispatch({ kind: "unverified", message: errorMessage(error) });
+    const verification = await control.verify(submission.frozen.inputId);
+    if (verification === "not_applied") {
+      setError("This decision was not saved. You can retry the same decision.");
+      return;
     }
-  }, [submission, view, onRefreshSession, onDecisionAccepted]);
+    if (verification === "unknown") {
+      setError("The saved decision could not be read. Check again before sending anything else.");
+      return;
+    }
+    setError(null);
+    if (shouldRecordDecisionSummary(submission.frozen.command)) {
+      onDecisionAccepted({
+        interactionId: view.interactionId,
+        runId: view.runId,
+        summary: decisionSummary(submission.frozen.command),
+      });
+    }
+    await onRefreshSession();
+  }, [submission.frozen, view, control.verify, onRefreshSession, onDecisionAccepted]);
 
   return { submission, submitCommand, verifyFrozen };
 }
 
+function receiptErrorText(code: string): string {
+  if (code === "interaction_rejected") return "The decision was not saved. Edit it and submit again.";
+  return errorMessage(new BrowserApiError(code, 409, false));
+}
+
 function isInvalidatingCode(code: string): boolean {
-  return code === "stale_run" || code === "stale_request" || code === "action_not_waiting" || code === "goal_not_waiting";
+  return isInvalidatingInteractionCode(code);
 }
 
 /** 已受理／失效的终态摘要：移除可操作表单，只保留决定记录。 */
@@ -968,18 +973,20 @@ function formatToolInput(input: unknown): string {
 export function QuestionInteractionRegion({
   view,
   chrome,
+  control,
   onRefreshSession,
   onInterrupt,
   onDecisionAccepted,
 }: {
   view: BrowserInteractionView;
   chrome: InteractionRegionChrome;
+  control: ControlIntents;
   onRefreshSession: () => Promise<void>;
   onInterrupt: () => Promise<void>;
   onDecisionAccepted: (summary: AcceptedDecisionSummary) => void;
 }) {
   const { state: detail, reload } = useInteractionDetail(view);
-  const { submission, submitCommand, verifyFrozen } = useInteractionSubmission({ view, onRefreshSession, onDecisionAccepted });
+  const { submission, submitCommand, verifyFrozen } = useInteractionSubmission({ view, control, onRefreshSession, onDecisionAccepted });
   const [draft, setDraft] = useState<QuestionDraftState>(createQuestionDraft);
   const [skipConfirmOpen, setSkipConfirmOpen] = useState(false);
 
@@ -1092,18 +1099,20 @@ export function QuestionInteractionRegion({
 export function TaskApprovalRegion({
   view,
   chrome,
+  control,
   onRefreshSession,
   onInterrupt,
   onDecisionAccepted,
 }: {
   view: BrowserInteractionView;
   chrome: InteractionRegionChrome;
+  control: ControlIntents;
   onRefreshSession: () => Promise<void>;
   onInterrupt: () => Promise<void>;
   onDecisionAccepted: (summary: AcceptedDecisionSummary) => void;
 }) {
   const { state: detail, reload } = useInteractionDetail(view);
-  const { submission, submitCommand, verifyFrozen } = useInteractionSubmission({ view, onRefreshSession, onDecisionAccepted });
+  const { submission, submitCommand, verifyFrozen } = useInteractionSubmission({ view, control, onRefreshSession, onDecisionAccepted });
   const [feedback, setFeedback] = useState("");
   const identity = `${view.runId}:${view.interactionId}`;
   useEffect(() => { setFeedback(""); }, [identity]);
@@ -1173,6 +1182,7 @@ export function ActionInteractionRegion({
   view,
   summary,
   chrome,
+  control,
   onRefreshSession,
   onInterrupt,
   onDecisionAccepted,
@@ -1180,12 +1190,13 @@ export function ActionInteractionRegion({
   view: BrowserInteractionView;
   summary: BrowserPendingAction | undefined;
   chrome: InteractionRegionChrome;
+  control: ControlIntents;
   onRefreshSession: () => Promise<void>;
   onInterrupt: () => Promise<void>;
   onDecisionAccepted: (summary: AcceptedDecisionSummary) => void;
 }) {
   const { state: detail, reload } = useInteractionDetail(view);
-  const { submission, submitCommand, verifyFrozen } = useInteractionSubmission({ view, onRefreshSession, onDecisionAccepted });
+  const { submission, submitCommand, verifyFrozen } = useInteractionSubmission({ view, control, onRefreshSession, onDecisionAccepted });
   const [scope, setScope] = useState<"action" | "goal" | "workspace">("action");
   const [rejection, setRejection] = useState("");
   const [editing, setEditing] = useState(false);
@@ -1207,6 +1218,44 @@ export function ActionInteractionRegion({
   function invalidateReview(): void {
     setReview(undefined);
     setReviewError(undefined);
+  }
+
+  async function previewReview(actionId: string): Promise<void> {
+    const parsed = parseEditedInput(draftInput);
+    if (!parsed.ok) {
+      setReviewError(parsed.message);
+      setReview(undefined);
+      return;
+    }
+    setReviewing(true);
+    const receipt = await control.submit({
+      kind: "action_review",
+      intentId: crypto.randomUUID(),
+      goalId: view.goalId,
+      runId: view.runId,
+      actionId,
+      input: parsed.value as BrowserJsonValue,
+      scope,
+    });
+    setReviewing(false);
+    if (receipt.status === "rejected") {
+      setReview(undefined);
+      setReviewError(actionReviewErrorText(receipt.error));
+      return;
+    }
+    if (receipt.status === "unknown") {
+      setReview(undefined);
+      setReviewError("The preview result is unknown. Reload the request before previewing again.");
+      return;
+    }
+    const reviewed = reviewOf(receipt.result);
+    if (reviewed === undefined) {
+      setReview(undefined);
+      setReviewError(actionReviewErrorText("review_unavailable"));
+      return;
+    }
+    setReviewError(undefined);
+    setReview(reviewed);
   }
 
   function handleEvent(event: ActionViewEvent): void {
@@ -1231,32 +1280,7 @@ export function ActionInteractionRegion({
         return;
       case "preview": {
         if (view.actionId === undefined) return;
-        const parsed = parseEditedInput(draftInput);
-        if (!parsed.ok) {
-          setReviewError(parsed.message);
-          setReview(undefined);
-          return;
-        }
-        setReviewing(true);
-        browserApi.reviewActionApproval(view.goalId, {
-          runId: view.runId,
-          actionId: view.actionId,
-          input: parsed.value as BrowserJsonValue,
-          scope,
-        }).then((result) => {
-          setReviewing(false);
-          if (!result.ok) {
-            setReview(undefined);
-            setReviewError(actionReviewErrorText(result.error));
-            return;
-          }
-          setReviewError(undefined);
-          setReview(result.review);
-        }).catch(() => {
-          setReviewing(false);
-          setReview(undefined);
-          setReviewError(actionReviewErrorText("review_unavailable"));
-        });
+        void previewReview(view.actionId);
         return;
       }
       case "submit_approve_revision": {

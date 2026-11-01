@@ -2,6 +2,7 @@ import { createContext, useContext } from "react";
 import type { ReactNode } from "react";
 import type { QueuedInput } from "../types";
 import type { UnverifiedSubmission } from "../hooks/useRunCommands";
+import type { ControlIntents } from "../hooks/useControlIntents";
 
 /**
  * 当前 Goal 的输入与 Run 控制边界。
@@ -15,11 +16,13 @@ import type { UnverifiedSubmission } from "../hooks/useRunCommands";
  *   onSubmitMessage: async () => true, onSubmitDraftMessage: async () => true,
  *   onSubmitSteer: async () => true, onInterrupt: async () => {}, onSubmitResume: async () => {},
  *   unverifiedSubmissions: [], onVerifySubmission: async () => {},
- *   onRetrySubmission: async () => true, onDiscardSubmission: () => {},
+ *   onRetrySubmission: async () => true, onDiscardSubmission: () => {}, control,
  * };
  * ```
  */
 export interface RunControlContextValue {
+  /** 统一控制状态与命令入口；所有变更命令都经由这一个 reducer。 */
+  readonly control: ControlIntents;
   readonly commandBusy: boolean;
   readonly commandError: string | null;
   /** 新 Goal 的创建被正在执行的其他 Goal 阻塞。 */

@@ -138,6 +138,67 @@ export function toSessionInteractionResponse(
   }
 }
 
+/**
+ * 把持久化的 respond 载荷还原为页面交互命令。
+ *
+ * @remarks
+ * 用于从冻结的控制意图重建可重试决定；`requestId` 取当前等待交互的稳定引用。
+ *
+ * @param view - 当前等待交互的规范引用。
+ * @param response - 已提交的控制载荷。
+ * @returns 页面交互命令。
+ * @example
+ * ```ts
+ * const command = fromSessionInteractionResponse(view, input.response);
+ * ```
+ */
+export function fromSessionInteractionResponse(
+  view: { readonly runId: string; readonly requestId?: string; readonly actionId?: string },
+  response: import("../../../packages/web-contracts/src/index").BrowserSessionInteractionResponse,
+): BrowserGoalInteractionCommand {
+  const requestId = view.requestId ?? view.actionId ?? "";
+  switch (response.kind) {
+    case "skip_question":
+      return { kind: "skip_question", runId: view.runId, requestId };
+    case "reply_to_question":
+      return { kind: "reply_to_question", runId: view.runId, requestId, content: response.content };
+    case "answer_ask_user":
+      return { kind: "answer_ask_user", runId: view.runId, requestId, answers: response.answers };
+    case "approve_task":
+      return { kind: "approve_task", runId: view.runId, requestId };
+    case "feedback_task":
+      return { kind: "feedback_task", runId: view.runId, requestId, feedback: response.feedback };
+    case "approve_action":
+      return {
+        kind: "approve_action",
+        runId: view.runId,
+        actionId: response.actionId,
+        ...(response.scope === undefined ? {} : { scope: response.scope }),
+      };
+    case "approve_action_revision":
+      return {
+        kind: "approve_action_revision",
+        runId: view.runId,
+        actionId: response.actionId,
+        input: response.input,
+        reviewRef: response.reviewRef,
+        ...(response.scope === undefined ? {} : { scope: response.scope }),
+      };
+    case "retry_unknown_action":
+      return { kind: "retry_unknown_action", runId: view.runId, actionId: response.actionId, recoveryRef: response.recoveryRef };
+    case "decline_unknown_action_retry":
+      return {
+        kind: "decline_unknown_action_retry",
+        runId: view.runId,
+        actionId: response.actionId,
+        recoveryRef: response.recoveryRef,
+        reason: response.reason,
+      };
+    case "reject_action":
+      return { kind: "reject_action", runId: view.runId, actionId: response.actionId, reason: response.reason };
+  }
+}
+
 export const statuses: readonly GoalStatus[] = [
   "Ready",
   "Running",

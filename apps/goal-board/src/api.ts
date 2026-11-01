@@ -2,6 +2,7 @@ import {
   acceptedCommandBinding,
   browserActionReviewResultBinding,
   browserActivityPageBinding,
+  browserControlReceiptBinding,
   browserCreateSessionResultBinding,
   browserGoalListBinding,
   browserGoalLiveEventBinding,
@@ -36,6 +37,8 @@ import {
   type BrowserActionReviewResult,
   type BrowserActivityPage,
   type BrowserActivityQuery,
+  type BrowserControlIntentCommand,
+  type BrowserControlReceipt,
   type BrowserCreateSessionCommand,
   type BrowserCreateSessionResult,
   type BrowserGoalList,
@@ -96,6 +99,38 @@ export const browserApi = {
 
   listGoals(signal?: AbortSignal): Promise<BrowserGoalList> {
     return requestContract("/api/goals", browserGoalListBinding, signal);
+  },
+
+  /**
+   * 提交一条统一控制意图。
+   *
+   * @remarks
+   * 拒绝与未知结果同样携带收据；只有网络失败或无法解析响应时才本地归为
+   * `unknown`，不把传输失败当作已受理。
+   *
+   * @param intent - 已冻结的控制意图。
+   * @returns 服务端受理收据，或稳定的本地 `unknown`。
+   * @example
+   * ```ts
+   * const receipt = await browserApi.submitControl(intent);
+   * ```
+   */
+  async submitControl(intent: BrowserControlIntentCommand): Promise<BrowserControlReceipt> {
+    let value: unknown;
+    try {
+      const response = await fetch("/api/control", {
+        method: "POST",
+        headers: authorizedHeaders({ "content-type": "application/json" }),
+        body: JSON.stringify(intent),
+      });
+      value = await response.json();
+    } catch {
+      return { intentId: intent.intentId, status: "unknown" };
+    }
+    const result = browserControlReceiptBinding.read(value, "strip");
+    if (!result.ok) return { intentId: intent.intentId, status: "unknown" };
+    reportWireDiagnostic(result.diagnostic);
+    return result.data;
   },
 
   setGoalArchived(goalId: string, archived: boolean): Promise<{ readonly ok: true }> {

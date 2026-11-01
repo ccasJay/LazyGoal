@@ -14,6 +14,7 @@ import {
   TaskApprovalRegion,
   type AcceptedDecisionSummary,
 } from "./interaction-panel";
+import type { ControlIntents } from "./hooks/useControlIntents";
 
 type SessionTab = "Activity" | "Plan" | "Details";
 
@@ -164,6 +165,7 @@ export function WaitingInteraction({
   session,
   busy,
   stopping,
+  control,
   onInterrupt,
   onRefreshSession,
   onDecisionAccepted,
@@ -171,6 +173,7 @@ export function WaitingInteraction({
   session: BrowserGoalSessionState;
   busy: boolean;
   stopping: boolean;
+  control: ControlIntents;
   onInterrupt: () => Promise<void>;
   onRefreshSession: () => Promise<void>;
   onDecisionAccepted: (summary: AcceptedDecisionSummary) => void;
@@ -185,6 +188,7 @@ export function WaitingInteraction({
           key={`${view.runId}:${view.interactionId}`}
           view={view}
           chrome={chrome}
+          control={control}
           onRefreshSession={onRefreshSession}
           onInterrupt={onInterrupt}
           onDecisionAccepted={onDecisionAccepted}
@@ -196,6 +200,7 @@ export function WaitingInteraction({
           key={`${view.runId}:${view.interactionId}`}
           view={view}
           chrome={chrome}
+          control={control}
           onRefreshSession={onRefreshSession}
           onInterrupt={onInterrupt}
           onDecisionAccepted={onDecisionAccepted}
@@ -209,6 +214,7 @@ export function WaitingInteraction({
           view={view}
           summary={session.pendingAction}
           chrome={chrome}
+          control={control}
           onRefreshSession={onRefreshSession}
           onInterrupt={onInterrupt}
           onDecisionAccepted={onDecisionAccepted}

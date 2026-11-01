@@ -54,6 +54,29 @@ export function beginControlIntent(state: ControlState, intent: BrowserControlIn
 }
 
 /**
+ * 取指定种类的待处理意图。
+ *
+ * @remarks
+ * 用于从唯一控制状态派生按钮忙碌态，避免钩子各自保存 busy 标记。
+ *
+ * @param state - 当前控制状态。
+ * @param kind - 意图种类。
+ * @returns 该种类的第一条待处理意图；没有时返回 `undefined`。
+ * @example
+ * ```ts
+ * const pending = pendingIntentOfKind(state, "grant_revoke");
+ * ```
+ */
+export function pendingIntentOfKind<K extends BrowserControlIntentCommand["kind"]>(
+  state: ControlState,
+  kind: K,
+): Extract<BrowserControlIntentCommand, { readonly kind: K }> | undefined {
+  const entry = state.intents.find((candidate) => candidate.phase === "pending" && candidate.intent.kind === kind);
+  if (entry === undefined || entry.intent.kind !== kind) return undefined;
+  return entry.intent as Extract<BrowserControlIntentCommand, { readonly kind: K }>;
+}
+
+/**
  * 用受理收据结算意图。
  *
  * @remarks
@@ -109,6 +132,25 @@ export function verifyControlIntent(
     phase: verification === "applied" ? "applied" : "unknown",
     verification,
   });
+}
+
+/**
+ * 移除一条不再等待核验的意图。
+ *
+ * @remarks
+ * 只清除本客户端展示状态；不撤回服务端已受理的输入，也不改变任何 Runtime 事实。
+ *
+ * @param state - 当前控制状态。
+ * @param intentId - 要移除的意图身份。
+ * @returns 移除后的状态；未知身份时原样返回。
+ * @example
+ * ```ts
+ * const next = discardControlIntent(state, intentId);
+ * ```
+ */
+export function discardControlIntent(state: ControlState, intentId: string): ControlState {
+  const intents = state.intents.filter((entry) => entry.intent.intentId !== intentId);
+  return intents.length === state.intents.length ? state : { ...state, intents };
 }
 
 /**

@@ -27,7 +27,7 @@
   - 实施目标与场景：从 `pendingAction`、`reviewRef`、SessionInput 收据与提交事实派生 `ApprovalSession`；从 `tool_activity` 与 `state_committed` 维护按 `actionId` 聚合的 `ToolActivity`。给定预检成功、提交受理、交互结算与 pendingAction 变化，审批会话应依次进入 `reviewed`、`accepted`、`settled` 或 `invalidated`；给定工具返回但 Observation 未提交，卡片应停留在 `result_pending`。
   - 验证手段：新增 `apps/goal-board/test/approval-session.test.ts` 与 `apps/goal-board/test/tool-activity.test.ts`，覆盖失效、迟到 attempt 与重复事件。
 
-- [ ] //TODO 6. 统一命令迁移与未知结果核验
+- [x] //TODO 6. 统一命令迁移与未知结果核验
   - 落实标准：[1.5](./spec.md#spec-req-1-5), [7.1](./spec.md#spec-req-7-1), [7.2](./spec.md#spec-req-7-2), [7.3](./spec.md#spec-req-7-3), [7.4](./spec.md#spec-req-7-4), [9.1](./spec.md#spec-req-9-1)
   - 实施目标与场景：将 `useRunCommands`、`useQueue`、`usePermissions`、`useToolGrants` 迁移到控制 intent 与统一 reducer；实现 `verify(intentId)` 到 input 收据、权限 revision、grantId、Goal 状态、模型选择与 pendingAction 的映射。给定一次丢响应、一次明确拒绝和一次原身份重试，页面应分别显示“结果不明”“可编辑拒绝”“按原身份核验后重试”，且不产生第二个 `inputId` 或重复 list／revoke。
   - 验证手段：运行 `npx tsx --test apps/goal-board/test/session-controls.test.ts apps/goal-board/test/p0-fixes.test.ts`，并新增每类 intent 的核验用例。

@@ -2,21 +2,28 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { BrowserGoalListItem } from "../../../../packages/web-contracts/src/index";
 import { browserApi } from "../api";
 import { type MetricsState, errorMessage } from "../types";
+import { pendingIntentOfKind } from "../control/reducer";
+import type { ControlIntents } from "./useControlIntents";
 
 export function useGoals({
   selectedGoalId,
   onError,
+  control,
 }: {
   selectedGoalId: string | null;
   onError?: (message: string | null) => void;
+  control: ControlIntents;
 }) {
-  const [goals, setGoals] = useState<readonly BrowserGoalListItem[]>([]);
-  const [unreadableCount, setUnreadableCount] = useState(0);
+  const goalList = control.state.resources.goals;
+  const goals = goalList?.goals ?? [];
+  const unreadableCount = goalList?.unreadableCount ?? 0;
   const [metricsByGoal, setMetricsByGoal] = useState<Record<string, MetricsState>>({});
   const [goalsLoading, setGoalsLoading] = useState(true);
-  const [manageBusyId, setManageBusyId] = useState<string | null>(null);
   const [manageError, setManageError] = useState<string | null>(null);
   const [undoArchiveId, setUndoArchiveId] = useState<string | null>(null);
+  const manageBusyId = pendingIntentOfKind(control.state, "goal_archive")?.goalId
+    ?? pendingIntentOfKind(control.state, "goal_delete")?.goalId
+    ?? null;
 
   const loadedMetricsRef = useRef<Set<string>>(new Set());
   const pendingMetricsRef = useRef<Set<string>>(new Set());
@@ -25,8 +32,7 @@ export function useGoals({
     setGoalsLoading(true);
     try {
       const result = await browserApi.listGoals();
-      setGoals(result.goals);
-      setUnreadableCount(result.unreadableCount);
+      control.mergeResources({ goals: result });
       loadedMetricsRef.current.clear();
       onError?.(null);
     } catch (error) {
@@ -34,7 +40,7 @@ export function useGoals({
     } finally {
       setGoalsLoading(false);
     }
-  }, [onError]);
+  }, [onError, control.mergeResources]);
 
   useEffect(() => {
     if (!browserApi.hasAccessToken) {
@@ -46,8 +52,7 @@ export function useGoals({
     void browserApi
       .listGoals(controller.signal)
       .then((result) => {
-        setGoals(result.goals);
-        setUnreadableCount(result.unreadableCount);
+        control.mergeResources({ goals: result });
         onError?.(null);
       })
       .catch((error: unknown) => {
@@ -57,7 +62,7 @@ export function useGoals({
         if (!controller.signal.aborted) setGoalsLoading(false);
       });
     return () => controller.abort();
-  }, [onError]);
+  }, [onError, control.mergeResources]);
 
   useEffect(() => {
     if (goals.length === 0) return;
@@ -154,56 +159,96 @@ export function useGoals({
     return () => controller.abort();
   }, [selectedGoalId]);
 
+  const applyArchived = useCallback((goalId: string, archived: boolean) => {
+    const current = control.state.resources.goals;
+    if (current === undefined) return;
+    control.mergeResources({
+      goals: {
+        ...current,
+        goals: current.goals.map((item) => (item.goalId === goalId ? { ...item, archived } : item)),
+      },
+    });
+  }, [control.mergeResources, control.state.resources.goals]);
+
+  const applyDeleted = useCallback((goalId: string) => {
+    const current = control.state.resources.goals;
+    if (current !== undefined) {
+      control.mergeResources({
+        goals: { ...current, goals: current.goals.filter((item) => item.goalId !== goalId) },
+      });
+    }
+    loadedMetricsRef.current.delete(goalId);
+    pendingMetricsRef.current.delete(goalId);
+    setMetricsByGoal((current) => {
+      if (!(goalId in current)) return current;
+      const next = { ...current };
+      delete next[goalId];
+      return next;
+    });
+  }, [control.mergeResources, control.state.resources.goals]);
+
   const changeArchive = useCallback(
     async (goal: BrowserGoalListItem, archived: boolean) => {
-      setManageBusyId(goal.goalId);
       setManageError(null);
-      try {
-        await browserApi.setGoalArchived(goal.goalId, archived);
-        setGoals((current) =>
-          current.map((item) => (item.goalId === goal.goalId ? { ...item, archived } : item))
-        );
+      const receipt = await control.submit({
+        kind: "goal_archive",
+        intentId: crypto.randomUUID(),
+        goalId: goal.goalId,
+        archived,
+      });
+      if (receipt.status === "accepted" || receipt.status === "existing") {
+        applyArchived(goal.goalId, archived);
         setUndoArchiveId(archived ? goal.goalId : null);
-      } catch (error) {
-        setManageError(`Archive failed: ${errorMessage(error)}`);
-        await refreshGoals();
-      } finally {
-        setManageBusyId(null);
+        return;
       }
+      if (receipt.status === "unknown") {
+        const verification = await control.verify(receipt.intentId);
+        if (verification === "applied") {
+          applyArchived(goal.goalId, archived);
+          setUndoArchiveId(archived ? goal.goalId : null);
+          return;
+        }
+        setManageError("The archive result could not be confirmed. Reload before trying again.");
+        await refreshGoals();
+        return;
+      }
+      setManageError("Archive failed: the Goal is not in a terminal state or has pending inputs.");
+      await refreshGoals();
     },
-    [refreshGoals]
+    [refreshGoals, applyArchived, control.submit, control.verify]
   );
 
   const deleteGoal = useCallback(
     async (goal: BrowserGoalListItem, onDeleted?: () => void) => {
-      setManageBusyId(goal.goalId);
       setManageError(null);
-      try {
-        await browserApi.deleteGoal(goal.goalId);
-        setGoals((current) => current.filter((item) => item.goalId !== goal.goalId));
-        loadedMetricsRef.current.delete(goal.goalId);
-        pendingMetricsRef.current.delete(goal.goalId);
-        setMetricsByGoal((current) => {
-          if (!(goal.goalId in current)) return current;
-          const next = { ...current };
-          delete next[goal.goalId];
-          return next;
-        });
-        setUndoArchiveId(null);
-        onDeleted?.();
-      } catch (error) {
-        setManageError(`Deletion failed: ${errorMessage(error)}`);
+      const receipt = await control.submit({
+        kind: "goal_delete",
+        intentId: crypto.randomUUID(),
+        goalId: goal.goalId,
+      });
+      if (receipt.status === "unknown") {
+        const verification = await control.verify(receipt.intentId);
+        if (verification !== "applied") {
+          setManageError(verification === "not_applied"
+            ? "Deletion did not apply. You can try again."
+            : "The deletion result could not be confirmed. Reload before trying again.");
+          await refreshGoals();
+          return;
+        }
+      } else if (receipt.status === "rejected") {
+        setManageError("Deletion failed: the Goal is not in a terminal state or has pending inputs.");
         await refreshGoals();
-      } finally {
-        setManageBusyId(null);
+        return;
       }
+      applyDeleted(goal.goalId);
+      setUndoArchiveId(null);
+      onDeleted?.();
     },
-    [refreshGoals]
+    [refreshGoals, applyDeleted, control.submit, control.verify]
   );
 
   return {
     goals,
-    setGoals,
     unreadableCount,
     metricsByGoal,
     goalsLoading,

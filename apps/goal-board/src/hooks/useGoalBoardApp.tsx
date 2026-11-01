@@ -11,6 +11,7 @@ import { PermissionControl } from "../components/PermissionControl";
 import type { GoalSessionContextValue } from "../context/GoalSessionContext";
 import type { RunControlContextValue } from "../context/RunControlContext";
 import { useGoals } from "./useGoals";
+import { useControlIntents } from "./useControlIntents";
 import { useGoalSession } from "./useGoalSession";
 import { useModelSelection } from "./useModelSelection";
 import { usePermissions } from "./usePermissions";
@@ -31,6 +32,8 @@ export function useGoalBoardApp() {
   const draftGeneration = useRef(0);
   const draftLoadVersion = useRef(0);
 
+  const control = useControlIntents();
+
   const sessionManager = useGoalSession({
     onGoalsRefresh: async () => { await goalsManager.refreshGoals(); },
     onClearLiveText: () => { streamManager.setLiveText(""); },
@@ -41,6 +44,7 @@ export function useGoalBoardApp() {
   const goalsManager = useGoals({
     selectedGoalId: sessionManager.selectedGoalId,
     onError: sessionManager.setSessionError,
+    control,
   });
 
   const streamManager = useRunStream({
@@ -54,6 +58,8 @@ export function useGoalBoardApp() {
 
   const permissionsManager = usePermissions({
     session: sessionManager.session,
+    control,
+    onRefreshSession: sessionManager.refreshSelectedSession,
   });
 
   const activeGoal = goalsManager.goals.find((goal) => goal.goalId === sessionManager.selectedGoalId);
@@ -72,7 +78,6 @@ export function useGoalBoardApp() {
 
   const {
     toolGrants,
-    setToolGrants,
     toolGrantsLoading,
     toolGrantsError,
     revokeToolGrant,
@@ -81,6 +86,7 @@ export function useGoalBoardApp() {
     session: sessionManager.session,
     selectedGoalId: sessionManager.selectedGoalId,
     onRefreshSession: sessionManager.refreshSelectedSession,
+    control,
   });
 
   // 运行中的文本发送进入持久化队列；等待交互时普通消息同样只排队（界面单独标注用途），
@@ -117,10 +123,12 @@ export function useGoalBoardApp() {
     },
     onRefreshSession: sessionManager.refreshSelectedSession,
     onRefreshGoals: goalsManager.refreshGoals,
+    control,
   });
 
   const queueManager = useQueue({
     session: sessionManager.session,
+    control,
     onRefreshSession: sessionManager.refreshSelectedSession,
     onCommandError: commandsManager.setCommandError,
   });
@@ -153,7 +161,7 @@ export function useGoalBoardApp() {
       grantsError={permissionsManager.permissionMenuGrantsError}
       hasGoal={hasGoal}
       revokingGrantId={permissionsManager.revokingGrantId}
-      onRevokeGrant={(grant) => void permissionsManager.revokePermissionGrant(grant, setToolGrants)}
+      onRevokeGrant={(grant) => void permissionsManager.revokePermissionGrant(grant)}
     />
   );
 
@@ -251,6 +259,7 @@ export function useGoalBoardApp() {
   };
 
   const runControlContextValue: RunControlContextValue = {
+    control,
     commandBusy: commandsManager.commandBusy,
     commandError: commandsManager.commandError,
     draftGoalBusy: commandsManager.draftGoalBusy,

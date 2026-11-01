@@ -1,51 +1,52 @@
 import { useCallback, useEffect, useState } from "react";
 import type {
   BrowserGoalSessionState,
-  BrowserPermissionModeResult,
   BrowserToolGrantSummary,
 } from "../../../../packages/web-contracts/src/index";
 import { browserApi } from "../api";
+import type { ControlIntents } from "./useControlIntents";
+import { grantsOf, permissionOf } from "../control/results";
+import { pendingIntentOfKind } from "../control/reducer";
 
 export function usePermissions({
   session,
+  control,
+  onRefreshSession,
 }: {
   session: BrowserGoalSessionState | null;
+  control: ControlIntents;
+  onRefreshSession: () => Promise<void>;
 }) {
   const [permissionMenuOpen, setPermissionMenuOpen] = useState(false);
-  const [permissionMode, setPermissionMode] = useState<Extract<BrowserPermissionModeResult, { ok: true }> | null>(null);
   const [permissionModeError, setPermissionModeError] = useState<string | null>(null);
-  const [permissionModeBusy, setPermissionModeBusy] = useState(false);
-  const [permissionMenuGrants, setPermissionMenuGrants] = useState<readonly BrowserToolGrantSummary[]>([]);
   const [permissionMenuGrantsLoading, setPermissionMenuGrantsLoading] = useState(false);
   const [permissionMenuGrantsError, setPermissionMenuGrantsError] = useState<string | null>(null);
-  const [revokingGrantId, setRevokingGrantId] = useState<string | null>(null);
+  const permissionMode = control.state.resources.permission ?? null;
+  const permissionModeBusy = control.state.intents.some(
+    (entry) => entry.intent.kind === "permission_mode" && entry.phase === "pending",
+  );
+  const revokingGrantId = pendingIntentOfKind(control.state, "grant_revoke")?.grantId ?? null;
 
-  useEffect(() => {
-    let active = true;
-    void browserApi
-      .getPermissionMode()
-      .then((result) => {
-        if (!active) return;
-        if (result.ok) {
-          setPermissionMode(result);
-          setPermissionModeError(null);
-        } else {
-          setPermissionModeError("Project permissions are unavailable.");
-        }
-      })
-      .catch(() => {
-        if (active) setPermissionModeError("Could not load project permissions.");
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!permissionMenuOpen || session === null) {
-      setPermissionMenuGrants([]);
-      return;
+  const reloadPermissionMode = useCallback(async (): Promise<void> => {
+    try {
+      const result = await browserApi.getPermissionMode();
+      if (result.ok) {
+        control.mergeResources({ permission: result });
+        setPermissionModeError(null);
+      } else {
+        setPermissionModeError("Project permissions are unavailable.");
+      }
+    } catch {
+      setPermissionModeError("Could not load project permissions.");
     }
+  }, [control.mergeResources]);
+
+  useEffect(() => {
+    void reloadPermissionMode();
+  }, [reloadPermissionMode]);
+
+  useEffect(() => {
+    if (!permissionMenuOpen || session === null) return;
     let active = true;
     setPermissionMenuGrantsLoading(true);
     setPermissionMenuGrantsError(null);
@@ -54,13 +55,14 @@ export function usePermissions({
       .then((result) => {
         if (!active) return;
         if (!result.ok) throw new Error(result.error);
-        setPermissionMenuGrants(result.grants);
+        control.mergeResources({ grants: result.grants });
       })
       .catch(() => {
-        if (active)
+        if (active) {
           setPermissionMenuGrantsError(
             "Could not load saved permissions. Close and reopen the menu to retry."
           );
+        }
       })
       .finally(() => {
         if (active) setPermissionMenuGrantsLoading(false);
@@ -68,66 +70,75 @@ export function usePermissions({
     return () => {
       active = false;
     };
-  }, [permissionMenuOpen, session?.goalId, session?.currentRunId]);
+  }, [permissionMenuOpen, session?.goalId, session?.currentRunId, control.mergeResources]);
 
   const updatePermissionMode = useCallback(
     async (mode: "default" | "yolo") => {
       if (permissionMode === null || permissionModeBusy || mode === permissionMode.mode) return;
-      setPermissionModeBusy(true);
       setPermissionModeError(null);
-      try {
-        const result = await browserApi.setPermissionMode({
-          mode,
-          expectedRevision: permissionMode.revision,
-        });
-        if (!result.ok) {
-          const current = await browserApi.getPermissionMode().catch(() => null);
-          if (current?.ok) setPermissionMode(current);
-          throw new Error(
-            result.error === "conflict"
-              ? "Project permissions changed elsewhere. The current mode was reloaded."
-              : result.error
-          );
-        }
-        setPermissionMode(result);
+      const receipt = await control.submit({
+        kind: "permission_mode",
+        intentId: crypto.randomUUID(),
+        mode,
+        expectedRevision: permissionMode.revision,
+      });
+      if (receipt.status === "accepted" || receipt.status === "existing") {
+        const permission = permissionOf(receipt.result);
+        if (permission !== undefined) control.mergeResources({ permission });
         setPermissionMenuOpen(false);
-      } catch (error) {
-        setPermissionModeError(
-          error instanceof Error && error.message !== "permissions_unavailable"
-            ? error.message
-            : "Could not save the project permission mode."
-        );
-      } finally {
-        setPermissionModeBusy(false);
+        return;
       }
+      if (receipt.status === "rejected") {
+        await reloadPermissionMode();
+        setPermissionModeError(receipt.error === "conflict"
+          ? "Project permissions changed elsewhere. The current mode was reloaded."
+          : "Could not save the project permission mode.");
+        return;
+      }
+      const verification = await control.verify(receipt.intentId);
+      await reloadPermissionMode();
+      setPermissionModeError(verification === "applied"
+        ? null
+        : verification === "not_applied"
+          ? "The permission mode was not changed. You can try again."
+          : "The permission mode result could not be confirmed. Reload before trying again.");
     },
-    [permissionMode, permissionModeBusy]
+    [permissionMode, permissionModeBusy, control.submit, control.verify, control.mergeResources, reloadPermissionMode]
   );
 
   const revokePermissionGrant = useCallback(
-    async (
-      grant: BrowserToolGrantSummary,
-      onGrantsUpdated?: (grants: readonly BrowserToolGrantSummary[]) => void
-    ) => {
+    async (grant: BrowserToolGrantSummary): Promise<void> => {
       if (session === null || revokingGrantId !== null) return;
-      setRevokingGrantId(grant.grantId);
-      try {
-        const result = await browserApi.revokeToolGrant(session.goalId, {
-          runId: session.currentRunId,
-          grantId: grant.grantId,
-          scope: grant.scope,
-          kind: grant.kind ?? "tool",
-        });
-        if (!result.ok) throw new Error(result.error);
-        setPermissionMenuGrants(result.grants);
-        onGrantsUpdated?.(result.grants);
-      } catch {
-        setPermissionModeError("Could not revoke this permission. Reload the session and try again.");
-      } finally {
-        setRevokingGrantId(null);
+      setPermissionModeError(null);
+      const receipt = await control.submit({
+        kind: "grant_revoke",
+        intentId: crypto.randomUUID(),
+        goalId: session.goalId,
+        runId: session.currentRunId,
+        grantId: grant.grantId,
+        scope: grant.scope,
+        ...(grant.kind === undefined ? {} : { grantKind: grant.kind }),
+      });
+      if (receipt.status === "accepted" || receipt.status === "existing") {
+        const grants = grantsOf(receipt.result);
+        if (grants !== undefined) control.mergeResources({ grants });
+        await onRefreshSession();
+        return;
       }
+      if (receipt.status === "rejected") {
+        setPermissionModeError("Could not revoke this permission. Reload the session and try again.");
+        return;
+      }
+      const verification = await control.verify(receipt.intentId);
+      if (verification === "applied") {
+        await onRefreshSession();
+        return;
+      }
+      setPermissionModeError(verification === "not_applied"
+        ? "This permission was not revoked. You can try again."
+        : "The revoke result could not be confirmed. Reload the session and try again.");
     },
-    [session, revokingGrantId]
+    [session, revokingGrantId, control.submit, control.verify, control.mergeResources, onRefreshSession]
   );
 
   return {
@@ -136,13 +147,11 @@ export function usePermissions({
     permissionMode,
     permissionModeError,
     permissionModeBusy,
-    permissionMenuGrants,
+    permissionMenuGrants: control.state.resources.grants ?? [],
     permissionMenuGrantsLoading,
     permissionMenuGrantsError,
     revokingGrantId,
-    setRevokingGrantId,
     updatePermissionMode,
     revokePermissionGrant,
   };
 }
-

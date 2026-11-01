@@ -1,19 +1,18 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import type {
+  BrowserControlIntentCommand,
+  BrowserControlReceipt,
   BrowserGoalSessionState,
   BrowserSessionState,
+  BrowserSessionInputCommand,
 } from "../../../../packages/web-contracts/src/index";
-import { BrowserApiError, browserApi } from "../api";
 import {
   type ModelPickerTarget,
   dispatchBrowserInput,
-  errorMessage,
 } from "../types";
-import {
-  classifySubmissionAttempt,
-  reduceUnverifiedSubmissions,
-  type FrozenSubmission,
-} from "../session-controls";
+import type { ControlIntents } from "./useControlIntents";
+import { pendingIntentOfKind } from "../control/reducer";
+import type { FrozenSubmission } from "../session-controls";
 
 /**
  * 受理结果不明的一条会话输入。
@@ -34,7 +33,7 @@ export type UnverifiedSubmission = FrozenSubmission;
 
 export function useRunCommands({
   session,
-  sessionState,
+  sessionState: _sessionState,
   canSendText,
   draftGoalId,
   draftPlanMode,
@@ -44,6 +43,7 @@ export function useRunCommands({
   onDraftCreated,
   onRefreshSession,
   onRefreshGoals,
+  control,
 }: {
   session: BrowserGoalSessionState | null;
   sessionState?: BrowserSessionState | null;
@@ -56,17 +56,25 @@ export function useRunCommands({
   onDraftCreated: (goalId: string) => void;
   onRefreshSession: () => Promise<void>;
   onRefreshGoals: () => Promise<void>;
+  control: ControlIntents;
 }) {
-  const [commandBusy, setCommandBusy] = useState(false);
   const [commandError, setCommandErrorState] = useState<string | null>(null);
   const [draftGoalBusy, setDraftGoalBusy] = useState(false);
   const setCommandError = useCallback((error: string | null) => {
     setCommandErrorState(error);
     setDraftGoalBusy(false);
   }, []);
-  const [stoppingRunId, setStoppingRunId] = useState<string | null>(null);
-  const [unverifiedSubmissions, setUnverifiedSubmissions] = useState<readonly UnverifiedSubmission[]>([]);
-  const interruptInFlight = useRef(false);
+  const commandBusy = control.state.intents.some((entry) => entry.phase === "pending"
+    && (entry.intent.kind === "create_session" || entry.intent.kind === "session_input" || entry.intent.kind === "plan_mode"));
+  const pendingSessionInput = pendingIntentOfKind(control.state, "session_input");
+  const stoppingRunId = pendingSessionInput?.input.kind === "interrupt" ? pendingSessionInput.input.runId : null;
+
+  const unverifiedSubmissions: readonly UnverifiedSubmission[] = control.state.intents
+    .flatMap((entry) => {
+      if (entry.intent.kind !== "session_input" || entry.phase !== "unknown") return [];
+      const submission = toFrozenSubmission(entry.intent, session?.currentRunId ?? "");
+      return submission === undefined ? [] : [submission];
+    });
 
   const submitDraftMessage = useCallback(
     async (content: string): Promise<boolean> => {
@@ -91,50 +99,66 @@ export function useRunCommands({
         setCommandError("Choose an available model before creating this Goal.");
         return false;
       }
-      setCommandBusy(true);
       setCommandError(null);
-      try {
-        const goalId = draftGoalId.current ?? crypto.randomUUID();
-        draftGoalId.current = goalId;
-        const inputId = crypto.randomUUID();
-        const result = await browserApi.createGoal({
-          goalId,
-          inputId,
-          intent,
-          ...(draftPlanMode ? { mode: "plan" as const } : {}),
-          modelId: draftModelId,
-        });
-        if (!result.ok) throw new BrowserApiError(result.error, 409, false);
-        onDraftCreated(result.goalId);
+      const goalId = draftGoalId.current ?? crypto.randomUUID();
+      draftGoalId.current = goalId;
+      const inputId = crypto.randomUUID();
+      const receipt = await control.submit({
+        kind: "create_session",
+        intentId: inputId,
+        goalId,
+        inputId,
+        intent,
+        ...(draftPlanMode ? { mode: "plan" as const } : {}),
+        modelId: draftModelId,
+      });
+      if (receipt.status === "accepted" || receipt.status === "existing") {
+        onDraftCreated(goalId);
         await onRefreshGoals();
         return true;
-      } catch (error) {
-        setCommandError(errorMessage(error));
-        if (error instanceof BrowserApiError && error.code === "goal_busy") {
+      }
+      if (receipt.status === "rejected") {
+        setCommandError(receipt.error === "goal_busy"
+          ? "This Goal is still busy. Wait for the current run to finish or reload."
+          : "The Goal could not be created.");
+        if (receipt.error === "goal_busy") {
           setDraftGoalBusy(true);
           void onRefreshGoals();
         }
-        if (
-          error instanceof BrowserApiError &&
-          ["model_not_selectable", "model_catalog_unavailable", "goal_busy"].includes(error.code)
-        ) {
+        if (["model_not_selectable", "model_catalog_unavailable", "goal_busy"].includes(receipt.error)) {
           draftGoalId.current = null;
         }
         return false;
-      } finally {
-        setCommandBusy(false);
       }
+      const verification = await control.verify(receipt.intentId);
+      if (verification === "applied") {
+        onDraftCreated(goalId);
+        await onRefreshGoals();
+        return true;
+      }
+      setCommandError("The Goal creation result is unknown. Verify it before creating it again.");
+      return false;
     },
     [
       commandBusy,
       draftModelId,
       draftPlanMode,
       draftGoalId,
+      control.submit,
+      control.verify,
       onSetDraftPlanMode,
       onOpenModelPicker,
       onDraftCreated,
       onRefreshGoals,
+      setCommandError,
     ]
+  );
+
+  const submitInput = useCallback(
+    async (goalId: string, input: BrowserSessionInputCommand): Promise<BrowserControlReceipt> => {
+      return control.submit({ kind: "session_input", intentId: input.inputId, goalId, input });
+    },
+    [control.submit]
   );
 
   const submitMessage = useCallback(
@@ -158,61 +182,46 @@ export function useRunCommands({
       }
       if (dispatched.kind === "plan") {
         if (!session || commandBusy) return false;
-        setCommandBusy(true);
         setCommandError(null);
-        try {
-          await browserApi.enterPlanMode(session.goalId, { runId: session.currentRunId });
+        const receipt = await control.submit({
+          kind: "plan_mode",
+          intentId: crypto.randomUUID(),
+          goalId: session.goalId,
+          runId: session.currentRunId,
+        });
+        if (receipt.status === "accepted" || receipt.status === "existing") {
           await onRefreshSession();
           return true;
-        } catch (error) {
-          setCommandError(errorMessage(error));
-          if (error instanceof BrowserApiError && error.refresh) await onRefreshSession();
-          return false;
-        } finally {
-          setCommandBusy(false);
         }
+        if (receipt.status === "rejected") {
+          setCommandError("Plan Mode can only be selected before the Run starts or after it ends.");
+          if (receipt.refresh === true) await onRefreshSession();
+          return false;
+        }
+        setCommandError("The Plan Mode result is unknown. Reload before trying again.");
+        return false;
       }
       const trimmed = dispatched.content.trim();
       if (!session || !trimmed || !canSendText || commandBusy) return false;
-      setCommandBusy(true);
       setCommandError(null);
-      const submission: FrozenSubmission = {
-        inputId: crypto.randomUUID(),
-        goalId: session.goalId,
-        runId: session.currentRunId,
+      const receipt = await submitInput(session.goalId, {
         kind: "message",
+        inputId: crypto.randomUUID(),
         content: trimmed,
-      };
-      try {
-        const accepted = await browserApi.submitInput(submission.goalId, {
-          kind: "message",
-          inputId: submission.inputId,
-          content: submission.content,
-        });
-        const outcome = classifySubmissionAttempt(accepted);
-        if (outcome.kind === "rejected") {
-          setCommandError(outcome.code);
-          await onRefreshSession();
-          return false;
-        }
+      });
+      if (receipt.status === "rejected") {
+        setCommandError(receipt.error);
         await onRefreshSession();
-        return true;
-      } catch (error) {
-        // 明确拒绝保留可编辑草稿；结果不明则保留原身份等待核验。
-        const outcome = classifySubmissionAttempt(undefined, error);
-        if (outcome.kind === "rejected") {
-          setCommandError(outcome.code);
-          await onRefreshSession();
-          return false;
-        }
-        setUnverifiedSubmissions((current) => reduceUnverifiedSubmissions(current, { kind: "record", submission }));
+        return false;
+      }
+      if (receipt.status === "unknown") {
         setCommandError("The message result is unknown. Verify it before sending it again.");
         return false;
-      } finally {
-        setCommandBusy(false);
       }
+      await onRefreshSession();
+      return true;
     },
-    [session, commandBusy, canSendText, onOpenModelPicker, onRefreshSession]
+    [session, commandBusy, canSendText, control.submit, submitInput, onOpenModelPicker, onRefreshSession, setCommandError]
   );
 
   const submitSteer = useCallback(
@@ -221,171 +230,126 @@ export function useRunCommands({
       queueBinding?: { readonly messageId: string; readonly queueRevision: number },
     ): Promise<boolean> => {
       if (!session || session.runStatus !== "running" || !content.trim() || commandBusy) return false;
-      setCommandBusy(true);
       setCommandError(null);
-      const submission: FrozenSubmission = {
-        inputId: crypto.randomUUID(),
-        goalId: session.goalId,
-        runId: session.currentRunId,
+      const receipt = await submitInput(session.goalId, {
         kind: "steer",
+        inputId: crypto.randomUUID(),
+        runId: session.currentRunId,
         content: content.trim(),
         ...(queueBinding === undefined ? {} : { queueBinding }),
-      };
-      try {
-        const accepted = await browserApi.submitInput(submission.goalId, {
-          kind: "steer",
-          inputId: submission.inputId,
-          runId: submission.runId,
-          content: submission.content,
-          ...(submission.queueBinding === undefined ? {} : { queueBinding: submission.queueBinding }),
-        });
-        const outcome = classifySubmissionAttempt(accepted);
-        if (outcome.kind === "rejected") {
-          setCommandError(outcome.code);
-          await onRefreshSession();
-          return false;
-        }
+      });
+      if (receipt.status === "rejected") {
+        setCommandError(receipt.error);
         await onRefreshSession();
-        return true;
-      } catch (error) {
-        // 明确拒绝保留草稿且不降级为普通排队；结果不明保留原身份等待核验。
-        const outcome = classifySubmissionAttempt(undefined, error);
-        if (outcome.kind === "rejected") {
-          setCommandError(outcome.code);
-          await onRefreshSession();
-          return false;
-        }
-        setUnverifiedSubmissions((current) => reduceUnverifiedSubmissions(current, { kind: "record", submission }));
+        return false;
+      }
+      if (receipt.status === "unknown") {
         setCommandError("The Steer result is unknown. Verify it before sending it again.");
         return false;
-      } finally {
-        setCommandBusy(false);
       }
+      await onRefreshSession();
+      return true;
     },
-    [session, sessionState, commandBusy, onRefreshSession]
+    [session, commandBusy, submitInput, onRefreshSession, setCommandError]
   );
 
   /**
    * 按原身份核验一条结果不明的输入。
    *
    * @remarks
-   * 只读取持久化收据：已受理则清除不确定状态，未找到则保留原身份允许重试；读取失败
-   * 不改写为“未受理”，也不触发新的提交。
+   * 统一核验只读取既有资源身份：已应用则清除不确定状态，未应用则保留原身份允许重试；
+   * 读取失败不改写为“未受理”，也不触发新的提交。
    */
   const verifySubmission = useCallback(
     async (inputId: string): Promise<void> => {
-      const target = unverifiedSubmissions.find((item) => item.inputId === inputId);
-      if (target === undefined) return;
-      try {
-        const receipt = await browserApi.readInputReceipt(target.goalId, inputId);
-        if (receipt.ok && receipt.found) {
-          setUnverifiedSubmissions((current) => reduceUnverifiedSubmissions(current, { kind: "settled", inputId }));
-          setCommandError(null);
-          await onRefreshSession();
-          return;
-        }
-        if (receipt.ok) {
-          setCommandError("The Runtime has no receipt for this input. Retry with the same identity or edit it.");
-          return;
-        }
-        setCommandError("Could not read the input receipt. Try the verification again.");
-      } catch (error) {
-        setCommandError(errorMessage(error));
+      const verification = await control.verify(inputId);
+      if (verification === "applied") {
+        setCommandError(null);
+        await onRefreshSession();
+        return;
       }
+      if (verification === "not_applied") {
+        setCommandError("The Runtime has no receipt for this input. Retry with the same identity or edit it.");
+        return;
+      }
+      setCommandError("Could not read the input receipt. Try the verification again.");
     },
-    [unverifiedSubmissions, onRefreshSession]
+    [control.verify, onRefreshSession, setCommandError]
   );
 
   /**
    * 以原身份与冻结载荷重试一条结果不明的输入。
    *
    * @remarks
-   * 重试不生成新的 `inputId`；服务端对同一身份返回既有收据，因此不会重复受理。
+   * 重试复用同一意图对象，不生成新的 `inputId`；服务端对同一身份返回既有收据，
+   * 因此不会重复受理。
    */
   const retrySubmission = useCallback(
     async (inputId: string): Promise<boolean> => {
-      const target = unverifiedSubmissions.find((item) => item.inputId === inputId);
-      if (target === undefined) return false;
-      setCommandBusy(true);
-      try {
-        const accepted = target.kind === "steer"
-          ? await browserApi.submitInput(target.goalId, {
-            kind: "steer",
-            inputId: target.inputId,
-            runId: target.runId,
-            content: target.content,
-            ...(target.queueBinding === undefined ? {} : { queueBinding: target.queueBinding }),
-          })
-          : await browserApi.submitInput(target.goalId, {
-            kind: "message",
-            inputId: target.inputId,
-            content: target.content,
-          });
-        if (!accepted.ok) throw new BrowserApiError(accepted.error, 409, true);
-        setUnverifiedSubmissions((current) => reduceUnverifiedSubmissions(current, { kind: "settled", inputId: target.inputId }));
-        setCommandError(null);
-        await onRefreshSession();
-        return true;
-      } catch (error) {
-        setCommandError(errorMessage(error));
-        if (error instanceof BrowserApiError && error.refresh) await onRefreshSession();
+      const entry = control.state.intents.find((candidate) => candidate.intent.intentId === inputId);
+      if (entry === undefined || entry.intent.kind !== "session_input") return false;
+      const receipt = await control.submit(entry.intent);
+      if (receipt.status === "rejected") {
+        setCommandError(receipt.error);
+        if (receipt.refresh === true) await onRefreshSession();
         return false;
-      } finally {
-        setCommandBusy(false);
       }
+      if (receipt.status === "unknown") {
+        setCommandError("The message result is still unknown. Verify it again before retrying.");
+        return false;
+      }
+      setCommandError(null);
+      await onRefreshSession();
+      return true;
     },
-    [unverifiedSubmissions, onRefreshSession]
+    [control.state.intents, control.submit, onRefreshSession, setCommandError]
   );
 
   /** 放弃一条结果不明的输入；其原身份不再重发。 */
   const discardSubmission = useCallback((inputId: string): void => {
-    setUnverifiedSubmissions((current) => reduceUnverifiedSubmissions(current, { kind: "settled", inputId }));
-  }, []);
+    control.discard(inputId);
+  }, [control.discard]);
 
   const interruptCurrentRun = useCallback(async (): Promise<void> => {
-    // 停止使用独立输入身份与在途标记：等待中的回答提交不能锁住停止入口。
-    if (!session || !["running", "waiting"].includes(session.runStatus) || interruptInFlight.current) return;
-    interruptInFlight.current = true;
-    setStoppingRunId(session.currentRunId);
+    if (!session || !["running", "waiting"].includes(session.runStatus) || stoppingRunId !== null) return;
     setCommandError(null);
-    try {
-      const accepted = await browserApi.submitInput(session.goalId, {
-        kind: "interrupt",
-        inputId: crypto.randomUUID(),
-        runId: session.currentRunId,
-      });
-      if (!accepted.ok) throw new BrowserApiError(accepted.error, 409, true);
-      await onRefreshSession();
-    } catch (error) {
-      setStoppingRunId(null);
-      setCommandError(errorMessage(error));
-      if (error instanceof BrowserApiError && error.refresh) await onRefreshSession();
-    } finally {
-      interruptInFlight.current = false;
+    const receipt = await submitInput(session.goalId, {
+      kind: "interrupt",
+      inputId: crypto.randomUUID(),
+      runId: session.currentRunId,
+    });
+    if (receipt.status === "rejected") {
+      setCommandError(receipt.error);
+      if (receipt.refresh === true) await onRefreshSession();
+      return;
     }
-  }, [session, onRefreshSession]);
+    if (receipt.status === "unknown") {
+      setCommandError("The stop result is unknown. Reload before trying again.");
+      return;
+    }
+    await onRefreshSession();
+  }, [session, stoppingRunId, submitInput, onRefreshSession, setCommandError]);
 
   const submitResume = useCallback(async () => {
     if (!session || commandBusy) return;
-    setCommandBusy(true);
     setCommandError(null);
-    try {
-      const commitRevision = sessionState?.commitRevision ?? 0;
-      const accepted = await browserApi.submitInput(session.goalId, {
-        kind: "resume",
-        inputId: crypto.randomUUID(),
-        runId: session.currentRunId,
-        commitRevision,
-      });
-      if (!accepted.ok) throw new BrowserApiError(accepted.error, 409, true);
-      await onRefreshSession();
-    } catch (error) {
-      setCommandError(errorMessage(error));
-      if (error instanceof BrowserApiError && error.refresh) await onRefreshSession();
-    } finally {
-      setCommandBusy(false);
+    const receipt = await submitInput(session.goalId, {
+      kind: "resume",
+      inputId: crypto.randomUUID(),
+      runId: session.currentRunId,
+      commitRevision: session.execution?.committedThroughSequence ?? 0,
+    });
+    if (receipt.status === "rejected") {
+      setCommandError(receipt.error);
+      if (receipt.refresh === true) await onRefreshSession();
+      return;
     }
-  }, [session, commandBusy, onRefreshSession]);
+    if (receipt.status === "unknown") {
+      setCommandError("The resume result is unknown. Reload before trying again.");
+      return;
+    }
+    await onRefreshSession();
+  }, [session, commandBusy, submitInput, onRefreshSession, setCommandError]);
 
   return {
     commandBusy,
@@ -393,7 +357,6 @@ export function useRunCommands({
     draftGoalBusy,
     setCommandError,
     stoppingRunId,
-    setStoppingRunId,
     submitDraftMessage,
     submitMessage,
     submitSteer,
@@ -406,3 +369,18 @@ export function useRunCommands({
   };
 }
 
+function toFrozenSubmission(
+  intent: Extract<BrowserControlIntentCommand, { readonly kind: "session_input" }>,
+  runId: string,
+): FrozenSubmission | undefined {
+  const input = intent.input;
+  if (input.kind !== "message" && input.kind !== "steer") return undefined;
+  return {
+    inputId: input.inputId,
+    goalId: intent.goalId,
+    runId: input.kind === "steer" ? input.runId : runId,
+    kind: input.kind,
+    content: input.content,
+    ...(input.kind === "steer" && input.queueBinding !== undefined ? { queueBinding: input.queueBinding } : {}),
+  };
+}

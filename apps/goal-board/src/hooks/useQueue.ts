@@ -1,21 +1,24 @@
 import { useCallback } from "react";
 import type { BrowserGoalSessionState } from "../../../../packages/web-contracts/src/index";
-import { BrowserApiError, browserApi } from "../api";
-import { type QueuedInput, errorMessage } from "../types";
+import type { ControlIntents } from "./useControlIntents";
+import { type QueuedInput } from "../types";
 
 /**
  * 队列、单条删除与继续操作。
  *
  * @remarks
  * 已受理队列、暂停状态与修订全部来自 Runtime 会话投影；本钩子不维护本地任务镜像，
- * 也不由前端 effect 启动后继 Run。删除和继续都绑定当前队列修订，受理只等待持久化。
+ * 也不由前端 effect 启动后继 Run。删除和继续都以原 `inputId` 作为控制意图身份，
+ * 结果不明时复用统一核验，不生成第二个身份。
  */
 export function useQueue({
   session,
+  control,
   onRefreshSession,
   onCommandError,
 }: {
   session: BrowserGoalSessionState | null;
+  control: ControlIntents;
   onRefreshSession: () => Promise<void>;
   onCommandError: (message: string | null) => void;
 }) {
@@ -30,24 +33,34 @@ export function useQueue({
       queueRevision: number,
     ): Promise<boolean> => {
       onCommandError(null);
-      try {
-        const accepted = await browserApi.submitInput(goalId, {
+      const inputId = crypto.randomUUID();
+      const receipt = await control.submit({
+        kind: "session_input",
+        intentId: inputId,
+        goalId,
+        input: {
           kind: "queue_control",
-          inputId: crypto.randomUUID(),
+          inputId,
           action: command.action,
           queueRevision,
           ...(command.action === "remove" ? { messageId: command.messageId } : {}),
-        });
-        if (!accepted.ok) throw new BrowserApiError(accepted.error, 409, true);
+        },
+      });
+      if (receipt.status === "rejected") {
+        onCommandError(receipt.error === "QUEUE_REVISION_MISMATCH"
+          ? "The queue changed before this action was applied. Reload and try again."
+          : "The queue action could not be applied.");
         await onRefreshSession();
-        return true;
-      } catch (error) {
-        onCommandError(errorMessage(error));
-        if (error instanceof BrowserApiError && error.refresh) await onRefreshSession();
         return false;
       }
+      if (receipt.status === "unknown") {
+        onCommandError("The queue action result is unknown. Verify it before trying again.");
+        return false;
+      }
+      await onRefreshSession();
+      return true;
     },
-    [onRefreshSession, onCommandError]
+    [control.submit, onRefreshSession, onCommandError]
   );
 
   const continueQueue = useCallback(async (): Promise<void> => {
