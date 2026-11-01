@@ -136,7 +136,7 @@ export class SwebenchEnvironmentSpec implements EnvironmentSpec<SwebenchTask, Sw
         return {
             artifact: this.artifact,
             cwd: "/testbed",
-            command: ["/bin/bash", "-c", `${SWE_ACP_TESTBED_ENV} && exec /opt/lazygoal/node /opt/lazygoal/worker.mjs`],
+            command: ["/bin/bash", "-c", `${SWE_ACP_TESTBED_ENV} && exec /opt/lazygoal/node --disable-warning=ExperimentalWarning /opt/lazygoal/worker.mjs`],
         };
     }
 

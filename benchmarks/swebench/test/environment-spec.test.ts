@@ -53,6 +53,7 @@ function handle(calls: string[]): EnvironmentHandle {
                 return { code: 0, stdout: "", stderr: "" };
             }
             if (command.includes("--version")) return { code: 0, stdout: "v22.22.2\n", stderr: "" };
+            if (command.includes("node:sqlite")) return { code: 0, stdout: "sqlite-ok\n", stderr: "" };
             if (command === "ldd /opt/lazygoal/node") return { code: 0, stdout: "libc.so.6 => /lib/libc.so.6\n", stderr: "" };
             if (command === "sha256sum /opt/lazygoal/worker.mjs") return { code: 0, stdout: `${manifest.workerSha256}  /opt/lazygoal/worker.mjs\n`, stderr: "" };
             if (command === "sha256sum /opt/lazygoal/node") return { code: 0, stdout: `${manifest.nodeSha256}  /opt/lazygoal/node\n`, stderr: "" };

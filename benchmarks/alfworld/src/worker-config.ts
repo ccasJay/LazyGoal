@@ -41,7 +41,7 @@ export function alfworldWorkerCommand(pythonExecutable = "python3"): readonly st
         `export ALFWORLD_DATA=${shellQuote(ALFWORLD_CONTAINER_DATA_ROOT)}`,
         `export ALFWORLD_SIDECAR=${shellQuote(ALFWORLD_CONTAINER_SIDECAR_PATH)}`,
         `export ALFWORLD_PYTHON=${shellQuote(pythonExecutable)}`,
-        "exec /opt/lazygoal/node /opt/lazygoal/worker.mjs",
+        "exec /opt/lazygoal/node --disable-warning=ExperimentalWarning /opt/lazygoal/worker.mjs",
     ].join("; ")];
 }
 

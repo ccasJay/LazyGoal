@@ -70,7 +70,7 @@ superseded_by: null
 
 ## 任务
 
-- [ ] //TODO 1. 验证 `node:sqlite` 在宿主与固定 Worker 镜像中的可用性，加入启动警告抑制与依赖边界 → R1.1；检查：`node -e "require('node:sqlite')"`、`npm run check:dependencies`
+- [x] //TODO 1. 验证 `node:sqlite` 在宿主与固定 Worker 镜像中的可用性，加入启动警告抑制与依赖边界 → R1.1；检查：`node -e "require('node:sqlite')"`、`npm run check:dependencies`
 - [ ] //TODO 2. 新增 Runtime 查询契约：水位上下文、事件关联、有界摘要与查询 Port → R2.1、R3.2；检查：`npx tsc --noEmit -p packages/runtime`
 - [ ] //TODO 3. 存储编码支持 Blob 与分段，并保持 `read()` 返回完整领域事件 → R4.1、R4.2；检查：`npx tsx --test packages/storage/test/trajectory-encoding.test.ts`
 - [ ] //TODO 4. 实现 SQLite 索引写入、打开校验、增量修复、重建与截断 → R1.1、R1.2；检查：`npx tsx --test packages/storage/test/trajectory-index-write.test.ts`
