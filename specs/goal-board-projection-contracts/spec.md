@@ -1,9 +1,9 @@
 ---
 feature: goal-board-projection-contracts
-status: proposed
+status: delivered
 risk: medium
 created_at: 2026-11-02
-delivered_at: null
+delivered_at: 2026-11-03
 supersedes: []
 superseded_by: null
 ---
@@ -56,16 +56,6 @@ superseded_by: null
 | medium | 偏好跨端口持久化，可能泄漏本机路径或把位置套用到其他工作区。 | cookie 只保存哈希桶键与布局、位置；身份未就绪前不应用；不保存消息正文、草稿、审批内容或执行事实。 |
 
 展示投影只约束渲染，不构成授权；`ControlState` 与 `ApprovalSession` 仍是唯一控制事实来源（R1.1、R1.3、R4.2）。
-
-## 任务
-
-- [x] //TODO 1. 统一动作可用性与不可用原因 → R1.1、R1.2；检查：动作可用性纯函数单测。
-- [x] //TODO 2. 接入结果不明核验与原身份重试 → R1.3；检查：未知结果与重复提交单测。
-- [x] //TODO 3. 收口连接展示并保留过期期的安全操作 → R2.1、R2.2；检查：连接投影单测。
-- [x] //TODO 4. 建立工作区偏好解码、身份等待与恢复 → R3.1、R3.2；检查：解码与双工作区单测。
-- [x] //TODO 5. 提取阶段分段展示投影并替换现有断言 → R4.1；检查：阶段投影单测。
-- [x] //TODO 6. 审批区域接入既有审批会话 → R4.2；检查：审批区域测试与 `npm run build:web`。
-
 ## 执行记录
 
 - 状态：passed
