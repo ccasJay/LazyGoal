@@ -80,7 +80,7 @@ superseded_by: null
 - [x] //TODO 8. 实现 Model Input 可见性过滤、孤立输入审计与显式清理命令 → R5.1；检查：`npx tsx --test packages/browser/test/browser-model-input.test.ts`
 - [x] //TODO 9. 迁移 Goal Board：Run Directory 分页、游标与水位、Timeline 聚合、Inspector 关联分组、移除搜索框 → R2.1、R6.1、R6.2；检查：`npm run build:web`
 - [x] //TODO 10. 增加故障注入与等价测试，覆盖索引缺失/落后/超前、半行、双写、并发分页、部分提交关联与孤立输入 → R1.2、R2.2、R3.1、R3.2、R5.1；检查：`npx tsx --test packages/storage/test/trajectory-index-recovery.test.ts`
-- [ ] //TODO 11. 建立 10,000 事件读取与重建基准，断言分页不读取 payload 且重建有上限 → R1.3、R6.1；检查：`npx tsx --test packages/storage/test/trajectory-benchmark.test.ts`
+- [x] //TODO 11. 建立 10,000 事件读取与重建基准，断言分页不读取 payload 且重建有上限 → R1.3、R6.1；检查：`npx tsx --test packages/storage/test/trajectory-benchmark.test.ts`
 - [ ] //TODO 12. 更新 storage、browser、goal-board、runtime 的模块说明、语义表与根导航 → 全部；检查：`npm run check:docs`
 
 ## 执行记录
