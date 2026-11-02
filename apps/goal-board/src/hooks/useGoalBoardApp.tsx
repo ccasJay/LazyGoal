@@ -291,10 +291,9 @@ export function useGoalBoardApp() {
     onSubmitSteer: commandsManager.submitSteer,
     onInterrupt: commandsManager.interruptCurrentRun,
     onSubmitResume: commandsManager.submitResume,
-    unverifiedSubmissions: commandsManager.unverifiedSubmissions,
-    onVerifySubmission: commandsManager.verifySubmission,
-    onRetrySubmission: commandsManager.retrySubmission,
-    onDiscardSubmission: commandsManager.discardSubmission,
+    onVerifyIntent: commandsManager.verifyIntent,
+    onRetryIntent: commandsManager.retryIntent,
+    onDiscardIntent: commandsManager.discardIntent,
   };
 
   return {

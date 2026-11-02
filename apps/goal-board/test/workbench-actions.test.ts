@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { BrowserGoalSessionState } from "../../../packages/web-contracts/src/index";
+import type { ControlIntentState } from "../src/control/types";
 import {
+  selectUnverifiedWorkbenchActions,
   selectWorkbenchActions,
   workbenchReasonText,
   type WorkbenchActionContext,
@@ -114,6 +116,23 @@ test("可用性随上下文变化重新派生且不保留上一次结论", () =>
   const after = selectWorkbenchActions(context({ stale: true }));
   assert.equal(after.send_message.available, false);
   assert.equal(selectWorkbenchActions(context()).send_message.available, true);
+});
+
+test("结果不明的动作按原意图身份投影，其他命令不混入", () => {
+  const intents: readonly ControlIntentState[] = [
+    { intent: { kind: "session_input", intentId: "i-1", goalId: "goal-1", input: { kind: "message", inputId: "i-1", content: "hi" } }, phase: "unknown" },
+    { intent: { kind: "session_input", intentId: "i-2", goalId: "goal-1", input: { kind: "interrupt", inputId: "i-2", runId: "run-1" } }, phase: "unknown" },
+    { intent: { kind: "session_input", intentId: "i-3", goalId: "goal-1", input: { kind: "resume", inputId: "i-3", runId: "run-1", commitRevision: 1 } }, phase: "unknown" },
+    { intent: { kind: "session_input", intentId: "i-4", goalId: "goal-1", input: { kind: "respond", inputId: "i-4", requestId: "req-1", response: { kind: "skip_question" } } }, phase: "unknown" },
+    { intent: { kind: "session_input", intentId: "i-5", goalId: "goal-1", input: { kind: "steer", inputId: "i-5", runId: "run-1", content: "focus" } }, phase: "pending" },
+    { intent: { kind: "plan_mode", intentId: "i-6", goalId: "goal-1", runId: "run-1" }, phase: "unknown" },
+  ];
+  const unresolved = selectUnverifiedWorkbenchActions(intents);
+  assert.deepEqual(unresolved.map((entry) => [entry.intentId, entry.actionId]), [
+    ["i-1", "send_message"],
+    ["i-2", "stop"],
+    ["i-3", "resume"],
+  ]);
 });
 
 test("每个不可用原因都有非空且互不相同的说明", () => {

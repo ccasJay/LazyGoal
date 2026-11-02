@@ -25,7 +25,7 @@ import type { AcceptedDecisionSummary } from "../interaction-panel";
 import brandMark from "../assets/lazygoal/mark-on-light.svg?no-inline";
 import { Trajectory } from "../trajectory";
 import { sessionStatus, sessionStatusTone } from "../types";
-import { selectWorkbenchActions, workbenchReasonText } from "../workbench-actions";
+import { selectUnverifiedWorkbenchActions, selectWorkbenchActions, workbenchReasonText } from "../workbench-actions";
 import { useGoalSessionContext } from "../context/GoalSessionContext";
 import { useRunControlContext } from "../context/RunControlContext";
 import { MessageComposer, CurrentModelControl } from "./MessageComposer";
@@ -134,10 +134,9 @@ export function GoalSession({
     onSubmitSteer,
     onInterrupt,
     onSubmitResume,
-    unverifiedSubmissions,
-    onVerifySubmission,
-    onRetrySubmission,
-    onDiscardSubmission,
+    onVerifyIntent,
+    onRetryIntent,
+    onDiscardIntent,
   } = useRunControlContext();
 
   const timeline = useRef<HTMLDivElement>(null);
@@ -150,6 +149,7 @@ export function GoalSession({
     canSendText,
     stopping: session !== null && stoppingRunId === session.currentRunId,
   });
+  const unverifiedActions = selectUnverifiedWorkbenchActions(control.state.intents);
   const readingAnchor = useRef<ActivityAnchor | undefined>(undefined);
   const programmaticTop = useRef<number | undefined>(undefined);
   const followFrame = useRef<number | null>(null);
@@ -670,28 +670,28 @@ export function GoalSession({
                   </div>
                 </CollapsibleContent></Collapsible>
               )}
-              {unverifiedSubmissions.length > 0 && (
+              {unverifiedActions.length > 0 && (
                 <div className="unverified-submissions" aria-label="Unconfirmed submissions">
-                  {unverifiedSubmissions.map((item) => (
-                    <div className="unverified-submission" key={item.inputId} data-input-id={item.inputId}>
+                  {unverifiedActions.map((item) => (
+                    <div className="unverified-submission" key={item.intentId} data-intent-id={item.intentId}>
                       <span>
-                        {item.kind === "steer" ? "Steer" : "Message"} result is unknown. Verify it before sending again.
+                        {item.label} result is unknown. Verify it before continuing.
                       </span>
                       <Button variant="ghost" size="sm"
                         type="button"
                         disabled={commandBusy}
-                        onClick={() => void onVerifySubmission(item.inputId)}
+                        onClick={() => void onVerifyIntent(item.intentId)}
                       >
                         Verify
                       </Button>
                       <Button variant="ghost" size="sm"
                         type="button"
                         disabled={commandBusy}
-                        onClick={() => void onRetrySubmission(item.inputId)}
+                        onClick={() => void onRetryIntent(item.intentId)}
                       >
-                        Retry same input
+                        Retry same identity
                       </Button>
-                      <Button variant="ghost" size="sm" type="button" onClick={() => onDiscardSubmission(item.inputId)}>Discard</Button>
+                      <Button variant="ghost" size="sm" type="button" onClick={() => onDiscardIntent(item.intentId)}>Discard</Button>
                     </div>
                   ))}
                 </div>

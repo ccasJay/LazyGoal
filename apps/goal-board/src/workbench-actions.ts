@@ -1,4 +1,5 @@
 import type { BrowserGoalSessionState } from "../../../packages/web-contracts/src/index";
+import type { ControlIntentState } from "./control/types";
 
 /** 工作台动作的稳定身份。 */
 export type WorkbenchActionId = "send_message" | "steer" | "stop" | "resume";
@@ -146,6 +147,64 @@ export function workbenchReasonText(reason: WorkbenchUnavailableReason): string 
     case "interaction-pending": return "Finish the current stop request first.";
     case "stop-in-progress": return "This Run is already stopping.";
     case "recovery-unavailable": return "This Run is not recoverable in this process.";
+  }
+}
+
+/**
+ * 一条结果不明、需要按原身份核验的动作提交。
+ *
+ * @remarks
+ * `intentId` 是原提交身份；核验、重试与放弃都必须沿用它，不得生成新身份。
+ *
+ * @example
+ * ```ts
+ * const unresolved: UnverifiedWorkbenchAction = { intentId: "intent-1", actionId: "stop", label: "Pause Run" };
+ * ```
+ */
+export interface UnverifiedWorkbenchAction {
+  /** 原控制意图身份。 */
+  readonly intentId: string;
+  /** 对应的动作身份。 */
+  readonly actionId: WorkbenchActionId;
+  /** 展示名称。 */
+  readonly label: string;
+}
+
+/**
+ * 把未结算的控制意图投影为结果不明的动作。
+ *
+ * @remarks
+ * 只投影 `unknown` 阶段且属于工作台动作的会话输入；应答、队列控制与其他命令由各自
+ * 所有者展示。返回顺序沿用意图提交顺序。
+ *
+ * @param intents - 当前控制意图列表。
+ * @returns 结果不明的动作列表；没有时为数组。
+ * @example
+ * ```ts
+ * const unresolved = selectUnverifiedWorkbenchActions(state.intents);
+ * ```
+ */
+export function selectUnverifiedWorkbenchActions(
+  intents: readonly ControlIntentState[],
+): readonly UnverifiedWorkbenchAction[] {
+  const unresolved: UnverifiedWorkbenchAction[] = [];
+  for (const entry of intents) {
+    if (entry.phase !== "unknown" || entry.intent.kind !== "session_input") continue;
+    const mapped = unverifiedActionOf(entry.intent.input.kind);
+    if (mapped !== undefined) unresolved.push({ intentId: entry.intent.intentId, ...mapped });
+  }
+  return unresolved;
+}
+
+function unverifiedActionOf(
+  kind: "message" | "steer" | "interrupt" | "respond" | "resume" | "queue_control",
+): { readonly actionId: WorkbenchActionId; readonly label: string } | undefined {
+  switch (kind) {
+    case "message": return { actionId: "send_message", label: "Message" };
+    case "steer": return { actionId: "steer", label: "Steer" };
+    case "interrupt": return { actionId: "stop", label: "Pause Run" };
+    case "resume": return { actionId: "resume", label: "Resume Run" };
+    default: return undefined;
   }
 }
 

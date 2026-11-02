@@ -1,6 +1,5 @@
 import { useCallback, useState } from "react";
 import type {
-  BrowserControlIntentCommand,
   BrowserControlReceipt,
   BrowserGoalSessionState,
   BrowserSessionState,
@@ -14,24 +13,13 @@ import {
 import { BrowserApiError } from "../api";
 import type { ControlIntents } from "./useControlIntents";
 import { pendingIntentOfKind } from "../control/reducer";
-import type { FrozenSubmission } from "../session-controls";
 
 /**
- * 受理结果不明的一条会话输入。
+ * 会话输入、Run 控制与结果不明核验的唯一命令入口。
  *
  * @remarks
- * 保留原 `inputId` 与冻结载荷，使页面可以核验收据或以同一身份重试；不换用新身份
- * 重复发送，也不把未确认项显示为已受理。
- *
- * @example
- * ```ts
- * const pending: UnverifiedSubmission = {
- *   inputId: "input-1", goalId: "goal-1", runId: "run-1",
- *   kind: "message", content: "Continue the review",
- * };
- * ```
+ * 所有命令都经由统一控制状态提交；本钩子不保存第二份 busy 或 unknown 状态。
  */
-export type UnverifiedSubmission = FrozenSubmission;
 
 export function useRunCommands({
   session,
@@ -70,13 +58,6 @@ export function useRunCommands({
     && (entry.intent.kind === "create_session" || entry.intent.kind === "session_input" || entry.intent.kind === "plan_mode"));
   const pendingSessionInput = pendingIntentOfKind(control.state, "session_input");
   const stoppingRunId = pendingSessionInput?.input.kind === "interrupt" ? pendingSessionInput.input.runId : null;
-
-  const unverifiedSubmissions: readonly UnverifiedSubmission[] = control.state.intents
-    .flatMap((entry) => {
-      if (entry.intent.kind !== "session_input" || entry.phase !== "unknown") return [];
-      const submission = toFrozenSubmission(entry.intent, session?.currentRunId ?? "");
-      return submission === undefined ? [] : [submission];
-    });
 
   const submitDraftMessage = useCallback(
     async (content: string): Promise<boolean> => {
@@ -262,9 +243,9 @@ export function useRunCommands({
    * 统一核验只读取既有资源身份：已应用则清除不确定状态，未应用则保留原身份允许重试；
    * 读取失败不改写为“未受理”，也不触发新的提交。
    */
-  const verifySubmission = useCallback(
-    async (inputId: string): Promise<void> => {
-      const verification = await control.verify(inputId);
+  const verifyIntent = useCallback(
+    async (intentId: string): Promise<void> => {
+      const verification = await control.verify(intentId);
       if (verification === "applied") {
         setCommandError(null);
         await onRefreshSession();
@@ -286,9 +267,9 @@ export function useRunCommands({
    * 重试复用同一意图对象，不生成新的 `inputId`；服务端对同一身份返回既有收据，
    * 因此不会重复受理。
    */
-  const retrySubmission = useCallback(
-    async (inputId: string): Promise<boolean> => {
-      const entry = control.state.intents.find((candidate) => candidate.intent.intentId === inputId);
+  const retryIntent = useCallback(
+    async (intentId: string): Promise<boolean> => {
+      const entry = control.state.intents.find((candidate) => candidate.intent.intentId === intentId);
       if (entry === undefined || entry.intent.kind !== "session_input") return false;
       const receipt = await control.submit(entry.intent);
       if (receipt.status === "rejected") {
@@ -307,9 +288,9 @@ export function useRunCommands({
     [control.state.intents, control.submit, onRefreshSession, setCommandError]
   );
 
-  /** 放弃一条结果不明的输入；其原身份不再重发。 */
-  const discardSubmission = useCallback((inputId: string): void => {
-    control.discard(inputId);
+  /** 放弃一条结果不明的动作；其原身份不再重发。 */
+  const discardIntent = useCallback((intentId: string): void => {
+    control.discard(intentId);
   }, [control.discard]);
 
   const interruptCurrentRun = useCallback(async (): Promise<void> => {
@@ -364,25 +345,10 @@ export function useRunCommands({
     submitSteer,
     interruptCurrentRun,
     submitResume,
-    unverifiedSubmissions,
-    verifySubmission,
-    retrySubmission,
-    discardSubmission,
-  };
-}
-
-function toFrozenSubmission(
-  intent: Extract<BrowserControlIntentCommand, { readonly kind: "session_input" }>,
-  runId: string,
-): FrozenSubmission | undefined {
-  const input = intent.input;
-  if (input.kind !== "message" && input.kind !== "steer") return undefined;
-  return {
-    inputId: input.inputId,
-    goalId: intent.goalId,
-    runId: input.kind === "steer" ? input.runId : runId,
-    kind: input.kind,
-    content: input.content,
-    ...(input.kind === "steer" && input.queueBinding !== undefined ? { queueBinding: input.queueBinding } : {}),
+    onInterrupt: interruptCurrentRun,
+    onSubmitResume: submitResume,
+    verifyIntent,
+    retryIntent,
+    discardIntent,
   };
 }

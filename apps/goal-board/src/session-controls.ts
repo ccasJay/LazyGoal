@@ -38,32 +38,4 @@ export function resolveComposerKey(event: {
   return { kind: "submit" };
 }
 
-/**
- * 一次会话输入的冻结身份与载荷。
- *
- * @remarks
- * 冻结后的身份用于核验与原身份重试；迟到响应只能作用于该身份对应的 Goal 与 Run，
- * 不得写入新目标。排队消息转为 Steer 时也保留其来源绑定，以便同一身份安全重试。
- *
- * @example
- * ```ts
- * const submission: FrozenSubmission = {
- *   inputId: "steer-1", goalId: "goal-1", runId: "run-1",
- *   kind: "steer", content: "聚焦当前步骤",
- * };
- * ```
- */
-export interface FrozenSubmission {
-  /** 原输入身份；核验与重试必须沿用它。 */
-  readonly inputId: string;
-  /** 提交时的 Goal 身份。 */
-  readonly goalId: string;
-  /** 提交时的 Run 身份。 */
-  readonly runId: string;
-  /** 输入种类。 */
-  readonly kind: "message" | "steer";
-  /** 冻结载荷正文。 */
-  readonly content: string;
-  /** 可选的原排队消息与队列修订绑定；用于原子转换和身份重试。 */
-  readonly queueBinding?: { readonly messageId: string; readonly queueRevision: number };
-}
+
