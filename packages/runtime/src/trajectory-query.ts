@@ -1,4 +1,5 @@
 import type { JsonValue, Observation } from "./domain";
+import { canonicalJson } from "../../contracts/src/index";
 import {
     projectTrajectoryEvent,
     type TrajectoryEvent,
@@ -186,12 +187,12 @@ export function projectTrajectoryEventSummary(
     event: TrajectoryEvent,
     relations: TrajectoryEventSummaryRelations = {},
 ): TrajectoryEventSummary {
-    let preview = JSON.stringify(event.payload);
+    let preview = canonicalJson(event.payload);
     if (event.eventType === "decision_received") {
         const decision = event.payload.decision;
         preview = decision.kind === "tool_call"
             ? "Tool call only"
-            : "summary" in decision ? decision.summary : JSON.stringify(decision);
+            : "summary" in decision ? decision.summary : canonicalJson(decision);
     }
     if (event.eventType === "run_created") preview = `Run created, ${event.payload.mode}`;
     if (event.eventType === "run_started") preview = "Run started";
@@ -222,7 +223,7 @@ export function projectTrajectoryEventSummary(
 
     const relation = projectTrajectoryEventCorrelation(event);
     const finished = event.eventType === "tool_started" ? relations.toolFinished : undefined;
-    const inputPreview = event.eventType === "tool_started" ? JSON.stringify(event.payload.input) : undefined;
+    const inputPreview = event.eventType === "tool_started" ? canonicalJson(event.payload.input) : undefined;
     const observation = finished?.payload.observation
         ?? (event.eventType === "tool_finished" ? event.payload.observation : undefined);
     const resultPreview = observation === undefined ? undefined : observationPreview(observation);
