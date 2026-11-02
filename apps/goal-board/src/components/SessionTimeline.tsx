@@ -11,6 +11,7 @@ import { AssistantMarkdown } from "./AssistantMarkdown";
 import { PlanRouteList } from "./PlanRouteList";
 import type { SessionTimelineEntry, SessionTimelineProjection } from "../session-timeline";
 import type { ActivityGroup, ActivityGroupStatus, ActivityMemberStatus } from "../activity-projector";
+import { isActiveStatus, needsAttentionStatus, selectStageSectionPresentation, stageSectionIdentity } from "../stage-section-presentation";
 import { Badge } from "./ui/badge";
 import { cn } from "../ui-utils";
 import { Trace, TraceLine, TraceIcon, TraceTitle, TraceDescription, TraceCollapsible, TraceCollapsibleTrigger, TraceCollapsibleContent } from "./ui/trace";
@@ -374,13 +375,6 @@ type TimelineRenderOptions = {
     readonly continueDisabled: boolean;
 };
 
-function isActive(status: ActivityGroupStatus): boolean {
-  return status === "running" || status === "retrying" || status === "pending-result";
-}
-
-function needsAttention(status: ActivityGroupStatus): boolean {
-  return status === "failed" || status === "partial-failure" || status === "rejected" || status === "waiting";
-}
 
 function renderCorrectionGroup(entries: readonly Extract<SessionTimelineEntry, { kind: "fact" }>[], options: TimelineRenderOptions) {
   const first = entries[0]!;
@@ -467,23 +461,22 @@ function renderTimelineEntries(items: readonly SessionTimelineEntry[], options: 
     const context = options.stages.find(stage => stage.runId === entries[0]?.runId && stage.stageId === stageId);
     const contextStatus = context !== undefined && context.revision === revision ? context.status : undefined;
     const incomplete = context?.completeWithinPage === false;
-    const sectionIdentity = `${entries[0]?.runId}:${stageId}:${revision ?? ""}`;
+    const sectionIdentity = stageSectionIdentity(entries[0]?.runId, stageId, revision);
     const continued = seenSections.has(sectionIdentity);
     seenSections.add(sectionIdentity);
-    const accepted = contextStatus === "accepted" || routeStage?.status === "accepted" || outcome === "run_stage_accepted";
-    const attention = entries.filter((entry) => entry.kind === "activity" ? entry.group.members.some(member => needsAttention(member.status))
-      : entry.kind === "lookup" ? entry.status === "failed"
-        : !accepted && entry.kind === "fact" && entry.eventType === "run_stage_rejected" && outcome === "run_stage_rejected");
-    const running = !accepted && entries[0]?.runId === options.currentRunId && options.runStatus === "running"
-      && (!continued || activities.some((entry) => isActive(entry.group.status)))
-      && (routeStage?.status === "executing" || options.newerItemCount === 0
-        && (contextStatus === "executing" || activities.some((entry) => isActive(entry.group.status))));
-    const waiting = entries[0]?.runId === options.currentRunId && options.runStatus === "waiting"
-      && options.newerItemCount === 0
-      && activities.some(entry => entry.group.members.some(member => member.status === "waiting"));
-    const rejected = !accepted && (contextStatus === "rejected" || outcome === "run_stage_rejected");
-    const status = waiting ? "attention" : accepted ? "completed" : running ? "running" : rejected ? "rejected" : "recorded";
-    const expanded = options.expandedGroups.get(key) ?? (running || attention.length > 0);
+    const presentation = selectStageSectionPresentation({
+      entries,
+      currentRunId: options.currentRunId,
+      runStatus: options.runStatus,
+      newerItemCount: options.newerItemCount,
+      contextStatus,
+      routeStage,
+      outcome,
+      continued,
+    });
+    const status = presentation.status;
+    const attention = presentation.attention;
+    const expanded = options.expandedGroups.get(key) ?? (presentation.animate || attention.length > 0);
     const detailId = `stage-detail-${encodeURIComponent(key)}`;
     const details = entries.filter((entry) => entry.kind !== "fact"
       || entry.eventType !== "run_stage_declared" && entry.eventType !== "run_stage_accepted"
@@ -494,9 +487,9 @@ function renderTimelineEntries(items: readonly SessionTimelineEntry[], options: 
     const hasDetails = details.length > 0 || showLoad && (options.olderAvailable && options.onLoadEarlier !== undefined
       || options.newerItemCount > 0 && options.onLoadNewer !== undefined);
     const activityCount = activities.reduce((count, entry) => count + entry.group.members.length, 0);
-    const stageHeading = <TraceLine status={running ? "running" : status === "attention" ? "error" : undefined}>
+    const stageHeading = <TraceLine status={presentation.animate ? "running" : status === "attention" ? "error" : undefined}>
       <TraceIcon>
-        {status === "attention" ? <CircleHelp /> : running ? <ActivitySnake /> : accepted ? <Check /> : <span className="timeline-fact-dot" />}
+        {status === "attention" ? <CircleHelp /> : presentation.animate ? <ActivitySnake /> : status === "completed" ? <Check /> : <span className="timeline-fact-dot" />}
       </TraceIcon>
       <TraceTitle title={title}>{continued ? <><span className="sr-only">{title}: </span>Stage activity continued</> : title}</TraceTitle>
       {activityCount > 0 && <TraceDescription>{activityCount} {activityCount === 1 ? "activity" : "activities"}</TraceDescription>}
@@ -579,9 +572,9 @@ function renderEntry(item: SessionTimelineEntry, options: TimelineRenderOptions)
   if (item.kind === "candidate-preview") return <SessionMessage key={item.presentationKey} entry={item} brandMark={options.brandMark} />;
 
   if (item.kind === "activity") {
-    const attention = item.group.members.some(member => needsAttention(member.status));
+    const attention = item.group.members.some(member => needsAttentionStatus(member.status));
     if (!options.showExecutionFacts && item.group.category === "think") return null;
-    const expanded = options.expandedGroups.get(item.group.id) ?? (item.group.status !== "partial-failure" && attention || isActive(item.group.status));
+    const expanded = options.expandedGroups.get(item.group.id) ?? (item.group.status !== "partial-failure" && attention || isActiveStatus(item.group.status));
     return (
       <ActivityGroupRow
         key={item.itemId}
@@ -754,7 +747,7 @@ export function ActivityGroupRow({
   return (
     <TraceCollapsible open={expanded} onOpenChange={onToggle} className={cn("timeline-activity", group.status)} data-item-id={itemId} data-run-id={runId} data-group-id={group.id}>
       <TraceCollapsibleTrigger className="timeline-activity-heading" aria-expanded={expanded} aria-controls={detailId}>
-        <TraceLine status={isActive(group.status) ? "running" : group.status === "failed" || group.status === "partial-failure" ? "error" : undefined}>
+        <TraceLine status={isActiveStatus(group.status) ? "running" : group.status === "failed" || group.status === "partial-failure" ? "error" : undefined}>
           <TraceIcon className="timeline-activity-marker">
             {group.status === "completed" ? <Check />
               : group.status === "failed" || group.status === "partial-failure" ? <CircleHelp />
@@ -771,8 +764,8 @@ export function ActivityGroupRow({
         {onLoadEarlier !== undefined && <Button variant="ghost" size="sm" type="button" onClick={onLoadEarlier}>Load earlier activity</Button>}
         {onLoadNewer !== undefined && <Button variant="ghost" size="sm" type="button" onClick={onLoadNewer}>Load newer activity</Button>}
       </div>}
-      {!expanded && group.members.some(member => needsAttention(member.status)) && (
-        <p className="timeline-activity-alert">{group.members.find((member) => needsAttention(member.status))?.summary ?? activityStatusLabel(group.status)}</p>
+      {!expanded && group.members.some(member => needsAttentionStatus(member.status)) && (
+        <p className="timeline-activity-alert">{group.members.find((member) => needsAttentionStatus(member.status))?.summary ?? activityStatusLabel(group.status)}</p>
       )}
       <TraceCollapsibleContent>
         <p className="timeline-activity-outcome">
