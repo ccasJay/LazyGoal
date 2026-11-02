@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { ArrowUp, ChevronDown, Folder, Pause, Play } from "lucide-react";
 import { slashCommands } from "../types";
 import { resolveComposerKey } from "../session-controls";
+import { workbenchReasonText, type WorkbenchActions } from "../workbench-actions";
 
 export function InboxIcon() {
   return (
@@ -65,6 +66,7 @@ export function MessageComposer({
   showHint = true,
   draftValue,
   onDraftChange,
+  primaryActions,
 }: {
   busy: boolean;
   running?: boolean;
@@ -84,6 +86,8 @@ export function MessageComposer({
   onInterrupt?: () => Promise<void>;
   /** 可恢复 Run 且输入框为空时，由唯一主按钮恢复当前 Run。 */
   onResume?: () => Promise<void>;
+  /** 由工作台投影提供的发送、停止与恢复可用性；缺省时沿用各布尔开关。 */
+  primaryActions?: Pick<WorkbenchActions, "send_message" | "stop" | "resume">;
   footerControls?: ReactNode;
   autoFocus?: boolean;
   showHint?: boolean;
@@ -102,6 +106,11 @@ export function MessageComposer({
   const candidates = !running && !recoverable && inspection.kind === "candidates" && !commandMenuClosed ? inspection.candidates : [];
   const activeCandidate = candidates[Math.min(selectedCommand, candidates.length - 1)];
   const hasDraft = draft.trim().length > 0;
+  const primaryMode = hasDraft ? "send_message" : recoverable ? "resume" : running ? "stop" : "send_message";
+  const primaryAction = primaryActions?.[primaryMode];
+  const primaryReason = primaryAction !== undefined && !primaryAction.available
+    ? workbenchReasonText(primaryAction.reason)
+    : undefined;
 
   async function submit(content = draft) {
     if (busy || !content.trim()) return;
@@ -215,22 +224,26 @@ export function MessageComposer({
                           : "Send message"
                 }
                 title={
-                  stopping
-                    ? "Pausing this Run"
-                    : recoverable && !hasDraft
-                      ? recoveryActionLabel
-                      : running && !hasDraft
-                        ? "Pause this Run"
-                        : "Send message"
+                  primaryReason !== undefined
+                    ? primaryReason
+                    : stopping
+                      ? "Pausing this Run"
+                      : recoverable && !hasDraft
+                        ? recoveryActionLabel
+                        : running && !hasDraft
+                          ? "Pause this Run"
+                          : "Send message"
                 }
                 disabled={
-                  busy || sendDisabled || (
-                    recoverable
-                      ? !hasDraft && (stopping || onResume === undefined)
-                      : running
-                        ? !hasDraft && (stopping || onInterrupt === undefined)
-                        : !hasDraft
-                  )
+                  primaryAction === undefined
+                    ? busy || sendDisabled || (
+                      recoverable
+                        ? !hasDraft && (stopping || onResume === undefined)
+                        : running
+                          ? !hasDraft && (stopping || onInterrupt === undefined)
+                          : !hasDraft
+                    )
+                    : !primaryAction.available || (stopping && !hasDraft)
                 }
                 onClick={() => void activatePrimaryAction()}
               >

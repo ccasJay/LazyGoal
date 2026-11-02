@@ -25,6 +25,7 @@ import type { AcceptedDecisionSummary } from "../interaction-panel";
 import brandMark from "../assets/lazygoal/mark-on-light.svg?no-inline";
 import { Trajectory } from "../trajectory";
 import { sessionStatus, sessionStatusTone } from "../types";
+import { selectWorkbenchActions, workbenchReasonText } from "../workbench-actions";
 import { useGoalSessionContext } from "../context/GoalSessionContext";
 import { useRunControlContext } from "../context/RunControlContext";
 import { MessageComposer, CurrentModelControl } from "./MessageComposer";
@@ -140,6 +141,15 @@ export function GoalSession({
   } = useRunControlContext();
 
   const timeline = useRef<HTMLDivElement>(null);
+  const workbench = selectWorkbenchActions({
+    session,
+    busy: commandBusy,
+    connected: streamConnected,
+    stale: stateStale,
+    sessionUnreadable: sessionError !== null,
+    canSendText,
+    stopping: session !== null && stoppingRunId === session.currentRunId,
+  });
   const readingAnchor = useRef<ActivityAnchor | undefined>(undefined);
   const programmaticTop = useRef<number | undefined>(undefined);
   const followFrame = useRef<number | null>(null);
@@ -525,7 +535,7 @@ export function GoalSession({
                         onLoadEarlier={() => void loadEarlierActivity()}
                         onLoadNewer={() => void loadNewerActivity()}
                         onContinueFailed={session.runStatus === "failed" ? () => void onSubmitMessage("Please continue the original task. Review the previous failure and proceed with the available context.") : undefined}
-                        continueDisabled={commandBusy || stateStale || !canSendText || sessionError !== null}
+                        continueDisabled={!workbench.send_message.available}
                         olderItemCount={activityWindow.page?.gaps
                           .filter((gap) => gap.direction === "older")
                           .reduce((total, gap) => total + gap.itemCount, 0) ?? 0}
@@ -613,14 +623,8 @@ export function GoalSession({
                             <Button variant="ghost" size="sm"
                               type="button"
                               aria-label={`Steer queued message ${index + 1} into the current Run`}
-                              title="Steer this message into the current Run"
-                              disabled={
-                                commandBusy
-                                || sessionError !== null
-                                || stateStale
-                                || session?.runStatus !== "running"
-                                || (session.interruption !== undefined && session.interruption.status !== "finished")
-                              }
+                              title={workbench.steer.available ? "Steer this message into the current Run" : workbenchReasonText(workbench.steer.reason)}
+                              disabled={!workbench.steer.available}
                               onClick={() => void onSubmitSteer(item.content, {
                                 messageId: item.messageId,
                                 queueRevision,
@@ -734,6 +738,7 @@ export function GoalSession({
                         </p>
                         <MessageComposer
                           key={`${session.currentRunId}:queue`}
+                          primaryActions={workbench}
                           textareaLabel="Queue next task"
                           describedBy="queue-next-task-note"
                           showHint={true}
@@ -747,6 +752,7 @@ export function GoalSession({
                 ) : (
                   <MessageComposer
                     key={session.currentRunId}
+                    primaryActions={workbench}
                     showHint={false}
                     busy={commandBusy || (!draftSessionOpen && sessionError !== null)}
                     placeholder="Give direction or ask a question…"
@@ -776,6 +782,7 @@ export function GoalSession({
                 session.pendingAction === undefined && (
                   <MessageComposer
                     key={`${session.currentRunId}:continue`}
+                    primaryActions={workbench}
                     showHint={false}
                     busy={commandBusy || (!draftSessionOpen && sessionError !== null)}
                     placeholder={
@@ -805,9 +812,9 @@ export function GoalSession({
               {session.runStatus === "running" && (
                 <MessageComposer
                   key={session.currentRunId}
+                  primaryActions={workbench}
                   showHint={false}
                   busy={commandBusy || (!draftSessionOpen && sessionError !== null)}
-                  sendDisabled={stateStale}
                   running={session.execution?.state !== "recoverable"}
                   recoverable={session.execution?.state === "recoverable"}
                   recoveryActionLabel={
@@ -853,7 +860,8 @@ export function GoalSession({
                       <Button variant="ghost" size="sm"
                         type="button"
                         className="primary"
-                        disabled={commandBusy || sessionError !== null || stateStale}
+                        disabled={!workbench.resume.available}
+                        title={workbench.resume.available ? "Resume Run" : workbenchReasonText(workbench.resume.reason)}
                         onClick={() => void onSubmitResume()}
                       >
                         {commandBusy ? "Resuming…" : "Resume Run"}
