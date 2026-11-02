@@ -558,6 +558,15 @@ export interface TrajectoryQueryPort {
 
     /**
      * @param context - 固定 Goal、Run 与水位。
+     * @returns 水位内出现过的模型调用身份，按首次出现顺序去重。
+     * @throws 索引损坏时拒绝。
+     */
+    listModelCallIds(
+        context: TrajectoryQueryContext,
+    ): Promise<readonly string[]>;
+
+    /**
+     * @param context - 固定 Goal、Run 与水位。
      * @param sequence - 目标事件序号。
      * @returns 规范 JSON 文本；payload 内联时由 JSONL 物化。
      * @throws 事件不存在、超出水位或 Blob 缺失时拒绝。

@@ -10,8 +10,8 @@ test("browser model input wire boundary accepts completion review lists and deta
     const call: ModelInputRecord = { goalId: "goal", runId: "run", callId: "review-call", stage: "completion_review", stepIndex: 1,
       occurredAt: new Date().toISOString(), messages: [{ role: "system", source: "system", content: "Review the candidate" }] };
     const summary = { ...call, messages: [], systemVersion: "hash", firstSystem: true, systemChanged: false, previousCallId: null, omittedMessageCount: 0 };
-    const detail = { call, previousSystem: null, previousCallId: null, systemVersion: "hash" };
-    t.mock.method(globalThis, "fetch", async (url: string) => Response.json(url.includes("callId=") ? detail : { calls: [summary], total: 1, nextOffset: null }));
+    const detail = { call, previousSystem: null, previousCallId: null, systemVersion: "hash", committedThroughSequence: 1 };
+    t.mock.method(globalThis, "fetch", async (url: string) => Response.json(url.includes("callId=") ? detail : { calls: [summary], total: 1, nextOffset: null, committedThroughSequence: 1 }));
     assert.deepEqual((await browserApi.modelInputs("goal", "run")).calls, [summary]);
     assert.deepEqual(await browserApi.modelInput("goal", "run", "review-call"), detail);
   } finally {

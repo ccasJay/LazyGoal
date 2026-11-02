@@ -653,6 +653,14 @@ export class JsonFileTrajectoryStore implements TrajectoryStore, TrajectoryQuery
         return index.timeline(context.committedThroughSequence, bucketSize);
     }
 
+    async listModelCallIds(
+        context: TrajectoryQueryContext,
+    ): Promise<readonly string[]> {
+        this.assertQueryContext(context);
+        const index = await this.readyIndex(context.goalId, context.runId);
+        return index.modelCallIds(context.committedThroughSequence);
+    }
+
     async readPayload(
         context: TrajectoryQueryContext,
         sequence: number,

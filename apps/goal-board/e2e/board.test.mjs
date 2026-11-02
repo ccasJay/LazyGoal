@@ -1223,8 +1223,8 @@ function createMockApi() {
     }
     if (request.url?.startsWith("/api/goals/goal-1/model-inputs?")) {
       inputReads += 1;
-      if (new URL(request.url, "http://localhost").searchParams.get("callId") === "call-native") { inputDetailReads += 1; json(response, { call: nativeCall, previousSystem: null, previousCallId: null, systemVersion: "hash" }); }
-      else json(response, { calls: [{ goalId: "goal-1", runId: "run-1", callId: "call-native", executionUnitId: "unit-1", stepIndex: 1, stage: "decide", occurredAt: "2026-08-05T09:00:01.000Z", systemVersion: "hash", systemChanged: false, firstSystem: true, previousCallId: null, omittedMessageCount: 0, messages: nativeCall.messages.map((message, index) => ({ role: message.role, source: message.source, index, preview: index === 0 ? `Native tool result ${"long content ".repeat(200)}` : message.content.slice(0, 700), truncated: true })) }], total: 1, nextOffset: null });
+      if (new URL(request.url, "http://localhost").searchParams.get("callId") === "call-native") { inputDetailReads += 1; json(response, { call: nativeCall, previousSystem: null, previousCallId: null, systemVersion: "hash", committedThroughSequence: 3 }); }
+      else json(response, { calls: [{ goalId: "goal-1", runId: "run-1", callId: "call-native", executionUnitId: "unit-1", stepIndex: 1, stage: "decide", occurredAt: "2026-08-05T09:00:01.000Z", systemVersion: "hash", systemChanged: false, firstSystem: true, previousCallId: null, omittedMessageCount: 0, messages: nativeCall.messages.map((message, index) => ({ role: message.role, source: message.source, index, preview: index === 0 ? `Native tool result ${"long content ".repeat(200)}` : message.content.slice(0, 700), truncated: true })) }], total: 1, nextOffset: null, committedThroughSequence: 3 });
       return;
     }
     if (request.url?.startsWith("/api/goals/goal-1/trajectory")) {

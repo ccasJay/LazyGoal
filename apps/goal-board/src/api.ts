@@ -198,7 +198,7 @@ export const browserApi = {
   },
 
   modelInputs(goalId: string, runId: string, offset = 0, signal?: AbortSignal, query = ""): Promise<BrowserModelInputs> {
-    return requestContract(`/api/goals/${encodeURIComponent(goalId)}/model-inputs?runId=${encodeURIComponent(runId)}&offset=${offset}&q=${encodeURIComponent(query)}`, browserModelInputsBinding, signal, {}, undefined, data => isNullableSafeInteger(data.nextOffset));
+    return requestContract(`/api/goals/${encodeURIComponent(goalId)}/model-inputs?runId=${encodeURIComponent(runId)}&offset=${offset}&q=${encodeURIComponent(query)}`, browserModelInputsBinding, signal, {}, undefined, data => isNullableSafeInteger(data.nextOffset) && Number.isSafeInteger(data.committedThroughSequence));
   },
   modelInput(goalId: string, runId: string, callId: string, signal?: AbortSignal): Promise<BrowserModelInputDetail> {
     return requestContract(`/api/goals/${encodeURIComponent(goalId)}/model-inputs?runId=${encodeURIComponent(runId)}&callId=${encodeURIComponent(callId)}`, browserModelInputDetailBinding, signal);

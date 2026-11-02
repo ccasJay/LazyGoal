@@ -2,17 +2,36 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { BrowserModelInputSummary, BrowserModelInputDetail } from "../src/index";
 import { Hono } from "hono";
-import { createGoal } from "../../runtime/src/index";
+import { createGoal, type TrajectoryQueryPort } from "../../runtime/src/index";
 import type { ModelInputRecord } from "../../runtime/src/model-input";
 import { createBrowserModelInputRoutes, createBrowserSessionAccess } from "../src/index";
 
-test("model inputs preserve global version comparisons across paging and search, with complete details", async () => {
+function goalWithBoundary(boundary: number) {
     const goal = createGoal({ id: "goal-1", runId: "run-1", intent: "Inspect", promptBundleVersion: 1, memoryProtocol: { kind: "structured", version: 1 }, modelContextProtocol: { kind: "trajectory-layered", version: 1 }, contextRetrievalProtocol: { kind: "bm25-lite", version: 1 }, profile: { id: "profile", systemPrompt: "current config must not substitute historical prompt", instructions: [], toolIds: [] } });
+    return { ...goal, state: { ...goal.state, run: { ...goal.state.run, committedThroughSequence: boundary } } };
+}
+
+function queryPort(callIds: readonly string[]): TrajectoryQueryPort {
+    const unused = async (): Promise<never> => { throw new Error("unexpected trajectory query"); };
+    return {
+        queryPage: unused,
+        readDetail: unused,
+        locateExecutionUnit: unused,
+        queryExecutionUnitPage: unused,
+        queryTimeline: unused,
+        readPayload: unused,
+        listModelCallIds: async () => callIds as readonly string[],
+    };
+}
+
+test("model inputs preserve global version comparisons across paging and search, with complete details", async () => {
+    const goal = goalWithBoundary(200);
     const calls: ModelInputRecord[] = Array.from({ length: 102 }, (_, index) => ({ goalId: goal.id, runId: "run-1", callId: `call-${index}`, stepIndex: index + 1, stage: index === 101 ? "completion_review" : "decide", occurredAt: new Date().toISOString(), messages: [{ role: "system", source: "system", content: index < 100 ? "original system" : "changed system" }, { role: "user", source: "working_context", content: index === 101 ? "x".repeat(900) + "hidden needle" : `context-${index}` }] }));
-    const app = createBrowserModelInputRoutes({ restore: async () => goal }, async () => calls);
+    const app = createBrowserModelInputRoutes({ restore: async () => goal }, async () => calls, queryPort(calls.map((call) => call.callId)));
     for (let index = 0; index < calls.length; index++) calls[index] = { ...calls[index]!, messages: [...calls[index]!.messages, { source: "conversation", content: "unchanged user input", role: "user" }] };
-    const first = await (await app.request("/api/goals/goal-1/model-inputs?runId=run-1")).json() as { calls: BrowserModelInputSummary[]; nextOffset: number };
+    const first = await (await app.request("/api/goals/goal-1/model-inputs?runId=run-1")).json() as { calls: BrowserModelInputSummary[]; nextOffset: number; committedThroughSequence: number };
     assert.equal(first.calls.length, 100); assert.equal(first.nextOffset, 100);
+    assert.equal(first.committedThroughSequence, 200);
     assert.equal(first.calls[0]!.firstSystem, true); assert.equal(first.calls[1]!.systemChanged, false);
     assert.equal(first.calls[0]!.messages.length, 2);
     assert.equal(first.calls[1]!.messages.length, 1);
@@ -24,11 +43,33 @@ test("model inputs preserve global version comparisons across paging and search,
     assert.equal(found.calls.length, 1); assert.equal(found.calls[0]!.systemChanged, false); assert.equal(found.calls[0]!.messages[0]!.truncated, true);
     const detail = await (await app.request("/api/goals/goal-1/model-inputs?runId=run-1&callId=call-101")).json() as BrowserModelInputDetail;
     assert.equal(detail.call.stage, "completion_review");
+    assert.equal(detail.committedThroughSequence, 200);
     assert.equal(detail.previousSystem, "changed system"); assert.ok(detail.call.messages[1]!.content.endsWith("hidden needle"));
     assert.equal((await app.request("/api/goals/goal-1/model-inputs?runId=run-1&callId=absent")).status, 404);
     assert.equal((await app.request("/api/goals/goal-1/model-inputs?runId=other")).status, 404);
     assert.equal((await app.request("/api/goals/goal-1/model-inputs?runId=run-1&offset=-1")).status, 400);
     assert.equal((await app.request("/api/goals/goal-1/model-inputs?runId=run-1&runId=run-2")).status, 400);
+});
+
+test("model inputs hide calls without a committed model event", async () => {
+    const goal = goalWithBoundary(1);
+    const calls: ModelInputRecord[] = ["call-committed", "call-orphan"].map((callId, index) => ({
+        goalId: goal.id,
+        runId: "run-1",
+        callId,
+        stepIndex: index + 1,
+        stage: "decide",
+        occurredAt: "2026-11-02T00:00:00.000Z",
+        messages: [{ role: "system", source: "system", content: "system" }],
+    }));
+    const app = createBrowserModelInputRoutes({ restore: async () => goal }, async () => calls, queryPort(["call-committed"]));
+
+    const list = await (await app.request("/api/goals/goal-1/model-inputs?runId=run-1")).json() as { calls: BrowserModelInputSummary[]; total: number; committedThroughSequence: number };
+    assert.deepEqual(list.calls.map((call) => call.callId), ["call-committed"]);
+    assert.equal(list.total, 1);
+    assert.equal(list.committedThroughSequence, 1);
+    assert.equal((await app.request("/api/goals/goal-1/model-inputs?runId=run-1&callId=call-orphan")).status, 404);
+    assert.equal((await app.request("/api/goals/goal-1/model-inputs?runId=run-1&callId=call-committed")).status, 200);
 });
 
 test("model input access is denied before any private input read", async () => {
@@ -37,7 +78,7 @@ test("model input access is denied before any private input read", async () => {
     access.bindOrigin("http://127.0.0.1:43127");
     const app = new Hono();
     app.use("*", access.middleware);
-    app.route("/", createBrowserModelInputRoutes({ restore: async () => { reads++; return undefined; } }, async () => { reads++; return []; }));
+    app.route("/", createBrowserModelInputRoutes({ restore: async () => { reads++; return undefined; } }, async () => { reads++; return []; }, queryPort([])));
     assert.equal((await app.request("http://127.0.0.1:43127/api/goals/goal-1/model-inputs?runId=run-1", { headers: { host: "127.0.0.1:43127" } })).status, 401);
     assert.equal(reads, 0);
 });

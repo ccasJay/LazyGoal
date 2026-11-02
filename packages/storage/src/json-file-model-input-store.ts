@@ -1,6 +1,6 @@
 import { encodePathSegment } from "./path-segment";
 import { isModelConversationMessage } from "../../model-contracts/src/index";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import type { ModelInputMessage, ModelInputRecord, ModelInputStore } from "../../runtime/src/model-input";
@@ -102,5 +102,26 @@ export class JsonFileModelInputStore implements ModelInputStore {
         }
         return result;
     }
+    /**
+     * 删除一个 Run 的模型输入清单。
+     *
+     * @remarks
+     * 只删除 `<goal>/<run>/requests.jsonl` 所在目录；同 Goal 共享的 `messages/`
+     * 正文不在本方法内删除。调用方必须先确认该 Run 的清单已经整体失效。
+     *
+     * @param goalId - Goal 稳定标识。
+     * @param runId - Run 稳定标识。
+     * @returns 目录不存在或删除完成后 resolve。
+     * @throws 底层删除失败时拒绝。
+     *
+     * @example
+     * ```ts
+     * await store.deleteRun("goal-1", "run-1");
+     * ```
+     */
+    async deleteRun(goalId: string, runId: string): Promise<void> {
+        await rm(this.path(goalId, runId), { recursive: true, force: true });
+    }
+
     private path(goalId: string, runId: string) { return join(this.directory, id(goalId), id(runId)); }
 }

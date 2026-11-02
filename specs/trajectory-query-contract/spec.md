@@ -77,7 +77,7 @@ superseded_by: null
 - [x] //TODO 5. 实现索引查询：分页、详情、执行单元、关联与时间线聚合，全部按水位过滤 → R1.3、R2.1、R3.1、R6.1；检查：`npx tsx --test packages/storage/test/trajectory-index-query.test.ts`
 - [x] //TODO 6. 迁移 Browser 轨迹路由：不透明游标、新查询端点、移除 `q`、稳定错误语义 → R1.3、R2.1、R2.2、R3.2；检查：`npx tsx --test packages/browser/test/browser-trajectory.test.ts packages/browser/test/browser-trajectory-detail.test.ts packages/browser/test/browser-trajectory-pagination.test.ts`
 - [x] //TODO 7. 更新 Web wire 契约与生成绑定：分页水位、详情关联、Timeline、Model Input → R2.1、R5.1、R6.1；检查：`npm run contracts:generate -- --check`
-- [ ] //TODO 8. 实现 Model Input 可见性过滤、孤立输入审计与显式清理命令 → R5.1；检查：`npx tsx --test packages/browser/test/browser-model-input.test.ts`
+- [x] //TODO 8. 实现 Model Input 可见性过滤、孤立输入审计与显式清理命令 → R5.1；检查：`npx tsx --test packages/browser/test/browser-model-input.test.ts`
 - [x] //TODO 9. 迁移 Goal Board：Run Directory 分页、游标与水位、Timeline 聚合、Inspector 关联分组、移除搜索框 → R2.1、R6.1、R6.2；检查：`npm run build:web`
 - [ ] //TODO 10. 增加故障注入与等价测试，覆盖索引缺失/落后/超前、半行、双写、并发分页、部分提交关联与孤立输入 → R1.2、R2.2、R3.1、R3.2、R5.1；检查：`npx tsx --test packages/storage/test/trajectory-index-recovery.test.ts`
 - [ ] //TODO 11. 建立 10,000 事件读取与重建基准，断言分页不读取 payload 且重建有上限 → R1.3、R6.1；检查：`npx tsx --test packages/storage/test/trajectory-benchmark.test.ts`

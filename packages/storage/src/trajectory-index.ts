@@ -341,6 +341,16 @@ export class TrajectoryIndex {
         return row === undefined ? undefined : mapIndexRow(row);
     }
 
+    /** @returns 水位内出现过的模型调用身份，按首次出现顺序去重。 */
+    modelCallIds(committedThroughSequence: number): string[] {
+        return (this.statement(`
+            SELECT model_call_id FROM events
+            WHERE sequence <= ? AND model_call_id IS NOT NULL
+            GROUP BY model_call_id ORDER BY MIN(sequence)
+        `).all(committedThroughSequence) as unknown as Array<{ model_call_id: string }>)
+            .map((row) => row.model_call_id);
+    }
+
     /** @returns 同一 Action 在水位内的全部事件行，按序号升序。 */
     rowsByAction(actionId: string, committedThroughSequence: number): TrajectoryIndexRow[] {
         return (this.statement(`SELECT ${SELECT_COLUMNS} FROM events WHERE action_id = ? AND sequence <= ? ORDER BY sequence ASC`)

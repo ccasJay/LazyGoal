@@ -17,6 +17,7 @@
     "change-scope": "node scripts/change-scope.mjs",
     "benchmark:context-retrieval": "tsx scripts/benchmark-context-retrieval.ts",
     "memory:check": "node scripts/project-memory.mjs check",
+    "maintenance:prune-model-inputs": "tsx scripts/prune-model-inputs.ts",
     "memory:index": "node scripts/project-memory.mjs write-index",
     "test:memory": "node --test scripts/project-memory.test.mjs",
     "test:gepa-adapter": "uv run --project prompt-evaluation/gepa --frozen python -W error::ResourceWarning -m unittest discover -s prompt-evaluation/gepa/tests -v",

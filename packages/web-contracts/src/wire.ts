@@ -2259,6 +2259,10 @@ export interface BrowserModelInputDetail {
     /** @pattern \S */
     readonly previousCallId: string | null;
     readonly systemVersion: string;
+    /** @asType integer
+     * @maximum 9007199254740991
+     * @minimum 0 */
+    readonly committedThroughSequence: number;
 }
 
 /** 模型输入列表响应。 */
@@ -2273,6 +2277,10 @@ export interface BrowserModelInputs {
      * @minimum 0
      */
     readonly nextOffset: number | null;
+    /** @asType integer
+     * @maximum 9007199254740991
+     * @minimum 0 */
+    readonly committedThroughSequence: number;
 }
 
 /** 轨迹 Run 状态投影。 */

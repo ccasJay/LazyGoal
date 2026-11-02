@@ -4,7 +4,7 @@
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
     "path": "packages/web-contracts/src/wire.ts#BrowserModelInputDetail,BrowserModelInputRecordWire,BrowserModelInputMessageWire,BrowserModelInputToolCall",
-    "sha256": "188f6a2efd540b4c385546efb4c2e6874a8f58569ba137bbb3ebc69ec6b830a1"
+    "sha256": "1d7c68baeff6de8a9d663d3ff4af30c3dd8a1e1d06da67af7249f14cf338a97d"
   },
   "generator": {
     "name": "ts-json-schema-generator",
