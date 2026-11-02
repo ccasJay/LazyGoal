@@ -209,7 +209,7 @@ function encodeTrajectoryCursor(
         filter,
         sequence,
     };
-    return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+    return Buffer.from(JSON.stringify(payload), "utf8").toString("hex");
 }
 
 function decodeTrajectoryCursor(
@@ -219,8 +219,12 @@ function decodeTrajectoryCursor(
 ): number {
     let parsed: unknown;
 
+    if (!/^(?:[0-9a-f]{2})+$/.test(cursor)) {
+        throw new TrajectoryProtocolError("Invalid Trajectory cursor");
+    }
+
     try {
-        parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+        parsed = JSON.parse(Buffer.from(cursor, "hex").toString("utf8"));
     } catch {
         throw new TrajectoryProtocolError("Invalid Trajectory cursor");
     }
@@ -513,7 +517,9 @@ export class JsonFileTrajectoryStore implements TrajectoryStore, TrajectoryQuery
                 ? encodeTrajectoryCursor(context, filterKey, first.sequence) : null,
             nextCursor: last !== undefined && hasAfter
                 ? encodeTrajectoryCursor(context, filterKey, last.sequence) : null,
-            locatedSequence: null,
+            locatedSequence: query.executionUnitId === undefined
+                ? null
+                : index.locateExecutionUnit(query.executionUnitId, context.committedThroughSequence) ?? null,
             committedThroughSequence: context.committedThroughSequence,
         };
     }

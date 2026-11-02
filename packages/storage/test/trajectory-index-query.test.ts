@@ -156,6 +156,15 @@ test("category, action and execution unit filters only return explicit matches",
             (await store.queryPage(context(5), { limit: 10, executionUnitId: "unit-a" })).entries.map((entry) => entry.sequence),
             [2, 3],
         );
+        assert.equal(
+            (await store.queryPage(context(5), { limit: 10, executionUnitId: "unit-a" })).locatedSequence,
+            2,
+        );
+        assert.equal((await store.queryPage(context(5), { limit: 10 })).locatedSequence, null);
+        assert.equal(
+            (await store.queryPage(context(1), { limit: 10, executionUnitId: "unit-a" })).locatedSequence,
+            null,
+        );
     } finally {
         await rm(directory, { recursive: true, force: true });
     }
