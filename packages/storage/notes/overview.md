@@ -25,7 +25,7 @@ Snapshot、Trajectory、Profile 和调用事实的文件 Schema 与 Store。本�
 | [JsonFileGoalStore](../src/goal-store.ts) | 实现 `GoalStore` 与 `GoalCatalog`：base64url 文件名、经共享原语原子替换快照、目录扫描摘要 | 跨进程锁、乐观锁、租约或版本冲突检测 |
 | [JsonFileToolGrantStore](../src/json-file-tool-grant-store.ts) | 以生成绑定严格验证 workspace 授权账本，经共享原语保存 pending/active/revoked Grant，按来源 Action 幂等暂存/激活 | Goal 状态转换、跨进程锁或分布式事务 |
 | [JsonFileModelPreferenceStore](../src/json-file-model-preference-store.ts) | 以生成绑定严格解析并保存 Web 模型偏好身份；损坏文件不被覆盖 | 模型可选性判断、Goal Snapshot 或跨进程锁 |
-| [JsonFileTrajectoryStore](../src/json-file-trajectory-store.ts) | 将每个 Goal/Run 的事实事件（包括结构化 `model_context_frame`）追加到安全编码的 JSONL 文件，提供序列范围读取与 Snapshot 边界分类；追加结果未知时核对既有尾部 | Snapshot 恢复、marker 推导边界、跨进程锁与 exactly-once |
+| [JsonFileTrajectoryStore](../src/json-file-trajectory-store.ts) | 将每个 Goal/Run 的事实事件（包括结构化 `model_context_frame`）追加到安全编码的 JSONL 分段，并把大型 payload 外置为内容寻址 Blob；提供序列范围读取与 Snapshot 边界分类；追加结果未知时核对当前分段尾部 | Snapshot 恢复、marker 推导边界、跨进程锁、exactly-once 与旧存储编码迁移 |
 | [JsonFileDiagnosticTraceSink](../src/json-file-diagnostic-trace-sink.ts) | 将已脱敏、已限长的诊断记录追加到独立 JSONL 文件 | Domain Event、Snapshot 恢复、Trace 查询与重试 |
 | [JsonFileMetricsStore](../src/json-file-metrics-store.ts) | 以生成绑定校验模型调用开始/结束事实（含可选端到端请求耗时），并将事实、历史覆盖标记与已知写入缺口分别追加到 JSONL | Goal 恢复、token 估算、累计投影缓存和跨进程锁 |
 | [JsonFileContextRetrievalIndexStore](../src/context-retrieval-index-sidecar.ts) | 以安全编码路径保存、恢复和删除 Retrieval Index Sidecar；严格校验倒排快照、来源摘要、版本与 64 项查询缓存 | 推导 committed boundary、读取 Workspace、修改 Goal 或 Trajectory |
@@ -65,8 +65,8 @@ Snapshot 原样保存 Goal 级 `commitRevision`、`inputLedger` 与 `messageQueu
 
 `JsonFileToolGrantStore` 将当前 workspace 的 Grant 写入私有 `tool-grants.json`；损坏 JSON、结构或语义错误、重复 ID/来源或同一来源授权冲突均失败关闭，不会重置账本。只有 active 且 workspace 与操作匹配的 Grant 可被 Runner 查询；goal 范围还必须匹配 `goalId`。pending Grant 仅供 Coordinator 在批准 Snapshot 提交后恢复激活，revoked Grant 不再匹配。Store 实例内写入经 `KeyedSerialQueue` 串行化，不提供跨进程并发事务。
 
-`JsonFileTrajectoryStore` 将轨迹写入 `<directory>/<base64url(goalId)>/<base64url(runId)>.jsonl`。
-同一实例内按 Run 串行追加并严格校验 JSONL、事件身份和该 Run 内的单调序列。追加结果未知时由 Store 提供的尾部核对判定：完整命中视为成功，序号恰为前一条视为未写入并交由原语重试，部分行或无法确认的状态立即失败。新 Run 从本地序号 1 开始，缺失文件或空文件读取为空。`run_created`、`plan_mode_entered` 和 `goal_plan_updated` 是事实事件，不能替代 Goal Snapshot 的当前状态。
+`JsonFileTrajectoryStore` 将轨迹写入 `<directory>/<base64url(goalId)>/<base64url(runId)>.jsonl`；超过 64 MiB 后继续写入 `<run>.part2.jsonl` 等分段，超过 64 KiB 的 payload 写入同 Goal 的 `blobs/<sha256>.json`，JSONL 行只保留 `payloadRef`。
+同一实例内按 Run 串行追加并严格校验存储编码版本、JSONL、事件身份和该 Run 内的单调序列；不支持旧编码时直接失败。追加结果未知时由 Store 提供的当前分段尾部核对判定：完整命中视为成功，序号恰为前一条视为未写入并交由原语重试，部分行或无法确认的状态立即失败。新 Run 从本地序号 1 开始，缺失文件或空文件读取为空。`run_created`、`plan_mode_entered` 和 `goal_plan_updated` 是事实事件，不能替代 Goal Snapshot 的当前状态。
 `readWithBoundary` 只使用调用方从最新 Goal Snapshot 读取的
 `committedThroughSequence` 分类 committed 与未提交 tail，`state_committed` 不具有恢复权威。Snapshot 已保存而 marker 追加失败时，恢复仍以 Snapshot 边界为准；孤立或越界事件只保留为未提交 tail，不会被自动 replay。`model_context_frame` 在 Trajectory 协议中校验阶段、Epoch、Conversation 位置、Section 身份、结构化 JSON 投影与实际更新文本；Runtime 恢复查询还会对照当前注册表过滤未知或身份不匹配的 Section。
 

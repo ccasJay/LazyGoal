@@ -1,16 +1,22 @@
 import { encodePathSegment } from "./path-segment";
+import { isRecord, canonicalJson } from "../../contracts/src/index";
+import { createHash } from "node:crypto";
 import {
     appendFile,
     mkdir,
     open,
     readFile,
+    readdir,
+    stat,
+    writeFile,
     type FileHandle,
 } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import type {
     TrajectoryEvent,
     TrajectoryEventDraft,
+    TrajectoryEventPayload,
     TrajectoryReadQuery,
     TrajectoryReadResult,
     TrajectoryStore,
@@ -31,10 +37,53 @@ import { KeyedSerialQueue } from "./keyed-serial-queue";
 /** 尾部反向扫描的单次回读块大小(字节)。 */
 const TAIL_SCAN_BLOCK_BYTES = 4_096;
 
+/** Payload 外置到 Blob 的默认字节阈值。 */
+const BLOB_THRESHOLD_BYTES = 64 * 1024;
+
+/** 单个 JSONL 分段的默认字节阈值。 */
+const SEGMENT_THRESHOLD_BYTES = 64 * 1024 * 1024;
+
+/** 当前存储编码版本；不兼容的旧编码直接失败。 */
+const STORAGE_ENCODING_VERSION = 2;
+
 type JsonTrajectoryFileOperations = Partial<Pick<
     typeof import("node:fs/promises"),
-    "appendFile" | "mkdir" | "open" | "readFile"
+    "appendFile" | "mkdir" | "open" | "readFile" | "readdir" | "stat" | "writeFile"
 >>;
+
+/** 外置 payload 的内容寻址引用。 */
+interface StoredPayloadReference {
+    readonly sha256: string;
+    readonly bytes: number;
+    readonly encoding: "canonical-json";
+}
+
+/** JSONL 行内的存储编码；领域事件由读取路径重新物化。 */
+interface TrajectoryStoredEvent {
+    readonly storageEncodingVersion: 2;
+    readonly eventSchemaVersion: 1;
+    readonly eventId: string;
+    readonly goalId: string;
+    readonly runId: string;
+    readonly phase: "executing";
+    readonly executionUnitId?: string;
+    readonly stepIndex?: number;
+    readonly actionId?: string;
+    readonly parentEventId?: string;
+    readonly programId?: string;
+    readonly callIndex?: number;
+    readonly sequence: number;
+    readonly occurredAt: string;
+    readonly eventType: string;
+    readonly payload?: TrajectoryEventPayload;
+    readonly payloadRef?: StoredPayloadReference;
+}
+
+/** 单个 Run 当前的分段与已写入字节数。 */
+interface SegmentState {
+    readonly segment: number;
+    readonly size: number;
+}
 
 /**
  * 解析尾部扫描定位到的最后一个非空行,提取其 `sequence`。
@@ -98,13 +147,15 @@ function parseTailSequence(
  * 基于 JSONL 文件的单进程 Trajectory Store。
  *
  * @remarks
- * 每个 `(goalId, runId)` 使用独立的
- * `<directory>/<base64url(goalId)>/<base64url(runId)>.jsonl` 文件。实例内追加
- * 按 Run 串行化,下一序号优先取实例内会话级序号缓存,缓存 miss 时从文件尾部
- * 反向扫描最后非空行取得,不读取全部历史;缓存只承担性能角色,实例重建后
- * 自然失效,恢复权威始终是读取路径的全量协议校验。该实现不提供跨进程锁、
- * Outbox 或 exactly-once 语义。Snapshot 的 `committedThroughSequence` 由调用方
- * 传入,不从 `state_committed` marker 推导。
+ * 每个 `(goalId, runId)` 使用
+ * `<directory>/<base64url(goalId)>/<base64url(runId)>.jsonl` 作为第一个分段，超过
+ * 分段阈值后继续写入 `<run>.part2.jsonl` 等文件。超过阈值的 payload 以规范 JSON
+ * 写入同 Goal 的 `blobs/<sha256>.json`，JSONL 行只保留 `payloadRef`；读取时重新
+ * 物化完整领域事件。实例内追加按 Run 串行化，下一序号优先取实例内会话级序号缓存，
+ * 缓存 miss 时从最后一个分段向前反向扫描最后非空行取得，不读取全部历史；缓存只
+ * 承担性能角色，实例重建后自然失效，恢复权威始终是读取路径的全量协议校验。不兼容的
+ * 存储编码直接失败。该实现不提供跨进程锁、Outbox 或 exactly-once 语义。Snapshot 的
+ * `committedThroughSequence` 由调用方传入，不从 `state_committed` marker 推导。
  *
  * @example
  * ```ts
@@ -119,30 +170,46 @@ function parseTailSequence(
 export class JsonFileTrajectoryStore implements TrajectoryStore {
     private readonly appendQueue = new KeyedSerialQueue();
     private readonly sequenceCache = new Map<string, number>();
+    private readonly segmentState = new Map<string, SegmentState>();
     private readonly directory: string;
     private readonly fileOperations: Required<JsonTrajectoryFileOperations>;
+    private readonly blobThresholdBytes: number;
+    private readonly segmentThresholdBytes: number;
 
     /**
-     * @param directory - JSONL 轨迹根目录；追加时按需创建 Goal 子目录。
+     * @param directory - Trajectory 根目录；追加时按需创建 Goal 子目录与 Blob 目录。
      * @param fileOperations - 可选文件操作替身，用于确定性验证写入故障；生产默认使用 Node 文件系统。
+     * @param limits - 可选存储阈值；生产使用固定默认值，测试可缩小以覆盖 Blob 与分段。
      */
-    constructor(directory: string, fileOperations: JsonTrajectoryFileOperations = {}) {
+    constructor(
+        directory: string,
+        fileOperations: JsonTrajectoryFileOperations = {},
+        limits: {
+            readonly blobThresholdBytes?: number;
+            readonly segmentThresholdBytes?: number;
+        } = {},
+    ) {
         this.directory = directory;
         this.fileOperations = {
             appendFile,
             mkdir,
             open,
             readFile,
+            readdir,
+            stat,
+            writeFile,
             ...fileOperations,
         };
+        this.blobThresholdBytes = limits.blobThresholdBytes ?? BLOB_THRESHOLD_BYTES;
+        this.segmentThresholdBytes = limits.segmentThresholdBytes ?? SEGMENT_THRESHOLD_BYTES;
     }
 
     private async writeEventLine(
         filePath: string,
         goalDirectory: string,
-        event: Readonly<TrajectoryEvent>,
+        event: TrajectoryStoredEvent,
     ): Promise<void> {
-        await this.fileOperations.mkdir(goalDirectory, { recursive: true });
+        await this.fileOperations.mkdir(goalDirectory, { recursive: true, mode: 0o700 });
         await appendJsonl({
             path: filePath,
             value: event,
@@ -156,7 +223,7 @@ export class JsonFileTrajectoryStore implements TrajectoryStore {
     private async inspectAppendOutcome(
         filePath: string,
         line: string,
-        event: Readonly<TrajectoryEvent>,
+        event: TrajectoryStoredEvent,
     ): Promise<"applied" | "absent"> {
         let content: string;
         try {
@@ -207,23 +274,25 @@ export class JsonFileTrajectoryStore implements TrajectoryStore {
     append(draft: TrajectoryEventDraft): Promise<Readonly<TrajectoryEvent>> {
         assertValidTrajectoryEventDraft(draft);
         const key = this.keyFor(draft.goalId, draft.runId);
-        const filePath = this.filePath(draft.goalId, draft.runId);
         return this.appendQueue.run(key, async () => {
             const lastSequence = this.sequenceCache.get(key)
-                ?? await this.readLastStoredSequence(
-                    filePath,
-                    draft.goalId,
-                    draft.runId,
-                );
+                ?? await this.readLastStoredSequence(draft.goalId, draft.runId);
             const sequence = lastSequence + 1;
             const event = allocateImmutableEvent(draft, sequence);
+            const stored = await this.encodeStoredEvent(event);
+            const active = await this.resolveActiveSegment(draft.goalId, draft.runId);
+            const filePath = this.segmentFilePath(draft.goalId, draft.runId, active.segment);
 
             await this.writeEventLine(
                 filePath,
                 join(this.directory, this.encodeIdentifier(draft.goalId)),
-                event,
+                stored,
             );
             this.sequenceCache.set(key, sequence);
+            this.segmentState.set(key, {
+                segment: active.segment,
+                size: active.size + Buffer.byteLength(`${JSON.stringify(stored)}\n`, "utf8"),
+            });
             return event;
         });
     }
@@ -238,11 +307,7 @@ export class JsonFileTrajectoryStore implements TrajectoryStore {
      */
     async read(query: TrajectoryReadQuery): Promise<readonly TrajectoryEvent[]> {
         this.assertQuery(query);
-        const events = await this.readStoredEvents(
-            this.filePath(query.goalId, query.runId),
-            query.goalId,
-            query.runId,
-        );
+        const events = await this.readStoredEvents(query.goalId, query.runId);
         const fromSequence = query.fromSequence ?? 1;
         const toSequence = query.toSequence ?? Number.POSITIVE_INFINITY;
 
@@ -268,7 +333,35 @@ export class JsonFileTrajectoryStore implements TrajectoryStore {
     }
 
     /**
-     * 从文件尾部反向扫描最后一个非空 JSONL 行,返回其 `sequence`。
+     * 从最后一个分段向前定位最近的已写入序号。
+     *
+     * @param goalId - Goal 稳定标识。
+     * @param runId - Run 稳定标识。
+     * @returns 最近一个非空事件的序号;整个 Run 无事件时为 0。
+     * @throws 任一分段尾部行协议非法时抛 `TrajectoryProtocolError`。
+     */
+    private async readLastStoredSequence(goalId: string, runId: string): Promise<number> {
+        const segments = await this.listSegmentNumbers(goalId, runId);
+
+        for (let index = segments.length - 1; index >= 0; index -= 1) {
+            const segment = segments[index];
+
+            if (segment === undefined) continue;
+
+            const sequence = await this.readLastSequenceInFile(
+                this.segmentFilePath(goalId, runId, segment),
+                goalId,
+                runId,
+            );
+
+            if (sequence > 0) return sequence;
+        }
+
+        return 0;
+    }
+
+    /**
+     * 从单个分段尾部反向扫描最后一个非空 JSONL 行,返回其 `sequence`。
      *
      * @remarks
      * 以固定块(4 KiB)从文件尾向前回读,累积到能完整框住最后一个非空行为止;
@@ -277,14 +370,14 @@ export class JsonFileTrajectoryStore implements TrajectoryStore {
      * 解析、`goalId`/`runId` 匹配、`sequence` 为正整数;完整协议校验仍由
      * 读取路径负责。
      *
-     * @param filePath - 目标 JSONL 文件。
+     * @param filePath - 目标 JSONL 分段。
      * @param goalId - 期望的 Goal 标识。
      * @param runId - 期望的 Run 标识。
-     * @returns 文件中最后一个非空事件的序号;无事件时为 0。
+     * @returns 分段中最后一个非空事件的序号;无事件时为 0。
      * @throws 尾部行 JSON 非法、标识不匹配或序号非正整数时抛
      *   `TrajectoryProtocolError`,错误信息含行起始字节偏移。
      */
-    private async readLastStoredSequence(
+    private async readLastSequenceInFile(
         filePath: string,
         goalId: string,
         runId: string,
@@ -352,69 +445,261 @@ export class JsonFileTrajectoryStore implements TrajectoryStore {
     }
 
     private async readStoredEvents(
-        filePath: string,
         goalId: string,
         runId: string,
     ): Promise<readonly TrajectoryEvent[]> {
-        let content: string;
+        const segments = await this.listSegmentNumbers(goalId, runId);
+        const events: TrajectoryEvent[] = [];
+        let previousSequence = 0;
+
+        for (const segment of segments) {
+            const filePath = this.segmentFilePath(goalId, runId, segment);
+            let content: string;
+
+            try {
+                content = await this.fileOperations.readFile(filePath, "utf8");
+            } catch (error) {
+                if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+                throw error;
+            }
+
+            const lines = content.split(/\r?\n/);
+
+            for (const [index, line] of lines.entries()) {
+                if (line.trim().length === 0) continue;
+
+                const location = `${basename(filePath)} line ${index + 1}`;
+                let parsed: unknown;
+
+                try {
+                    parsed = JSON.parse(line);
+                } catch {
+                    throw new TrajectoryProtocolError(
+                        `Invalid Trajectory JSONL at ${location}`,
+                    );
+                }
+
+                const event = await this.decodeStoredEvent(parsed, goalId, runId, location);
+
+                if (event.sequence <= previousSequence) {
+                    throw new TrajectoryProtocolError(
+                        `Trajectory sequence must increase at ${location}`,
+                    );
+                }
+
+                previousSequence = event.sequence;
+                events.push(event);
+            }
+        }
+
+        return Object.freeze(events);
+    }
+
+    /**
+     * 将一行存储编码物化为领域事件；外置 payload 从内容寻址 Blob 读取。
+     *
+     * @param parsed - 已解析的 JSONL 行。
+     * @param goalId - 期望的 Goal 标识。
+     * @param runId - 期望的 Run 标识。
+     * @param location - 错误诊断使用的分段与行号。
+     * @returns 通过完整协议校验的冻结事件。
+     * @throws 存储编码版本、payload 形状、Blob 或领域事件非法时抛 `TrajectoryProtocolError`。
+     */
+    private async decodeStoredEvent(
+        parsed: unknown,
+        goalId: string,
+        runId: string,
+        location: string,
+    ): Promise<Readonly<TrajectoryEvent>> {
+        if (!isRecord(parsed)) {
+            throw new TrajectoryProtocolError(`Invalid Trajectory event at ${location}`);
+        }
+        if (parsed.storageEncodingVersion !== STORAGE_ENCODING_VERSION) {
+            throw new TrajectoryProtocolError(`Unsupported Trajectory storage encoding at ${location}`);
+        }
+
+        const hasPayload = parsed.payload !== undefined;
+        const hasReference = parsed.payloadRef !== undefined;
+
+        if (hasPayload === hasReference) {
+            throw new TrajectoryProtocolError(`Trajectory payload encoding is ambiguous at ${location}`);
+        }
+
+        let payload: unknown;
+
+        if (hasReference) {
+            this.assertPayloadReference(parsed.payloadRef, location);
+            payload = await this.readPayloadBlob(goalId, parsed.payloadRef);
+        } else {
+            payload = parsed.payload;
+        }
+
+        const { storageEncodingVersion: _version, payloadRef: _reference, ...envelope } = parsed;
+        let event: Readonly<TrajectoryEvent>;
 
         try {
-            content = await this.fileOperations.readFile(filePath, "utf8");
+            event = freezeTrajectoryEvent({ ...envelope, payload } as unknown as TrajectoryEvent);
+        } catch {
+            throw new TrajectoryProtocolError(`Invalid Trajectory event at ${location}`);
+        }
+
+        if (event.goalId !== goalId || event.runId !== runId) {
+            throw new TrajectoryProtocolError(
+                `Trajectory event identity mismatch at ${location}`,
+            );
+        }
+
+        return event;
+    }
+
+    /**
+     * 把领域事件编码为存储行；超过阈值的 payload 写入内容寻址 Blob。
+     *
+     * @param event - 已分配序号的冻结事件。
+     * @returns 只包含一份 payload 或一个 `payloadRef` 的存储行。
+     * @throws Blob 写入失败或既有内容摘要不匹配时拒绝。
+     */
+    private async encodeStoredEvent(
+        event: Readonly<TrajectoryEvent>,
+    ): Promise<TrajectoryStoredEvent> {
+        const { payload, ...envelope } = event;
+        const text = canonicalJson(payload);
+
+        if (Buffer.byteLength(text, "utf8") <= this.blobThresholdBytes) {
+            return { storageEncodingVersion: STORAGE_ENCODING_VERSION, ...envelope, payload } as TrajectoryStoredEvent;
+        }
+
+        const payloadRef = await this.writePayloadBlob(event.goalId, payload);
+        return { storageEncodingVersion: STORAGE_ENCODING_VERSION, ...envelope, payloadRef } as TrajectoryStoredEvent;
+    }
+
+    private async writePayloadBlob(
+        goalId: string,
+        payload: TrajectoryEventPayload,
+    ): Promise<StoredPayloadReference> {
+        const text = canonicalJson(payload);
+        const bytes = Buffer.byteLength(text, "utf8");
+        const sha256 = createHash("sha256").update(text).digest("hex");
+        const directory = this.blobDirectory(goalId);
+        const path = join(directory, `${sha256}.json`);
+
+        await this.fileOperations.mkdir(directory, { recursive: true, mode: 0o700 });
+
+        try {
+            await this.fileOperations.writeFile(path, text, { encoding: "utf8", flag: "wx", mode: 0o600 });
         } catch (error) {
-            if (
-                error instanceof Error
-                && (error as NodeJS.ErrnoException).code === "ENOENT"
-            ) {
-                return [];
+            if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+
+            const existing = await this.fileOperations.readFile(path, "utf8");
+
+            if (createHash("sha256").update(existing).digest("hex") !== sha256) {
+                throw new TrajectoryProtocolError(`Trajectory payload blob hash mismatch for ${sha256}`);
+            }
+        }
+
+        return { sha256, bytes, encoding: "canonical-json" };
+    }
+
+    private async readPayloadBlob(
+        goalId: string,
+        reference: StoredPayloadReference,
+    ): Promise<TrajectoryEventPayload> {
+        const path = join(this.blobDirectory(goalId), `${reference.sha256}.json`);
+        let text: string;
+
+        try {
+            text = await this.fileOperations.readFile(path, "utf8");
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+                throw new TrajectoryProtocolError(`Missing Trajectory payload blob ${reference.sha256}`);
             }
 
             throw error;
         }
 
-        const events: TrajectoryEvent[] = [];
-        let previousSequence = 0;
-        const lines = content.split(/\r?\n/);
-
-        for (const [index, line] of lines.entries()) {
-            if (line.trim().length === 0) continue;
-
-            let parsed: unknown;
-
-            try {
-                parsed = JSON.parse(line);
-            } catch {
-                throw new TrajectoryProtocolError(
-                    `Invalid Trajectory JSONL at line ${index + 1}`,
-                );
-            }
-
-            let event: Readonly<TrajectoryEvent>;
-
-            try {
-                event = freezeTrajectoryEvent(parsed as TrajectoryEvent);
-            } catch {
-                throw new TrajectoryProtocolError(
-                    `Invalid Trajectory event at line ${index + 1}`,
-                );
-            }
-
-            if (event.goalId !== goalId || event.runId !== runId) {
-                throw new TrajectoryProtocolError(
-                    `Trajectory event identity mismatch at line ${index + 1}`,
-                );
-            }
-
-            if (event.sequence <= previousSequence) {
-                throw new TrajectoryProtocolError(
-                    `Trajectory sequence must increase at line ${index + 1}`,
-                );
-            }
-
-            previousSequence = event.sequence;
-            events.push(event);
+        if (Buffer.byteLength(text, "utf8") !== reference.bytes
+            || createHash("sha256").update(text).digest("hex") !== reference.sha256) {
+            throw new TrajectoryProtocolError(`Trajectory payload blob mismatch for ${reference.sha256}`);
         }
 
-        return Object.freeze(events);
+        try {
+            return JSON.parse(text) as TrajectoryEventPayload;
+        } catch {
+            throw new TrajectoryProtocolError(`Invalid Trajectory payload blob ${reference.sha256}`);
+        }
+    }
+
+    private assertPayloadReference(
+        value: unknown,
+        location: string,
+    ): asserts value is StoredPayloadReference {
+        if (!isRecord(value)
+            || typeof value.sha256 !== "string"
+            || !/^[a-f0-9]{64}$/.test(value.sha256)
+            || !Number.isSafeInteger(value.bytes)
+            || (value.bytes as number) < 0
+            || value.encoding !== "canonical-json") {
+            throw new TrajectoryProtocolError(`Invalid Trajectory payload reference at ${location}`);
+        }
+    }
+
+    private async resolveActiveSegment(goalId: string, runId: string): Promise<SegmentState> {
+        const key = this.keyFor(goalId, runId);
+        const cached = this.segmentState.get(key);
+
+        if (cached !== undefined) {
+            return cached.size >= this.segmentThresholdBytes
+                ? { segment: cached.segment + 1, size: 0 }
+                : cached;
+        }
+
+        const segments = await this.listSegmentNumbers(goalId, runId);
+        const segment = segments.at(-1) ?? 0;
+        return {
+            segment,
+            size: await this.fileSize(this.segmentFilePath(goalId, runId, segment)),
+        };
+    }
+
+    private async listSegmentNumbers(goalId: string, runId: string): Promise<number[]> {
+        const base = basename(this.baseFilePath(goalId, runId));
+        let entries: string[];
+
+        try {
+            entries = await this.fileOperations.readdir(dirname(this.baseFilePath(goalId, runId)));
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+            throw error;
+        }
+
+        const numbers: number[] = [];
+
+        for (const entry of entries) {
+            if (entry === `${base}.jsonl`) {
+                numbers.push(0);
+                continue;
+            }
+
+            const prefix = `${base}.part`;
+            if (!entry.startsWith(prefix) || !entry.endsWith(".jsonl")) continue;
+
+            const middle = entry.slice(prefix.length, -".jsonl".length);
+            if (!/^\d+$/.test(middle)) continue;
+
+            const part = Number(middle);
+            if (Number.isSafeInteger(part) && part >= 2) numbers.push(part - 1);
+        }
+
+        return numbers.sort((left, right) => left - right);
+    }
+
+    private async fileSize(path: string): Promise<number> {
+        try {
+            return (await this.fileOperations.stat(path)).size;
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "ENOENT") return 0;
+            throw error;
+        }
     }
 
     private assertQuery(query: TrajectoryReadQuery): void {
@@ -449,12 +734,21 @@ export class JsonFileTrajectoryStore implements TrajectoryStore {
         return `${goalId}\u0000${runId}`;
     }
 
-    private filePath(goalId: string, runId: string): string {
-        return join(
-            this.directory,
-            this.encodeIdentifier(goalId),
-            `${this.encodeIdentifier(runId)}.jsonl`,
-        );
+    private goalDirectory(goalId: string): string {
+        return join(this.directory, this.encodeIdentifier(goalId));
+    }
+
+    private baseFilePath(goalId: string, runId: string): string {
+        return join(this.goalDirectory(goalId), this.encodeIdentifier(runId));
+    }
+
+    private segmentFilePath(goalId: string, runId: string, segment: number): string {
+        const base = this.baseFilePath(goalId, runId);
+        return segment === 0 ? `${base}.jsonl` : `${base}.part${segment + 1}.jsonl`;
+    }
+
+    private blobDirectory(goalId: string): string {
+        return join(this.goalDirectory(goalId), "blobs");
     }
 
     private encodeIdentifier(value: string): string {
