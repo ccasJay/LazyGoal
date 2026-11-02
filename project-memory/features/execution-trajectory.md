@@ -4,9 +4,9 @@ status: active
 summary: "Runtime 事实轨迹、Snapshot 提交边界与诊断 Trace 分流"
 source_spec: specs/execution-trajectory/
 distilled_at: 2026-08-26
-reviewed_at: 2026-10-17
+reviewed_at: 2026-11-02
 tags: [trajectory, domain-events, snapshot-boundary, diagnostic-trace, recovery, audit]
-authorities: [packages/runtime/notes/overview.md, packages/storage/notes/overview.md, packages/agent/notes/overview.md, apps/goal-server/notes/overview.md, packages/runtime/src/trajectory.ts, packages/runtime/src/runner.ts, packages/runtime/src/goal-coordinator.ts, packages/storage/src/goal-snapshot-codec.ts, packages/storage/src/json-file-trajectory-store.ts, packages/model-call/src/llm-diagnostic-trace.ts, apps/goal-server/src/composition-root.ts]
+authorities: [packages/runtime/notes/overview.md, packages/storage/notes/overview.md, packages/agent/notes/overview.md, apps/goal-server/notes/overview.md, packages/runtime/src/trajectory.ts, packages/runtime/src/runner.ts, packages/runtime/src/goal-coordinator.ts, packages/storage/src/goal-snapshot-codec.ts, packages/storage/src/json-file-trajectory-store.ts, packages/storage/src/trajectory-index.ts, packages/model-call/src/llm-diagnostic-trace.ts, apps/goal-server/src/composition-root.ts]
 ---
 
 # Execution Trajectory
@@ -21,15 +21,16 @@ authorities: [packages/runtime/notes/overview.md, packages/storage/notes/overvie
 - D1 — Trajectory Event 只保存已经发生的事实，禁止把 `currentRunStatus`、`currentPlan` 或 `currentPendingAction` 等派生状态写入 payload；每个事件带有 `eventId`、Run 内单调 `sequence`、Goal/Run、phase 和可选执行单元、Action 关联。 [S1, S2, S5, S6, S11]
 - D2 — Runtime 在外部 Tool 效果或状态转换前追加必要事实；追加失败采用 fail-closed。`tool_started` 后若 Tool 未返回，不伪造 `tool_finished` 或成功 Observation；已有 pending Action 保持可恢复。 [S1, S2, S6, S11]
 - D3 — 当前 Goal Snapshot 的 `schemaVersion: 1` 与 `committedThroughSequence` 共同定义恢复边界；事实追加后先保存 Snapshot，成功后再追加 `state_committed` marker，未提交 tail 永不自动 replay。 [S1, S2, S3, S4, S7, S11, S12]
-- D4 — `JsonFileTrajectoryStore` 使用 Goal/Run 安全编码路径和 JSONL，按 Run 串行追加、严格校验、支持序列范围读取与 committed/tail 查询；当前不提供跨进程锁或 exactly-once。 [S1, S2, S8, S12]
+- D4 — `JsonFileTrajectoryStore` 使用 Goal/Run 安全编码路径和 JSONL，按 Run 串行追加、严格校验、支持序列范围读取与 committed/tail 查询；存储编码 v2 将大 payload 外置到内容寻址 Blob 并支持 JSONL 分段。查询侧使用同一 Run 的可重建 SQLite 索引和固定 Snapshot 水位，索引只提供定位与关联，不构成事实来源；当前不提供跨进程锁或 exactly-once。 [S1, S2, S8, S12, S17, S18, S19]
 - D5 — LLM 请求、响应、Provider metadata、耗时和异常进入独立 Diagnostic Trace；上游负责递归脱敏与大小限制，Trace 缺失或写入失败不得改变 Snapshot、Domain Event 或执行结果。 [S1, S2, S9, S13]
-- D6 — TUI 与浏览器通过 Composition Root 提供按 Goal/Run 读取轨迹的只读入口；两者投影已提交领域事实，浏览器历史 Run、分页与详情不修改事件、Snapshot、执行或授权状态。Context Adapter 也不能修改这些权威数据，且不会自动加入当前 Prompt。 [S1, S2, S3, S4, S10, S13, S14, S16]
+- D6 — TUI 与浏览器通过 Composition Root 提供按 Goal/Run 读取轨迹的只读入口；两者投影已提交领域事实，浏览器轨迹查询以固定水位和可重建索引分页，且不修改事件、Snapshot、执行或授权状态。Context Adapter 也不能修改这些权威数据，且不会自动加入当前 Prompt。 [S1, S2, S3, S4, S10, S13, S14, S16, S18]
 - D7 — 当前只支持 Snapshot v1；历史版本、旧 Preparation 字段和未知协议在 Codec/Trajectory 边界拒绝，不实现 Durable Outbox、异步重试、exactly-once 或 Trajectory replay 恢复。 [S1, S2, S3, S4, S7, S12, S15]
 
 ## Guardrails
 
 - Runtime State、Trajectory Event 和 Diagnostic Trace 是不同数据面；消费者不得用事件流覆盖或推导当前 Runtime State。 [S1, S2, S5, S9]
 - `state_committed` 只证明 Snapshot 持久化成功，不得作为恢复边界的唯一来源；恢复必须读取最新有效 Snapshot。 [S1, S2, S7, S11]
+- 查询索引只提供定位与关联，不得作为事实来源、恢复输入或可见性权威。 [S17, S18, S19]
 - Domain Event 追加失败不得继续外部 Action、伪造成功结果或创建新的提交快照；Snapshot 已成功但 marker 追加失败时保留 Snapshot，并以 Trace 暴露缺口。 [S1, S2, S6, S7, S11, S12]
 - Abort/shutdown 不会隐式写入 `cancelled`、失败状态或新 Snapshot；当前没有生产性的 `run_cancelled` 事件来源。 [S1, S2, S6, S11]
 - TUI 与浏览器使用独立只读轨迹投影；Agent 不自动把 Trajectory 注入 Prompt，浏览器不得反向覆盖 Runtime State。 [S1, S2, S3, S4, S10, S13, S14, S16]
@@ -38,6 +39,7 @@ authorities: [packages/runtime/notes/overview.md, packages/storage/notes/overvie
 
 - 需要 Snapshot 与 Trajectory 原子双写、异步重试、跨进程并发保护或 exactly-once 时。
 - Trajectory 成为模型上下文正式数据源，或新增不同于现有 TUI/浏览器只读投影的消费者时。
+- JSONL 分段、Blob 外置或查询索引需要压缩、回收或跨进程协调时。
 - Runtime 增加明确的用户取消事件生产路径时。
 - 事件 Schema、恢复协议或 Snapshot 版本策略再次变化时。
 
@@ -59,3 +61,6 @@ authorities: [packages/runtime/notes/overview.md, packages/storage/notes/overvie
 - S14: `apps/goal-board/e2e/board.test.mjs`
 - S15: `specs/preparation-phase-removal/design.md`
 - S16: `packages/browser/notes/overview.md`
+- S17: `packages/storage/src/trajectory-index.ts`
+- S18: `project-memory/features/trajectory-query-contract.md`
+- S19: `packages/storage/test/trajectory-index-recovery.test.ts`

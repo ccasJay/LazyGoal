@@ -4,9 +4,9 @@ status: active
 summary: "以只读紧凑记录呈现已提交执行轨迹，并保存可检查的模型输入消息与 System Prompt"
 source_spec: specs/browser-trajectory/
 distilled_at: 2026-10-01
-reviewed_at: 2026-10-10
+reviewed_at: 2026-11-02
 tags: [browser, trajectory, model-input, system-prompt, read-only, compact-ui, timeline-zoom]
-authorities: [packages/browser/notes/overview.md, packages/storage/notes/overview.md, packages/runtime/src/model-input.ts, packages/storage/src/json-file-model-input-store.ts, packages/browser/src/browser-model-input.ts, apps/goal-board/src/trajectory.tsx, apps/goal-board/src/trajectory-records.tsx, apps/goal-board/src/model-input-inspector.tsx]
+authorities: [packages/browser/notes/overview.md, packages/storage/notes/overview.md, packages/runtime/src/model-input.ts, packages/runtime/src/trajectory-query.ts, packages/storage/src/json-file-model-input-store.ts, packages/browser/src/browser-model-input.ts, apps/goal-board/src/trajectory.tsx, apps/goal-board/src/trajectory-records.tsx, apps/goal-board/src/model-input-inspector.tsx]
 ---
 
 # Browser Trajectory
@@ -18,23 +18,25 @@ authorities: [packages/browser/notes/overview.md, packages/storage/notes/overvie
 
 ## Durable Decisions
 
-- D1 — 领域轨迹仍以 Snapshot 提交边界为准；模型输入是独立的调用前事实，不参与 Snapshot 恢复，也不受该提交边界过滤。输入记录说明 Adapter 调用前准备了哪些消息，不证明 Provider 已接收，也不包含原生工具声明或 Provider 转换后的 Wire 参数。 [S1, S2, S3, S5, S7]
+- D1 — 领域轨迹仍以 Snapshot 提交边界为准；模型输入是独立的调用前事实，不参与 Snapshot 恢复。浏览器历史查询只暴露水位内已提交模型调用对应的输入；输入记录说明 Adapter 调用前准备了哪些消息，不证明 Provider 已接收，也不包含原生工具声明或 Provider 转换后的 Wire 参数。 [S1, S2, S3, S5, S7, S12]
 - D2 — 每次输入记录保留调用身份、阶段、时间、消息角色、已知来源、正文与原始顺序；正文按 Goal 内 SHA-256 内容寻址，在 Run 之间复用。写入不完整或哈希不符时拒绝读取；输入日志写入失败时阻止该次 Adapter 调用。 [S2, S4, S5, S6, S9]
 - D3 — 轨迹表保持领域事件序列，用紧凑单行记录合并工具输入/结果预览，并在对应请求附近显示 System Prompt 首次出现或发生变化的记录；完整消息、System Prompt、Diff、Source 与 Raw 按需放入检查器。历史输入缺失必须标记为未记录，不能用当前配置重建旧请求。 [S1, S2, S3, S7, S8]
-- D4 — 浏览器请求列表与消息正文搜索分页读取，详情设 2 MiB 上限、Diff 超过 2,000 行时退回查看完整文本；轨迹 JSONL 和输入清单仍整文件读取，因此 HTTP/DOM 分页不构成磁盘读取成本上限。 [S2, S3, S7, S8]
+- D4 — 浏览器请求列表与消息正文搜索分页读取，模型输入详情设 2 MiB 上限、Diff 超过 2,000 行时退回查看完整文本；轨迹列表、详情、时间线与执行单元查询由 trajectory-query-contract 的索引与固定水位语义拥有，模型输入清单仍整文件读取。 [S2, S3, S7, S8, S12]
 - D5 — 轨迹概览视窗缩放与交互解耦：概览时间线支持以光标位置为锚点的滚轮缩放、拖拽平移模式（Pan mode / Shift+拖拽）、键盘快捷键导航（`+`/`-`/`=`/`Home`/`ArrowLeft`/`ArrowRight`/`Escape`）与缩放重置；视窗变换纯属前端视区投影映射，与轨迹事件分页读取和基于序列的范围过滤严格解耦；在切换 Run、事件页或坐标轴模式（时间 vs 序号）时确定性重置视窗。 [S3, S10, S11]
 
 ## Guardrails
 
 - 输入日志与 Snapshot、Trajectory 领域事实、诊断 Trace、上下文比较基线分属不同职责；调用身份只关联记录，不能使输入事实成为恢复状态或已提交轨迹事件。 [S1, S3, S4, S5, S6]
 - 模型输入日志及事件详情沿用正式浏览器的能力令牌和工作区边界；读取只投影数据，不触发模型调用、工具执行、轨迹变更或授权操作。 [S1, S2, S3, S7]
+- 轨迹查询的可见性、游标与关联语义由 trajectory-query-contract 拥有；本 Capsule 不重复定义或放宽这些规则。 [S12]
 - 不得推测 Provider 实际收到的请求、缺失的历史 Prompt、模型耗时、逐事件用量或工具声明；超出读取上限时明确报错，不能显示截断文本并标成完整内容。 [S1, S2, S3, S7, S8]
 - 轨迹视窗缩放与平移不得触发后端事件重查或改写当前选定序列范围；切换 Run 或分页时必须重置为全量视窗 [0, 1]，防止旧视区悬挂导致空白展示。 [S3, S10]
 
 ## Revisit When
 
 - 模型请求消息来源、调用身份、Snapshot／Trajectory 关联或 Provider 请求边界改变时。
-- JSONL 存储获得有界随机访问、压缩或多进程共同写入保证时。
+- 轨迹查询需要跨 Run、全文检索或替换索引实现时。
+- 模型输入需要与已提交轨迹事件建立显式关联或自动保留策略时。
 - 浏览器开始修改或重放轨迹时。
 
 ## Sources
@@ -50,3 +52,4 @@ authorities: [packages/browser/notes/overview.md, packages/storage/notes/overvie
 - S9: `packages/storage/test/model-input-store.test.ts`
 - S10: `apps/goal-board/src/trajectory.tsx`
 - S11: `apps/goal-board/e2e/board.test.mjs`
+- S12: `project-memory/features/trajectory-query-contract.md`
