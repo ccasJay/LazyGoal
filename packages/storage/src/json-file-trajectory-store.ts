@@ -16,11 +16,22 @@ import { basename, dirname, join } from "node:path";
 
 import type {
     TrajectoryEvent,
+    TrajectoryEventCategory,
+    TrajectoryEventDetail,
     TrajectoryEventDraft,
     TrajectoryEventPayload,
+    TrajectoryEventSummary,
+    TrajectoryEventType,
+    TrajectoryExecutionUnitPage,
+    TrajectoryPage,
+    TrajectoryPageQuery,
+    TrajectoryPayloadReference,
+    TrajectoryQueryContext,
+    TrajectoryQueryPort,
     TrajectoryReadQuery,
     TrajectoryReadResult,
     TrajectoryStore,
+    TrajectoryTimeline,
 } from "../../runtime/src/index";
 import {
     allocateImmutableEvent,
@@ -39,7 +50,9 @@ import { KeyedSerialQueue } from "./keyed-serial-queue";
 import {
     TrajectoryIndex,
     type TrajectoryIndexEntry,
+    type TrajectoryIndexFilter,
     type TrajectoryIndexLocation,
+    type TrajectoryIndexRow,
 } from "./trajectory-index";
 
 /** 尾部反向扫描的单次回读块大小(字节)。 */
@@ -165,6 +178,101 @@ function parseTailSequence(
     return sequence;
 }
 
+const TRAJECTORY_CATEGORIES = new Set<TrajectoryEventCategory>([
+    "lifecycle",
+    "decision",
+    "memory",
+    "action",
+    "tool",
+    "observation",
+    "terminal",
+    "commit",
+]);
+
+interface TrajectoryCursorPayload {
+    readonly v: 1;
+    readonly runId: string;
+    readonly watermark: number;
+    readonly filter: string;
+    readonly sequence: number;
+}
+
+function encodeTrajectoryCursor(
+    context: TrajectoryQueryContext,
+    filter: string,
+    sequence: number,
+): string {
+    const payload: TrajectoryCursorPayload = {
+        v: 1,
+        runId: context.runId,
+        watermark: context.committedThroughSequence,
+        filter,
+        sequence,
+    };
+    return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+}
+
+function decodeTrajectoryCursor(
+    cursor: string,
+    context: TrajectoryQueryContext,
+    filter: string,
+): number {
+    let parsed: unknown;
+
+    try {
+        parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
+    } catch {
+        throw new TrajectoryProtocolError("Invalid Trajectory cursor");
+    }
+
+    if (!isRecord(parsed)
+        || parsed.v !== 1
+        || parsed.runId !== context.runId
+        || parsed.watermark !== context.committedThroughSequence
+        || parsed.filter !== filter
+        || typeof parsed.sequence !== "number"
+        || !Number.isSafeInteger(parsed.sequence)
+        || parsed.sequence < 0) {
+        throw new TrajectoryProtocolError("Trajectory cursor does not match the current query");
+    }
+
+    return parsed.sequence;
+}
+
+function trajectoryFilterKey(query: TrajectoryPageQuery): string {
+    return JSON.stringify([
+        query.category ?? null,
+        query.executionUnitId ?? null,
+        query.actionId ?? null,
+        query.modelCallId ?? null,
+        query.fromSequence ?? null,
+        query.toSequence ?? null,
+    ]);
+}
+
+function toTrajectorySummary(row: TrajectoryIndexRow): TrajectoryEventSummary {
+    return {
+        eventId: row.eventId,
+        sequence: row.sequence,
+        occurredAt: row.occurredAt,
+        eventType: row.eventType as TrajectoryEventType,
+        category: row.category as TrajectoryEventCategory,
+        ...(row.executionUnitId === undefined ? {} : { executionUnitId: row.executionUnitId }),
+        ...(row.stepIndex === undefined ? {} : { stepIndex: row.stepIndex }),
+        ...(row.actionId === undefined ? {} : { actionId: row.actionId }),
+        ...(row.modelCallId === undefined ? {} : { modelCallId: row.modelCallId }),
+        ...(row.modelStage === "think" || row.modelStage === "decide" ? { modelStage: row.modelStage } : {}),
+        ...(row.programId === undefined ? {} : { programId: row.programId }),
+        ...(row.callIndex === undefined ? {} : { callIndex: row.callIndex }),
+        ...(row.parentActionId === undefined ? {} : { parentActionId: row.parentActionId }),
+        title: row.title,
+        preview: row.preview,
+        previewTruncated: row.previewTruncated,
+        ...(row.inputPreview === undefined ? {} : { inputPreview: row.inputPreview }),
+        ...(row.resultPreview === undefined ? {} : { resultPreview: row.resultPreview }),
+    };
+}
+
 /**
  * 基于 JSONL 文件的单进程 Trajectory Store。
  *
@@ -189,7 +297,7 @@ function parseTailSequence(
  * );
  * ```
  */
-export class JsonFileTrajectoryStore implements TrajectoryStore {
+export class JsonFileTrajectoryStore implements TrajectoryStore, TrajectoryQueryPort {
     private readonly appendQueue = new KeyedSerialQueue();
     private readonly sequenceCache = new Map<string, number>();
     private readonly segmentState = new Map<string, SegmentState>();
@@ -369,6 +477,319 @@ export class JsonFileTrajectoryStore implements TrajectoryStore {
     ): Promise<Readonly<TrajectoryReadResult>> {
         const events = await this.read(query);
         return classifyTrajectoryTail(events, committedThroughSequence);
+    }
+
+    async queryPage(
+        context: TrajectoryQueryContext,
+        query: TrajectoryPageQuery,
+    ): Promise<TrajectoryPage> {
+        this.assertQueryContext(context);
+        this.assertPageQuery(query);
+        const filterKey = trajectoryFilterKey(query);
+        const cursorSequence = query.cursor === undefined
+            ? undefined
+            : decodeTrajectoryCursor(query.cursor, context, filterKey);
+        const direction = query.direction ?? "forward";
+        const index = await this.readyIndex(context.goalId, context.runId);
+        const base = this.indexFilter(context, query, direction, query.limit);
+        const rows = index.queryRows({
+            ...base,
+            ...(cursorSequence === undefined ? {} : direction === "forward"
+                ? { afterSequence: cursorSequence }
+                : { beforeSequence: cursorSequence }),
+        });
+        const first = rows[0];
+        const last = rows.at(-1);
+        const hasBefore = first !== undefined
+            && index.countRows({ ...base, beforeSequence: first.sequence }, true) > 0;
+        const hasAfter = last !== undefined
+            && index.countRows({ ...base, afterSequence: last.sequence }, true) > 0;
+
+        return {
+            entries: rows.map(toTrajectorySummary),
+            total: index.countRows(base),
+            committedCount: index.countVisible(context.committedThroughSequence),
+            previousCursor: first !== undefined && hasBefore
+                ? encodeTrajectoryCursor(context, filterKey, first.sequence) : null,
+            nextCursor: last !== undefined && hasAfter
+                ? encodeTrajectoryCursor(context, filterKey, last.sequence) : null,
+            locatedSequence: null,
+            committedThroughSequence: context.committedThroughSequence,
+        };
+    }
+
+    async readDetail(
+        context: TrajectoryQueryContext,
+        sequence: number,
+    ): Promise<TrajectoryEventDetail | undefined> {
+        this.assertQueryContext(context);
+        this.assertSequence(sequence);
+        const index = await this.readyIndex(context.goalId, context.runId);
+        const row = index.rowAt(sequence, context.committedThroughSequence);
+        if (row === undefined) return undefined;
+
+        const event = await this.readEventAtRow(context, row);
+        const relatedRows = row.actionId === undefined
+            ? []
+            : index.rowsByAction(row.actionId, context.committedThroughSequence);
+        const find = (eventType: string) => relatedRows.find((candidate) => candidate.eventType === eventType);
+        const decisionRow = find("decision_received");
+        const actionRow = find("action_staged");
+        const startedRow = find("tool_started");
+        const finishedRow = find("tool_finished");
+        const observationRow = find("observation_recorded");
+        const startedEvent = startedRow === undefined ? undefined : await this.readEventAtRow(context, startedRow);
+        const stagedEvent = actionRow === undefined ? undefined : await this.readEventAtRow(context, actionRow);
+        const decisionEvent = decisionRow === undefined ? undefined : await this.readEventAtRow(context, decisionRow);
+        const finishedEvent = finishedRow === undefined ? undefined : await this.readEventAtRow(context, finishedRow);
+        const observationEvent = observationRow === undefined ? undefined : await this.readEventAtRow(context, observationRow);
+        const input = startedEvent?.eventType === "tool_started" ? startedEvent.payload.input
+            : stagedEvent?.eventType === "action_staged" ? stagedEvent.payload.action.input
+                : decisionEvent?.eventType === "decision_received" && decisionEvent.payload.decision.kind === "tool_call"
+                    ? decisionEvent.payload.decision.action.input
+                    : undefined;
+        const observation = observationEvent?.eventType === "observation_recorded" ? observationEvent.payload.observation
+            : finishedEvent?.eventType === "tool_finished" ? finishedEvent.payload.observation
+                : undefined;
+        const startedAt = startedEvent?.occurredAt;
+        const finishedAt = finishedEvent?.occurredAt;
+        const duration = startedAt === undefined || finishedAt === undefined
+            ? Number.NaN
+            : Date.parse(finishedAt) - Date.parse(startedAt);
+
+        return {
+            event,
+            correlation: projectTrajectoryEventCorrelation(event),
+            related: {
+                ...(decisionRow === undefined ? {} : { decision: decisionRow.sequence }),
+                ...(actionRow === undefined ? {} : { action: actionRow.sequence }),
+                ...(startedRow === undefined ? {} : { toolStarted: startedRow.sequence }),
+                ...(finishedRow === undefined ? {} : { toolFinished: finishedRow.sequence }),
+                ...(observationRow === undefined ? {} : { observation: observationRow.sequence }),
+            },
+            ...(input === undefined ? {} : { input }),
+            ...(observation === undefined ? {} : { observation }),
+            ...(startedAt === undefined ? {} : { toolStartedAt: startedAt }),
+            ...(finishedAt === undefined ? {} : { toolFinishedAt: finishedAt }),
+            toolDurationMs: Number.isFinite(duration) && duration >= 0 ? duration : null,
+            observationConfirmed: observationRow !== undefined,
+            payloadBytes: row.payloadBytes,
+            ...(row.payloadRef === undefined ? {} : { payloadRef: this.parsePayloadReference(row.payloadRef) }),
+        };
+    }
+
+    async locateExecutionUnit(
+        context: TrajectoryQueryContext,
+        executionUnitId: string,
+    ): Promise<number | undefined> {
+        this.assertQueryContext(context);
+        this.assertIdentifierValue(executionUnitId, "executionUnitId");
+        const index = await this.readyIndex(context.goalId, context.runId);
+        return index.locateExecutionUnit(executionUnitId, context.committedThroughSequence);
+    }
+
+    async queryExecutionUnitPage(
+        context: TrajectoryQueryContext,
+        executionUnitId: string,
+        query: TrajectoryPageQuery,
+    ): Promise<TrajectoryExecutionUnitPage> {
+        this.assertQueryContext(context);
+        this.assertIdentifierValue(executionUnitId, "executionUnitId");
+        const unitQuery: TrajectoryPageQuery = { ...query, executionUnitId };
+        this.assertPageQuery(unitQuery);
+        const filterKey = trajectoryFilterKey(unitQuery);
+        const cursorSequence = query.cursor === undefined
+            ? undefined
+            : decodeTrajectoryCursor(query.cursor, context, filterKey);
+        const direction = query.direction ?? "forward";
+        const index = await this.readyIndex(context.goalId, context.runId);
+        const base = this.indexFilter(context, unitQuery, direction, query.limit);
+        const rows = index.queryRows({
+            ...base,
+            ...(cursorSequence === undefined ? {} : direction === "forward"
+                ? { afterSequence: cursorSequence }
+                : { beforeSequence: cursorSequence }),
+        });
+        const last = rows.at(-1);
+        const hasAfter = last !== undefined
+            && index.countRows({ ...base, afterSequence: last.sequence }, true) > 0;
+        const firstSequence = index.locateExecutionUnit(executionUnitId, context.committedThroughSequence);
+        const lastSequence = index.lastExecutionUnitSequence(executionUnitId, context.committedThroughSequence);
+
+        return {
+            entries: rows.map(toTrajectorySummary),
+            total: index.countRows(base),
+            nextCursor: last !== undefined && hasAfter
+                ? encodeTrajectoryCursor(context, filterKey, last.sequence) : null,
+            contextBefore: firstSequence === undefined
+                ? []
+                : index.contextRows(context.committedThroughSequence, firstSequence, "before", 5, executionUnitId).map(toTrajectorySummary),
+            contextAfter: lastSequence === undefined
+                ? []
+                : index.contextRows(context.committedThroughSequence, lastSequence, "after", 5, executionUnitId).map(toTrajectorySummary),
+        };
+    }
+
+    async queryTimeline(
+        context: TrajectoryQueryContext,
+        bucketSize: number,
+    ): Promise<TrajectoryTimeline> {
+        this.assertQueryContext(context);
+
+        if (!Number.isSafeInteger(bucketSize) || bucketSize < 1 || bucketSize > 10_000) {
+            throw new TrajectoryProtocolError("Trajectory timeline bucket size must be between 1 and 10000");
+        }
+
+        const index = await this.readyIndex(context.goalId, context.runId);
+        return index.timeline(context.committedThroughSequence, bucketSize);
+    }
+
+    async readPayload(
+        context: TrajectoryQueryContext,
+        sequence: number,
+    ): Promise<string | undefined> {
+        this.assertQueryContext(context);
+        this.assertSequence(sequence);
+        const index = await this.readyIndex(context.goalId, context.runId);
+        const row = index.rowAt(sequence, context.committedThroughSequence);
+        if (row === undefined) return undefined;
+
+        if (row.payloadRef !== undefined) {
+            return canonicalJson(await this.readPayloadBlob(context.goalId, this.parsePayloadReference(row.payloadRef)));
+        }
+
+        return canonicalJson((await this.readEventAtRow(context, row)).payload);
+    }
+
+    private async readyIndex(goalId: string, runId: string): Promise<TrajectoryIndex> {
+        const key = this.keyFor(goalId, runId);
+        return this.appendQueue.run(key, () => this.ensureIndex(goalId, runId));
+    }
+
+    private async readEventAtRow(
+        context: TrajectoryQueryContext,
+        row: TrajectoryIndexRow,
+    ): Promise<Readonly<TrajectoryEvent>> {
+        const filePath = this.segmentFilePath(context.goalId, context.runId, row.segment);
+        let handle: FileHandle;
+
+        try {
+            handle = await this.fileOperations.open(filePath, "r");
+        } catch {
+            throw new TrajectoryProtocolError(`Missing Trajectory segment for event ${row.sequence}`);
+        }
+
+        try {
+            const buffer = Buffer.alloc(row.byteLength);
+            const { bytesRead } = await handle.read(buffer, 0, row.byteLength, row.byteOffset);
+
+            if (bytesRead !== row.byteLength) {
+                throw new TrajectoryProtocolError(`Trajectory index location is out of bounds for event ${row.sequence}`);
+            }
+
+            let parsed: unknown;
+
+            try {
+                parsed = JSON.parse(buffer.toString("utf8").replace(/\r?\n$/, ""));
+            } catch {
+                throw new TrajectoryProtocolError(`Invalid Trajectory JSONL at index row ${row.sequence}`);
+            }
+
+            const event = await this.decodeStoredEvent(parsed, context.goalId, context.runId, `index row ${row.sequence}`);
+
+            if (event.sequence !== row.sequence || event.eventId !== row.eventId) {
+                throw new TrajectoryProtocolError(`Trajectory index location does not match event ${row.sequence}`);
+            }
+
+            return event;
+        } finally {
+            await handle.close();
+        }
+    }
+
+    private indexFilter(
+        context: TrajectoryQueryContext,
+        query: TrajectoryPageQuery,
+        direction: "forward" | "backward",
+        limit: number,
+    ): TrajectoryIndexFilter {
+        return {
+            committedThroughSequence: context.committedThroughSequence,
+            ...(query.category === undefined ? {} : { category: query.category }),
+            ...(query.executionUnitId === undefined ? {} : { executionUnitId: query.executionUnitId }),
+            ...(query.actionId === undefined ? {} : { actionId: query.actionId }),
+            ...(query.modelCallId === undefined ? {} : { modelCallId: query.modelCallId }),
+            ...(query.fromSequence === undefined ? {} : { fromSequence: query.fromSequence }),
+            ...(query.toSequence === undefined ? {} : { toSequence: query.toSequence }),
+            direction,
+            limit,
+        };
+    }
+
+    private assertQueryContext(context: TrajectoryQueryContext): void {
+        this.keyFor(context.goalId, context.runId);
+
+        if (!Number.isSafeInteger(context.committedThroughSequence) || context.committedThroughSequence < 0) {
+            throw new TrajectoryProtocolError("Trajectory query watermark must be a non-negative safe integer");
+        }
+    }
+
+    private assertPageQuery(query: TrajectoryPageQuery): void {
+        if (!Number.isSafeInteger(query.limit) || query.limit < 1 || query.limit > 200) {
+            throw new TrajectoryProtocolError("Trajectory page limit must be between 1 and 200");
+        }
+
+        if (query.direction !== undefined && query.direction !== "forward" && query.direction !== "backward") {
+            throw new TrajectoryProtocolError("Trajectory page direction is invalid");
+        }
+
+        if (query.category !== undefined && !TRAJECTORY_CATEGORIES.has(query.category)) {
+            throw new TrajectoryProtocolError("Trajectory page category is invalid");
+        }
+
+        for (const value of [query.fromSequence, query.toSequence]) {
+            if (value !== undefined && (!Number.isSafeInteger(value) || value < 0)) {
+                throw new TrajectoryProtocolError("Trajectory sequence range must use non-negative integers");
+            }
+        }
+
+        if (query.fromSequence !== undefined && query.toSequence !== undefined
+            && query.fromSequence > query.toSequence) {
+            throw new TrajectoryProtocolError("Trajectory sequence range is inverted");
+        }
+
+        if (query.cursor !== undefined && query.cursor.length === 0) {
+            throw new TrajectoryProtocolError("Trajectory cursor must be non-empty");
+        }
+
+        for (const value of [query.executionUnitId, query.actionId, query.modelCallId]) {
+            if (value !== undefined) this.assertIdentifierValue(value, "Trajectory filter");
+        }
+    }
+
+    private assertSequence(sequence: number): void {
+        if (!Number.isSafeInteger(sequence) || sequence < 1) {
+            throw new TrajectoryProtocolError("Trajectory sequence must be a positive safe integer");
+        }
+    }
+
+    private assertIdentifierValue(value: string, field: string): void {
+        if (typeof value !== "string" || value.trim().length === 0) {
+            throw new TrajectoryProtocolError(`${field} must be a non-empty string`);
+        }
+    }
+
+    private parsePayloadReference(value: string): StoredPayloadReference {
+        let parsed: unknown;
+
+        try {
+            parsed = JSON.parse(value);
+        } catch {
+            throw new TrajectoryProtocolError("Invalid Trajectory payload reference in index");
+        }
+
+        this.assertPayloadReference(parsed, "index");
+        return parsed;
     }
 
     /**
