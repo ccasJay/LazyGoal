@@ -44,6 +44,7 @@ import {
 import { errorMessage, toSessionInteractionResponse, type BrowserGoalInteractionCommand } from "./types";
 import type { ControlIntents } from "./hooks/useControlIntents";
 import { reviewOf } from "./control/results";
+import { selectApprovalSession } from "./control/approval-session";
 
 /** 完整审阅详情的加载结果。 */
 type InteractionDetailState =
@@ -1201,22 +1202,25 @@ export function ActionInteractionRegion({
   const [rejection, setRejection] = useState("");
   const [editing, setEditing] = useState(false);
   const [draftInput, setDraftInput] = useState("");
-  const [review, setReview] = useState<BrowserActionReview | undefined>(undefined);
   const [reviewError, setReviewError] = useState<string | undefined>(undefined);
-  const [reviewing, setReviewing] = useState(false);
+  const [invalidatedReviewId, setInvalidatedReviewId] = useState<string | undefined>(undefined);
   const identity = `${view.runId}:${view.interactionId}`;
+  const actionId = summary?.actionId ?? view.actionId;
+  const approval = actionId === undefined ? undefined : selectApprovalSession(control.state, actionId);
+  const reviewing = approval?.phase === "reviewing";
+  const review = approval !== undefined && approval.reviewIntentId !== invalidatedReviewId ? approval.review : undefined;
   useEffect(() => {
     setScope("action");
     setRejection("");
     setEditing(false);
     setDraftInput("");
-    setReview(undefined);
+    setInvalidatedReviewId(undefined);
     setReviewError(undefined);
   }, [identity]);
 
   // 再次编辑或更换期限都会让旧审阅结果失效。
   function invalidateReview(): void {
-    setReview(undefined);
+    setInvalidatedReviewId(approval?.reviewIntentId);
     setReviewError(undefined);
   }
 
@@ -1224,10 +1228,8 @@ export function ActionInteractionRegion({
     const parsed = parseEditedInput(draftInput);
     if (!parsed.ok) {
       setReviewError(parsed.message);
-      setReview(undefined);
       return;
     }
-    setReviewing(true);
     const receipt = await control.submit({
       kind: "action_review",
       intentId: crypto.randomUUID(),
@@ -1237,25 +1239,19 @@ export function ActionInteractionRegion({
       input: parsed.value as BrowserJsonValue,
       scope,
     });
-    setReviewing(false);
     if (receipt.status === "rejected") {
-      setReview(undefined);
       setReviewError(actionReviewErrorText(receipt.error));
       return;
     }
     if (receipt.status === "unknown") {
-      setReview(undefined);
       setReviewError("The preview result is unknown. Reload the request before previewing again.");
       return;
     }
-    const reviewed = reviewOf(receipt.result);
-    if (reviewed === undefined) {
-      setReview(undefined);
+    if (reviewOf(receipt.result) === undefined) {
       setReviewError(actionReviewErrorText("review_unavailable"));
       return;
     }
     setReviewError(undefined);
-    setReview(reviewed);
   }
 
   function handleEvent(event: ActionViewEvent): void {
