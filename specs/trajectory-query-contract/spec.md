@@ -73,7 +73,7 @@ superseded_by: null
 - [x] //TODO 1. 验证 `node:sqlite` 在宿主与固定 Worker 镜像中的可用性，加入启动警告抑制与依赖边界 → R1.1；检查：`node -e "require('node:sqlite')"`、`npm run check:dependencies`
 - [x] //TODO 2. 新增 Runtime 查询契约：水位上下文、事件关联、有界摘要与查询 Port → R2.1、R3.2；检查：`npx tsc --noEmit -p packages/runtime`
 - [x] //TODO 3. 存储编码支持 Blob 与分段，并保持 `read()` 返回完整领域事件 → R4.1、R4.2；检查：`npx tsx --test packages/storage/test/trajectory-encoding.test.ts`
-- [ ] //TODO 4. 实现 SQLite 索引写入、打开校验、增量修复、重建与截断 → R1.1、R1.2；检查：`npx tsx --test packages/storage/test/trajectory-index-write.test.ts`
+- [x] //TODO 4. 实现 SQLite 索引写入、打开校验、增量修复、重建与截断 → R1.1、R1.2；检查：`npx tsx --test packages/storage/test/trajectory-index-write.test.ts`
 - [ ] //TODO 5. 实现索引查询：分页、详情、执行单元、关联与时间线聚合，全部按水位过滤 → R1.3、R2.1、R3.1、R6.1；检查：`npx tsx --test packages/storage/test/trajectory-index-query.test.ts`
 - [ ] //TODO 6. 迁移 Browser 轨迹路由：不透明游标、新查询端点、移除 `q`、稳定错误语义 → R1.3、R2.1、R2.2、R3.2；检查：`npx tsx --test packages/browser/test/browser-trajectory.test.ts packages/browser/test/browser-trajectory-detail.test.ts packages/browser/test/browser-trajectory-pagination.test.ts`
 - [ ] //TODO 7. 更新 Web wire 契约与生成绑定：分页水位、详情关联、Timeline、Model Input → R2.1、R5.1、R6.1；检查：`npm run contracts:generate -- --check`

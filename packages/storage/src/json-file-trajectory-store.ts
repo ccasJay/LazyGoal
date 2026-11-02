@@ -7,6 +7,7 @@ import {
     open,
     readFile,
     readdir,
+    rm,
     stat,
     writeFile,
     type FileHandle,
@@ -26,6 +27,8 @@ import {
     assertValidTrajectoryEventDraft,
     classifyTrajectoryTail,
     freezeTrajectoryEvent,
+    projectTrajectoryEventCorrelation,
+    projectTrajectoryEventSummary,
     TrajectoryProtocolError,
 } from "../../runtime/src/index";
 import {
@@ -33,6 +36,11 @@ import {
     WRITE_RETRY_THREE_ATTEMPTS,
 } from "./json-file-write";
 import { KeyedSerialQueue } from "./keyed-serial-queue";
+import {
+    TrajectoryIndex,
+    type TrajectoryIndexEntry,
+    type TrajectoryIndexLocation,
+} from "./trajectory-index";
 
 /** 尾部反向扫描的单次回读块大小(字节)。 */
 const TAIL_SCAN_BLOCK_BYTES = 4_096;
@@ -83,6 +91,20 @@ interface TrajectoryStoredEvent {
 interface SegmentState {
     readonly segment: number;
     readonly size: number;
+}
+
+/** 扫描到的一条存储行及其字节位置。 */
+interface StoredLineLocation {
+    readonly segment: number;
+    readonly byteOffset: number;
+    readonly byteLength: number;
+    readonly parsed: unknown;
+}
+
+/** 存储编码结果及其 payload 字节数。 */
+interface EncodedStoredEvent {
+    readonly stored: TrajectoryStoredEvent;
+    readonly payloadBytes: number;
 }
 
 /**
@@ -171,6 +193,9 @@ export class JsonFileTrajectoryStore implements TrajectoryStore {
     private readonly appendQueue = new KeyedSerialQueue();
     private readonly sequenceCache = new Map<string, number>();
     private readonly segmentState = new Map<string, SegmentState>();
+    private readonly indexes = new Map<string, TrajectoryIndex>();
+    private readonly verifiedIndexes = new Set<string>();
+    private readonly dirtyIndexes = new Set<string>();
     private readonly directory: string;
     private readonly fileOperations: Required<JsonTrajectoryFileOperations>;
     private readonly blobThresholdBytes: number;
@@ -275,24 +300,38 @@ export class JsonFileTrajectoryStore implements TrajectoryStore {
         assertValidTrajectoryEventDraft(draft);
         const key = this.keyFor(draft.goalId, draft.runId);
         return this.appendQueue.run(key, async () => {
+            const index = await this.ensureIndex(draft.goalId, draft.runId);
             const lastSequence = this.sequenceCache.get(key)
                 ?? await this.readLastStoredSequence(draft.goalId, draft.runId);
             const sequence = lastSequence + 1;
             const event = allocateImmutableEvent(draft, sequence);
-            const stored = await this.encodeStoredEvent(event);
+            const encoded = await this.encodeStoredEvent(event);
             const active = await this.resolveActiveSegment(draft.goalId, draft.runId);
             const filePath = this.segmentFilePath(draft.goalId, draft.runId, active.segment);
+            const lineBytes = Buffer.byteLength(`${JSON.stringify(encoded.stored)}\n`, "utf8");
 
             await this.writeEventLine(
                 filePath,
-                join(this.directory, this.encodeIdentifier(draft.goalId)),
-                stored,
+                this.goalDirectory(draft.goalId),
+                encoded.stored,
             );
             this.sequenceCache.set(key, sequence);
             this.segmentState.set(key, {
                 segment: active.segment,
-                size: active.size + Buffer.byteLength(`${JSON.stringify(stored)}\n`, "utf8"),
+                size: active.size + lineBytes,
             });
+
+            try {
+                this.indexEvent(index, event, {
+                    segment: active.segment,
+                    byteOffset: active.size,
+                    byteLength: lineBytes,
+                }, encoded);
+            } catch {
+                this.verifiedIndexes.delete(key);
+                this.dirtyIndexes.add(key);
+            }
+
             return event;
         });
     }
@@ -448,48 +487,22 @@ export class JsonFileTrajectoryStore implements TrajectoryStore {
         goalId: string,
         runId: string,
     ): Promise<readonly TrajectoryEvent[]> {
-        const segments = await this.listSegmentNumbers(goalId, runId);
+        const lines = await this.scanStoredLines(goalId, runId);
         const events: TrajectoryEvent[] = [];
         let previousSequence = 0;
 
-        for (const segment of segments) {
-            const filePath = this.segmentFilePath(goalId, runId, segment);
-            let content: string;
+        for (const line of lines) {
+            const location = this.describeLine(runId, line);
+            const event = await this.decodeStoredEvent(line.parsed, goalId, runId, location);
 
-            try {
-                content = await this.fileOperations.readFile(filePath, "utf8");
-            } catch (error) {
-                if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
-                throw error;
+            if (event.sequence <= previousSequence) {
+                throw new TrajectoryProtocolError(
+                    `Trajectory sequence must increase at ${location}`,
+                );
             }
 
-            const lines = content.split(/\r?\n/);
-
-            for (const [index, line] of lines.entries()) {
-                if (line.trim().length === 0) continue;
-
-                const location = `${basename(filePath)} line ${index + 1}`;
-                let parsed: unknown;
-
-                try {
-                    parsed = JSON.parse(line);
-                } catch {
-                    throw new TrajectoryProtocolError(
-                        `Invalid Trajectory JSONL at ${location}`,
-                    );
-                }
-
-                const event = await this.decodeStoredEvent(parsed, goalId, runId, location);
-
-                if (event.sequence <= previousSequence) {
-                    throw new TrajectoryProtocolError(
-                        `Trajectory sequence must increase at ${location}`,
-                    );
-                }
-
-                previousSequence = event.sequence;
-                events.push(event);
-            }
+            previousSequence = event.sequence;
+            events.push(event);
         }
 
         return Object.freeze(events);
@@ -561,16 +574,23 @@ export class JsonFileTrajectoryStore implements TrajectoryStore {
      */
     private async encodeStoredEvent(
         event: Readonly<TrajectoryEvent>,
-    ): Promise<TrajectoryStoredEvent> {
+    ): Promise<EncodedStoredEvent> {
         const { payload, ...envelope } = event;
         const text = canonicalJson(payload);
+        const payloadBytes = Buffer.byteLength(text, "utf8");
 
-        if (Buffer.byteLength(text, "utf8") <= this.blobThresholdBytes) {
-            return { storageEncodingVersion: STORAGE_ENCODING_VERSION, ...envelope, payload } as TrajectoryStoredEvent;
+        if (payloadBytes <= this.blobThresholdBytes) {
+            return {
+                stored: { storageEncodingVersion: STORAGE_ENCODING_VERSION, ...envelope, payload } as TrajectoryStoredEvent,
+                payloadBytes,
+            };
         }
 
         const payloadRef = await this.writePayloadBlob(event.goalId, payload);
-        return { storageEncodingVersion: STORAGE_ENCODING_VERSION, ...envelope, payloadRef } as TrajectoryStoredEvent;
+        return {
+            stored: { storageEncodingVersion: STORAGE_ENCODING_VERSION, ...envelope, payloadRef } as TrajectoryStoredEvent,
+            payloadBytes,
+        };
     }
 
     private async writePayloadBlob(
@@ -700,6 +720,372 @@ export class JsonFileTrajectoryStore implements TrajectoryStore {
             if ((error as NodeJS.ErrnoException).code === "ENOENT") return 0;
             throw error;
         }
+    }
+
+    private async ensureIndex(goalId: string, runId: string): Promise<TrajectoryIndex> {
+        const key = this.keyFor(goalId, runId);
+        const index = await this.openIndex(goalId, runId);
+
+        if (this.verifiedIndexes.has(key) && !this.dirtyIndexes.has(key)) return index;
+
+        if (await this.normalizeTrailingSegment(goalId, runId)) {
+            this.sequenceCache.delete(key);
+            this.segmentState.delete(key);
+        }
+
+        const segments = await this.listSegmentNumbers(goalId, runId);
+        const lastSegment = segments.at(-1);
+        const jsonlLast = lastSegment === undefined
+            ? 0
+            : await this.readLastSequenceInFile(this.segmentFilePath(goalId, runId, lastSegment), goalId, runId);
+        const indexLast = index.maxSequence();
+
+        if (indexLast > jsonlLast) {
+            await this.rebuildIndex(goalId, runId, index);
+        } else if (indexLast < jsonlLast) {
+            const after = indexLast === 0 ? undefined : index.lastLocation();
+
+            if (after === undefined || !(await this.locationMatches(goalId, runId, after))) {
+                await this.rebuildIndex(goalId, runId, index);
+            } else {
+                await this.repairIndex(goalId, runId, index, after);
+            }
+        } else if (indexLast > 0) {
+            const last = index.lastLocation();
+
+            if (last === undefined || !(await this.locationMatches(goalId, runId, last))) {
+                await this.rebuildIndex(goalId, runId, index);
+            }
+        }
+
+        if (index.count() !== jsonlLast) {
+            await this.rebuildIndex(goalId, runId, index);
+        }
+
+        this.verifiedIndexes.add(key);
+        this.dirtyIndexes.delete(key);
+        return index;
+    }
+
+    private async openIndex(goalId: string, runId: string): Promise<TrajectoryIndex> {
+        const key = this.keyFor(goalId, runId);
+        const existing = this.indexes.get(key);
+        if (existing !== undefined) return existing;
+
+        await this.fileOperations.mkdir(this.goalDirectory(goalId), { recursive: true, mode: 0o700 });
+        const path = this.indexPath(goalId, runId);
+        let index: TrajectoryIndex;
+
+        try {
+            index = new TrajectoryIndex(path);
+        } catch {
+            for (const suffix of ["", "-journal", "-wal", "-shm"]) {
+                await rm(`${path}${suffix}`, { force: true });
+            }
+            index = new TrajectoryIndex(path);
+        }
+
+        this.indexes.set(key, index);
+        return index;
+    }
+
+    private async rebuildIndex(
+        goalId: string,
+        runId: string,
+        index: TrajectoryIndex,
+    ): Promise<void> {
+        const lines = await this.scanStoredLines(goalId, runId);
+        const decoded: Array<{
+            event: Readonly<TrajectoryEvent>;
+            location: StoredLineLocation;
+            payloadBytes: number;
+            payloadRef: StoredPayloadReference | undefined;
+        }> = [];
+
+        for (const line of lines) {
+            decoded.push({
+                event: await this.decodeStoredEvent(line.parsed, goalId, runId, this.describeLine(runId, line)),
+                location: line,
+                payloadBytes: this.storedPayloadBytes(line.parsed),
+                payloadRef: this.storedPayloadRef(line.parsed),
+            });
+        }
+
+        index.clear();
+        index.runInTransaction(() => {
+            for (const item of decoded) {
+                this.indexDecodedEvent(index, item.event, item.location, item.payloadBytes, item.payloadRef);
+            }
+        });
+    }
+
+    private async repairIndex(
+        goalId: string,
+        runId: string,
+        index: TrajectoryIndex,
+        after: TrajectoryIndexLocation,
+    ): Promise<void> {
+        const lines = await this.scanStoredLines(goalId, runId, after);
+        const decoded: Array<{
+            event: Readonly<TrajectoryEvent>;
+            location: StoredLineLocation;
+            payloadBytes: number;
+            payloadRef: StoredPayloadReference | undefined;
+        }> = [];
+
+        for (const line of lines) {
+            decoded.push({
+                event: await this.decodeStoredEvent(line.parsed, goalId, runId, this.describeLine(runId, line)),
+                location: line,
+                payloadBytes: this.storedPayloadBytes(line.parsed),
+                payloadRef: this.storedPayloadRef(line.parsed),
+            });
+        }
+
+        index.runInTransaction(() => {
+            for (const item of decoded) {
+                this.indexDecodedEvent(index, item.event, item.location, item.payloadBytes, item.payloadRef);
+            }
+        });
+    }
+
+    private indexEvent(
+        index: TrajectoryIndex,
+        event: Readonly<TrajectoryEvent>,
+        location: { readonly segment: number; readonly byteOffset: number; readonly byteLength: number },
+        encoded: EncodedStoredEvent,
+    ): void {
+        index.runInTransaction(() => {
+            this.indexDecodedEvent(index, event, location, encoded.payloadBytes, encoded.stored.payloadRef);
+        });
+    }
+
+    private indexDecodedEvent(
+        index: TrajectoryIndex,
+        event: Readonly<TrajectoryEvent>,
+        location: { readonly segment: number; readonly byteOffset: number; readonly byteLength: number },
+        payloadBytes: number,
+        payloadRef: StoredPayloadReference | undefined,
+    ): void {
+        const relation = projectTrajectoryEventCorrelation(event);
+        const summary = projectTrajectoryEventSummary(event);
+        const stage = event.eventType === "think_completed" ? "think"
+            : event.eventType === "decision_received" ? "decide"
+                : summary.modelStage;
+        const modelCallId = summary.modelCallId
+            ?? (event.executionUnitId !== undefined && stage !== undefined
+                ? index.latestModelCallId(event.executionUnitId, stage, event.sequence)
+                : undefined);
+        const parentActionId = relation.parentActionId
+            ?? (relation.programId === undefined ? undefined : index.programParent(relation.programId));
+        const entry: TrajectoryIndexEntry = {
+            sequence: event.sequence,
+            eventId: event.eventId,
+            occurredAt: event.occurredAt,
+            eventType: event.eventType,
+            category: summary.category,
+            ...(event.executionUnitId === undefined ? {} : { executionUnitId: event.executionUnitId }),
+            ...(event.stepIndex === undefined ? {} : { stepIndex: event.stepIndex }),
+            ...(relation.actionId === undefined ? {} : { actionId: relation.actionId }),
+            ...(modelCallId === undefined ? {} : { modelCallId }),
+            ...(stage === undefined ? {} : { modelStage: stage }),
+            ...(relation.programId === undefined ? {} : { programId: relation.programId }),
+            ...(parentActionId === undefined ? {} : { parentActionId }),
+            ...(event.callIndex === undefined ? {} : { callIndex: event.callIndex }),
+            segment: location.segment,
+            byteOffset: location.byteOffset,
+            byteLength: location.byteLength,
+            payloadBytes,
+            ...(payloadRef === undefined ? {} : { payloadRef: JSON.stringify(payloadRef) }),
+            title: summary.title,
+            preview: summary.preview,
+            previewTruncated: summary.previewTruncated,
+            ...(summary.inputPreview === undefined ? {} : { inputPreview: summary.inputPreview }),
+            ...(summary.resultPreview === undefined ? {} : { resultPreview: summary.resultPreview }),
+        };
+
+        index.insert(entry);
+
+        if (relation.programId !== undefined && relation.parentActionId !== undefined
+            && (event.eventType === "program_started" || event.eventType === "program_settled")) {
+            index.insertProgram(relation.programId, relation.parentActionId);
+        }
+
+        if (event.eventType === "tool_finished" && relation.actionId !== undefined && summary.resultPreview !== undefined) {
+            index.updateResultPreview(relation.actionId, summary.resultPreview);
+        }
+    }
+
+    private async scanStoredLines(
+        goalId: string,
+        runId: string,
+        after?: TrajectoryIndexLocation,
+    ): Promise<StoredLineLocation[]> {
+        const segments = await this.listSegmentNumbers(goalId, runId);
+        const result: StoredLineLocation[] = [];
+
+        for (const segment of segments) {
+            if (after !== undefined && segment < after.segment) continue;
+
+            const filePath = this.segmentFilePath(goalId, runId, segment);
+            let buffer: Buffer;
+
+            try {
+                buffer = await this.fileOperations.readFile(filePath) as Buffer;
+            } catch (error) {
+                if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+                throw error;
+            }
+
+            let offset = after !== undefined && segment === after.segment
+                ? after.byteOffset + after.byteLength
+                : 0;
+
+            while (offset < buffer.length) {
+                const newline = buffer.indexOf(0x0a, offset);
+                if (newline < 0) break;
+
+                const end = newline + 1;
+                const text = buffer.subarray(offset, end).toString("utf8").replace(/\r?\n$/, "");
+
+                if (text.trim().length > 0) {
+                    let parsed: unknown;
+
+                    try {
+                        parsed = JSON.parse(text);
+                    } catch {
+                        throw new TrajectoryProtocolError(
+                            `Invalid Trajectory JSONL at ${basename(filePath)} byte ${offset}`,
+                        );
+                    }
+
+                    result.push({ segment, byteOffset: offset, byteLength: end - offset, parsed });
+                }
+
+                offset = end;
+            }
+        }
+
+        return result;
+    }
+
+    private async normalizeTrailingSegment(goalId: string, runId: string): Promise<boolean> {
+        const segments = await this.listSegmentNumbers(goalId, runId);
+        const last = segments.at(-1);
+        if (last === undefined) return false;
+
+        const filePath = this.segmentFilePath(goalId, runId, last);
+        let handle: FileHandle;
+
+        try {
+            handle = await this.fileOperations.open(filePath, "r+");
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+            throw error;
+        }
+
+        try {
+            const { size } = await handle.stat();
+            if (size === 0) return false;
+
+            const lastByte = Buffer.alloc(1);
+            await handle.read(lastByte, 0, 1, size - 1);
+            if (lastByte[0] === 0x0a) return false;
+
+            let position = size;
+            let lineStart = 0;
+
+            while (position > 0) {
+                const readSize = Math.min(TAIL_SCAN_BLOCK_BYTES, position);
+                position -= readSize;
+                const block = Buffer.alloc(readSize);
+                await handle.read(block, 0, readSize, position);
+                const newline = block.lastIndexOf(0x0a);
+
+                if (newline >= 0) {
+                    lineStart = position + newline + 1;
+                    break;
+                }
+            }
+
+            const tailLength = size - lineStart;
+            if (tailLength === 0) return false;
+
+            const tail = Buffer.alloc(tailLength);
+            await handle.read(tail, 0, tailLength, lineStart);
+            let complete = false;
+
+            try {
+                JSON.parse(tail.toString("utf8"));
+                complete = true;
+            } catch {
+                complete = false;
+            }
+
+            if (complete) {
+                await handle.write(Buffer.from("\n"), 0, 1, size);
+            } else {
+                await handle.truncate(lineStart);
+            }
+
+            return true;
+        } finally {
+            await handle.close();
+        }
+    }
+
+    private async locationMatches(
+        goalId: string,
+        runId: string,
+        location: TrajectoryIndexLocation,
+    ): Promise<boolean> {
+        const filePath = this.segmentFilePath(goalId, runId, location.segment);
+        let handle: FileHandle;
+
+        try {
+            handle = await this.fileOperations.open(filePath, "r");
+        } catch {
+            return false;
+        }
+
+        try {
+            const buffer = Buffer.alloc(location.byteLength);
+            const { bytesRead } = await handle.read(buffer, 0, location.byteLength, location.byteOffset);
+            if (bytesRead !== location.byteLength) return false;
+
+            const parsed = JSON.parse(buffer.toString("utf8").replace(/\r?\n$/, "")) as {
+                sequence?: unknown;
+                eventId?: unknown;
+            };
+            return parsed.sequence === location.sequence && parsed.eventId === location.eventId;
+        } catch {
+            return false;
+        } finally {
+            await handle.close();
+        }
+    }
+
+    private storedPayloadBytes(parsed: unknown): number {
+        if (!isRecord(parsed)) return 0;
+        const reference = parsed.payloadRef;
+
+        if (isRecord(reference) && typeof reference.bytes === "number") return reference.bytes;
+        if (parsed.payload === undefined) return 0;
+
+        return Buffer.byteLength(canonicalJson(parsed.payload as TrajectoryEventPayload), "utf8");
+    }
+
+    private storedPayloadRef(parsed: unknown): StoredPayloadReference | undefined {
+        if (!isRecord(parsed) || !isRecord(parsed.payloadRef)) return undefined;
+        return parsed.payloadRef as unknown as StoredPayloadReference;
+    }
+
+    private describeLine(runId: string, line: StoredLineLocation): string {
+        return `${runId} segment ${line.segment} byte ${line.byteOffset}`;
+    }
+
+    private indexPath(goalId: string, runId: string): string {
+        return `${this.baseFilePath(goalId, runId)}.index.db`;
     }
 
     private assertQuery(query: TrajectoryReadQuery): void {
