@@ -45,3 +45,7 @@
 | BrowserActivityRunContext.terminalDetail | 所属 Run 固定提交水位内的安全失败摘要；可缺失，不承载原始异常。 | [Web 传输契约](../README.md) | [Activity DTO](../src/activity.ts)、[Wire 校验](../src/validation.ts) |
 | 用户中断状态 | 已受理到取消结算的两阶段记录及未知工具效果，不含模型收尾。 | [Goal Runtime](../../runtime/README.md) | [Runtime 中断语义](../../runtime/notes/overview.md) |
 | BrowserActivityStageContext / BrowserActivityActionContext | 阶段的有界目标及阶段／Action 的本页来源完整性；不等同于执行完成状态。 | [Web 传输契约](../README.md) | [Activity DTO](../src/activity.ts) |
+| BrowserTrajectoryPage | 固定水位的轨迹摘要页：`committedThroughSequence`、不透明双向游标与有界条目。 | [Web 传输契约](../README.md) | [Wire 类型](../src/wire.ts) |
+| BrowserExecutionUnitPage | 执行单元精确查询页：只含显式归属该单元的事件及本次水位。 | [Web 传输契约](../README.md) | [Wire 类型](../src/wire.ts) |
+| BrowserTrajectoryTimeline | 固定水位的事件总数、时间范围与分桶类型分布；不携带事件正文。 | [Web 传输契约](../README.md) | [Wire 类型](../src/wire.ts) |
+| BrowserTrajectoryDetail 关联 | 主事件之外的 Action／Observation／模型调用关联序号及 payload 引用；可见性仍由水位决定。 | [Web 传输契约](../README.md) | [Wire 类型](../src/wire.ts) |

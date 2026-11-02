@@ -25,4 +25,4 @@
 | 创建权限策略 | storage 新建文件为 `0600`、新建目录为 `0700`；只作用于创建，不追溯已有路径。 | [持久化实现](../README.md) | [模块说明](./overview.md) |
 | 按键串行队列 | 同一 key 的进程内 FIFO 执行、失败隔离、簿记释放与 `drain` 读己之写。 | [持久化实现](../README.md) | [串行队列](../src/keyed-serial-queue.ts) |
 | 缺失目录阶段语义 | 原子替换默认逐阶段抛出 `ENOENT`；只有调用点显式声明时才缩小静默范围。 | [持久化实现](../README.md) | [模块说明](./overview.md) |
-| SQLite 延后约束 | 制品目录形状、`node:sqlite` 实验状态与零原生模块依赖共同阻塞本轮切换。 | [持久化实现](../README.md) | [模块说明](./overview.md) |
+| 轨迹查询索引 | 单 Run 的 SQLite 元数据索引：事件顺序、JSONL 字节位置与 Action/ModelCall/Program 关联；可删除并从 JSONL 重建。 | [持久化实现](../README.md) | [轨迹索引](../src/trajectory-index.ts) |

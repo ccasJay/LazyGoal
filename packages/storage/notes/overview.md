@@ -91,9 +91,9 @@ Snapshot 原样保存 Goal 级 `commitRevision`、`inputLedger` 与 `messageQueu
 
 `atomicWriteJson` 默认把每个阶段的文件系统错误原样抛出。`tolerateRenameEnoent` 只把 `rename` 阶段的 `ENOENT` 视为目标目录已被并发清理；`mkdir`、`open`、写入、`sync` 与 `close` 的 `ENOENT` 仍抛出。`JsonFileProcessSessionStore.saveSession` 仅在 `rename` 阶段静默 `ENOENT`；`writeMeta` 不传该选项，改在调用点捕获整段写入的 `ENOENT`。
 
-### 延后 SQLite
+### SQLite 索引边界
 
-本轮不引入 SQLite。以下约束使独立 Spec 必须先解决它们：Benchmark 制品按 `goals/`、`trajectories/`、`traces/` 目录独立复制（`benchmarks/swebench/src/container.ts`、`benchmarks/*/src/environment-spec.ts`、`BenchmarkPersistenceLocator`）；`node:sqlite` 在 Node 22.22.2 可用但仍打印 `ExperimentalWarning`；当前运行时依赖清单不含原生模块。独立 Spec 至少覆盖 schema、迁移与删除策略、导出、恢复，以及制品目录形状的替代方案。
+索引使用 Node 内置 `node:sqlite`，不引入原生模块依赖，因此 Worker 单文件打包产物仍可直接运行；入口与 Worker 启动时以 `--disable-warning=ExperimentalWarning` 抑制该实验 API 的启动警告。Schema 以 `PRAGMA user_version = 1` 标识，不兼容版本、损坏文件或无法打开的数据库直接删除并从 JSONL 重建，不提供迁移分支。索引文件随 `trajectories/<goal>/` 目录一起复制；Benchmark 制品按目录独立 copy-out 后首次查询会就地重建索引，不需要额外导出步骤。
 
 ## 当前限制与背景
 

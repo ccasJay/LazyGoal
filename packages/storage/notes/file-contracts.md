@@ -32,4 +32,4 @@
 
 - Catalog 登记与生成策略：`contracts/catalog.json`。
 - Snapshot 编解码：[`goal-snapshot-codec.ts`](../src/goal-snapshot-codec.ts)。
-- 真实文件与恢复测试：`packages/storage/test/goal-store.test.ts`、`goal-snapshot-current.test.ts`、`trajectory-store.test.ts`、`context-retrieval-index-sidecar.test.ts`、`json-file-tool-grant-store.test.ts`、`sandbox-grant-store.test.ts`、`process-session-store.test.ts`、`session-metrics-store.test.ts`、`model-input-store.test.ts`。
+- 真实文件与恢复测试：`packages/storage/test/goal-store.test.ts`、`goal-snapshot-current.test.ts`、`trajectory-store.test.ts`、`trajectory-encoding.test.ts`、`trajectory-index-write.test.ts`、`trajectory-index-query.test.ts`、`trajectory-index-recovery.test.ts`、`trajectory-benchmark.test.ts`、`context-retrieval-index-sidecar.test.ts`、`json-file-tool-grant-store.test.ts`、`sandbox-grant-store.test.ts`、`process-session-store.test.ts`、`session-metrics-store.test.ts`、`model-input-store.test.ts`。
