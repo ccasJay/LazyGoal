@@ -6,17 +6,25 @@
  */
 
 export type {
+    BrowserExecutionUnitPage,
     BrowserExecutionErrorPayload,
     BrowserModelRepairAttemptStartedPayload,
     BrowserModelRepairFeedbackRecordedPayload,
+    BrowserTrajectoryCorrelation,
     BrowserTrajectoryDetail,
     BrowserTrajectoryEntry,
+    BrowserTrajectoryEventTypeCount,
     BrowserTrajectoryEventPayloadWire,
     BrowserTrajectoryEventWire,
     BrowserTrajectoryFeedbackWire,
     BrowserTrajectoryIssueWire,
     BrowserTrajectoryObservationWire,
     BrowserTrajectoryPage,
+    BrowserTrajectoryPayloadReference,
+    BrowserTrajectoryRelatedSequences,
     BrowserTrajectoryRun,
     BrowserTrajectoryRuns,
+    BrowserTrajectoryTimeRange,
+    BrowserTrajectoryTimeline,
+    BrowserTrajectoryTimelineBucket,
 } from "./wire";

@@ -30,6 +30,7 @@ import {
     type GoalProtocolValidator,
     type TrajectoryReadQuery,
     type TrajectoryReadResult,
+    type TrajectoryQueryPort,
     type TrajectoryStore,
     type ToolPolicy,
     IndexedContextLookupService,
@@ -374,6 +375,8 @@ export interface RuntimeComposition {
     };
     readonly notifyingStore: NotifyingGoalStore;
     readonly trajectoryStore: TrajectoryStore;
+    /** 正式工作区的可查询 Trajectory Store；Browser 轨迹路由只使用这一实例。 */
+    readonly workspaceTrajectoryStore: TrajectoryStore & TrajectoryQueryPort;
     readonly contextLookupService: IndexedContextLookupService;
     readonly modelCatalog: LlmModelCatalog;
     readonly modelBinding: MutableModelBinding;
@@ -1055,6 +1058,7 @@ async function assembleRuntimeComposition(
         },
         notifyingStore,
         trajectoryStore,
+        workspaceTrajectoryStore: primaryTrajectoryStore,
         contextLookupService,
         retrievalIndexStore,
         traceSink,

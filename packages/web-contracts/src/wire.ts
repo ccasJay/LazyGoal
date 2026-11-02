@@ -2344,21 +2344,135 @@ export interface BrowserTrajectoryPage {
      * @maximum 9007199254740991
      * @minimum 0 */
     readonly committedCount: number;
-    /**
+    /** @asType integer
      * @maximum 9007199254740991
-     * @minimum 0
-     */
-    readonly previousCursor: number | null;
-    /**
-     * @maximum 9007199254740991
-     * @minimum 0
-     */
-    readonly nextCursor: number | null;
+     * @minimum 0 */
+    readonly committedThroughSequence: number;
+    /** 不透明游标；已到起点时为 `null`。 */
+    readonly previousCursor: string | null;
+    /** 不透明游标；已到终点时为 `null`。 */
+    readonly nextCursor: string | null;
     /**
      * @maximum 9007199254740991
      * @minimum 0
      */
     readonly locatedSequence: number | null;
+}
+
+/** 执行单元事件页及显式上下文事件。 */
+export interface BrowserExecutionUnitPage {
+    /** @pattern \S */
+    readonly goalId: string;
+    readonly run: BrowserTrajectoryRun;
+    readonly entries: readonly BrowserTrajectoryEntry[];
+    /** @asType integer
+     * @maximum 9007199254740991
+     * @minimum 0 */
+    readonly total: number;
+    /** @asType integer
+     * @maximum 9007199254740991
+     * @minimum 0 */
+    readonly committedThroughSequence: number;
+    readonly nextCursor: string | null;
+    readonly contextBefore: readonly BrowserTrajectoryEntry[];
+    readonly contextAfter: readonly BrowserTrajectoryEntry[];
+}
+
+/** 轨迹事件自身的稳定关联。 */
+export interface BrowserTrajectoryCorrelation {
+    /** @pattern \S */
+    readonly actionId?: string;
+    /** @pattern \S */
+    readonly modelCallId?: string;
+    /** @pattern \S */
+    readonly programId?: string;
+    /** @pattern \S */
+    readonly parentActionId?: string;
+}
+
+/** 详情可返回的关联事件序号。 */
+export interface BrowserTrajectoryRelatedSequences {
+    /** @asType integer
+     * @maximum 9007199254740991
+     * @minimum 1 */
+    readonly decision?: number;
+    /** @asType integer
+     * @maximum 9007199254740991
+     * @minimum 1 */
+    readonly action?: number;
+    /** @asType integer
+     * @maximum 9007199254740991
+     * @minimum 1 */
+    readonly toolStarted?: number;
+    /** @asType integer
+     * @maximum 9007199254740991
+     * @minimum 1 */
+    readonly toolFinished?: number;
+    /** @asType integer
+     * @maximum 9007199254740991
+     * @minimum 1 */
+    readonly observation?: number;
+}
+
+/** 外置 payload 的内容寻址引用。 */
+export interface BrowserTrajectoryPayloadReference {
+    /** @pattern ^[a-f0-9]{64}$ */
+    readonly sha256: string;
+    /** @asType integer
+     * @maximum 9007199254740991
+     * @minimum 0 */
+    readonly bytes: number;
+    readonly encoding: "canonical-json";
+}
+
+/** 时间线的时间边界。 */
+export interface BrowserTrajectoryTimeRange {
+    readonly start: string;
+    readonly end: string;
+}
+
+/** 单个事件类型在一个序列桶中的数量。 */
+export interface BrowserTrajectoryEventTypeCount {
+    readonly eventType: string;
+    /** @asType integer
+     * @maximum 9007199254740991
+     * @minimum 0 */
+    readonly count: number;
+}
+
+/** 一个固定序列桶的事件统计。 */
+export interface BrowserTrajectoryTimelineBucket {
+    /** @asType integer
+     * @maximum 9007199254740991
+     * @minimum 1 */
+    readonly startSequence: number;
+    /** @asType integer
+     * @maximum 9007199254740991
+     * @minimum 1 */
+    readonly endSequence: number;
+    /** @asType integer
+     * @maximum 9007199254740991
+     * @minimum 0 */
+    readonly eventCount: number;
+    readonly eventTypes: readonly BrowserTrajectoryEventTypeCount[];
+}
+
+/** 一个 Run 的时间线概览。 */
+export interface BrowserTrajectoryTimeline {
+    /** @pattern \S */
+    readonly goalId: string;
+    /** @pattern \S */
+    readonly runId: string;
+    /** @asType integer
+     * @maximum 9007199254740991
+     * @minimum 0 */
+    readonly committedThroughSequence: number;
+    /** @asType integer
+     * @maximum 9007199254740991
+     * @minimum 0 */
+    readonly eventCount: number;
+    readonly timeRange: BrowserTrajectoryTimeRange | null;
+    readonly buckets: readonly BrowserTrajectoryTimelineBucket[];
 }
 
 /** 模型输出校验修复反馈。 */
@@ -2476,6 +2590,17 @@ export interface BrowserTrajectoryDetail {
     readonly toolFinishedAt?: string;
     readonly toolDurationMs: number | null;
     readonly observationConfirmed: boolean;
+    /** @asType integer
+     * @maximum 9007199254740991
+     * @minimum 0 */
+    readonly committedThroughSequence: number;
+    readonly correlation: BrowserTrajectoryCorrelation;
+    readonly related: BrowserTrajectoryRelatedSequences;
+    /** @asType integer
+     * @maximum 9007199254740991
+     * @minimum 0 */
+    readonly payloadBytes: number;
+    readonly payloadRef?: BrowserTrajectoryPayloadReference;
 }
 
 /**

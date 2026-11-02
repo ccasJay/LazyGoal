@@ -740,8 +740,10 @@ export function isTrajectoryEntry(value: unknown): value is BrowserTrajectoryEnt
 export function isTrajectoryPage(value: unknown): value is BrowserTrajectoryPage {
     const result = browserTrajectoryPageBinding.read(value, "strip");
     return result.ok
-        && isNullableSafeInteger(result.data.previousCursor)
-        && isNullableSafeInteger(result.data.nextCursor)
+        && Number.isSafeInteger(result.data.committedThroughSequence)
+        && result.data.committedThroughSequence >= 0
+        && (result.data.previousCursor === null || typeof result.data.previousCursor === "string")
+        && (result.data.nextCursor === null || typeof result.data.nextCursor === "string")
         && isNullableSafeInteger(result.data.locatedSequence);
 }
 

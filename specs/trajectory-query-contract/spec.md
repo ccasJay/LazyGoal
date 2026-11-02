@@ -38,7 +38,7 @@ superseded_by: null
 | R4.2 | S3 | 状态 | 当前 JSONL 分段超过 64 MiB | 后续追加进入新分段；跨段读取、索引重建与事件顺序保持不变 | `packages/storage/test/trajectory-encoding.test.ts` |
 | R5.1 | S4 | 事件 | 查询 Model Input 或执行清理 | 只返回水位内能找到对应模型事件且属于当前 Run 的调用；孤立输入不进入历史；清理仅在显式 `--apply` 下执行 | `packages/browser/test/browser-model-input.test.ts` |
 | R6.1 | S1 | 普遍 | 请求 Run 时间线概览 | 从索引按固定序列桶返回事件数、时间范围与类型分布，不物化事件 | `packages/storage/test/trajectory-index-query.test.ts` |
-| R6.2 | S1 | 异常 | 翻页、刷新、断线重连或打开 Run Directory | 游标失效与水位变化有明确的重置或错误语义；Run Directory 不再连续拉取全部分页 | `apps/goal-board/e2e/trajectory.test.mjs` |
+| R6.2 | S1 | 异常 | 翻页、刷新、断线重连或打开 Run Directory | 游标失效与水位变化有明确的重置或错误语义；Run Directory 不再连续拉取全部分页 | `apps/goal-board/e2e/board.test.mjs` |
 
 组合：真实 Board 打开长 Run → 翻页 → 期间提交新事件 → 打开详情与 Timeline（`npm test`、`npm run test:web-e2e`）。
 
@@ -75,10 +75,10 @@ superseded_by: null
 - [x] //TODO 3. 存储编码支持 Blob 与分段，并保持 `read()` 返回完整领域事件 → R4.1、R4.2；检查：`npx tsx --test packages/storage/test/trajectory-encoding.test.ts`
 - [x] //TODO 4. 实现 SQLite 索引写入、打开校验、增量修复、重建与截断 → R1.1、R1.2；检查：`npx tsx --test packages/storage/test/trajectory-index-write.test.ts`
 - [x] //TODO 5. 实现索引查询：分页、详情、执行单元、关联与时间线聚合，全部按水位过滤 → R1.3、R2.1、R3.1、R6.1；检查：`npx tsx --test packages/storage/test/trajectory-index-query.test.ts`
-- [ ] //TODO 6. 迁移 Browser 轨迹路由：不透明游标、新查询端点、移除 `q`、稳定错误语义 → R1.3、R2.1、R2.2、R3.2；检查：`npx tsx --test packages/browser/test/browser-trajectory.test.ts packages/browser/test/browser-trajectory-detail.test.ts packages/browser/test/browser-trajectory-pagination.test.ts`
-- [ ] //TODO 7. 更新 Web wire 契约与生成绑定：分页水位、详情关联、Timeline、Model Input → R2.1、R5.1、R6.1；检查：`npm run contracts:generate -- --check`
+- [x] //TODO 6. 迁移 Browser 轨迹路由：不透明游标、新查询端点、移除 `q`、稳定错误语义 → R1.3、R2.1、R2.2、R3.2；检查：`npx tsx --test packages/browser/test/browser-trajectory.test.ts packages/browser/test/browser-trajectory-detail.test.ts packages/browser/test/browser-trajectory-pagination.test.ts`
+- [x] //TODO 7. 更新 Web wire 契约与生成绑定：分页水位、详情关联、Timeline、Model Input → R2.1、R5.1、R6.1；检查：`npm run contracts:generate -- --check`
 - [ ] //TODO 8. 实现 Model Input 可见性过滤、孤立输入审计与显式清理命令 → R5.1；检查：`npx tsx --test packages/browser/test/browser-model-input.test.ts`
-- [ ] //TODO 9. 迁移 Goal Board：Run Directory 分页、游标与水位、Timeline 聚合、Inspector 关联分组、移除搜索框 → R2.1、R6.1、R6.2；检查：`npm run build:web`
+- [x] //TODO 9. 迁移 Goal Board：Run Directory 分页、游标与水位、Timeline 聚合、Inspector 关联分组、移除搜索框 → R2.1、R6.1、R6.2；检查：`npm run build:web`
 - [ ] //TODO 10. 增加故障注入与等价测试，覆盖索引缺失/落后/超前、半行、双写、并发分页、部分提交关联与孤立输入 → R1.2、R2.2、R3.1、R3.2、R5.1；检查：`npx tsx --test packages/storage/test/trajectory-index-recovery.test.ts`
 - [ ] //TODO 11. 建立 10,000 事件读取与重建基准，断言分页不读取 payload 且重建有上限 → R1.3、R6.1；检查：`npx tsx --test packages/storage/test/trajectory-benchmark.test.ts`
 - [ ] //TODO 12. 更新 storage、browser、goal-board、runtime 的模块说明、语义表与根导航 → 全部；检查：`npm run check:docs`

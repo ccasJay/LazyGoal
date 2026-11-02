@@ -46,7 +46,7 @@ export function trajectoryPagesAreAdjacent(
   if (older.entries.length === 0 || newer.entries.length === 0) return false;
   if (older.goalId !== newer.goalId || older.run.runId !== newer.run.runId) return false;
   if (older.total !== newer.total || older.committedCount !== newer.committedCount
-    || older.run.committedThroughSequence !== newer.run.committedThroughSequence) return false;
+    || older.committedThroughSequence !== newer.committedThroughSequence) return false;
   const oldFirst = older.entries[0];
   const oldLast = older.entries.at(-1);
   const newFirst = newer.entries[0];
@@ -56,8 +56,6 @@ export function trajectoryPagesAreAdjacent(
   if (newer.entries.some((entry, index) => index > 0 && entry.sequence !== newer.entries[index - 1]!.sequence + 1)) return false;
   if (older.entries.some((entry) => newer.entries.some((candidate) => candidate.eventId === entry.eventId))) return false;
   return oldLast.sequence + 1 === newFirst.sequence
-    && older.nextCursor === oldLast.sequence
-    && newer.previousCursor === newFirst.sequence
     && oldFirst.sequence <= oldLast.sequence
     && newFirst.sequence <= newLast.sequence;
 }

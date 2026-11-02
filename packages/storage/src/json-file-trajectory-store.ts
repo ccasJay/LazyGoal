@@ -557,9 +557,18 @@ export class JsonFileTrajectoryStore implements TrajectoryStore, TrajectoryQuery
             ? Number.NaN
             : Date.parse(finishedAt) - Date.parse(startedAt);
 
+        const eventCorrelation = projectTrajectoryEventCorrelation(event);
+        const correlation = {
+            ...eventCorrelation,
+            ...(eventCorrelation.actionId === undefined && row.actionId !== undefined ? { actionId: row.actionId } : {}),
+            ...(eventCorrelation.modelCallId === undefined && row.modelCallId !== undefined ? { modelCallId: row.modelCallId } : {}),
+            ...(eventCorrelation.programId === undefined && row.programId !== undefined ? { programId: row.programId } : {}),
+            ...(eventCorrelation.parentActionId === undefined && row.parentActionId !== undefined ? { parentActionId: row.parentActionId } : {}),
+        };
+
         return {
             event,
-            correlation: projectTrajectoryEventCorrelation(event),
+            correlation,
             related: {
                 ...(decisionRow === undefined ? {} : { decision: decisionRow.sequence }),
                 ...(actionRow === undefined ? {} : { action: actionRow.sequence }),

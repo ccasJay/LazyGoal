@@ -575,7 +575,7 @@ export async function runServerSession(
             getPermissionMode: () => commandService.getPermissionMode(),
             setPermissionMode: (command) => commandService.setPermissionMode(command),
         }));
-        root.httpService.mount("/", createBrowserTrajectoryRoutes(root.workspaceGoalStore, root.readWorkspaceTrajectory));
+        root.httpService.mount("/", createBrowserTrajectoryRoutes(root.workspaceGoalStore, root.workspaceTrajectoryStore));
         root.httpService.mount("/", createBrowserModelInputRoutes(root.workspaceGoalStore, root.readWorkspaceModelInputs));
         root.httpService.mount("/", createBrowserStaticRoutes(staticDirectory));
         const address = await root.httpService.start(0);
