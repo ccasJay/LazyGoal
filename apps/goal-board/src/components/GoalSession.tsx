@@ -26,6 +26,7 @@ import brandMark from "../assets/lazygoal/mark-on-light.svg?no-inline";
 import { Trajectory } from "../trajectory";
 import { sessionStatus, sessionStatusTone } from "../types";
 import { selectUnverifiedWorkbenchActions, selectWorkbenchActions, workbenchReasonText } from "../workbench-actions";
+import { selectConnectionPresentation } from "../connection-presentation";
 import { useGoalSessionContext } from "../context/GoalSessionContext";
 import { useRunControlContext } from "../context/RunControlContext";
 import { MessageComposer, CurrentModelControl } from "./MessageComposer";
@@ -100,6 +101,7 @@ export function GoalSession({
     liveEvents,
     candidatePresentation,
     streamConnected,
+    streamSynced,
     stateStale,
     metricsByGoal,
     currentModelName,
@@ -150,6 +152,11 @@ export function GoalSession({
     stopping: session !== null && stoppingRunId === session.currentRunId,
   });
   const unverifiedActions = selectUnverifiedWorkbenchActions(control.state.intents);
+  const connection = selectConnectionPresentation({
+    connected: streamConnected,
+    synced: streamSynced,
+    stale: stateStale,
+  });
   const readingAnchor = useRef<ActivityAnchor | undefined>(undefined);
   const programmaticTop = useRef<number | undefined>(undefined);
   const followFrame = useRef<number | null>(null);
@@ -405,13 +412,13 @@ export function GoalSession({
                 <span className="status-dot" />
                 {sessionStatus(session)}
               </span>
-              <span className={`stream-state ${streamConnected ? "connected" : ""}`}>
+              <span className={`stream-state ${connection.state === "linked" ? "connected" : ""}`}>
                 <span className="dot" />
-                {streamConnected ? "Connected" : "Reconnecting"}
+                {connection.label}
               </span>
             </div>
           </div>
-          {stateStale && (
+          {connection.state === "stale" && (
             <div className="state-stale" role="alert">
               The live connection dropped. The last confirmed content is shown, but it may be outdated. New Steer
               and Resume actions stay unavailable until the state is re-read.
@@ -527,7 +534,7 @@ export function GoalSession({
                         showExecutionFacts={showTools}
                         liveActivity={liveActivity}
                         progressEntries={progressEntries}
-                        streamConnected={streamConnected}
+                        streamConnected={connection.allowsNewDecisions}
                         onOpenTrajectory={(target) => {
                           setTrajectoryTarget({ ...target, nonce: Date.now() });
                           setSessionTab("Trajectory");
@@ -715,7 +722,7 @@ export function GoalSession({
                     </div>
                     <WaitingInteraction
                       session={session}
-                      busy={commandBusy || stateStale || (!draftSessionOpen && sessionError !== null)}
+                      busy={commandBusy || !connection.allowsNewDecisions || (!draftSessionOpen && sessionError !== null)}
                       stopping={
                         stoppingRunId === session.currentRunId ||
                         (session.interruption !== undefined && session.interruption.status !== "finished")
