@@ -4,7 +4,7 @@ import type { EnvironmentHandle } from "../../src/isolated-environment.js";
 import { requireSuccess, runProcess, type ProcessRunner, type ProcessResult } from "../../src/process.js";
 
 /** Worker 启动前必须通过的检查阶段。 */
-export type WorkerPreflightCheck = "platform" | "node" | "dynamic_libraries" | "worker_digest" | "node_digest" | "base_commit" | "conda";
+export type WorkerPreflightCheck = "platform" | "node" | "sqlite" | "dynamic_libraries" | "worker_digest" | "node_digest" | "base_commit" | "conda";
 
 /**
  * Worker 预检失败；`check` 标识首个失败边界，`detail` 只包含有界命令诊断。
@@ -96,6 +96,13 @@ export async function preflightWorker(options: WorkerPreflightOptions): Promise<
         throw new WorkerPreflightError("node", `expected v${options.manifest.nodeVersion}, received ${nodeVersion.trim() || "<empty>"}`);
     }
 
+    const sqlite = (await execOutput(run, options, [
+        "/opt/lazygoal/node",
+        "-e",
+        "require('node:sqlite');console.log('sqlite-ok')",
+    ], "sqlite")).trim();
+    if (sqlite !== "sqlite-ok") throw new WorkerPreflightError("sqlite", `unexpected output: ${truncateDiagnostic(sqlite)}`);
+
     const dynamicLibraries = await execOutput(run, options, ["/bin/sh", "-c", "ldd /opt/lazygoal/node"], "dynamic_libraries");
     if (/not found|cannot open shared object file/iu.test(dynamicLibraries)) {
         throw new WorkerPreflightError("dynamic_libraries", truncateDiagnostic(dynamicLibraries));
@@ -148,6 +155,11 @@ export async function preflightWorkerInEnvironment(
     if (nodeVersion.trim() !== `v${options.manifest.nodeVersion}`) {
         throw new WorkerPreflightError("node", `expected v${options.manifest.nodeVersion}, received ${nodeVersion.trim() || "<empty>"}`);
     }
+
+    const sqlite = (await environmentOutput(options.environment,
+        "/opt/lazygoal/node -e \"require('node:sqlite');console.log('sqlite-ok')\"",
+        "sqlite")).trim();
+    if (sqlite !== "sqlite-ok") throw new WorkerPreflightError("sqlite", `unexpected output: ${truncateDiagnostic(sqlite)}`);
 
     const dynamicLibraries = await environmentOutput(options.environment, "ldd /opt/lazygoal/node", "dynamic_libraries");
     if (/not found|cannot open shared object file/iu.test(dynamicLibraries)) {

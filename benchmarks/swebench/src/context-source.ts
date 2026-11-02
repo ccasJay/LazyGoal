@@ -99,7 +99,7 @@ export function createSwebenchContextSource(options: SwebenchContextSourceOption
             if (archive) await loadFilesystemArchive(archive.directory, archive.manifest, run, signal);
             return {
                 benchmarkId: "context", resolveImage: () => ({ mode: "custom", image: archive?.manifest.imageId ?? task.imageId }),
-                getWorkerEntryConfig: () => ({ artifact: worker, cwd: "/testbed", command: ["/bin/bash", "-c", `${SWE_ACP_TESTBED_ENV} && exec /opt/lazygoal/node /opt/lazygoal/worker.mjs`] }),
+                getWorkerEntryConfig: () => ({ artifact: worker, cwd: "/testbed", command: ["/bin/bash", "-c", `${SWE_ACP_TESTBED_ENV} && exec /opt/lazygoal/node --disable-warning=ExperimentalWarning /opt/lazygoal/worker.mjs`] }),
                 resolveNetworkMode: () => "none",
                 async prepareEnvironment(env) {
                     if (!archive) requireSuccess(await env.exec(`git reset --hard ${task.baseCommit} && git clean -fd`), "Prepare source base commit");

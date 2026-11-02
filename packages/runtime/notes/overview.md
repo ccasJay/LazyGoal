@@ -31,6 +31,7 @@ Runtime 是控制平面：拥有 Goal/Run/Step 状态、Run 模式与 GoalPlan�
 | [RunStage](../src/run-stage.ts) | Run 内部阶段声明、修订与流转纯规则、前序接受约束与审查拒绝记录 | 执行调度与模型调用 |
 | [RunPlan](../src/run-plan.ts) | Plan Run 完整路线的 Runtime 身份分配、顺序游标及阶段状态流转 | 模型复杂度判断与 I/O |
 | [Trajectory](../src/trajectory.ts) | 追加事实事件、提交 marker 和只读恢复查询 | 改写 Runtime State |
+| [Trajectory query](../src/trajectory-query.ts) | 浏览器查询的水位上下文、事件关联、有界摘要，以及分页／详情／执行单元／时间线查询 Port | 写入事实、索引实现与 HTTP 投影 |
 | [Tool Core](../../tool-core/src/index.ts) | 通用 Tool 接口、输入 Contract 准备、Registry 与暂时故障分类 | Goal/Run 状态与授权策略 |
 | [Tool contracts](../src/tool.ts) | Tool Policy 边界、授权过滤与运行时上下文绑定 | 具体 Tool 业务逻辑与通用输入准备 |
 | [Tool Grant](../src/tool-grant.ts) | 将已验证的 Tool 输入映射为按操作匹配的持续授权身份，并定义授权 Store Port | 执行 Tool 或绕过 Profile、输入、Policy 校验 |

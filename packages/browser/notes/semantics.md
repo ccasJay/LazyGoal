@@ -42,3 +42,7 @@
 | Activity Run 终态摘要 | 按所属 Run 与固定提交水位投影受限代码和固定说明，不公开原始异常，原因缺失时省略。 | [Browser](../README.md) | [Activity 投影](../src/browser-projection.ts) |
 | 用户中断状态 | 已受理到取消结算的两阶段记录及未知工具效果，不含模型收尾。 | [Goal Runtime](../../runtime/README.md) | [Runtime 中断语义](../../runtime/notes/overview.md) |
 | Activity grouping context | 从已提交声明提取有界阶段目标，按 Run 及阶段／Action 提供本页完整性。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |
+| 轨迹查询水位 | 轨迹首屏固定 `committedThroughSequence` 并随游标传递；后续页、详情、单元与时间线在同一可见边界内解释。 | [浏览器服务边界](../README.md) | [轨迹路由](../src/browser-trajectory.ts) |
+| 轨迹不透明游标 | 绑定 Run、水位与过滤条件；跨水位或跨过滤复用返回 `invalid_trajectory_cursor`，不静默改写可见边界。 | [浏览器服务边界](../README.md) | [轨迹路由](../src/browser-trajectory.ts) |
+| 轨迹执行单元查询 | 定位只返回首条已提交序号；单元分页只返回显式携带该 `executionUnitId` 的事件，不混入上下文邻居。 | [浏览器服务边界](../README.md) | [轨迹路由](../src/browser-trajectory.ts) |
+| 轨迹时间线聚合 | 按固定水位分桶返回事件计数与类型分布，不加载事件正文；超出上限返回 `trajectory_timeline_too_large`。 | [浏览器服务边界](../README.md) | [轨迹路由](../src/browser-trajectory.ts) |

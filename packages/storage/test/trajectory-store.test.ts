@@ -97,7 +97,8 @@ test("JsonFileTrajectoryStore appends ordered JSONL events across instances", as
         assert.deepEqual(goalFiles.length, 1);
         const goalDirectoryName = goalFiles[0];
         assert.ok(goalDirectoryName !== undefined);
-        const runFiles = await readdir(join(directory, goalDirectoryName));
+        const runFiles = (await readdir(join(directory, goalDirectoryName)))
+            .filter((name) => name.endsWith(".jsonl"));
         assert.deepEqual(runFiles.length, 1);
         const runFileName = runFiles[0];
         assert.ok(runFileName !== undefined);
@@ -187,7 +188,7 @@ test("JsonFileTrajectoryStore verifies synchronous PTC reservation writes before
     });
 });
 
-test("JsonFileTrajectoryStore stops on an incomplete tail instead of replaying an uncertain append", async () => {
+test("JsonFileTrajectoryStore recovers an incomplete tail without replaying the uncertain append", async () => {
     await withStore(async (_store, directory) => {
         const partial = new JsonFileTrajectoryStore(directory, {
             appendFile: async (path, data, options) => {
@@ -201,9 +202,20 @@ test("JsonFileTrajectoryStore stops on an incomplete tail instead of replaying a
             () => partial.append(draft("run_started", { type: "run_started" })),
             (error: unknown) => error instanceof TrajectoryProtocolError,
         );
-        await assert.rejects(
-            () => partial.read({ goalId: "goal-1", runId: "run-1" }),
-            (error: unknown) => error instanceof TrajectoryProtocolError,
+        assert.deepEqual(
+            await partial.read({ goalId: "goal-1", runId: "run-1" }),
+            [],
+        );
+
+        const recovered = new JsonFileTrajectoryStore(directory);
+        const next = await recovered.append(
+            draft("run_started", { type: "run_started" }),
+        );
+        assert.equal(next.sequence, 1);
+        assert.deepEqual(
+            (await recovered.read({ goalId: "goal-1", runId: "run-1" }))
+                .map((event) => event.sequence),
+            [1],
         );
     });
 });
@@ -300,12 +312,8 @@ test("JsonFileTrajectoryStore continues sequence when the last line lacks a trai
             goalDirectory,
             `${Buffer.from("run-1", "utf8").toString("base64url")}.jsonl`,
         );
-        // 手工去掉末行换行符:末行仍须被识别为最后的非空行。
-        await writeFile(
-            filePath,
-            `${JSON.stringify(first)}\n${JSON.stringify(second)}`,
-            "utf8",
-        );
+        const content = await readFile(filePath, "utf8");
+        await writeFile(filePath, content.endsWith("\n") ? content.slice(0, -1) : content, "utf8");
 
         const restarted = new JsonFileTrajectoryStore(directory);
         const third = await restarted.append(
@@ -313,6 +321,11 @@ test("JsonFileTrajectoryStore continues sequence when the last line lacks a trai
         );
 
         assert.equal(third.sequence, 3);
+        assert.deepEqual(
+            (await restarted.read({ goalId: "goal-1", runId: "run-1" }))
+                .map((event) => event.sequence),
+            [first.sequence, second.sequence, third.sequence],
+        );
     });
 });
 

@@ -77,7 +77,7 @@ const source = isContextEval ? resolve(__dirname, "../benchmarks/context-cli.ts"
         : resolve(__dirname, "../apps/goal-server/src/cli.ts");
 const tsxLoader = require.resolve("tsx/esm", { paths: [__dirname] });
 
-const nodeArgs = ["--import", tsxLoader];
+const nodeArgs = ["--disable-warning=ExperimentalWarning", "--import", tsxLoader];
 const nodeEnv = isBrowserCommand && process.allowedNodeEnvironmentFlags.has("--use-env-proxy")
     ? { ...process["env"], NODE_USE_ENV_PROXY: "1" }
     : process["env"];

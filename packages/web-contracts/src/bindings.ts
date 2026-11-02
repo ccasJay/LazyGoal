@@ -59,6 +59,8 @@ export { browserTrajectoryRunBinding } from "./generated/trajectory-run-binding"
 export { browserTrajectoryEntryBinding } from "./generated/trajectory-entry-binding";
 export { browserTrajectoryRunsBinding } from "./generated/trajectory-runs-binding";
 export { browserTrajectoryPageBinding } from "./generated/trajectory-page-binding";
+export { browserExecutionUnitPageBinding } from "./generated/trajectory-unit-page-binding";
+export { browserTrajectoryTimelineBinding } from "./generated/trajectory-timeline-binding";
 export { browserTrajectoryDetailBinding } from "./generated/trajectory-detail-binding";
 export { browserGoalEventBinding } from "./generated/goal-event-binding";
 export { browserControlIntentCommandBinding } from "./generated/control-intent-command-binding";

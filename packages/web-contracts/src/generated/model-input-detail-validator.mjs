@@ -12,7 +12,7 @@ var require_BrowserModelInputDetail_validator = __commonJS({
   "BrowserModelInputDetail-validator.cjs"(exports, module) {
     module.exports = validate10;
     module.exports.default = validate10;
-    var schema12 = { "type": "object", "properties": { "call": { "$ref": "#/definitions/BrowserModelInputRecordWire" }, "previousSystem": { "type": ["string", "null"] }, "previousCallId": { "type": ["string", "null"], "pattern": "\\S" }, "systemVersion": { "type": "string" } }, "required": ["call", "previousSystem", "previousCallId", "systemVersion"], "additionalProperties": false, "description": "\u5B8C\u6574\u6A21\u578B\u8F93\u5165\u8C03\u7528\u8BE6\u60C5\uFF08\u7528\u4E8E\u53EA\u8BFB\u6BD4\u5BF9\uFF09\u3002" };
+    var schema12 = { "type": "object", "properties": { "call": { "$ref": "#/definitions/BrowserModelInputRecordWire" }, "previousSystem": { "type": ["string", "null"] }, "previousCallId": { "type": ["string", "null"], "pattern": "\\S" }, "systemVersion": { "type": "string" }, "committedThroughSequence": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 } }, "required": ["call", "previousSystem", "previousCallId", "systemVersion", "committedThroughSequence"], "additionalProperties": false, "description": "\u5B8C\u6574\u6A21\u578B\u8F93\u5165\u8C03\u7528\u8BE6\u60C5\uFF08\u7528\u4E8E\u53EA\u8BFB\u6BD4\u5BF9\uFF09\u3002" };
     var schema13 = { "type": "object", "properties": { "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "callId": { "type": "string", "pattern": "\\S" }, "executionUnitId": { "type": "string", "pattern": "\\S" }, "stepIndex": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "stage": { "type": "string", "enum": ["think", "decide", "completion_review"] }, "occurredAt": { "type": "string" }, "messages": { "type": "array", "items": { "$ref": "#/definitions/BrowserModelInputMessageWire" } } }, "required": ["goalId", "runId", "callId", "stepIndex", "stage", "occurredAt", "messages"], "additionalProperties": false, "description": "\u5B8C\u6574\u6A21\u578B\u8F93\u5165\u8C03\u7528\u7684 wire \u8BB0\u5F55\u3002" };
     var pattern0 = new RegExp("\\S", "u");
     var schema14 = { "type": "object", "properties": { "role": { "type": "string", "enum": ["system", "user", "assistant", "tool"] }, "content": { "type": "string" }, "source": { "type": "string", "enum": ["system", "conversation", "section", "working_context", "stage", "request", "native_history"] }, "reasoning": { "type": "string" }, "toolCalls": { "type": "array", "items": { "$ref": "#/definitions/BrowserModelInputToolCall" } }, "continuation": {}, "callId": { "type": "string", "pattern": "\\S" }, "toolId": { "type": "string", "pattern": "\\S" } }, "required": ["role", "content", "source"], "additionalProperties": false, "description": "\u6A21\u578B\u8F93\u5165\u6D88\u606F\u7684\u72EC\u7ACB wire \u4F20\u8F93\u7ED3\u6784\u3002" };
@@ -600,13 +600,22 @@ var require_BrowserModelInputDetail_validator = __commonJS({
           }
           errors++;
         }
+        if (data.committedThroughSequence === void 0) {
+          const err4 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "committedThroughSequence" }, message: "must have required property 'committedThroughSequence'" };
+          if (vErrors === null) {
+            vErrors = [err4];
+          } else {
+            vErrors.push(err4);
+          }
+          errors++;
+        }
         for (const key0 in data) {
-          if (!(key0 === "call" || key0 === "previousSystem" || key0 === "previousCallId" || key0 === "systemVersion")) {
-            const err4 = { instancePath, schemaPath: "#/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key0 }, message: "must NOT have additional properties" };
+          if (!(key0 === "call" || key0 === "previousSystem" || key0 === "previousCallId" || key0 === "systemVersion" || key0 === "committedThroughSequence")) {
+            const err5 = { instancePath, schemaPath: "#/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key0 }, message: "must NOT have additional properties" };
             if (vErrors === null) {
-              vErrors = [err4];
+              vErrors = [err5];
             } else {
-              vErrors.push(err4);
+              vErrors.push(err5);
             }
             errors++;
           }
@@ -620,19 +629,7 @@ var require_BrowserModelInputDetail_validator = __commonJS({
         if (data.previousSystem !== void 0) {
           let data1 = data.previousSystem;
           if (typeof data1 !== "string" && data1 !== null) {
-            const err5 = { instancePath: instancePath + "/previousSystem", schemaPath: "#/properties/previousSystem/type", keyword: "type", params: { type: schema12.properties.previousSystem.type }, message: "must be string,null" };
-            if (vErrors === null) {
-              vErrors = [err5];
-            } else {
-              vErrors.push(err5);
-            }
-            errors++;
-          }
-        }
-        if (data.previousCallId !== void 0) {
-          let data2 = data.previousCallId;
-          if (typeof data2 !== "string" && data2 !== null) {
-            const err6 = { instancePath: instancePath + "/previousCallId", schemaPath: "#/properties/previousCallId/type", keyword: "type", params: { type: schema12.properties.previousCallId.type }, message: "must be string,null" };
+            const err6 = { instancePath: instancePath + "/previousSystem", schemaPath: "#/properties/previousSystem/type", keyword: "type", params: { type: schema12.properties.previousSystem.type }, message: "must be string,null" };
             if (vErrors === null) {
               vErrors = [err6];
             } else {
@@ -640,13 +637,25 @@ var require_BrowserModelInputDetail_validator = __commonJS({
             }
             errors++;
           }
+        }
+        if (data.previousCallId !== void 0) {
+          let data2 = data.previousCallId;
+          if (typeof data2 !== "string" && data2 !== null) {
+            const err7 = { instancePath: instancePath + "/previousCallId", schemaPath: "#/properties/previousCallId/type", keyword: "type", params: { type: schema12.properties.previousCallId.type }, message: "must be string,null" };
+            if (vErrors === null) {
+              vErrors = [err7];
+            } else {
+              vErrors.push(err7);
+            }
+            errors++;
+          }
           if (typeof data2 === "string") {
             if (!pattern0.test(data2)) {
-              const err7 = { instancePath: instancePath + "/previousCallId", schemaPath: "#/properties/previousCallId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+              const err8 = { instancePath: instancePath + "/previousCallId", schemaPath: "#/properties/previousCallId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
               if (vErrors === null) {
-                vErrors = [err7];
+                vErrors = [err8];
               } else {
-                vErrors.push(err7);
+                vErrors.push(err8);
               }
               errors++;
             }
@@ -654,21 +663,53 @@ var require_BrowserModelInputDetail_validator = __commonJS({
         }
         if (data.systemVersion !== void 0) {
           if (typeof data.systemVersion !== "string") {
-            const err8 = { instancePath: instancePath + "/systemVersion", schemaPath: "#/properties/systemVersion/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            const err9 = { instancePath: instancePath + "/systemVersion", schemaPath: "#/properties/systemVersion/type", keyword: "type", params: { type: "string" }, message: "must be string" };
             if (vErrors === null) {
-              vErrors = [err8];
+              vErrors = [err9];
             } else {
-              vErrors.push(err8);
+              vErrors.push(err9);
             }
             errors++;
           }
         }
+        if (data.committedThroughSequence !== void 0) {
+          let data4 = data.committedThroughSequence;
+          if (!(typeof data4 == "number" && (!(data4 % 1) && !isNaN(data4)) && isFinite(data4))) {
+            const err10 = { instancePath: instancePath + "/committedThroughSequence", schemaPath: "#/properties/committedThroughSequence/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
+            if (vErrors === null) {
+              vErrors = [err10];
+            } else {
+              vErrors.push(err10);
+            }
+            errors++;
+          }
+          if (typeof data4 == "number" && isFinite(data4)) {
+            if (data4 > 9007199254740991 || isNaN(data4)) {
+              const err11 = { instancePath: instancePath + "/committedThroughSequence", schemaPath: "#/properties/committedThroughSequence/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
+              if (vErrors === null) {
+                vErrors = [err11];
+              } else {
+                vErrors.push(err11);
+              }
+              errors++;
+            }
+            if (data4 < 0 || isNaN(data4)) {
+              const err12 = { instancePath: instancePath + "/committedThroughSequence", schemaPath: "#/properties/committedThroughSequence/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
+              if (vErrors === null) {
+                vErrors = [err12];
+              } else {
+                vErrors.push(err12);
+              }
+              errors++;
+            }
+          }
+        }
       } else {
-        const err9 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+        const err13 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
         if (vErrors === null) {
-          vErrors = [err9];
+          vErrors = [err13];
         } else {
-          vErrors.push(err9);
+          vErrors.push(err13);
         }
         errors++;
       }

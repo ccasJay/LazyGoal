@@ -50,5 +50,5 @@ export const SWE_ACP_TESTBED_ENV = "{ source /opt/miniconda3/etc/profile.d/conda
  */
 export function swebenchWorkerArgs(containerName: string): string[] {
     return ["exec", "-i", "--workdir", "/opt/lazygoal", containerName, "/bin/bash", "-c",
-        `${SWE_ACP_TESTBED_ENV} && exec /opt/lazygoal/node /opt/lazygoal/worker.mjs`];
+        `${SWE_ACP_TESTBED_ENV} && exec /opt/lazygoal/node --disable-warning=ExperimentalWarning /opt/lazygoal/worker.mjs`];
 }

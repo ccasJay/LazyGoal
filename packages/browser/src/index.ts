@@ -64,6 +64,6 @@ export {
     type BrowserRunStageGroup,
 } from "./browser-projection";
 
-export { createBrowserTrajectoryRoutes, type BrowserTrajectoryRun, type BrowserTrajectoryEntry, type BrowserTrajectoryPage, type BrowserTrajectoryDetail } from "./browser-trajectory";
+export { createBrowserTrajectoryRoutes, type BrowserTrajectoryRun, type BrowserTrajectoryEntry, type BrowserTrajectoryPage, type BrowserTrajectoryDetail, type BrowserTrajectoryTimeline, type BrowserExecutionUnitPage } from "./browser-trajectory";
 
 export { createBrowserModelInputRoutes, type BrowserModelInputSummary, type BrowserModelInputDetail } from "./browser-model-input";

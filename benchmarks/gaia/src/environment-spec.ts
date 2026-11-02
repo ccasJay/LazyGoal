@@ -196,8 +196,8 @@ export class GaiaEnvironmentSpec
             ...(this.workerArtifact === undefined ? {} : { artifact: this.workerArtifact }),
             cwd: "/workspace",
             command: this.workerMode === "tools"
-                ? ["/opt/lazygoal/node", "/opt/lazygoal/worker.mjs", "--task-id", task.taskId]
-                : ["/opt/lazygoal/node", "/opt/lazygoal/worker.mjs"],
+                ? ["/opt/lazygoal/node", "--disable-warning=ExperimentalWarning", "/opt/lazygoal/worker.mjs", "--task-id", task.taskId]
+                : ["/opt/lazygoal/node", "--disable-warning=ExperimentalWarning", "/opt/lazygoal/worker.mjs"],
         };
     }
 

@@ -322,8 +322,8 @@ root.httpService.mount("/", createBrowserGoalRoutes({
     readInteractionDetails: (goalId, runId, interactionId) => commands.readInteractionDetails(goalId, runId, interactionId),
     reviewActionApproval: (goalId, command) => commands.reviewActionApproval(goalId, command),
 }));
-root.httpService.mount("/", createBrowserTrajectoryRoutes(root.workspaceGoalStore, root.readWorkspaceTrajectory));
-root.httpService.mount("/", createBrowserModelInputRoutes(root.workspaceGoalStore, (goalId, runId) => new JsonFileModelInputStore(resolve(dataDirectory, "model-inputs")).read(goalId, runId)));
+root.httpService.mount("/", createBrowserTrajectoryRoutes(root.workspaceGoalStore, root.workspaceTrajectoryStore));
+root.httpService.mount("/", createBrowserModelInputRoutes(root.workspaceGoalStore, (goalId, runId) => new JsonFileModelInputStore(resolve(dataDirectory, "model-inputs")).read(goalId, runId), root.workspaceTrajectoryStore));
 root.httpService.mount("/", createBrowserStaticRoutes(resolve("apps/goal-board/dist")));
 const address = await root.httpService.start(0);
 access.bindOrigin(address.origin);

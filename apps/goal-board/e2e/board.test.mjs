@@ -396,18 +396,15 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     assert.match(await value(socket, "document.querySelector('.message.assistant .message-avatar img').currentSrc"), /mark-on-light/);
     assert.equal(mock.lastInteraction.response.scope, "goal");
     await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.session-tab-buttons button')].find(button => button.textContent === 'Trajectory').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.mi-input-status')?.textContent.includes('Retry inputs')");
+    await waitForExpression(socket, "document.querySelector('.mi-input-status')?.textContent.includes('1 / 1 saved model inputs')");
     await cdp(socket, "Runtime.evaluate", { expression: "(() => { document.querySelector('#trajectory-event-1').click(); const plot = document.querySelector('.tr-timeline .tr-plot'); const bounds = plot.getBoundingClientRect(); plot.dispatchEvent(new WheelEvent('wheel', { deltaY: -160, clientX: bounds.left + bounds.width * .6, clientY: bounds.top + 20, bubbles: true, cancelable: true })); return true; })()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.tr-zoom-level')?.textContent !== '1×'");
     const retainedZoom = await value(socket, "document.querySelector('.tr-zoom-level').textContent");
     assert.notEqual(retainedZoom, "1×");
-    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.mi-input-status button')].find(button => button.textContent === 'Retry inputs').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.mi-input-status')?.textContent.includes('Historical model inputs not recorded')");
     assert.equal(await value(socket, "document.querySelector('.tr-zoom-level').textContent"), retainedZoom);
     assert.equal(await value(socket, "document.querySelector('#trajectory-event-1').getAttribute('aria-pressed')"), "true");
-    assert.equal(mock.trajectoryReads(), 1, "retrying inputs does not reload committed events");
-    await setText(socket, "input[aria-label='Search trajectory']", "native");
-    await waitForExpression(socket, "document.querySelector('.mi-input-status')?.textContent.includes('1 / 1 saved model inputs')");
+    assert.equal(mock.trajectoryReads(), 1, "loading model inputs does not reload committed events");
+    await waitForExpression(socket, "[...document.querySelectorAll('.ct-record')].some(row => row.textContent.includes('Prompt'))");
     assert.equal(await value(socket, "document.querySelector('.mi-input-status [role=alert]') === null"), true);
     assert.equal(await value(socket, "[...document.querySelectorAll('.ct-record')].some(row => row.textContent.includes('Prompt'))"), true);
     assert.equal(await value(socket, "[...document.querySelectorAll('.ct-record')].find(row => row.textContent.includes('Prompt')).querySelector('.ct-badge').textContent"), "Prompt");
@@ -497,15 +494,16 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Reset timeline zoom\"]').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.tr-zoom-level')?.textContent === '1×'");
 
-    // 3. 泳道筛选弱化与无害定位：未命中刻度透明度弱化 (0.25)，点击弱化刻度不重置搜索，并显示未命中徽章
-    await setText(socket, "input[aria-label='Search trajectory']", "started");
-    await waitForExpression(socket, "document.querySelector('button[aria-label=\"Locate trajectory event 2\"].dimmed') !== null");
-    const dimmedOpacity = await value(socket, "getComputedStyle(document.querySelector('button[aria-label=\"Locate trajectory event 2\"].dimmed')).opacity");
-    const dimDiagnostics = await value(socket, "(() => { const el = document.querySelector('button[aria-label=\"Locate trajectory event 2\"]'); const matched = []; for (const sheet of document.styleSheets) { try { for (const rule of sheet.cssRules) { if (rule.selectorText && rule.style && rule.style.opacity && el.matches(rule.selectorText)) matched.push(rule.selectorText + ':' + rule.style.opacity); } } catch {} } return { className: el.className, opacity: getComputedStyle(el).opacity, matched }; })()");
+    // 3. 类别筛选弱化与无害定位：未命中刻度透明度弱化 (0.25)，点击刻度不重置过滤，并显示未命中徽章
+    await cdp(socket, "Runtime.evaluate", { expression: "(() => { const select = document.querySelector('#trajectory-category-select'); select.value = 'decision'; select.dispatchEvent(new Event('change', { bubbles: true })); return true; })()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('button[aria-label=\"Locate trajectory event 1\"].dimmed') !== null");
+    const dimmedOpacity = await value(socket, "getComputedStyle(document.querySelector('button[aria-label=\"Locate trajectory event 1\"].dimmed')).opacity");
+    const dimDiagnostics = await value(socket, "(() => { const el = document.querySelector('button[aria-label=\"Locate trajectory event 1\"]'); const matched = []; for (const sheet of document.styleSheets) { try { for (const rule of sheet.cssRules) { if (rule.selectorText && rule.style && rule.style.opacity && el.matches(rule.selectorText)) matched.push(rule.selectorText + ':' + rule.style.opacity); } } catch {} } return { className: el.className, opacity: getComputedStyle(el).opacity, matched }; })()");
     assert.equal(dimmedOpacity, "0.25", JSON.stringify(dimDiagnostics));
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Locate trajectory event 2\"]').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #2')");
-    assert.equal(await value(socket, "document.querySelector('input[aria-label=\"Search trajectory\"]').value"), "started");
+    assert.equal(await value(socket, "document.querySelector('#trajectory-category-select').value"), "decision");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Locate trajectory event 1\"]').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.tr-outside-badge')?.textContent === 'Event outside active filter'");
 
     // 4. Tab 偏好记忆与纯净视图：切至 Raw 时不渲染 execution relationship 卡片；导航至相邻事件或点击刻度保持 Raw 偏好；列表直接点击重置为 Summary
@@ -524,7 +522,7 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await waitForExpression(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #2')");
     assert.equal(await value(socket, "document.querySelector('.tr-detail-tabs button.active')?.textContent"), "Raw");
     const unfilteredRead = mock.trajectoryReads() + 1;
-    await setText(socket, "input[aria-label='Search trajectory']", "");
+    await cdp(socket, "Runtime.evaluate", { expression: "(() => { const select = document.querySelector('#trajectory-category-select'); select.value = 'All events'; select.dispatchEvent(new Event('change', { bubbles: true })); return true; })()", returnByValue: true });
     await waitForLocal(() => mock.trajectoryReads() >= unfilteredRead);
     await waitForExpression(socket, "document.querySelector('.mi-input-status')?.textContent.includes('Historical model inputs not recorded.') && document.querySelectorAll('.ct-step-header').length === 2 && document.querySelector('#trajectory-event-1') !== null && !document.querySelector('.tr-coverage')?.textContent.includes('Loading')");
     // 列表行直接点击重置为 Summary，且焦点稳定停留在当前选中行
@@ -1225,22 +1223,21 @@ function createMockApi() {
     }
     if (request.url?.startsWith("/api/goals/goal-1/model-inputs?")) {
       inputReads += 1;
-      if (inputReads === 1) { response.writeHead(500); response.end(); }
-      else if (new URL(request.url, "http://localhost").searchParams.get("callId") === "call-native") { inputDetailReads += 1; json(response, { call: nativeCall, previousSystem: null, previousCallId: null, systemVersion: "hash" }); }
-      else if (new URL(request.url, "http://localhost").searchParams.get("q") === "native") json(response, { calls: [{ goalId: "goal-1", runId: "run-1", callId: "call-native", executionUnitId: "unit-1", stepIndex: 1, stage: "decide", occurredAt: "2026-08-05T09:00:01.000Z", systemVersion: "hash", systemChanged: false, firstSystem: true, previousCallId: null, omittedMessageCount: 0, messages: nativeCall.messages.map((message, index) => ({ role: message.role, source: message.source, index, preview: index === 0 ? `Native tool result ${"long content ".repeat(200)}` : message.content.slice(0, 700), truncated: true })) }], total: 1, nextOffset: null });
-      else json(response, { calls: [], total: 0, nextOffset: null });
+      if (new URL(request.url, "http://localhost").searchParams.get("callId") === "call-native") { inputDetailReads += 1; json(response, { call: nativeCall, previousSystem: null, previousCallId: null, systemVersion: "hash", committedThroughSequence: 3 }); }
+      else json(response, { calls: [{ goalId: "goal-1", runId: "run-1", callId: "call-native", executionUnitId: "unit-1", stepIndex: 1, stage: "decide", occurredAt: "2026-08-05T09:00:01.000Z", systemVersion: "hash", systemChanged: false, firstSystem: true, previousCallId: null, omittedMessageCount: 0, messages: nativeCall.messages.map((message, index) => ({ role: message.role, source: message.source, index, preview: index === 0 ? `Native tool result ${"long content ".repeat(200)}` : message.content.slice(0, 700), truncated: true })) }], total: 1, nextOffset: null, committedThroughSequence: 3 });
       return;
     }
     if (request.url?.startsWith("/api/goals/goal-1/trajectory")) {
       const run = { runId: "run-1", status: "completed", current: true, committedThroughSequence: 3 };
       if (request.url.startsWith("/api/goals/goal-1/trajectory/runs")) json(response, { runs: [run], nextOffset: null });
+      else if (request.url.startsWith("/api/goals/goal-1/trajectory/timeline")) json(response, { goalId: "goal-1", runId: "run-1", committedThroughSequence: 3, eventCount: 3, timeRange: { start: "2026-08-05T09:00:01.000Z", end: "2026-08-05T09:00:03.000Z" }, buckets: [{ startSequence: 1, endSequence: 3, eventCount: 3, eventTypes: [{ eventType: "run_started", count: 1 }, { eventType: "think_completed", count: 1 }, { eventType: "run_completed", count: 1 }] }] });
       else if (request.url.startsWith("/api/goals/goal-1/trajectory?")) {
         trajectoryReads += 1;
-        json(response, { goalId: "goal-1", run, entries: [1, 2, 3].map(sequence => ({ eventId: `event-${sequence}`, sequence, ...(sequence <= 2 ? { stepIndex: sequence - 1 } : {}), executionUnitId: `unit-${sequence - 1}`, occurredAt: `2026-08-05T09:00:0${sequence}.000Z`, eventType: sequence === 1 ? "run_started" : sequence === 2 ? "think_completed" : "run_completed", category: sequence === 2 ? "decision" : "lifecycle", title: sequence === 2 ? "Thinking" : "Run", preview: "Committed Run event", previewTruncated: false })), total: 3, committedCount: 3, previousCursor: null, nextCursor: null, locatedSequence: null });
+        json(response, { goalId: "goal-1", run, entries: [1, 2, 3].map(sequence => ({ eventId: `event-${sequence}`, sequence, ...(sequence <= 2 ? { stepIndex: sequence - 1 } : {}), executionUnitId: `unit-${sequence - 1}`, occurredAt: `2026-08-05T09:00:0${sequence}.000Z`, eventType: sequence === 1 ? "run_started" : sequence === 2 ? "think_completed" : "run_completed", category: sequence === 2 ? "decision" : "lifecycle", title: sequence === 2 ? "Thinking" : "Run", preview: "Committed Run event", previewTruncated: false })), total: 3, committedCount: 3, committedThroughSequence: 3, previousCursor: null, nextCursor: null, locatedSequence: null });
       } else if (request.url.startsWith("/api/goals/goal-1/trajectory/events/")) {
         const sequence = Number(request.url.split("/").at(-1).split("?")[0]);
         const eventType = sequence === 1 ? "run_started" : sequence === 2 ? "think_completed" : "run_completed";
-        json(response, { event: { eventSchemaVersion: 1, eventId: `event-${sequence}`, goalId: "goal-1", runId: "run-1", sequence, occurredAt: `2026-08-05T09:00:0${sequence}.000Z`, phase: "executing", eventType, payload: eventType === "think_completed" ? { type: eventType, requestId: "think-1", stepOrdinal: 1, goal: "Inspect the saved workflow", output: "Inspection finished." } : { type: eventType } }, observationConfirmed: false, toolDurationMs: null });
+        json(response, { event: { eventSchemaVersion: 1, eventId: `event-${sequence}`, goalId: "goal-1", runId: "run-1", sequence, occurredAt: `2026-08-05T09:00:0${sequence}.000Z`, phase: "executing", eventType, payload: eventType === "think_completed" ? { type: eventType, requestId: "think-1", stepOrdinal: 1, goal: "Inspect the saved workflow", output: "Inspection finished." } : { type: eventType } }, observationConfirmed: false, toolDurationMs: null, committedThroughSequence: 3, correlation: {}, related: {}, payloadBytes: 128 });
       } else { response.writeHead(404); response.end(); }
       return;
     }

@@ -9224,6 +9224,130 @@
             "role": "boundary-root"
         },
         {
+            "key": "web-contracts/src/wire#BrowserExecutionUnitPage",
+            "declaration": "BrowserExecutionUnitPage",
+            "source": {
+                "path": "packages/web-contracts/src/wire.ts",
+                "line": 2365
+            },
+            "owner": "@lazygoal/web-contracts",
+            "module": "web-contracts",
+            "boundary": "web",
+            "section": "`wire`：原生 TS 边界根",
+            "definition": "原生 TS 契约根；Schema、校验器与绑定由 Catalog 生成",
+            "definitionKind": "native-ts",
+            "relations": [],
+            "consumers": [],
+            "protocol": {
+                "identity": {
+                    "state": "declared",
+                    "value": "web.trajectory.unit_page"
+                },
+                "version": {
+                    "state": "declared",
+                    "value": 1
+                }
+            },
+            "generation": {
+                "state": "enabled",
+                "detail": "由 wire.ts 生成 Schema、Ajv standalone 校验器、Manifest 与 contract-binding 绑定。",
+                "strategy": "typescript-binding",
+                "rootType": "BrowserExecutionUnitPage",
+                "declaredTypes": [
+                    "BrowserExecutionUnitPage",
+                    "BrowserTrajectoryRun",
+                    "BrowserRunStatus",
+                    "BrowserTrajectoryEntry"
+                ],
+                "outputDirectory": "packages/web-contracts/src/generated",
+                "artifacts": {
+                    "schemaModule": "trajectory-unit-page-schema.ts",
+                    "validator": "trajectory-unit-page-validator.mjs",
+                    "validatorTypes": "trajectory-unit-page-validator.d.mts",
+                    "manifest": "trajectory-unit-page-manifest.json",
+                    "binding": "trajectory-unit-page-binding.ts"
+                },
+                "binding": {
+                    "module": "../../../contract-binding/src/index",
+                    "dataType": "BrowserExecutionUnitPage",
+                    "dataTypeModule": "../wire",
+                    "exportName": "browserExecutionUnitPageBinding",
+                    "names": {
+                        "schema": "browserExecutionUnitPageSchema",
+                        "metadata": "browserExecutionUnitPageMetadata",
+                        "validator": "browserExecutionUnitPageValidator"
+                    }
+                }
+            },
+            "validation": {
+                "state": "runtime-schema",
+                "detail": "生成的 Schema 与 Ajv standalone 校验器；contract-binding 在 JSON 边界读取。"
+            },
+            "role": "boundary-root"
+        },
+        {
+            "key": "web-contracts/src/wire#BrowserTrajectoryTimeline",
+            "declaration": "BrowserTrajectoryTimeline",
+            "source": {
+                "path": "packages/web-contracts/src/wire.ts",
+                "line": 2430
+            },
+            "owner": "@lazygoal/web-contracts",
+            "module": "web-contracts",
+            "boundary": "web",
+            "section": "`wire`：原生 TS 边界根",
+            "definition": "原生 TS 契约根；Schema、校验器与绑定由 Catalog 生成",
+            "definitionKind": "native-ts",
+            "relations": [],
+            "consumers": [],
+            "protocol": {
+                "identity": {
+                    "state": "declared",
+                    "value": "web.trajectory.timeline"
+                },
+                "version": {
+                    "state": "declared",
+                    "value": 1
+                }
+            },
+            "generation": {
+                "state": "enabled",
+                "detail": "由 wire.ts 生成 Schema、Ajv standalone 校验器、Manifest 与 contract-binding 绑定。",
+                "strategy": "typescript-binding",
+                "rootType": "BrowserTrajectoryTimeline",
+                "declaredTypes": [
+                    "BrowserTrajectoryTimeline",
+                    "BrowserTrajectoryTimeRange",
+                    "BrowserTrajectoryTimelineBucket",
+                    "BrowserTrajectoryEventTypeCount"
+                ],
+                "outputDirectory": "packages/web-contracts/src/generated",
+                "artifacts": {
+                    "schemaModule": "trajectory-timeline-schema.ts",
+                    "validator": "trajectory-timeline-validator.mjs",
+                    "validatorTypes": "trajectory-timeline-validator.d.mts",
+                    "manifest": "trajectory-timeline-manifest.json",
+                    "binding": "trajectory-timeline-binding.ts"
+                },
+                "binding": {
+                    "module": "../../../contract-binding/src/index",
+                    "dataType": "BrowserTrajectoryTimeline",
+                    "dataTypeModule": "../wire",
+                    "exportName": "browserTrajectoryTimelineBinding",
+                    "names": {
+                        "schema": "browserTrajectoryTimelineSchema",
+                        "metadata": "browserTrajectoryTimelineMetadata",
+                        "validator": "browserTrajectoryTimelineValidator"
+                    }
+                }
+            },
+            "validation": {
+                "state": "runtime-schema",
+                "detail": "生成的 Schema 与 Ajv standalone 校验器；contract-binding 在 JSON 边界读取。"
+            },
+            "role": "boundary-root"
+        },
+        {
             "key": "web-contracts/src/wire#BrowserTrajectoryDetail",
             "declaration": "BrowserTrajectoryDetail",
             "source": {
@@ -9259,7 +9383,10 @@
                     "BrowserTrajectoryEventPayloadWire",
                     "BrowserJsonValue",
                     "BrowserTrajectoryObservationWire",
-                    "BrowserTrajectoryToolFinished"
+                    "BrowserTrajectoryToolFinished",
+                    "BrowserTrajectoryCorrelation",
+                    "BrowserTrajectoryRelatedSequences",
+                    "BrowserTrajectoryPayloadReference"
                 ],
                 "outputDirectory": "packages/web-contracts/src/generated",
                 "artifacts": {

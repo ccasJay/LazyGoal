@@ -562,6 +562,7 @@ export {
     projectTrajectoryEvent,
     readTrajectoryAtSnapshot,
     selectCommittedModelContextFrames,
+    trajectoryWatermark,
 } from "./trajectory";
 export type {
     CommittedModelContextFrameQuery,
@@ -584,6 +585,25 @@ export type {
     ModelContextSectionUpdate,
     ModelContextStage,
 } from "./trajectory";
+export {
+    projectTrajectoryEventCorrelation,
+    projectTrajectoryEventSummary,
+} from "./trajectory-query";
+export type {
+    TrajectoryEventCorrelation,
+    TrajectoryEventDetail,
+    TrajectoryEventSummary,
+    TrajectoryEventSummaryRelations,
+    TrajectoryExecutionUnitPage,
+    TrajectoryPage,
+    TrajectoryPageQuery,
+    TrajectoryPayloadReference,
+    TrajectoryQueryContext,
+    TrajectoryQueryPort,
+    TrajectoryRelatedEventSequences,
+    TrajectoryTimeline,
+    TrajectoryTimelineBucket,
+} from "./trajectory-query";
 export {
     DefaultGoalModelSelectionCoordinator,
     isSafeWaitingPointForModelSwitching,

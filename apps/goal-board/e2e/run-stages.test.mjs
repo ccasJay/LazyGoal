@@ -371,11 +371,11 @@ function createStageMockApi() {
       return;
     }
     if (request.url?.startsWith("/api/goals/goal-stage-1/trajectory/events/6?")) {
-      json(response, { goalId: session.goalId, runId: "run-1", event: { ...thinkEntry, eventSchemaVersion: 1, goalId: session.goalId, runId: "run-1", phase: "executing", payload: { type: "think_completed", requestId: "think-1", stepOrdinal: 4, ...session.runs[0].steps[0].think } }, toolDurationMs: null, observationConfirmed: false });
+      json(response, { goalId: session.goalId, runId: "run-1", event: { ...thinkEntry, eventSchemaVersion: 1, goalId: session.goalId, runId: "run-1", phase: "executing", payload: { type: "think_completed", requestId: "think-1", stepOrdinal: 4, ...session.runs[0].steps[0].think } }, toolDurationMs: null, observationConfirmed: false, committedThroughSequence: 7, correlation: {}, related: {}, payloadBytes: 0 });
       return;
     }
     if (request.url?.startsWith("/api/goals/goal-stage-1/trajectory?")) {
-      json(response, { goalId: session.goalId, run: trajectoryRun, entries: [thinkEntry], total: 1, committedCount: 1, previousCursor: null, nextCursor: null, locatedSequence: null });
+      json(response, { goalId: session.goalId, run: trajectoryRun, entries: [thinkEntry], total: 1, committedCount: 1, committedThroughSequence: 7, previousCursor: null, nextCursor: null, locatedSequence: null });
       return;
     }
     if (request.url?.startsWith("/api/goals/goal-stage-1/model-inputs?")) {

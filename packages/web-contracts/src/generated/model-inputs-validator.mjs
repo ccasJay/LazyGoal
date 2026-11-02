@@ -12,7 +12,7 @@ var require_BrowserModelInputs_validator = __commonJS({
   "BrowserModelInputs-validator.cjs"(exports, module) {
     module.exports = validate10;
     module.exports.default = validate10;
-    var schema12 = { "type": "object", "properties": { "calls": { "type": "array", "items": { "$ref": "#/definitions/BrowserModelInputSummary" } }, "total": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "nextOffset": { "type": ["number", "null"], "maximum": 9007199254740991, "minimum": 0 } }, "required": ["calls", "total", "nextOffset"], "additionalProperties": false, "description": "\u6A21\u578B\u8F93\u5165\u5217\u8868\u54CD\u5E94\u3002" };
+    var schema12 = { "type": "object", "properties": { "calls": { "type": "array", "items": { "$ref": "#/definitions/BrowserModelInputSummary" } }, "total": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "nextOffset": { "type": ["number", "null"], "maximum": 9007199254740991, "minimum": 0 }, "committedThroughSequence": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 } }, "required": ["calls", "total", "nextOffset", "committedThroughSequence"], "additionalProperties": false, "description": "\u6A21\u578B\u8F93\u5165\u5217\u8868\u54CD\u5E94\u3002" };
     var schema13 = { "type": "object", "properties": { "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "callId": { "type": "string", "pattern": "\\S" }, "executionUnitId": { "type": "string", "pattern": "\\S" }, "stepIndex": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "stage": { "type": "string", "enum": ["think", "decide", "completion_review"] }, "occurredAt": { "type": "string" }, "systemVersion": { "type": "string" }, "systemChanged": { "type": "boolean" }, "firstSystem": { "type": "boolean" }, "previousCallId": { "type": ["string", "null"], "pattern": "\\S" }, "messages": { "type": "array", "items": { "$ref": "#/definitions/BrowserModelInputPreviewMessage" } }, "omittedMessageCount": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 } }, "required": ["goalId", "runId", "callId", "stepIndex", "stage", "occurredAt", "systemVersion", "systemChanged", "firstSystem", "previousCallId", "messages", "omittedMessageCount"], "additionalProperties": false, "description": "\u6A21\u578B\u8F93\u5165\u6458\u8981\u4F20\u8F93\u5BF9\u8C61\uFF08\u7528\u4E8E\u8C03\u7528\u5217\u8868\u5C55\u793A\uFF09\u3002" };
     var schema14 = { "type": "object", "properties": { "role": { "type": "string", "enum": ["system", "user", "assistant", "tool"] }, "source": { "type": "string", "enum": ["system", "conversation", "section", "working_context", "stage", "request", "native_history"] }, "index": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "preview": { "type": "string" }, "truncated": { "type": "boolean" } }, "required": ["role", "source", "index", "preview", "truncated"], "additionalProperties": false, "description": "\u6A21\u578B\u8F93\u5165\u9884\u89C8\u6D88\u606F\u3002" };
     var func2 = Object.prototype.hasOwnProperty;
@@ -602,13 +602,22 @@ var require_BrowserModelInputs_validator = __commonJS({
           }
           errors++;
         }
+        if (data.committedThroughSequence === void 0) {
+          const err3 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "committedThroughSequence" }, message: "must have required property 'committedThroughSequence'" };
+          if (vErrors === null) {
+            vErrors = [err3];
+          } else {
+            vErrors.push(err3);
+          }
+          errors++;
+        }
         for (const key0 in data) {
-          if (!(key0 === "calls" || key0 === "total" || key0 === "nextOffset")) {
-            const err3 = { instancePath, schemaPath: "#/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key0 }, message: "must NOT have additional properties" };
+          if (!(key0 === "calls" || key0 === "total" || key0 === "nextOffset" || key0 === "committedThroughSequence")) {
+            const err4 = { instancePath, schemaPath: "#/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key0 }, message: "must NOT have additional properties" };
             if (vErrors === null) {
-              vErrors = [err3];
+              vErrors = [err4];
             } else {
-              vErrors.push(err3);
+              vErrors.push(err4);
             }
             errors++;
           }
@@ -624,19 +633,7 @@ var require_BrowserModelInputs_validator = __commonJS({
               }
             }
           } else {
-            const err4 = { instancePath: instancePath + "/calls", schemaPath: "#/properties/calls/type", keyword: "type", params: { type: "array" }, message: "must be array" };
-            if (vErrors === null) {
-              vErrors = [err4];
-            } else {
-              vErrors.push(err4);
-            }
-            errors++;
-          }
-        }
-        if (data.total !== void 0) {
-          let data2 = data.total;
-          if (!(typeof data2 == "number" && (!(data2 % 1) && !isNaN(data2)) && isFinite(data2))) {
-            const err5 = { instancePath: instancePath + "/total", schemaPath: "#/properties/total/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
+            const err5 = { instancePath: instancePath + "/calls", schemaPath: "#/properties/calls/type", keyword: "type", params: { type: "array" }, message: "must be array" };
             if (vErrors === null) {
               vErrors = [err5];
             } else {
@@ -644,22 +641,34 @@ var require_BrowserModelInputs_validator = __commonJS({
             }
             errors++;
           }
+        }
+        if (data.total !== void 0) {
+          let data2 = data.total;
+          if (!(typeof data2 == "number" && (!(data2 % 1) && !isNaN(data2)) && isFinite(data2))) {
+            const err6 = { instancePath: instancePath + "/total", schemaPath: "#/properties/total/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
+            if (vErrors === null) {
+              vErrors = [err6];
+            } else {
+              vErrors.push(err6);
+            }
+            errors++;
+          }
           if (typeof data2 == "number" && isFinite(data2)) {
             if (data2 > 9007199254740991 || isNaN(data2)) {
-              const err6 = { instancePath: instancePath + "/total", schemaPath: "#/properties/total/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
-              if (vErrors === null) {
-                vErrors = [err6];
-              } else {
-                vErrors.push(err6);
-              }
-              errors++;
-            }
-            if (data2 < 0 || isNaN(data2)) {
-              const err7 = { instancePath: instancePath + "/total", schemaPath: "#/properties/total/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
+              const err7 = { instancePath: instancePath + "/total", schemaPath: "#/properties/total/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
               if (vErrors === null) {
                 vErrors = [err7];
               } else {
                 vErrors.push(err7);
+              }
+              errors++;
+            }
+            if (data2 < 0 || isNaN(data2)) {
+              const err8 = { instancePath: instancePath + "/total", schemaPath: "#/properties/total/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
+              if (vErrors === null) {
+                vErrors = [err8];
+              } else {
+                vErrors.push(err8);
               }
               errors++;
             }
@@ -668,26 +677,17 @@ var require_BrowserModelInputs_validator = __commonJS({
         if (data.nextOffset !== void 0) {
           let data3 = data.nextOffset;
           if (!(typeof data3 == "number" && isFinite(data3)) && data3 !== null) {
-            const err8 = { instancePath: instancePath + "/nextOffset", schemaPath: "#/properties/nextOffset/type", keyword: "type", params: { type: schema12.properties.nextOffset.type }, message: "must be number,null" };
+            const err9 = { instancePath: instancePath + "/nextOffset", schemaPath: "#/properties/nextOffset/type", keyword: "type", params: { type: schema12.properties.nextOffset.type }, message: "must be number,null" };
             if (vErrors === null) {
-              vErrors = [err8];
+              vErrors = [err9];
             } else {
-              vErrors.push(err8);
+              vErrors.push(err9);
             }
             errors++;
           }
           if (typeof data3 == "number" && isFinite(data3)) {
             if (data3 > 9007199254740991 || isNaN(data3)) {
-              const err9 = { instancePath: instancePath + "/nextOffset", schemaPath: "#/properties/nextOffset/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
-              if (vErrors === null) {
-                vErrors = [err9];
-              } else {
-                vErrors.push(err9);
-              }
-              errors++;
-            }
-            if (data3 < 0 || isNaN(data3)) {
-              const err10 = { instancePath: instancePath + "/nextOffset", schemaPath: "#/properties/nextOffset/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
+              const err10 = { instancePath: instancePath + "/nextOffset", schemaPath: "#/properties/nextOffset/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
               if (vErrors === null) {
                 vErrors = [err10];
               } else {
@@ -695,14 +695,55 @@ var require_BrowserModelInputs_validator = __commonJS({
               }
               errors++;
             }
+            if (data3 < 0 || isNaN(data3)) {
+              const err11 = { instancePath: instancePath + "/nextOffset", schemaPath: "#/properties/nextOffset/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
+              if (vErrors === null) {
+                vErrors = [err11];
+              } else {
+                vErrors.push(err11);
+              }
+              errors++;
+            }
+          }
+        }
+        if (data.committedThroughSequence !== void 0) {
+          let data4 = data.committedThroughSequence;
+          if (!(typeof data4 == "number" && (!(data4 % 1) && !isNaN(data4)) && isFinite(data4))) {
+            const err12 = { instancePath: instancePath + "/committedThroughSequence", schemaPath: "#/properties/committedThroughSequence/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
+            if (vErrors === null) {
+              vErrors = [err12];
+            } else {
+              vErrors.push(err12);
+            }
+            errors++;
+          }
+          if (typeof data4 == "number" && isFinite(data4)) {
+            if (data4 > 9007199254740991 || isNaN(data4)) {
+              const err13 = { instancePath: instancePath + "/committedThroughSequence", schemaPath: "#/properties/committedThroughSequence/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
+              if (vErrors === null) {
+                vErrors = [err13];
+              } else {
+                vErrors.push(err13);
+              }
+              errors++;
+            }
+            if (data4 < 0 || isNaN(data4)) {
+              const err14 = { instancePath: instancePath + "/committedThroughSequence", schemaPath: "#/properties/committedThroughSequence/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
+              if (vErrors === null) {
+                vErrors = [err14];
+              } else {
+                vErrors.push(err14);
+              }
+              errors++;
+            }
           }
         }
       } else {
-        const err11 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+        const err15 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
         if (vErrors === null) {
-          vErrors = [err11];
+          vErrors = [err15];
         } else {
-          vErrors.push(err11);
+          vErrors.push(err15);
         }
         errors++;
       }

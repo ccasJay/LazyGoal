@@ -26,6 +26,7 @@ import {
   browserTrajectoryDetailBinding,
   browserTrajectoryPageBinding,
   browserTrajectoryRunsBinding,
+  browserTrajectoryTimelineBinding,
   browserWorkspaceContextBinding,
   isOkResponse,
   isNullableSafeInteger,
@@ -70,6 +71,7 @@ import {
   type BrowserTrajectoryEntry,
   type BrowserTrajectoryPage,
   type BrowserTrajectoryRuns,
+  type BrowserTrajectoryTimeline,
   type BrowserWorkspaceContext,
   type ContractBinding,
   type ContractDiagnostic,
@@ -196,7 +198,7 @@ export const browserApi = {
   },
 
   modelInputs(goalId: string, runId: string, offset = 0, signal?: AbortSignal, query = ""): Promise<BrowserModelInputs> {
-    return requestContract(`/api/goals/${encodeURIComponent(goalId)}/model-inputs?runId=${encodeURIComponent(runId)}&offset=${offset}&q=${encodeURIComponent(query)}`, browserModelInputsBinding, signal, {}, undefined, data => isNullableSafeInteger(data.nextOffset));
+    return requestContract(`/api/goals/${encodeURIComponent(goalId)}/model-inputs?runId=${encodeURIComponent(runId)}&offset=${offset}&q=${encodeURIComponent(query)}`, browserModelInputsBinding, signal, {}, undefined, data => isNullableSafeInteger(data.nextOffset) && Number.isSafeInteger(data.committedThroughSequence));
   },
   modelInput(goalId: string, runId: string, callId: string, signal?: AbortSignal): Promise<BrowserModelInputDetail> {
     return requestContract(`/api/goals/${encodeURIComponent(goalId)}/model-inputs?runId=${encodeURIComponent(runId)}&callId=${encodeURIComponent(callId)}`, browserModelInputDetailBinding, signal);
@@ -207,13 +209,22 @@ export const browserApi = {
 
   trajectory(goalId: string, query: URLSearchParams, signal?: AbortSignal): Promise<BrowserTrajectoryPage> {
     return requestContract(`/api/goals/${encodeURIComponent(goalId)}/trajectory?${query}`, browserTrajectoryPageBinding, signal, {}, undefined,
-      data => isNullableSafeInteger(data.previousCursor)
-        && isNullableSafeInteger(data.nextCursor)
+      data => (data.previousCursor === null || typeof data.previousCursor === "string")
+        && (data.nextCursor === null || typeof data.nextCursor === "string")
+        && Number.isSafeInteger(data.committedThroughSequence)
         && isNullableSafeInteger(data.locatedSequence));
   },
 
-  trajectoryDetail(goalId: string, runId: string, sequence: number, signal?: AbortSignal): Promise<BrowserTrajectoryDetail> {
-    return requestContract(`/api/goals/${encodeURIComponent(goalId)}/trajectory/events/${sequence}?runId=${encodeURIComponent(runId)}`, browserTrajectoryDetailBinding, signal);
+  trajectoryTimeline(goalId: string, runId: string, watermark?: number, bucketSize = 100, signal?: AbortSignal): Promise<BrowserTrajectoryTimeline> {
+    const params = new URLSearchParams({ runId, bucketSize: String(bucketSize) });
+    if (watermark !== undefined) params.set("watermark", String(watermark));
+    return requestContract(`/api/goals/${encodeURIComponent(goalId)}/trajectory/timeline?${params}`, browserTrajectoryTimelineBinding, signal);
+  },
+
+  trajectoryDetail(goalId: string, runId: string, sequence: number, watermark?: number, signal?: AbortSignal): Promise<BrowserTrajectoryDetail> {
+    const params = new URLSearchParams({ runId });
+    if (watermark !== undefined) params.set("watermark", String(watermark));
+    return requestContract(`/api/goals/${encodeURIComponent(goalId)}/trajectory/events/${sequence}?${params}`, browserTrajectoryDetailBinding, signal);
   },
 
   readMetrics(goalId: string, signal?: AbortSignal): Promise<SessionMetricsSnapshot> {

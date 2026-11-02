@@ -598,6 +598,7 @@ test("isTrajectoryPage and isTrajectoryDetail validate trajectory wire DTOs", ()
             entries: [validEntry],
             total: 1,
             committedCount: 1,
+            committedThroughSequence: 1,
             previousCursor: null,
             nextCursor: null,
             locatedSequence: null,
@@ -612,6 +613,7 @@ test("isTrajectoryPage and isTrajectoryDetail validate trajectory wire DTOs", ()
             entries: [validEntry],
             total: 1,
             committedCount: 1,
+            committedThroughSequence: 1,
             previousCursor: null,
             nextCursor: 1.5,
             locatedSequence: null,
@@ -634,6 +636,10 @@ test("isTrajectoryPage and isTrajectoryDetail validate trajectory wire DTOs", ()
             },
             observationConfirmed: true,
             toolDurationMs: null,
+            committedThroughSequence: 1,
+            correlation: {},
+            related: {},
+            payloadBytes: 0,
         }),
         true,
     );
@@ -1055,6 +1061,10 @@ test("Trajectory、Model Input 与 Metrics 合同保留开放 JSON 与数值边�
         result: { kind: "success", output: deep, summary: "ok", extra: deep },
         observationConfirmed: true,
         toolDurationMs: 12,
+        committedThroughSequence: 1,
+        correlation: { actionId: "action-1" },
+        related: { action: 1, observation: 2 },
+        payloadBytes: 0,
     };
     assert.equal(isTrajectoryDetail(detail), true);
     assert.equal(isTrajectoryDetail({ ...detail, event: { ...detail.event, payload: { type: "other" } } }), false);
@@ -1093,6 +1103,7 @@ test("Trajectory、Model Input 与 Metrics 合同保留开放 JSON 与数值边�
         previousSystem: null,
         previousCallId: null,
         systemVersion: "v1",
+        committedThroughSequence: 2,
     };
     assert.equal(isModelInputDetail(inputDetail), true);
     assert.equal(isModelInputDetail({

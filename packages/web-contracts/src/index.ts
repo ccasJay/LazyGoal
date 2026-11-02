@@ -135,8 +135,10 @@ export {
 } from "./model-input";
 
 export {
+    type BrowserExecutionUnitPage,
     type BrowserTrajectoryRun,
     type BrowserTrajectoryEntry,
+    type BrowserTrajectoryObservationWire,
     type BrowserTrajectoryPage,
     type BrowserTrajectoryRuns,
     type BrowserTrajectoryIssueWire,
@@ -147,6 +149,13 @@ export {
     type BrowserTrajectoryEventPayloadWire,
     type BrowserTrajectoryEventWire,
     type BrowserTrajectoryDetail,
+    type BrowserTrajectoryCorrelation,
+    type BrowserTrajectoryPayloadReference,
+    type BrowserTrajectoryRelatedSequences,
+    type BrowserTrajectoryTimeRange,
+    type BrowserTrajectoryTimeline,
+    type BrowserTrajectoryTimelineBucket,
+    type BrowserTrajectoryEventTypeCount,
 } from "./trajectory";
 
 export {

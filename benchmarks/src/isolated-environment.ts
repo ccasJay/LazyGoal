@@ -977,7 +977,7 @@ export class IsolatedEnvironment {
 
     private async openWorker(name: string, config: WorkerEntryConfig, injected: InteractiveProcessRunner | undefined, timeoutMs: number, signal: AbortSignal): Promise<InteractiveProcess> {
         const args = ["exec", "-i", "--workdir", config.cwd ?? "/opt/lazygoal", name,
-            ...(config.command ?? ["/opt/lazygoal/node", "/opt/lazygoal/worker.mjs"])];
+            ...(config.command ?? ["/opt/lazygoal/node", "--disable-warning=ExperimentalWarning", "/opt/lazygoal/worker.mjs"])];
         const runner = injected ?? this.runInteractive;
         return runner("docker", args, { timeoutMs, signal, maxBytes: 16 * 1024 * 1024 });
     }

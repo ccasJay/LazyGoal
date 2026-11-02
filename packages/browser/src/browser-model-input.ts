@@ -1,9 +1,16 @@
 import { createHash } from "node:crypto";
 import { Hono } from "hono";
-import type { GoalStore, ModelInputRecord, ModelInputMessage } from "../../runtime/src/index";
+import {
+    trajectoryWatermark,
+    type GoalStore,
+    type ModelInputRecord,
+    type ModelInputMessage,
+    type TrajectoryQueryPort,
+} from "../../runtime/src/index";
 import type {
     BrowserModelInputDetail,
     BrowserModelInputSummary,
+    BrowserModelInputs,
 } from "../../web-contracts/src/index";
 
 export type {
@@ -22,51 +29,103 @@ const validId = (value: string | null) => value !== null && /^[A-Za-z0-9_-]{1,25
 
 /**
  * 挂载完整模型输入的只读查询；调用方必须复用 BrowserSessionAccess 外层保护。
- * @param store - 正式工作区 Goal Store，仅用于验证 Goal/Run 身份。
+ * @param store - 正式工作区 Goal Store，仅用于验证 Goal/Run 身份与提交水位。
  * @param read - 正式工作区输入读取端口，不读取 Benchmark 聚合数据。
+ * @param query - 同一工作区的轨迹查询端口，用于取得水位内已提交的模型调用身份。
  * @returns 调用分页与详情路由；存储异常转换为稳定 500，不暴露路径。
- * @remarks 当前读取仍遍历整个 Run；列表每页最多 100 调用、每调用 10 条新增消息预览。
+ * @remarks 只暴露能在 Snapshot 水位内找到对应模型事件的调用；未提交或孤立输入不进入历史。
  * @example
  * ```ts
- * host.mount("/", createBrowserModelInputRoutes(store, read));
+ * host.mount("/", createBrowserModelInputRoutes(store, read, query));
  * ```
  */
-export function createBrowserModelInputRoutes(store: Pick<GoalStore, "restore">, read: (goalId: string, runId: string) => Promise<readonly ModelInputRecord[]>): Hono {
+export function createBrowserModelInputRoutes(
+    store: Pick<GoalStore, "restore">,
+    read: (goalId: string, runId: string) => Promise<readonly ModelInputRecord[]>,
+    query: TrajectoryQueryPort,
+): Hono {
     const routes = new Hono();
     routes.get("/api/goals/:goalId/model-inputs", async context => {
         const params = new URL(context.req.url).searchParams;
         const goalId = context.req.param("goalId"), runId = params.get("runId"), callId = params.get("callId");
         const offset = Number(params.get("offset") ?? 0);
-        const query = params.get("q") ?? "";
+        const queryText = params.get("q") ?? "";
         if (!validId(goalId) || !validId(runId) || callId !== null && !validId(callId)
             || !Number.isSafeInteger(offset) || offset < 0 || params.has("offset") && !/^\d+$/.test(params.get("offset")!)
             || [...params.keys()].some(key => !["runId", "callId", "offset", "q"].includes(key) || params.getAll(key).length !== 1)
-            || query.length > 500 || callId !== null && (params.has("offset") || params.has("q"))) return context.json({ error: "invalid_model_input_query" }, 400);
+            || queryText.length > 500 || callId !== null && (params.has("offset") || params.has("q"))) {
+            return context.json({ error: "invalid_model_input_query" }, 400);
+        }
+
         try {
             const goal = await store.restore(goalId);
             if (!goal) return context.json({ error: "goal_not_found" }, 404);
-            if (goal.state.run.id !== runId && !goal.state.completedRuns?.some(run => run.runId === runId)) return context.json({ error: "run_not_found" }, 404);
-            const calls = await read(goalId, runId!);
+            if (goal.state.run.id !== runId && !goal.state.completedRuns?.some(run => run.runId === runId)) {
+                return context.json({ error: "run_not_found" }, 404);
+            }
+
+            const watermark = trajectoryWatermark(goal, runId!);
+            const committed = new Set(await query.listModelCallIds({
+                goalId,
+                runId: runId!,
+                committedThroughSequence: watermark,
+            }));
+            const calls = (await read(goalId, runId!)).filter(call => committed.has(call.callId));
+
             if (callId !== null) {
                 const index = calls.findIndex(call => call.callId === callId);
                 const call = calls[index];
                 if (!call) return context.json({ error: "model_input_not_recorded" }, 404);
                 const previous = calls[index - 1];
-                const detail: BrowserModelInputDetail = { call, previousCallId: previous?.callId ?? null, previousSystem: previous ? system(previous) : null, systemVersion: hash(system(call)) };
-                if (Buffer.byteLength(JSON.stringify(detail)) > 2 * 1024 * 1024) return context.json({ error: "model_input_too_large" }, 413);
+                const detail: BrowserModelInputDetail = {
+                    call,
+                    previousCallId: previous?.callId ?? null,
+                    previousSystem: previous ? system(previous) : null,
+                    systemVersion: hash(system(call)),
+                    committedThroughSequence: watermark,
+                };
+                if (Buffer.byteLength(JSON.stringify(detail)) > 2 * 1024 * 1024) {
+                    return context.json({ error: "model_input_too_large" }, 413);
+                }
                 return context.json(detail);
             }
-            const indices = calls.map((call, index) => ({ call, index })).filter(({ call }) => !query || JSON.stringify(call).toLowerCase().includes(query.toLowerCase()));
+
+            const indices = calls.map((call, index) => ({ call, index }))
+                .filter(({ call }) => !queryText || JSON.stringify(call).toLowerCase().includes(queryText.toLowerCase()));
             const summaries: BrowserModelInputSummary[] = indices.slice(offset, offset + 100).map(({ call, index }) => {
                 const previous = calls[index - 1];
                 const old = new Set(previous?.messages.map(messageKey) ?? []);
-                const added = call.messages.map((message, index) => ({ ...message, index })).filter(message => message.role !== "system" && !old.has(messageKey(message)));
+                const added = call.messages.map((message, index) => ({ ...message, index }))
+                    .filter(message => message.role !== "system" && !old.has(messageKey(message)));
                 const { messages: _, ...identity } = call;
-                return { ...identity, systemVersion: hash(system(call)), firstSystem: previous === undefined, systemChanged: previous !== undefined && system(previous) !== system(call), previousCallId: previous?.callId ?? null,
-                    messages: added.slice(0, 10).map(message => ({ role: message.role, source: message.source, index: message.index, preview: (message.role === "tool" || message.role === "assistant" && message.toolCalls !== undefined ? JSON.stringify(message) : message.content).slice(0, 700), truncated: (message.role === "tool" || message.role === "assistant" && message.toolCalls !== undefined ? JSON.stringify(message) : message.content).length > 700 })), omittedMessageCount: Math.max(0, added.length - 10) };
+                return {
+                    ...identity,
+                    systemVersion: hash(system(call)),
+                    firstSystem: previous === undefined,
+                    systemChanged: previous !== undefined && system(previous) !== system(call),
+                    previousCallId: previous?.callId ?? null,
+                    messages: added.slice(0, 10).map(message => ({
+                        role: message.role,
+                        source: message.source,
+                        index: message.index,
+                        preview: (message.role === "tool" || message.role === "assistant" && message.toolCalls !== undefined
+                            ? JSON.stringify(message) : message.content).slice(0, 700),
+                        truncated: (message.role === "tool" || message.role === "assistant" && message.toolCalls !== undefined
+                            ? JSON.stringify(message) : message.content).length > 700,
+                    })),
+                    omittedMessageCount: Math.max(0, added.length - 10),
+                };
             });
-            return context.json({ calls: summaries, total: indices.length, nextOffset: offset + 100 < indices.length ? offset + 100 : null });
-        } catch { return context.json({ error: "model_input_read_failed" }, 500); }
+            const response: BrowserModelInputs = {
+                calls: summaries,
+                total: indices.length,
+                nextOffset: offset + 100 < indices.length ? offset + 100 : null,
+                committedThroughSequence: watermark,
+            };
+            return context.json(response);
+        } catch {
+            return context.json({ error: "model_input_read_failed" }, 500);
+        }
     });
     return routes;
 }

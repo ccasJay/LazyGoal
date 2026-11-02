@@ -10,7 +10,7 @@ import { requestResult } from "./trajectory-presentation";
 import { isEventMatched } from "./trajectory-event-filter";
 
 /** 读取轨迹输入摘要并发出选择请求；详情选择及互斥关系由父组件持有。 */
-export function TrajectoryRecords({ goalId, runId, entries, unverifiedPageBoundarySequences, refresh, selectEvent, selectedInput, selectInput, showSteps, showRequests, onCalls, onRevealSelection, selectedSequence, query, category, onAllStepsCollapsedChange }: { onCalls: (calls: BrowserModelInputSummary[]) => void; onRevealSelection: () => void; selectedSequence: number | null; query: string; category: string; goalId: string; runId: string; entries: readonly BrowserTrajectoryEntry[]; unverifiedPageBoundarySequences: readonly number[]; refresh: unknown; selectEvent: (entry: BrowserTrajectoryEntry) => void; selectedInput: ModelInputSelection | null; selectInput: (input: ModelInputSelection) => void; showSteps: boolean; showRequests: boolean; onAllStepsCollapsedChange?: (allCollapsed: boolean) => void }) {
+export function TrajectoryRecords({ goalId, runId, entries, unverifiedPageBoundarySequences, refresh, selectEvent, selectedInput, selectInput, showSteps, showRequests, onCalls, onRevealSelection, selectedSequence, category, onAllStepsCollapsedChange }: { onCalls: (calls: BrowserModelInputSummary[]) => void; onRevealSelection: () => void; selectedSequence: number | null; category: string; goalId: string; runId: string; entries: readonly BrowserTrajectoryEntry[]; unverifiedPageBoundarySequences: readonly number[]; refresh: unknown; selectEvent: (entry: BrowserTrajectoryEntry) => void; selectedInput: ModelInputSelection | null; selectInput: (input: ModelInputSelection) => void; showSteps: boolean; showRequests: boolean; onAllStepsCollapsedChange?: (allCollapsed: boolean) => void }) {
   const [calls, setCalls] = useState<BrowserModelInputSummary[]>([]);
   const [offset, setOffset] = useState(0);
   const [nextOffset, setNextOffset] = useState<number | null>(null);
@@ -21,21 +21,21 @@ export function TrajectoryRecords({ goalId, runId, entries, unverifiedPageBounda
   const [collapsedRetries, setCollapsedRetries] = useState<string[]>([]);
   const [collapsedSteps, setCollapsedSteps] = useState<string[]>([]);
   const previousSelectionRef = useRef<{ sequence: number | null; callId: string | null | undefined }>({ sequence: selectedSequence, callId: selectedInput?.callId });
-  const previousFilterRef = useRef<{ query: string; category: string }>({ query, category });
+  const previousFilterRef = useRef<{ category: string }>({ category });
   useEffect(() => { setOffset(0); setCalls([]); setExpandedRetries([]); setCollapsedRetries([]); setCollapsedSteps([]); }, [runId]);
   useEffect(() => {
     const controller = new AbortController(); setError(false);
-    void browserApi.modelInputs(goalId, runId, offset, controller.signal, query).then(result => {
+    void browserApi.modelInputs(goalId, runId, offset, controller.signal).then(result => {
       if (!controller.signal.aborted) { setCalls([...result.calls]); setNextOffset(result.nextOffset); setTotal(result.total); }
     }).catch(() => { if (!controller.signal.aborted) { setError(true); setCalls([]); } });
     return () => controller.abort();
-  }, [goalId, runId, offset, refresh, query, retry]);
-  useEffect(() => { setOffset(0); }, [query]);
+  }, [goalId, runId, offset, refresh, retry]);
+  useEffect(() => { setOffset(0); }, [category]);
   useEffect(() => { onCalls(calls); }, [calls, onCalls]);
   type RecordRow = { id: string; role: string; text: string; time: string; step?: number; entry?: BrowserTrajectoryEntry; call?: BrowserModelInputSummary; tab?: string; messageIndex?: number; input?: string; result?: string; request?: boolean; promptCallId?: string; status?: string; retryKey?: string; pageBoundaryBefore?: true };
   const rows: RecordRow[] = [];
   const visibleCalls = (category === "All events" || category === "decision" || category === "memory" ? calls : []).filter(call => entries.length === 0 || entries.some(entry => call.executionUnitId === undefined || entry.executionUnitId === call.executionUnitId));
-  const results = new Map(calls.map(call => [call.callId, requestResult(call, calls, entries, !query && category === "All events")]));
+  const results = new Map(calls.map(call => [call.callId, requestResult(call, calls, entries, category === "All events")]));
   const rejectedCalls = new Map(calls.filter(call => results.get(call.callId)?.status === "rejected").map(call => [results.get(call.callId)!.entry!.sequence, call]));
   const displaySteps = displayStepBySequence(entries);
   for (const call of visibleCalls) {
@@ -58,7 +58,7 @@ export function TrajectoryRecords({ goalId, runId, entries, unverifiedPageBounda
   }
   for (const entry of entries) {
     if (entry.sequence !== selectedSequence && entry.eventType === "model_context_frame" && visibleCalls.some(call => call.callId === entry.modelCallId)) continue;
-    if (entry.sequence !== selectedSequence && !query && category === "All events" && (["state_committed", "action_staged", "observation_recorded"].includes(entry.eventType) || entry.category === "commit")) continue;
+    if (entry.sequence !== selectedSequence && category === "All events" && (["state_committed", "action_staged", "observation_recorded"].includes(entry.eventType) || entry.category === "commit")) continue;
     if (entry.eventType === "tool_finished" && entries.some(start => start.eventType === "tool_started" && start.actionId === entry.actionId)) continue;
     rows.push({ id: entry.eventId, role: entry.category === "tool" ? "Tool" : entry.eventType === "decision_received" ? "Assistant" : entry.eventType === "think_completed" || entry.eventType === "think_requested" ? "Thinking" : entry.eventType === "model_context_frame" || entry.category === "memory" ? "Context" : "Run",
       text: eventLabel(entry),
@@ -131,7 +131,7 @@ export function TrajectoryRecords({ goalId, runId, entries, unverifiedPageBounda
     const last = peers.at(-1)!;
     const rejection = [...peers].reverse().map(call => results.get(call.callId)).find(result => result?.status === "rejected")!;
     const selectedInside = chunk.rows.some(row => row.entry?.sequence === selectedSequence || row.call?.callId === selectedInput?.callId);
-    const expanded = !collapsedRetries.includes(chunk.key) && (expandedRetries.includes(chunk.key) || !!query || selectedInside);
+    const expanded = !collapsedRetries.includes(chunk.key) && (expandedRetries.includes(chunk.key) || selectedInside);
     return <Collapsible asChild key={chunk.key} open={expanded} onOpenChange={(nextOpen) => {
         setCollapsedRetries(current => nextOpen ? current.filter(key => key !== chunk.key) : current.includes(chunk.key) ? current : [...current, chunk.key]);
         setExpandedRetries(current => nextOpen ? current.includes(chunk.key) ? current : [...current, chunk.key] : current.filter(key => key !== chunk.key));
@@ -168,18 +168,17 @@ export function TrajectoryRecords({ goalId, runId, entries, unverifiedPageBounda
   }, [selectedSequence, selectedInput?.callId, stepGroups, chunks, onRevealSelection]);
   useEffect(() => {
     const prev = previousFilterRef.current;
-    const filterChanged = prev.query !== query || prev.category !== category;
-    previousFilterRef.current = { query, category };
+    const filterChanged = prev.category !== category;
+    previousFilterRef.current = { category };
     if (!filterChanged) return;
-    const normalizedQuery = query.trim().toLowerCase();
     const normalizedCategory = category.trim();
-    if (!normalizedQuery && normalizedCategory === "All events") return;
+    if (normalizedCategory === "All events") return;
     const matchedStepKeys = new Set<string>();
     for (const group of stepGroups) {
       if (group.step === undefined) continue;
       const hasMatch = group.chunks.some(chunk => chunk.rows.some(row => {
-        if (row.entry) return isEventMatched(row.entry, query, category);
-        if (row.call) return (normalizedCategory === "All events" || normalizedCategory === "decision" || normalizedCategory === "memory") && (normalizedQuery === "" || `${row.call.stage} ${row.text}`.toLowerCase().includes(normalizedQuery));
+        if (row.entry) return isEventMatched(row.entry, category);
+        if (row.call) return normalizedCategory === "decision" || normalizedCategory === "memory";
         return false;
       }));
       if (hasMatch) matchedStepKeys.add(group.key);
@@ -190,9 +189,9 @@ export function TrajectoryRecords({ goalId, runId, entries, unverifiedPageBounda
         return next.length === current.length ? current : next;
       });
     }
-  }, [query, category, stepGroups]);
+  }, [category, stepGroups]);
   return <>
-    <div className="mi-input-status">{error ? <span role="alert">Model inputs could not be loaded. <Button variant="ghost" size="sm" onClick={() => setRetry(value => value + 1)}>Retry inputs</Button></span> : total === 0 ? query ? "No saved model inputs match this search." : "Historical model inputs not recorded." : `${offset + 1}–${offset + calls.length} / ${total} saved model inputs`}{total > 100 && <span><Button variant="ghost" size="sm" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 100))}>Earlier inputs</Button><Button variant="ghost" size="sm" disabled={nextOffset === null} onClick={() => setOffset(nextOffset!)}>Later inputs</Button></span>}</div>
+    <div className="mi-input-status">{error ? <span role="alert">Model inputs could not be loaded. <Button variant="ghost" size="sm" onClick={() => setRetry(value => value + 1)}>Retry inputs</Button></span> : total === 0 ? "Historical model inputs not recorded." : `${offset + 1}–${offset + calls.length} / ${total} saved model inputs`}{total > 100 && <span><Button variant="ghost" size="sm" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - 100))}>Earlier inputs</Button><Button variant="ghost" size="sm" disabled={nextOffset === null} onClick={() => setOffset(nextOffset!)}>Later inputs</Button></span>}</div>
     <div className="ct-column-head" aria-hidden="true"><span>#</span><span>Event</span><span>Time</span><span>Detail</span></div>
     <div className="ct-record-list">
       {showSteps ? stepGroups.map(group => group.step === undefined
