@@ -2,6 +2,7 @@
 
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { marked } from "marked";
@@ -16,6 +17,36 @@ async function filesUnder(directory) {
         const path = join(directory, entry.name);
         if (entry.isDirectory()) found.push(...await filesUnder(path));
         else if (entry.isFile() && path.endsWith(".md")) found.push(path);
+    }
+    return found;
+}
+
+/**
+ * 返回集合中被 git 忽略的路径。
+ *
+ * @remarks
+ * 仓库内的本地安装内容不属于项目说明，不应参与文档校验。
+ * 非 git 目录或 git 不可用时返回空集合，使调用方保持原有扫描范围。
+ */
+function ignoredPaths(root, paths) {
+    if (paths.length === 0) return new Set();
+    const result = spawnSync("git", ["-C", root, "check-ignore", "--stdin", "-z"], {
+        input: paths.join("\0"), encoding: "utf8", maxBuffer: 16 * 1024 * 1024,
+    });
+    if (result.error !== undefined || (result.status !== 0 && result.status !== 1)) return new Set();
+    return new Set((result.stdout ?? "").split("\0").filter(Boolean));
+}
+
+async function skillDocuments(root) {
+    const base = join(root, ".agents/skills");
+    if (!existsSync(base)) return [];
+    const entries = await readdir(base, { withFileTypes: true });
+    const directories = entries.filter(entry => entry.isDirectory()).map(entry => join(base, entry.name));
+    const files = entries.filter(entry => entry.isFile() && entry.name.endsWith(".md")).map(entry => join(base, entry.name));
+    const ignored = ignoredPaths(root, [...directories, ...files]);
+    const found = files.filter(file => !ignored.has(file));
+    for (const directory of directories) {
+        if (!ignored.has(directory)) found.push(...await filesUnder(directory));
     }
     return found;
 }
@@ -164,7 +195,7 @@ export async function checkDocs(projectRoot = defaultRoot) {
             }
         }
     }
-    for (const file of await filesUnder(join(root, ".agents/skills"))) sources.add(file);
+    for (const file of await skillDocuments(root)) sources.add(file);
     for (const file of [...sources].sort()) {
         if (!existsSync(file)) continue;
         const markdown = await readFile(file, "utf8");

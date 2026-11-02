@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -93,4 +93,15 @@ test("historical Specs, Memory and unrelated fixtures are not scanned", async t 
     assert.deepEqual((await checkDocs(root)).errors, []);
     await put(root, "AGENTS.md", "当前权威目录 docs/architecture/\n");
     assert.match((await checkDocs(root)).errors.join("\n"), /当前说明仍引用旧架构文档目录/);
+});
+
+test("git-ignored local skills stay out of scope while repository skills remain checked", async t => {
+    const root = await project();
+    t.after(() => rm(root, { recursive: true, force: true }));
+    execFileSync("git", ["-C", root, "init", "-q"], { encoding: "utf8" });
+    await put(root, ".gitignore", ".agents/skills/local/\n");
+    await put(root, ".agents/skills/local/SKILL.md", "[丢失](../../absent.md)\n");
+    assert.deepEqual((await checkDocs(root)).errors, []);
+    await put(root, ".agents/skills/repository/SKILL.md", "[丢失](../../absent.md)\n");
+    assert.match((await checkDocs(root)).errors.join("\n"), /链接目标不存在/);
 });
