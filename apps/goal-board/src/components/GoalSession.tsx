@@ -418,7 +418,7 @@ export function GoalSession({
               </span>
             </div>
           </div>
-          {connection.state === "stale" && (
+          {connection.isOutdated && (
             <div className="state-stale" role="alert">
               The live connection dropped. The last confirmed content is shown, but it may be outdated. New Steer
               and Resume actions stay unavailable until the state is re-read.

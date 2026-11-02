@@ -8,6 +8,7 @@ test("断线报告重连并保留最后已知内容", () => {
   assert.equal(connection.state, "reconnecting");
   assert.equal(connection.label, "Reconnecting");
   assert.equal(connection.allowsNewDecisions, false);
+  assert.equal(connection.isOutdated, true);
   assert.equal(connection.retainsLastKnown, true);
 });
 
@@ -16,6 +17,7 @@ test("连接已建立但尚未完成首次同步时不宣称已连接", () => {
   assert.equal(connection.state, "reconnecting");
   assert.equal(connection.label, "Connecting");
   assert.equal(connection.allowsNewDecisions, false);
+  assert.equal(connection.isOutdated, false);
 });
 
 test("连接存在但状态可能过期时报告过期", () => {
@@ -31,6 +33,7 @@ test("已连接且已同步时允许依赖最新状态的新决定", () => {
     state: "linked",
     label: "Connected",
     allowsNewDecisions: true,
+    isOutdated: false,
     retainsLastKnown: true,
   });
 });

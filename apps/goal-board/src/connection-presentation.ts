@@ -26,6 +26,8 @@ export interface ConnectionPresentation {
   readonly label: string;
   /** 是否允许依赖最新状态的新决定。 */
   readonly allowsNewDecisions: boolean;
+  /** 最后确认的状态是否可能已经过期。 */
+  readonly isOutdated: boolean;
   /** 非 `linked` 状态仍展示最后确认的内容。 */
   readonly retainsLastKnown: true;
 }
@@ -55,14 +57,15 @@ export interface ConnectionFacts {
  * ```
  */
 export function selectConnectionPresentation(facts: ConnectionFacts): ConnectionPresentation {
+  const isOutdated = facts.synced && facts.stale;
   if (!facts.connected) {
-    return { state: "reconnecting", label: "Reconnecting", allowsNewDecisions: false, retainsLastKnown: true };
+    return { state: "reconnecting", label: "Reconnecting", allowsNewDecisions: false, isOutdated, retainsLastKnown: true };
   }
   if (!facts.synced) {
-    return { state: "reconnecting", label: "Connecting", allowsNewDecisions: false, retainsLastKnown: true };
+    return { state: "reconnecting", label: "Connecting", allowsNewDecisions: false, isOutdated: false, retainsLastKnown: true };
   }
   if (facts.stale) {
-    return { state: "stale", label: "State out of date", allowsNewDecisions: false, retainsLastKnown: true };
+    return { state: "stale", label: "State out of date", allowsNewDecisions: false, isOutdated, retainsLastKnown: true };
   }
-  return { state: "linked", label: "Connected", allowsNewDecisions: true, retainsLastKnown: true };
+  return { state: "linked", label: "Connected", allowsNewDecisions: true, isOutdated: false, retainsLastKnown: true };
 }
