@@ -68,7 +68,7 @@ superseded_by: null
 
 ## 执行记录
 
-- 状态：未执行
-- 验证：-
-- 结果：-
-- 未决：无
+- 状态：passed
+- 验证：e957f2d4 · 2026-11-02T23:59:11+08:00
+- 结果：R1.1-R1.3 动作可用性、不可用原因与未知结果核验；R2.1-R2.2 单一连接投影与断线保留；R3.1-R3.2 偏好解码、身份等待与恢复；R4.1-R4.2 阶段分段投影与审批会话。goal-board 272 项单测、npm test、build:web、check:dependencies、check:docs 通过；断线重连与交互提交 E2E 通过。
+- 未决：npm run test:web-e2e 仍有 3 项既有失败（board 390px 宽度、916px wide 宽度、runtime 首屏轨迹详情），均可在 dev 复现，不属本 Spec 验收路径。
