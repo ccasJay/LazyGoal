@@ -31,3 +31,4 @@ specs/**/.execution-progress.md
 
 # Repository-installed agent skills
 .agents/skills/shadcn/
+.agents/skills/materials-*/
