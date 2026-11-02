@@ -9,6 +9,13 @@ import { GoalSessionProvider } from "../context/GoalSessionContext";
 import { RunControlProvider } from "../context/RunControlContext";
 import { useGoalBoardApp } from "../hooks/useGoalBoardApp";
 import { statusClass, statusFromRun } from "../types";
+import {
+  decodeWorkspacePreferences,
+  encodeWorkspacePreferences,
+  restoreNotice,
+  selectWorkspaceRestoreState,
+  workspacePreferenceCookieName,
+} from "../workspace-preferences";
 import { GoalSession } from "./GoalSession";
 import { GoalSearch } from "./GoalSearch";
 import { ModelPicker } from "./ModelPicker";
@@ -21,10 +28,8 @@ import { ResizablePanelGroup, ResizablePanel } from "./ui/resizable";
 import { ResizableSidebar } from "./ResizableSidebar";
 import { Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbPage, BreadcrumbSeparator } from "./ui/breadcrumb";
 
-const ACTIVITY_WIDTH_COOKIE = "lazygoal_activity_width";
-
-function readActivityWidthCookie(): string | undefined {
-  const prefix = `${ACTIVITY_WIDTH_COOKIE}=`;
+function readCookie(name: string): string | undefined {
+  const prefix = `${name}=`;
   return document.cookie.split(";").map(part => part.trim()).find(part => part.startsWith(prefix))?.slice(prefix.length);
 }
 
@@ -43,24 +48,16 @@ export function WorkspaceShell() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchShortcut, setSearchShortcut] = useState("Ctrl K");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [activityWidth, setActivityWidth] = useState<"standard" | "wide">(() => {
-    try { return readActivityWidthCookie() === "wide" ? "wide" : "standard"; }
-    catch { return "standard"; }
-  });
+  const [activityWidth, setActivityWidth] = useState<"standard" | "wide">("standard");
   const [widthSaveError, setWidthSaveError] = useState<string | undefined>();
+  const [preferenceNotice, setPreferenceNotice] = useState<string | undefined>();
+  const restoredFor = useRef<string | null>(null);
   const settingsHeading = useRef<HTMLHeadingElement>(null);
   const settingsButton = useRef<HTMLButtonElement>(null);
   const sidebarToggle = useRef<HTMLButtonElement>(null);
 
   const changeActivityWidth = (width: "standard" | "wide") => {
     setActivityWidth(width);
-    try {
-      document.cookie = `${ACTIVITY_WIDTH_COOKIE}=${width}; path=/; max-age=31536000; samesite=strict`;
-      if (readActivityWidthCookie() !== width) throw new Error("Preference cookie was not saved");
-      setWidthSaveError(undefined);
-    } catch {
-      setWidthSaveError("Could not save this setting. It will reset when the page is reloaded.");
-    }
   };
 
   useEffect(() => {
@@ -82,6 +79,65 @@ export function WorkspaceShell() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [searchOpen, mobile]);
   const context = app.workspaceContext;
+  const workspaceRoot = context?.workspaceRoot;
+  const restoreCompleted = useRef(false);
+  const skipNextPersist = useRef(false);
+  const pendingSavedGoal = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (workspaceRoot === undefined || restoredFor.current === workspaceRoot) return;
+    const decoded = decodeWorkspacePreferences(readCookie(workspacePreferenceCookieName(workspaceRoot)));
+    const savedGoal = decoded.kind === "valid" ? decoded.value.selectedGoalId : null;
+    const goalAvailable = savedGoal === null || app.goals.length === 0
+      || app.goals.some(goal => goal.goalId === savedGoal && !goal.archived);
+    const state = selectWorkspaceRestoreState({ identity: "ready", decode: decoded, goalAvailable });
+    restoredFor.current = workspaceRoot;
+    restoreCompleted.current = true;
+    if (state.kind !== "restored") {
+      setPreferenceNotice(restoreNotice(state));
+      return;
+    }
+    skipNextPersist.current = true;
+    setCollapsed(state.value.sidebarCollapsed);
+    setActivityWidth(state.value.activityWidth);
+    if (state.value.selectedGoalId !== null) {
+      pendingSavedGoal.current = state.value.selectedGoalId;
+      app.selectGoal(state.value.selectedGoalId);
+    }
+    app.sessionContextValue.setSessionTab(state.value.view);
+  }, [workspaceRoot, app.goals, app.selectGoal, app.sessionContextValue]);
+
+  useEffect(() => {
+    if (pendingSavedGoal.current === null || app.goals.length === 0) return;
+    if (!app.goals.some(goal => goal.goalId === pendingSavedGoal.current && !goal.archived)) {
+      app.closeSession();
+      setPreferenceNotice(restoreNotice({ kind: "defaulted", reason: "goal-unavailable" }));
+    }
+    pendingSavedGoal.current = null;
+  }, [app.goals, app.closeSession]);
+
+  useEffect(() => {
+    if (workspaceRoot === undefined || !restoreCompleted.current) return;
+    if (skipNextPersist.current) {
+      skipNextPersist.current = false;
+      return;
+    }
+    const layout = {
+      sidebarCollapsed: collapsed,
+      activityWidth,
+      selectedGoalId: app.selectedGoalId,
+      view: app.sessionContextValue.sessionTab,
+    };
+    try {
+      const cookieName = workspacePreferenceCookieName(workspaceRoot);
+      const encoded = encodeWorkspacePreferences(layout);
+      document.cookie = `${cookieName}=${encoded}; path=/; max-age=31536000; samesite=strict`;
+      if (readCookie(cookieName) !== encoded) throw new Error("Preference cookie was not saved");
+      setWidthSaveError(undefined);
+    } catch {
+      setWidthSaveError("Could not save this setting. It will reset when the page is reloaded.");
+    }
+  }, [workspaceRoot, collapsed, activityWidth, app.selectedGoalId, app.sessionContextValue.sessionTab]);
   const workspacePath = context?.worktreeRoot ?? context?.workspaceRoot;
   const workspaceName = workspacePath?.split(/[\\/]/).filter(Boolean).at(-1) ?? "Workspace";
   const goals = app.goals.filter(goal => !goal.archived);
@@ -149,6 +205,12 @@ export function WorkspaceShell() {
           {mobile ? <Sheet open={!collapsed} onOpenChange={open => setCollapsed(!open)}><SheetContent showCloseButton={false} side="left" className="workspace-sidebar workspace-sidebar-dialog" aria-describedby={undefined} onCloseAutoFocus={event => { event.preventDefault(); sidebarToggle.current?.focus(); }}><SheetTitle className="sr-only">Workspace navigation</SheetTitle>{navigation}</SheetContent></Sheet> : <ResizableSidebar hidden={collapsed}>{navigation}</ResizableSidebar>}
           <ResizablePanel minSize={30} className="min-w-0">
           <main className="workspace-main">
+            {preferenceNotice !== undefined && (
+              <div className="state-stale" role="status">
+                {preferenceNotice}
+                <Button variant="ghost" size="sm" type="button" onClick={() => setPreferenceNotice(undefined)}>Dismiss</Button>
+              </div>
+            )}
             <div className="workspace-canvas">
               <div className="main project-view">
                 <header className="topbar">
