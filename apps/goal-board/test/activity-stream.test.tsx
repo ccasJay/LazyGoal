@@ -159,6 +159,19 @@ test("a running stage retains failed diagnostics without requesting intervention
   assert.doesNotMatch(older, /timeline-stage running/);
 });
 
+test("continued stage sections only animate while their own activity is active", () => {
+  const context = { runId: "run-1", stageId: "stage-1", revision: 1, status: "executing" as const,
+    target: "Verify the implementation", firstSequence: 1, completeWithinPage: true };
+  const completed = activity("completed", "stage-1");
+  const active = { ...completed, itemId: "activity:active", group: { ...completed.group, status: "running" as const } };
+  const boundary = (id: string): SessionTimelineEntry => ({ kind: "message", itemId: id, presentationKey: id,
+    runId: "run-1", role: "assistant", purpose: "process", content: id, position: position(3) });
+  const html = render([stage("run_stage_declared", 1), boundary("first boundary"), completed,
+    boundary("second boundary"), active], { running: true, stages: [context] });
+  const states = [...html.matchAll(/timeline-stage (running|recorded|completed|attention|rejected)/g)].map(match => match[1]);
+  assert.deepEqual(states, ["running", "recorded", "running"]);
+});
+
 test("a stage requests attention only for a currently waiting activity", () => {
   const entry = activity("recorded", "stage-1");
   const waiting = { ...entry, group: { ...entry.group, status: "waiting" as const,

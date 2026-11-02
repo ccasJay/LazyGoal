@@ -467,11 +467,15 @@ function renderTimelineEntries(items: readonly SessionTimelineEntry[], options: 
     const context = options.stages.find(stage => stage.runId === entries[0]?.runId && stage.stageId === stageId);
     const contextStatus = context !== undefined && context.revision === revision ? context.status : undefined;
     const incomplete = context?.completeWithinPage === false;
+    const sectionIdentity = `${entries[0]?.runId}:${stageId}:${revision ?? ""}`;
+    const continued = seenSections.has(sectionIdentity);
+    seenSections.add(sectionIdentity);
     const accepted = contextStatus === "accepted" || routeStage?.status === "accepted" || outcome === "run_stage_accepted";
     const attention = entries.filter((entry) => entry.kind === "activity" ? entry.group.members.some(member => needsAttention(member.status))
       : entry.kind === "lookup" ? entry.status === "failed"
         : !accepted && entry.kind === "fact" && entry.eventType === "run_stage_rejected" && outcome === "run_stage_rejected");
     const running = !accepted && entries[0]?.runId === options.currentRunId && options.runStatus === "running"
+      && (!continued || activities.some((entry) => isActive(entry.group.status)))
       && (routeStage?.status === "executing" || options.newerItemCount === 0
         && (contextStatus === "executing" || activities.some((entry) => isActive(entry.group.status))));
     const waiting = entries[0]?.runId === options.currentRunId && options.runStatus === "waiting"
@@ -484,9 +488,6 @@ function renderTimelineEntries(items: readonly SessionTimelineEntry[], options: 
     const details = entries.filter((entry) => entry.kind !== "fact"
       || entry.eventType !== "run_stage_declared" && entry.eventType !== "run_stage_accepted"
         && (options.showExecutionFacts || entry.eventType !== "model_repair_feedback_recorded"));
-    const sectionIdentity = `${entries[0]?.runId}:${stageId}:${revision ?? ""}`;
-    const continued = seenSections.has(sectionIdentity);
-    seenSections.add(sectionIdentity);
     const showLoad = incomplete && !loadOffered.has(sectionIdentity);
     if (showLoad && (options.olderAvailable && options.onLoadEarlier !== undefined
       || options.newerItemCount > 0 && options.onLoadNewer !== undefined)) loadOffered.add(sectionIdentity);
