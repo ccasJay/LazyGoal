@@ -85,7 +85,7 @@ superseded_by: null
 
 ## 执行记录
 
-- 状态：未执行
-- 验证：-
-- 结果：-
-- 未决：无
+- 状态：已完成（12 个任务全部实现并逐条提交）
+- 验证：`2bb84535` @ 2026-11-02；`npm test`（2760 个 TS 测试与 98 个脚本测试全部通过）、`npm run build:web`、串行 `node --test --test-concurrency=1 apps/goal-board/e2e/*.test.mjs`（18 项中 14 项通过）、`npm run contracts:generate -- --check`、`npm run check:docs`、`npm run check:dependencies`（584 个源文件）。
+- 结果：R1.1–R1.3、R2.1–R2.2、R3.1–R3.2、R4.1–R4.2、R5.1、R6.1–R6.2 均由对应包测试或端到端读取覆盖；10,000 事件索引重建 89.6 ms、索引分页 0.9 ms 且不读取 JSONL 或 payload。
+- 未决：4 项端到端用例在本机失败，均有独立于本 Spec 的原因：`board.test.mjs` 的 390px 时间线宽度断言、`provider-models-contract.test.mjs` 与 `provider-profile-test-contract.test.mjs` 的未知字段诊断路径、`runtime.test.mjs` 的首屏轨迹详情 `pre` 断言；另 `board.test.mjs` 的 916px Activity 宽度断言偶发失败，已在 `dev` 工作副本复现。以上失败不涉及本次改动路径，未在本 Spec 内修复。
