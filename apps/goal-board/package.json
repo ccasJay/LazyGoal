@@ -10,6 +10,8 @@
     "test:e2e": "npm run build && node --test --test-concurrency=1 e2e/*.test.mjs",
     "check:ui-harness": "tsc -p ui-harness/tsconfig.json",
     "ui": "tsx ui-harness/src/cli.ts",
+    "test:ui-visual": "playwright test --config ui-harness/playwright.config.ts",
+    "test:ui-visual:update": "playwright test --config ui-harness/playwright.config.ts --update-snapshots",
     "ui:install-browser": "playwright install chromium"
   },
   "dependencies": {
