@@ -78,7 +78,7 @@ R6.1 的 binding 校验只证明 wire 形状一致，不证明服务端语义等
 
 ## 执行记录
 
-- 状态：未执行
-- 验证：-
-- 结果：-
+- 状态：passed
+- 验证：55771f54918dba0f14aa74e3bd9083de294b187b · 2026-11-03T13:47:20+08:00
+- 结果：R1.1-R6.2 全部覆盖：28 项 harness 测试、4 项桌面视觉基线比较、npm test 全量回归、check:docs、check:dependencies 均通过；R5.2 失败路径实测生成 actual/expected/diff。
 - 未决：无
