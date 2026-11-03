@@ -44,6 +44,17 @@ export const VIEW_REGISTRY: Record<ViewName, ViewDefinition> = {
     defaultScenario: boardPopulatedScenario,
     readySelector: ".goal-card, .board-shell, main h1",
     maskSelectors: ["time", ".metric-coverage"],
+    preparePage: async (page: Page) => {
+      await page
+        .waitForFunction(
+          () => {
+            const cards = Array.from(document.querySelectorAll(".card-metrics"));
+            return cards.length === 0 || cards.every((c) => !c.textContent?.includes("Loading metrics…"));
+          },
+          { timeout: 5000 },
+        )
+        .catch(() => {});
+    },
   },
   session: {
     name: "session",
