@@ -140,6 +140,9 @@ const DISABLE_ANIMATIONS_CSS = `
 }
 `;
 
+/** 截图与诊断使用的固定时钟时间，避免相对时长随运行时刻漂移。 */
+export const DEFAULT_FIXED_TIME = "2026-01-01T12:00:00.000Z";
+
 /**
  * 启动隔离且确定性的 UI 验收环境。
  *
@@ -239,6 +242,23 @@ export async function launchEnvironment(options: LaunchOptions): Promise<Harness
     view: viewDef.name,
     ignorePatterns: options.ignorePatterns,
   });
+
+  // 固定页面 Date.now 与 new Date()，不拦截计时器，保持事件循环与错误传播语义不变。
+  const fixedTime = new Date(options.fixedTime ?? DEFAULT_FIXED_TIME).getTime();
+  await page.addInitScript(`
+    (() => {
+      const fixedNow = ${fixedTime};
+      const RealDate = Date;
+      class FixedDate extends RealDate {
+        constructor(...args) {
+          if (args.length === 0) super(fixedNow);
+          else super(...args);
+        }
+        static now() { return fixedNow; }
+      }
+      window.Date = FixedDate;
+    })();
+  `);
   page.on("console", (msg) => console.log("BROWSER LOG:", msg.type(), msg.text()));
   page.on("pageerror", (err) => console.log("BROWSER ERROR:", err));
 

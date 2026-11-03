@@ -25,20 +25,23 @@ test("diagnostics collector collects console errors, page errors, and http error
       console.warn("Test deliberate console warning");
     });
 
-    // 2. 注入 pageerror (未捕获异常)
+    // 2. 注入 pageerror (未捕获异常)，显式等待事件而非固定延时
+    const pageError = env.page.waitForEvent("pageerror");
     await env.page.evaluate(() => {
       setTimeout(() => {
         throw new Error("Deliberate unhandled exception in page");
       }, 10);
     });
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await pageError;
 
     // 3. 触发 HTTP 404
+    const httpResponse = env.page.waitForResponse((res) => res.url().includes("non-existent-route-for-testing-404"));
     await env.page.evaluate(async () => {
       try {
         await fetch("/api/non-existent-route-for-testing-404");
       } catch {}
     });
+    await httpResponse;
 
     const report = env.diagnostics.getReport();
     assert.equal(report.ok, false);

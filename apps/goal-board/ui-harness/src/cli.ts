@@ -16,6 +16,17 @@ function asString(val: unknown): string | undefined {
   return typeof val === "string" ? val : undefined;
 }
 
+/**
+ * 将用户传入的相对路径解析为调用目录下的绝对路径。
+ *
+ * @remarks
+ * harness 通过 `npm run --prefix` 启动，进程工作目录是 apps/goal-board；
+ * 用户提供的路径应以最初执行 npm 的目录为基准，因此优先使用 INIT_CWD。
+ */
+export function resolveUserPath(path: string): string {
+  return resolve(process.env.INIT_CWD ?? process.cwd(), path);
+}
+
 function printHelp(): void {
   console.log(`
 LazyGoal UI Harness CLI
@@ -73,7 +84,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
 
     const port = values.port ? Number(values.port) : 0;
     const distValue = asString(values.dist);
-    const distDir = distValue ? resolve(distValue) : resolve(import.meta.dirname, "../../dist");
+    const distDir = distValue ? resolveUserPath(distValue) : resolve(import.meta.dirname, "../../dist");
 
     const server = await createFixtureServer({
       scenario,
@@ -141,12 +152,13 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
 
     let env: Awaited<ReturnType<typeof launchEnvironment>> | undefined;
     try {
+      const distArg = asString(values.dist);
       env = await launchEnvironment({
         view: viewName,
         goalId: asString(values.goal),
         scenario: scenarioOverride,
         attachUrl: asString(values.attach),
-        distDir: asString(values.dist),
+        distDir: distArg ? resolveUserPath(distArg) : undefined,
       });
 
       let screenshotResult: { outPath: string; width: number; height: number } | undefined;
@@ -154,13 +166,12 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
         const defaultArtifactsDir = resolve(import.meta.dirname, "../visual/artifacts");
         const outArg = asString(values.out);
         const outPath = outArg
-          ? resolve(outArg)
+          ? resolveUserPath(outArg)
           : join(defaultArtifactsDir, `${viewName}-${Date.now()}.png`);
         screenshotResult = await captureScreenshot({
           page: env.page,
           outPath,
           selector: asString(values.selector),
-          maskSelectors: env.view.maskSelectors,
         });
       }
 
@@ -168,7 +179,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
 
       const reportArg = asString(values.report);
       if (reportArg) {
-        const reportPath = resolve(reportArg);
+        const reportPath = resolveUserPath(reportArg);
         await mkdir(dirname(reportPath), { recursive: true });
         await writeFile(reportPath, JSON.stringify(report, null, 2), "utf8");
       }
