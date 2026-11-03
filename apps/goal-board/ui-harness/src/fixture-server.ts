@@ -10,6 +10,7 @@ import {
   browserGoalSessionStateEnvelopeBinding,
   browserInteractionDetailResultBinding,
   browserModelCatalogBinding,
+  browserModelInputsBinding,
   browserModelPreferenceResultBinding,
   browserPermissionModeResultBinding,
   browserProviderSettingsBinding,
@@ -429,6 +430,18 @@ export async function createFixtureServer(
       return;
     }
 
+    // 13.5 GET /api/goals/:goalId/model-inputs
+    const modelInputsMatch = path.match(/^\/api\/goals\/([^/]+)\/model-inputs$/);
+    if (method === "GET" && modelInputsMatch) {
+      sendValidatedJson(res, browserModelInputsBinding, {
+        calls: [],
+        total: 0,
+        nextOffset: null,
+        committedThroughSequence: 0,
+      });
+      return;
+    }
+
     // 14. GET /api/goals/:goalId/trajectory
     const trajMatch = path.match(/^\/api\/goals\/([^/]+)\/trajectory$/);
     if (method === "GET" && trajMatch) {
@@ -442,7 +455,22 @@ export async function createFixtureServer(
       return;
     }
 
-    // 14.5 GET /goals/:goalId/metrics
+    // 14.5 GET /goals/:goalId/metrics and GET /goals/:goalId/metrics/stream
+    const metricsStreamMatch = path.match(/^\/goals\/([^/]+)\/metrics\/stream$/);
+    if (method === "GET" && metricsStreamMatch) {
+      res.writeHead(200, {
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache",
+        connection: "keep-alive",
+      });
+      res.write("retry: 1000\n\n");
+      sseClients.add(res);
+      req.on("close", () => {
+        sseClients.delete(res);
+      });
+      return;
+    }
+
     const metricsMatch = path.match(/^\/goals\/([^/]+)\/metrics$/);
     if (method === "GET" && metricsMatch) {
       const goalId = decodeURIComponent(metricsMatch[1]);
@@ -481,6 +509,7 @@ export async function createFixtureServer(
     if (served) return;
 
     // 17. 未处理端点：显式返回 501 告知路径未打桩
+    console.warn(`[fixture-server 501 unhandled] ${method} ${path}`);
     res.writeHead(501, { "content-type": "application/json; charset=utf-8" });
     res.end(
       JSON.stringify({
