@@ -8,6 +8,7 @@ import {
   browserGoalListBinding,
   browserGoalSessionEnvelopeBinding,
   browserGoalSessionStateEnvelopeBinding,
+  browserInteractionDetailResultBinding,
   browserModelCatalogBinding,
   browserModelPreferenceResultBinding,
   browserPermissionModeResultBinding,
@@ -25,6 +26,7 @@ import {
   type BrowserGoalList,
   type BrowserGoalSessionEnvelope,
   type BrowserGoalSessionStateEnvelope,
+  type BrowserInteractionDetailResult,
   type BrowserModelCatalog,
   type BrowserPermissionModeResult,
   type BrowserProviderSettings,
@@ -288,6 +290,28 @@ export async function createFixtureServer(
       const data: readonly BrowserToolGrantSummary[] =
         mode === "empty" || grantsConfig?.data === undefined ? [] : grantsConfig.data;
       sendValidatedJson(res, browserToolGrantResultBinding, { ok: true, grants: data });
+      return;
+    }
+
+    // 5.5 GET /api/goals/:goalId/interaction-details
+    const interactionMatch = path.match(/^\/api\/goals\/([^/]+)\/interaction-details$/);
+    if (method === "GET" && interactionMatch) {
+      const goalId = decodeURIComponent(interactionMatch[1]);
+      const runId = url.searchParams.get("runId") ?? "";
+      const interactionId = url.searchParams.get("interactionId") ?? "";
+      const key = `${goalId}:${runId}:${interactionId}`;
+      const config = scenario.interactionDetails?.[key] ?? scenario.interactionDetails?.[goalId];
+      if (config) {
+        await handleEndpointMode<BrowserInteractionDetailResult>(
+          res,
+          config,
+          browserInteractionDetailResultBinding,
+          () => ({ ok: false, error: "interaction_details_unavailable" }),
+        );
+        return;
+      }
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ code: "interaction_not_found" }));
       return;
     }
 

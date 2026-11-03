@@ -6,6 +6,7 @@ import type {
   BrowserGoalList,
   BrowserGoalSessionEnvelope,
   BrowserGoalSessionStateEnvelope,
+  BrowserInteractionDetailResult,
   BrowserModelCatalog,
   BrowserPermissionModeResult,
   BrowserProviderSettings,
@@ -77,6 +78,8 @@ export interface FixtureScenario {
   readonly metrics?: Record<string, FixtureEndpointConfig<SessionMetricsSnapshot>>;
   /** 控制命令受理结果。 */
   readonly controlReceipt?: (intent: BrowserControlIntentCommand) => BrowserControlReceipt;
+  /** 交互详情查询（按 `${goalId}:${runId}:${interactionId}` 索引）。 */
+  readonly interactionDetails?: Record<string, FixtureEndpointConfig<BrowserInteractionDetailResult>>;
 }
 
 /** Fixture 服务器启动选项。 */

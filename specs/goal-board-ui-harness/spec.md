@@ -67,7 +67,7 @@ R6.1 的 binding 校验只证明 wire 形状一致，不证明服务端语义等
 - [x] //TODO 1. 锁定 Playwright 与 Chromium 版本，建立安装脚本和 CI 缓存 → R5.1；检查：版本命令输出与锁文件一致。
 - [x] //TODO 2. 建立 fixture HTTP/SSE 服务骨架与 binding 校验 → R6.1；检查：fixture 响应校验测试。
 - [x] //TODO 3. 提供 Board 的 success、empty、loading、error 场景 → R1.1、R3.2；检查：端点与场景测试。
-- [ ] //TODO 4. 提供 Session（等待、审批、运行中与 state_sync）、Trajectory、Settings 场景 → R1.1、R4.1；检查：四视图打开 smoke。
+- [x] //TODO 4. 提供 Session（等待、审批、运行中与 state_sync）、Trajectory、Settings 场景 → R1.1、R4.1；检查：四视图打开 smoke。
 - [ ] //TODO 5. 实现 view registry 与隔离环境启动、目标校验和清理 → R1.1、R1.2；检查：成功与失败路径测试。
 - [ ] //TODO 6. 实现确定性整页与元素截图 → R2.1、R2.2、R2.3；检查：两次哈希一致与负向测试。
 - [ ] //TODO 7. 实现诊断采集、JSON 报告与退出码 → R3.1、R3.2；检查：报告与退出码测试。
