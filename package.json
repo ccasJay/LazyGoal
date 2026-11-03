@@ -27,6 +27,7 @@
     "build:web": "npm run --prefix apps/goal-board build",
     "dev:web": "npm run --prefix apps/goal-board dev",
     "check:ui-harness": "npm run --prefix apps/goal-board check:ui-harness",
+    "ui": "npm run --prefix apps/goal-board ui --",
     "ui:install-browser": "npm run --prefix apps/goal-board ui:install-browser",
     "test:web-e2e": "node --test apps/goal-board/e2e/*.test.mjs",
     "test": "node scripts/run-regression.mjs"

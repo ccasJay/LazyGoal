@@ -15,6 +15,10 @@ dist/
 build/
 coverage/
 *.tsbuildinfo
+test-results/
+playwright-report/
+apps/goal-board/ui-harness/visual/artifacts/
+apps/goal-board/ui-harness/.test-artifacts/
 
 # Project-local LazyGoal runtime state
 /.lazygoal/

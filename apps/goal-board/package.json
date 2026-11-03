@@ -9,6 +9,7 @@
     "test": "tsx --test test/*.test.ts test/*.test.tsx",
     "test:e2e": "npm run build && node --test --test-concurrency=1 e2e/*.test.mjs",
     "check:ui-harness": "tsc -p ui-harness/tsconfig.json",
+    "ui": "tsx ui-harness/src/cli.ts",
     "ui:install-browser": "playwright install chromium"
   },
   "dependencies": {

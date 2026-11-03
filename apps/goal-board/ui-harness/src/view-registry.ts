@@ -158,7 +158,7 @@ export async function launchEnvironment(options: LaunchOptions): Promise<Harness
   }
 
   const isAttach = typeof options.attachUrl === "string" && options.attachUrl.length > 0;
-  const distDir = resolve(options.distDir ?? "apps/goal-board/dist");
+  const distDir = options.distDir ? resolve(options.distDir) : resolve(import.meta.dirname, "../../dist");
 
   if (!isAttach && !existsSync(join(distDir, "index.html"))) {
     throw new Error(
