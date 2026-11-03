@@ -18,6 +18,7 @@ import {
   browserTrajectoryRunsBinding,
   browserTrajectoryTimelineBinding,
   browserWorkspaceContextBinding,
+  sessionMetricsSnapshotBinding,
   type BrowserActivityPage,
   type BrowserControlIntentCommand,
   type BrowserControlReceipt,
@@ -33,6 +34,7 @@ import {
   type BrowserTrajectoryRuns,
   type BrowserTrajectoryTimeline,
   type BrowserWorkspaceContext,
+  type SessionMetricsSnapshot,
   type ContractBinding,
 } from "../../../../packages/web-contracts/src/index";
 import {
@@ -48,6 +50,7 @@ import {
   createDefaultTrajectoryRuns,
   createDefaultTrajectoryTimeline,
   createDefaultWorkspaceContext,
+  createDefaultSessionMetricsSnapshot,
 } from "./default-fixtures";
 import type {
   FixtureEndpointConfig,
@@ -411,6 +414,19 @@ export async function createFixtureServer(
         scenario.trajectories?.[goalId],
         browserTrajectoryPageBinding,
         () => createDefaultTrajectoryPage(goalId),
+      );
+      return;
+    }
+
+    // 14.5 GET /goals/:goalId/metrics
+    const metricsMatch = path.match(/^\/goals\/([^/]+)\/metrics$/);
+    if (method === "GET" && metricsMatch) {
+      const goalId = decodeURIComponent(metricsMatch[1]);
+      await handleEndpointMode<SessionMetricsSnapshot>(
+        res,
+        scenario.metrics?.[goalId],
+        sessionMetricsSnapshotBinding,
+        () => createDefaultSessionMetricsSnapshot(goalId),
       );
       return;
     }

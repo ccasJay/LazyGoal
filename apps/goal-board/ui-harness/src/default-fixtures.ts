@@ -14,6 +14,7 @@ import type {
   BrowserTrajectoryRuns,
   BrowserTrajectoryTimeline,
   BrowserWorkspaceContext,
+  SessionMetricsSnapshot,
 } from "../../../../packages/web-contracts/src/index";
 
 /** 创建符合契约的默认工作区上下文。 */
@@ -209,5 +210,26 @@ export function createDefaultPermissionModeResult(): BrowserPermissionModeResult
     mode: "default",
     revision: 1,
     workspaceId: "ws-fixture",
+  };
+}
+
+/** 创建符合契约的默认指标快照。 */
+export function createDefaultSessionMetricsSnapshot(goalId: string): SessionMetricsSnapshot {
+  return {
+    goalId,
+    stepCount: 3,
+    reportedCalls: 2,
+    missingCalls: 0,
+    inputTokens: 1200,
+    outputTokens: 450,
+    coverage: "complete",
+    cacheMeasuredCalls: 2,
+    cacheExcludedCalls: 0,
+    cacheHitRate: 0.25,
+    throughputMeasuredCalls: 2,
+    throughputExcludedCalls: 0,
+    tokensPerSecond: 35.5,
+    roundCount: 1,
+    runs: [],
   };
 }

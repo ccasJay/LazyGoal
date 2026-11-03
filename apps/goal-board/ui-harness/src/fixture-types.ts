@@ -15,6 +15,7 @@ import type {
   BrowserTrajectoryRuns,
   BrowserTrajectoryTimeline,
   BrowserWorkspaceContext,
+  SessionMetricsSnapshot,
 } from "../../../../packages/web-contracts/src/index";
 
 /** Fixture 端点响应状态覆盖模式。 */
@@ -72,6 +73,8 @@ export interface FixtureScenario {
   readonly trajectoryTimelines?: Record<string, FixtureEndpointConfig<BrowserTrajectoryTimeline>>;
   /** 轨迹事件详情（按 `${goalId}:${sequence}` 索引）。 */
   readonly trajectoryDetails?: Record<string, FixtureEndpointConfig<BrowserTrajectoryDetail>>;
+  /** 会话指标快照（按 goalId 索引）。 */
+  readonly metrics?: Record<string, FixtureEndpointConfig<SessionMetricsSnapshot>>;
   /** 控制命令受理结果。 */
   readonly controlReceipt?: (intent: BrowserControlIntentCommand) => BrowserControlReceipt;
 }
