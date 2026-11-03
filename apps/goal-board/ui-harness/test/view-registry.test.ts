@@ -55,8 +55,10 @@ test("launchEnvironment successfully opens Board view", { timeout: 20_000 }, asy
 test("launchEnvironment successfully opens Settings view", { timeout: 20_000 }, async () => {
   const env = await launchEnvironment({ view: "settings" });
   try {
-    const heading = await env.page.locator("main h1").innerText();
-    assert.equal(heading, "Settings");
+    const dialogVisible = await env.page.locator(".settings-dialog").isVisible();
+    assert.equal(dialogVisible, true);
+    const title = await env.page.locator(".settings-dialog-title").innerText();
+    assert.equal(title, "Settings");
     const settingsVisible = await env.page.locator(".settings-page").isVisible();
     assert.equal(settingsVisible, true);
   } finally {
@@ -81,8 +83,8 @@ test("launchEnvironment successfully opens Trajectory view without fallback", { 
   try {
     const sessionVisible = await env.page.locator(".session").isVisible();
     assert.equal(sessionVisible, true);
-    const tabActive = await env.page.locator(".session-tab-buttons button.active, .session-tab-buttons button[aria-selected='true']").first().innerText().catch(() => "");
-    assert.ok(tabActive.includes("Trajectory") || (await env.page.locator(".trajectory, .trajectory-layout").count()) > 0);
+    const tabActive = await env.page.locator(".session-tab-buttons button[aria-selected='true']").first().getAttribute("aria-label").catch(() => null);
+    assert.ok(tabActive === "Trajectory" || (await env.page.locator(".trajectory, .trajectory-layout").count()) > 0);
   } finally {
     await env.cleanup();
   }

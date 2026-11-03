@@ -86,7 +86,7 @@ export const VIEW_REGISTRY: Record<ViewName, ViewDefinition> = {
     name: "settings",
     defaultScenario: settingsScenario,
     isSettingsModal: true,
-    readySelector: ".settings-page, main h1:has-text('Settings')",
+    readySelector: ".settings-dialog, .settings-page",
     preparePage: async (page: Page) => {
       const btn = page.locator("button.workspace-settings");
       await btn.waitFor({ state: "visible", timeout: 5000 });
@@ -300,11 +300,11 @@ export async function launchEnvironment(options: LaunchOptions): Promise<Harness
     // 检查是否发生意外静默回退
     if (viewDef.name !== "board") {
       const isSettings = viewDef.name === "settings";
-      const settingsHeadingVisible = await page.locator("main h1:has-text('Settings')").first().isVisible().catch(() => false);
+      const settingsDialogVisible = await page.locator(".settings-dialog").first().isVisible().catch(() => false);
       const sessionOpenVisible = await page.locator(".session").first().isVisible().catch(() => false);
 
-      if (isSettings && !settingsHeadingVisible) {
-        throw new Error(`view_fell_back_to_board: Requested settings view, but Settings page did not open.`);
+      if (isSettings && !settingsDialogVisible) {
+        throw new Error(`view_fell_back_to_board: Requested settings view, but the Settings dialog did not open.`);
       }
       if (!isSettings && !sessionOpenVisible) {
         throw new Error(

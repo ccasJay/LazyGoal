@@ -41,7 +41,7 @@ test("interaction flow: click, type, scroll, and navigate between views without 
     assert.equal(await sessionLocator.isVisible(), true);
 
     // 验证返回：点击 "Back to goals" 或 "All goals" 关闭会话回到 Board
-    const backBtn = page.locator("button:has-text('Back to goals'), button:has-text('Goals'), button[aria-label='All goals'], button.sidebar-brand").first();
+    const backBtn = page.locator("button[aria-label='All goals']").first();
     await backBtn.click();
 
     // 验证返回后 Board 卡片重新可见
