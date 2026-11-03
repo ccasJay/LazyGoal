@@ -26,6 +26,9 @@ coverage/
 .trae/rules/git-commit-message.md
 specs/**/.execution-progress.md
 
+# Local UI drafts used for design confirmation
+apps/goal-board/ui-drafts/
+
 # 本地 worktree 目录
 .worktrees/
 

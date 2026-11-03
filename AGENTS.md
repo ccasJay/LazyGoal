@@ -120,6 +120,7 @@ When performing a task, load and follow the matching skill under `.agents/skills
 * Documentation work, including writing, moving, reviewing, and auditing → `lg-doc-standards`
 * Prose work, including Markdown, TSDoc, code comments, test comments, prompts, diagnostics, and Web/CLI copy → `lg-prose-standard`
 * Web UI design, implementation, and review → [lg-UI](.agents/skills/lg-ui/SKILL.md)
+* UI development workflow, including requirement routing, draft confirmation, implementation, and visual/interaction acceptance → [lg-ui-develop](.agents/skills/lg-ui-develop/SKILL.md)
 * Domain concepts, state transitions, invariants, and cross-context contracts → `lg-domain-development`
 * Contract placement, including whether a new component, module, event, command, persisted structure, or UI state needs a contract → [lg-contracts](.agents/skills/lg-contracts/SKILL.md)
 * SDK 提炼、可嵌入运行时契约与共享装配 → [lg-sdk-extraction](.agents/skills/lg-sdk-extraction/SKILL.md)
