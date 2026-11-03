@@ -80,5 +80,8 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npm run ui:install-browser
 
+      - name: Run UI visual regression tests
+        run: npm run test:ui-visual
+
       - name: Run browser acceptance tests
         run: node --test --test-concurrency=1 apps/goal-board/e2e/*.test.mjs

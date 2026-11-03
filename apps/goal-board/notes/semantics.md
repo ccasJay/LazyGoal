@@ -53,6 +53,7 @@
 | 会话渐进加载 | 固定水位 Activity 页支持双向翻页：更早与更新的页按稳定身份并入当前窗口，缺口明确提示；历史页缓存至多三页，正文分段至多三段；阅读锚点按可见项身份恢复。 | [Goal Board](../README.md) | [Activity 窗口](../src/activity-page-window.ts)、[SessionTimeline](../src/components/SessionTimeline.tsx) |
 | 会话输出消费 | 页面消费同一条 Goal SSE：保存不明的候选保持待核验；正式 Activity 以同一展示 key 替换候选；确定作废后立即移除临时正文并保留有限身份标记以忽略迟到片段。 | [Goal Board](../README.md) | [会话输出归约](../src/session-output-consumer.ts) |
 | 运行中输入与主按钮 | Enter 排队普通消息、Shift+Enter 换行；唯一主按钮在有正文时排队发送，空输入时受理 Interrupt 并暂停当前 Run。动态运行提示位于 Activity 时间线；暂停后由可恢复 Run 状态提供 Resume。 | [Goal Board](../README.md) | [输入区](../src/components/MessageComposer.tsx)、[Activity 时间线](../src/components/SessionTimeline.tsx)、[运行命令](../src/hooks/useRunCommands.ts) |
+| UI 验收工具 | 基于 Playwright 与独立 Fixture 模拟服务的确定性页面启动、截图、诊断与视觉回归工具。 | [Goal Board](../README.md) | [ui-harness.md](./ui-harness.md) |
 | 可折叠队列状态框 | 汇总 Runtime 队列与待应用 Steer；每条普通消息可单独删除，或按观察到的队列修订原子转为当前 Run 的 Steer。暂停队列显式继续。 | [Goal Board](../README.md) | [会话视图](../src/components/GoalSession.tsx)、[队列控制](../src/hooks/useQueue.ts) |
 | 不确定提交核验 | 受理结果不明时保留原 `inputId` 与冻结载荷，由统一核验按收据或资源身份结算；只有未应用允许原身份重试。 | [Goal Board](../README.md) | [控制核验](../src/control/verify.ts)、[运行命令](../src/hooks/useRunCommands.ts) |
 | 渲染错误边界 | 会话与轨迹视图的渲染异常被边界捕获，显示错误卡与重载入口，不整页白屏。 | [Goal Board](../README.md) | [SessionBoundary](../src/components/error-boundary.tsx) |

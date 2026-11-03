@@ -2,7 +2,7 @@
 
 React 浏览器前端，呈现固定水位 Activity 时间线、Plan Run 阶段路线与按需会话视图。
 
-阅读 [模块说明](./notes/overview.md)、[语义表](./notes/semantics.md)、[使用说明](./notes/usage.md)。
+阅读 [模块说明](./notes/overview.md)、[语义表](./notes/semantics.md)、[使用说明](./notes/usage.md)、[UI 验收工具](./notes/ui-harness.md)。
 
 ## 代码架构与目录拓扑
 
@@ -11,3 +11,4 @@ React 浏览器前端，呈现固定水位 Activity 时间线、Plan Run 阶段�
 - `src/context/`：局部隔离的双 Context（`GoalSessionContext.tsx` 会话快照、`RunControlContext.tsx` 运行控制与排队）。
 - `src/main.tsx`：应用顶层纯净装配入口与 Context Provider 嵌套（代码量收敛至约 110 行）。
 - `src/api.ts`：同源 HTTP/SSE 协议请求契约封装。
+- `ui-harness/`：独立的 Playwright UI 验收、确定性截图与视觉回归工具集。

@@ -18,7 +18,7 @@ Goal Board 只消费 `@lazygoal/web-contracts` 导出的 DTO 与生成绑定，�
 
 ## 操作说明
 
-运行前提、命令和结果示例见 [使用说明](./usage.md)。
+运行前提、命令和结果示例见 [使用说明](./usage.md) 与 [UI 验收工具说明](./ui-harness.md)。
 
 ## 页面交互
 
