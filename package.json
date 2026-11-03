@@ -28,6 +28,7 @@
     "dev:web": "npm run --prefix apps/goal-board dev",
     "check:ui-harness": "npm run --prefix apps/goal-board check:ui-harness",
     "ui": "npm run --prefix apps/goal-board ui --",
+    "test:ui-harness": "tsx --test apps/goal-board/ui-harness/test/*.test.ts",
     "test:ui-visual": "npm run --prefix apps/goal-board test:ui-visual",
     "test:ui-visual:update": "npm run --prefix apps/goal-board test:ui-visual:update",
     "ui:install-browser": "npm run --prefix apps/goal-board ui:install-browser",

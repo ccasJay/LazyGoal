@@ -57,6 +57,9 @@ npm run ui -- shot --view board --attach "http://127.0.0.1:5173/#my-token"
 ### 4. 视觉回归比较 (test:ui-visual)
 
 ```bash
+# 先执行 harness 自身的隔离、截图、诊断与契约测试
+npm run test:ui-harness
+
 # 执行四个桌面视图与仓库基线的像素级比较测试
 npm run test:ui-visual
 
