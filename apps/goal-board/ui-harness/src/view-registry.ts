@@ -6,6 +6,10 @@ import {
   encodeWorkspacePreferences,
   workspacePreferenceCookieName,
 } from "../../src/workspace-preferences";
+import {
+  createDiagnosticsCollector,
+  type DiagnosticsCollector,
+} from "./diagnostics";
 import { createFixtureServer } from "./fixture-server";
 import type { FixtureScenario, FixtureServerInstance } from "./fixture-types";
 import {
@@ -109,6 +113,8 @@ export interface LaunchOptions {
   readonly distDir?: string;
   /** 模拟的固定 UTC 时间（ISO 字符串）。 */
   readonly fixedTime?: string;
+  /** 允许忽略的错误消息白名单。 */
+  readonly ignorePatterns?: readonly (string | RegExp)[];
 }
 
 /** 环境运行上下文。 */
@@ -119,6 +125,7 @@ export interface HarnessEnvironment {
   readonly server?: FixtureServerInstance;
   readonly view: ViewDefinition;
   readonly targetGoalId?: string;
+  readonly diagnostics: DiagnosticsCollector;
   readonly cleanup: () => Promise<void>;
 }
 
@@ -228,6 +235,10 @@ export async function launchEnvironment(options: LaunchOptions): Promise<Harness
   }
 
   const page = await context.newPage();
+  const diagnostics = createDiagnosticsCollector(page, {
+    view: viewDef.name,
+    ignorePatterns: options.ignorePatterns,
+  });
   page.on("console", (msg) => console.log("BROWSER LOG:", msg.type(), msg.text()));
   page.on("pageerror", (err) => console.log("BROWSER ERROR:", err));
 
@@ -303,6 +314,7 @@ export async function launchEnvironment(options: LaunchOptions): Promise<Harness
     server,
     view: viewDef,
     targetGoalId,
+    diagnostics,
     cleanup,
   };
 }
