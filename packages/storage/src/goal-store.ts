@@ -36,6 +36,69 @@ interface GoalRevisionHint {
     readonly size: number;
 }
 
+/** 派生 catalog 摘要的格式版本；不匹配时按未命中处理。 */
+const CATALOG_SUMMARY_SCHEMA_VERSION = 1;
+
+/** 单个 Goal 的派生列表摘要及其快照指纹。 */
+interface GoalCatalogSummary {
+    readonly schemaVersion: number;
+    readonly goalId: string;
+    readonly runId: string;
+    readonly intent: string;
+    readonly workflowPhase: GoalCatalogEntry["workflowPhase"];
+    readonly runStatus: GoalCatalogEntry["runStatus"];
+    readonly committedThroughSequence?: number;
+    readonly commitRevision: number;
+    readonly snapshotMtimeMs: number;
+    readonly snapshotSize: number;
+}
+
+const RUN_STATUSES: ReadonlySet<string> = new Set([
+    "created",
+    "running",
+    "waiting",
+    "completed",
+    "failed",
+    "cancelled",
+]);
+
+function isTerminalRunStatus(status: GoalCatalogEntry["runStatus"]): boolean {
+    return status === "completed" || status === "failed" || status === "cancelled";
+}
+
+/** @returns 结构完整的摘要；任何字段非法时返回 `undefined`。 */
+function parseCatalogSummary(value: unknown): GoalCatalogSummary | undefined {
+    if (value === null || typeof value !== "object") return undefined;
+    const record = value as Record<string, unknown>;
+    if (record.schemaVersion !== CATALOG_SUMMARY_SCHEMA_VERSION) return undefined;
+    if (typeof record.goalId !== "string" || record.goalId.length === 0) return undefined;
+    if (typeof record.runId !== "string" || record.runId.length === 0) return undefined;
+    if (typeof record.intent !== "string") return undefined;
+    if (record.workflowPhase !== "executing") return undefined;
+    if (typeof record.runStatus !== "string" || !RUN_STATUSES.has(record.runStatus)) return undefined;
+    if (record.committedThroughSequence !== undefined
+        && (!Number.isSafeInteger(record.committedThroughSequence) || (record.committedThroughSequence as number) < 0)) {
+        return undefined;
+    }
+    if (!Number.isSafeInteger(record.commitRevision) || (record.commitRevision as number) < 0) return undefined;
+    if (typeof record.snapshotMtimeMs !== "number" || !Number.isFinite(record.snapshotMtimeMs)) return undefined;
+    if (!Number.isSafeInteger(record.snapshotSize) || (record.snapshotSize as number) < 0) return undefined;
+    return {
+        schemaVersion: CATALOG_SUMMARY_SCHEMA_VERSION,
+        goalId: record.goalId,
+        runId: record.runId,
+        intent: record.intent,
+        workflowPhase: "executing",
+        runStatus: record.runStatus as GoalCatalogEntry["runStatus"],
+        ...(record.committedThroughSequence === undefined
+            ? {}
+            : { committedThroughSequence: record.committedThroughSequence as number }),
+        commitRevision: record.commitRevision as number,
+        snapshotMtimeMs: record.snapshotMtimeMs,
+        snapshotSize: record.snapshotSize as number,
+    };
+}
+
 /**
  * 单进程内的 Goal 快照存储。
  *
@@ -147,6 +210,7 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
                 mtimeMs: stats.mtimeMs,
                 size: stats.size,
             });
+            await this.writeCatalogSummary(goal, stats).catch(() => undefined);
         } catch {
             this.revisionHints.delete(goal.id);
         }
@@ -262,6 +326,9 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
             if (error.code !== "ENOENT") throw error;
         });
         await unlink(this.filePath(goalId));
+        await this.fileOperations.unlink(this.catalogSummaryPath(goalId)).catch((error: NodeJS.ErrnoException) => {
+            if (error.code !== "ENOENT") throw error;
+        });
         this.revisionHints.delete(goalId);
         return true;
     }
@@ -282,6 +349,8 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
             throw error;
         }
 
+        const archived = new Set(files.map((file) => file.name));
+        const summaries = await this.readCatalogSummaries();
         const candidates: Array<{
             readonly entry: GoalCatalogEntry;
             readonly mtimeMs: number;
@@ -298,57 +367,32 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
 
         for (const file of snapshotFiles) {
             const filePath = join(this.directory, file.name);
-            let goal: Goal;
             let fileStats: Awaited<ReturnType<typeof stat>>;
 
             try {
-                const content = await readFile(filePath, "utf8");
-                goal = this.decodeSnapshot(content, file.name);
-
-                if (this.filePath(goal.id) !== filePath) {
-                    throw new GoalSnapshotProtocolError(
-                        `Goal snapshot filename does not match Goal ID in "${file.name}"`,
-                    );
-                }
-
                 fileStats = await stat(filePath);
-                this.revisionHints.set(goal.id, {
-                    revision: goal.state.commitRevision ?? 0,
-                    mtimeMs: fileStats.mtimeMs,
-                    size: fileStats.size,
-                });
             } catch (error) {
                 if (!tolerateUnreadable) throw error;
                 unreadableCount += 1;
                 continue;
             }
 
-            const runStatus = goal.state.run.status;
+            const isArchived = archived.has(`${file.name}.archived`);
+            const summary = summaries.get(file.name.slice(0, -".json".length));
+            const entry = summary !== undefined && this.summaryMatches(summary, file, fileStats)
+                ? this.entryFromSummary(summary, fileStats, isArchived)
+                : await this.entryFromSnapshot(file, filePath, fileStats, isArchived)
+                    .catch((error: unknown) => {
+                        if (!tolerateUnreadable) throw error;
+                        unreadableCount += 1;
+                        return undefined;
+                    });
 
-            if (
-                !includeTerminal
-                && (
-                    runStatus === "completed"
-                    || runStatus === "failed"
-                    || runStatus === "cancelled"
-                )
-            ) {
-                continue;
-            }
+            if (entry === undefined) continue;
 
-            candidates.push({
-                entry: {
-                    goalId: goal.id,
-                    runId: goal.state.run.id,
-                    intent: goal.definition.intent,
-                    workflowPhase: goal.state.workflow.phase,
-                    runStatus,
-                    committedThroughSequence: goal.state.run.committedThroughSequence,
-                    updatedAt: new Date(fileStats.mtimeMs).toISOString(),
-                    ...(files.some((candidate) => candidate.name === `${file.name}.archived`) ? { archived: true } : {}),
-                },
-                mtimeMs: fileStats.mtimeMs,
-            });
+            if (!includeTerminal && isTerminalRunStatus(entry.runStatus)) continue;
+
+            candidates.push({ entry, mtimeMs: fileStats.mtimeMs });
         }
 
         candidates.sort((left, right) => {
@@ -366,6 +410,148 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
         });
 
         return { entries: candidates.map(({ entry }) => entry), unreadableCount };
+    }
+
+    /** 状态来自派生摘要时，用快照指纹确认摘要仍然对应当前文件。 */
+    private summaryMatches(
+        summary: GoalCatalogSummary,
+        file: { readonly name: string },
+        fileStats: { readonly mtimeMs: number; readonly size: number },
+    ): boolean {
+        return encodePathSegment(summary.goalId) === file.name.slice(0, -".json".length)
+            && summary.snapshotMtimeMs === fileStats.mtimeMs
+            && summary.snapshotSize === fileStats.size;
+    }
+
+    /** @returns 由摘要与快照指纹构造的目录条目；不读取快照正文。 */
+    private entryFromSummary(
+        summary: GoalCatalogSummary,
+        fileStats: { readonly mtimeMs: number; readonly size: number },
+        archived: boolean,
+    ): GoalCatalogEntry {
+        this.revisionHints.set(summary.goalId, {
+            revision: summary.commitRevision,
+            mtimeMs: fileStats.mtimeMs,
+            size: fileStats.size,
+        });
+        return {
+            goalId: summary.goalId,
+            runId: summary.runId,
+            intent: summary.intent,
+            workflowPhase: summary.workflowPhase,
+            runStatus: summary.runStatus,
+            ...(summary.committedThroughSequence === undefined
+                ? {}
+                : { committedThroughSequence: summary.committedThroughSequence }),
+            updatedAt: new Date(fileStats.mtimeMs).toISOString(),
+            ...(archived ? { archived: true } : {}),
+        };
+    }
+
+    /** 摘要缺失或指纹不匹配时解码快照，并回写派生摘要。 */
+    private async entryFromSnapshot(
+        file: { readonly name: string },
+        filePath: string,
+        fileStats: { readonly mtimeMs: number; readonly size: number },
+        archived: boolean,
+    ): Promise<GoalCatalogEntry> {
+        const goal = this.decodeSnapshot(
+            await this.fileOperations.readFile(filePath, "utf8"),
+            file.name,
+        );
+
+        if (this.filePath(goal.id) !== filePath) {
+            throw new GoalSnapshotProtocolError(
+                `Goal snapshot filename does not match Goal ID in "${file.name}"`,
+            );
+        }
+
+        this.revisionHints.set(goal.id, {
+            revision: goal.state.commitRevision ?? 0,
+            mtimeMs: fileStats.mtimeMs,
+            size: fileStats.size,
+        });
+        await this.writeCatalogSummary(goal, fileStats).catch(() => undefined);
+
+        const entry = {
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            intent: goal.definition.intent,
+            workflowPhase: goal.state.workflow.phase,
+            runStatus: goal.state.run.status,
+            ...(goal.state.run.committedThroughSequence === undefined
+                ? {}
+                : { committedThroughSequence: goal.state.run.committedThroughSequence }),
+            updatedAt: new Date(fileStats.mtimeMs).toISOString(),
+            ...(archived ? { archived: true } : {}),
+        };
+        return entry;
+    }
+
+    /** @returns 已落盘的派生 catalog 摘要，按快照文件名（不含扩展名）索引。 */
+    private async readCatalogSummaries(): Promise<ReadonlyMap<string, GoalCatalogSummary>> {
+        const summaries = new Map<string, GoalCatalogSummary>();
+        let names: string[];
+
+        try {
+            names = await readdir(this.catalogDirectory());
+        } catch (error) {
+            if (error instanceof Error && (error as NodeJS.ErrnoException).code === "ENOENT") {
+                return summaries;
+            }
+            throw error;
+        }
+
+        for (const name of names) {
+            if (!name.endsWith(".json")) continue;
+            try {
+                const summary = parseCatalogSummary(JSON.parse(
+                    await this.fileOperations.readFile(join(this.catalogDirectory(), name), "utf8"),
+                ));
+                if (summary !== undefined) {
+                    summaries.set(name.slice(0, -".json".length), summary);
+                }
+            } catch {
+                // 损坏的派生摘要按未命中处理，由快照解码重建。
+            }
+        }
+
+        return summaries;
+    }
+
+    /**
+     * 写入派生 catalog 摘要。
+     *
+     * @remarks
+     * 摘要只用于加速列表，可在下次解码时重建；写入失败或进程中断不会改变
+     * 已完成的快照。
+     */
+    private async writeCatalogSummary(
+        goal: Goal,
+        fileStats: { readonly mtimeMs: number; readonly size: number },
+    ): Promise<void> {
+        await this.fileOperations.mkdir(this.catalogDirectory(), { recursive: true, mode: 0o700 });
+        await atomicWriteJson({
+            path: this.catalogSummaryPath(goal.id),
+            value: {
+                schemaVersion: CATALOG_SUMMARY_SCHEMA_VERSION,
+                goalId: goal.id,
+                runId: goal.state.run.id,
+                intent: goal.definition.intent,
+                workflowPhase: goal.state.workflow.phase,
+                runStatus: goal.state.run.status,
+                ...(goal.state.run.committedThroughSequence === undefined
+                    ? {}
+                    : { committedThroughSequence: goal.state.run.committedThroughSequence }),
+                commitRevision: goal.state.commitRevision ?? 0,
+                snapshotMtimeMs: fileStats.mtimeMs,
+                snapshotSize: fileStats.size,
+            } satisfies GoalCatalogSummary,
+            indent: undefined,
+            trailingNewline: true,
+            durable: false,
+            operations: this.fileOperations,
+        });
     }
 
     /**
@@ -477,6 +663,14 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
 
     private archivePath(goalId: string): string {
         return `${this.filePath(goalId)}.archived`;
+    }
+
+    private catalogDirectory(): string {
+        return join(this.directory, "catalog");
+    }
+
+    private catalogSummaryPath(goalId: string): string {
+        return join(this.catalogDirectory(), `${encodePathSegment(goalId)}.json`);
     }
 
     private decodeSnapshot(content: string, label: string): Goal {

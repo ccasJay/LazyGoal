@@ -804,7 +804,7 @@ test("JsonFileGoalStore saves a full snapshot and restores it in a new instance"
         assert.deepEqual(restored?.state.messages, goal.state.messages);
         assert.deepEqual(restored?.state.run, goal.state.run);
 
-        const files = await readdir(directory);
+        const files = (await readdir(directory)).filter((name) => name.endsWith(".json"));
         assert.equal(files.length, 1);
         assert.match(files[0] ?? "", /^[A-Za-z0-9_-]+\.json$/);
         assert.deepEqual(
@@ -827,6 +827,10 @@ test("JsonFileGoalStore verifies a completed rename and finishes archive cleanup
         let archiveDeleteCalls = 0;
         const store = new JsonFileGoalStore(directory, {
             rename: async (from, to) => {
+                if (to !== snapshotPath(directory, goal.id)) {
+                    await rename(from, to);
+                    return;
+                }
                 renameCalls += 1;
                 await rename(from, to);
                 if (renameCalls === 1) {
@@ -861,9 +865,10 @@ test("JsonFileGoalStore retries only confirmed temporary failures and caps attem
 
     try {
         let openCalls = 0;
+        const goal = createSnapshot("run-open-retry");
         const retrying = new JsonFileGoalStore(directory, {
             open: async (path, flags, mode) => {
-                openCalls += 1;
+                if (String(path).startsWith(snapshotPath(directory, goal.id))) openCalls += 1;
                 if (openCalls === 1) {
                     throw Object.assign(new Error("temporary open failure"), { code: "EINTR" });
                 }
@@ -871,7 +876,6 @@ test("JsonFileGoalStore retries only confirmed temporary failures and caps attem
                 return open(path, flags, mode);
             },
         });
-        const goal = createSnapshot("run-open-retry");
         await retrying.save(goal);
         assert.equal(openCalls, 2);
         assert.deepEqual(await retrying.restore(goal.id), goal);
@@ -939,7 +943,7 @@ test("JsonFileGoalStore overwrites the previous snapshot for the same Goal", asy
             await new JsonFileGoalStore(directory).restore(initial.id),
             latest,
         );
-        assert.equal((await readdir(directory)).length, 1);
+        assert.equal((await readdir(directory)).filter((name) => name.endsWith(".json")).length, 1);
     } finally {
         await rm(directory, { recursive: true, force: true });
     }
@@ -963,7 +967,7 @@ test("JsonFileGoalStore uses a safe encoded filename for arbitrary Goal IDs", as
         await store.save(goal);
 
         assert.deepEqual(await store.restore(goalId), goal);
-        const files = await readdir(directory);
+        const files = (await readdir(directory)).filter((name) => name.endsWith(".json"));
         assert.equal(files.length, 1);
         assert.match(files[0] ?? "", /^[A-Za-z0-9_-]+\.json$/);
     } finally {
