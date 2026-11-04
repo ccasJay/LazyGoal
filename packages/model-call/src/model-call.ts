@@ -148,6 +148,16 @@ export async function callModel(
         sessionId: context.goalId,
         ...(input.maxOutputTokens === undefined ? {} : { maxOutputTokens: input.maxOutputTokens }),
     };
+    // 预计算来源索引，避免每条请求消息扫描完整 Conversation/Section 列表。
+    const conversationSources = new Set(context.conversationMessages.map((message) =>
+        `${message.role}\u0000${message.content}`));
+    const sectionSources = new Set(context.sections);
+    const stageOutputSources = new Set(context.stageOutputs ?? []);
+    const lastMessage = providerRequest.messages.at(-1);
+    const trailingFeedback = lastMessage?.content.startsWith('{"source":"runtime_feedback",') === true;
+    const workingContextIndex = providerRequest.messages.length - 1 - (trailingFeedback ? 1 : 0);
+    const sourceKey = (message: { readonly role: string; readonly content: string }) =>
+        `${message.role}\u0000${message.content}`;
     await dependencies.modelInputStore?.append({
         ...metricIdentity, stepIndex: context.stepIndex, stage: input.stage,
         occurredAt: new Date().toISOString(),
@@ -156,10 +166,10 @@ export async function callModel(
             source: message.role === "tool" || message.role === "assistant" && message.continuation !== undefined ? "native_history" as const
                 : message.role === "system" ? "system" as const
                 : message.content.startsWith('{"source":"runtime_feedback",') ? "request" as const
-                : index === providerRequest.messages.length - 1 - (providerRequest.messages.at(-1)?.content.startsWith('{"source":"runtime_feedback",') ? 1 : 0) ? "working_context" as const
-                : context.conversationMessages.some(saved => saved.role === message.role && saved.content === message.content) ? "conversation" as const
-                : context.sections.includes(message.content) ? "section" as const
-                : context.stageOutputs?.includes(message.content) ? "stage" as const
+                : index === workingContextIndex ? "working_context" as const
+                : conversationSources.has(sourceKey(message)) ? "conversation" as const
+                : sectionSources.has(message.content) ? "section" as const
+                : stageOutputSources.has(message.content) ? "stage" as const
                 : "request" as const,
         })),
     });
