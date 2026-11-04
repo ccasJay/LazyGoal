@@ -13,6 +13,11 @@ const digest = (text: string) => createHash("sha256").update(text).digest("hex")
 const id = (value: string) => { if (!/^[A-Za-z0-9_-]{1,256}$/.test(value)) throw new Error("Invalid model input identity"); return encodePathSegment(value); };
 const BODY_FILE_NAME = /^([a-f0-9]{64})\.txt$/;
 
+type ModelInputFileOperations = Partial<Pick<
+    typeof import("node:fs/promises"),
+    "mkdir" | "readdir" | "readFile" | "rm" | "stat" | "writeFile"
+>>;
+
 /** 进程内已落盘正文摘要及其来源目录身份。 */
 interface BodyIndex {
     readonly identity: string;
@@ -28,17 +33,6 @@ function isValidManifest(value: ModelInputManifest, goalId: string, runId: strin
     return true;
 }
 
-/**
- * 按 Goal/Run 保存调用清单与 SHA-256 寻址正文，未变化的 system 文本不重复写入。
- * @remarks 完整正文只留在工作区本地，文件权限 0600；读取当前仍遍历整个 Run 清单。
- * 清单追加前正文必须落盘；崩溃可留下未引用正文，但不会产生缺正文的有效调用。
- * 正文在同一 Goal 的所有 Run 之间复用。单实例按 Goal 串行追加，不承诺多进程共同写入或 exactly-once。
- * @example
- * ```ts
- * const store = new JsonFileModelInputStore("/workspace/model-inputs");
- * await store.append(input);
- * ```
- */
 /**
  * 按 Goal/Run 保存调用清单与 SHA-256 寻址正文，未变化的 system 文本不重复写入。
  *
@@ -62,16 +56,34 @@ function isValidManifest(value: ModelInputManifest, goalId: string, runId: strin
 export class JsonFileModelInputStore implements ModelInputStore {
     private readonly queue = new KeyedSerialQueue();
     private readonly bodyIndexes = new Map<string, BodyIndex>();
-    /** @param directory - 正式工作区或隔离评测的模型输入根目录。 */
-    constructor(private readonly directory: string) {}
+    private readonly fileOperations: Required<ModelInputFileOperations>;
+
+    /**
+     * @param directory - 正式工作区或隔离评测的模型输入根目录。
+     * @param fileOperations - 可选文件操作替身，用于确定性验证副作用或故障；生产默认使用 Node 文件系统。
+     */
+    constructor(
+        private readonly directory: string,
+        fileOperations: ModelInputFileOperations = {},
+    ) {
+        this.fileOperations = {
+            mkdir,
+            readdir,
+            readFile,
+            rm,
+            stat,
+            writeFile,
+            ...fileOperations,
+        };
+    }
     /** @returns 全部正文写入且调用清单追加完成后 resolve。 @throws 写入失败拒绝。 */
     append(record: ModelInputRecord): Promise<void> {
         const directory = this.path(record.goalId, record.runId);
         const key = dirname(directory);
         const bodyDirectory = join(key, "messages");
         return this.queue.run(key, async () => {
-            await mkdir(bodyDirectory, { recursive: true, mode: 0o700 });
-            await mkdir(directory, { recursive: true, mode: 0o700 });
+            await this.fileOperations.mkdir(bodyDirectory, { recursive: true, mode: 0o700 });
+            await this.fileOperations.mkdir(directory, { recursive: true, mode: 0o700 });
             const known = await this.knownBodies(key, bodyDirectory);
             const messages: ModelInputManifestMessage[] = [];
             for (const message of record.messages) {
@@ -110,7 +122,7 @@ export class JsonFileModelInputStore implements ModelInputStore {
             this.bodyIndexes.delete(key);
             return refs;
         }
-        for (const name of await readdir(bodyDirectory)) {
+        for (const name of await this.fileOperations.readdir(bodyDirectory)) {
             const match = BODY_FILE_NAME.exec(name);
             if (match !== null) refs.add(match[1]!);
         }
@@ -121,7 +133,7 @@ export class JsonFileModelInputStore implements ModelInputStore {
     /** @returns 正文目录的稳定身份；目录不存在时返回 `undefined`。 */
     private async directoryIdentity(path: string): Promise<string | undefined> {
         try {
-            const stats = await stat(path);
+            const stats = await this.fileOperations.stat(path);
             return `${stats.dev}:${stats.ino}:${stats.birthtimeMs}`;
         } catch (error) {
             if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
@@ -136,17 +148,17 @@ export class JsonFileModelInputStore implements ModelInputStore {
      */
     private async storeBody(bodyDirectory: string, ref: string, content: string): Promise<void> {
         const path = join(bodyDirectory, `${ref}.txt`);
-        try { await writeFile(path, content, { flag: "wx", mode: 0o600 }); }
+        try { await this.fileOperations.writeFile(path, content, { flag: "wx", mode: 0o600 }); }
         catch (error) {
             if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-            if (await readFile(path, "utf8") !== content) throw new Error("Model input content hash mismatch");
+            if (await this.fileOperations.readFile(path, "utf8") !== content) throw new Error("Model input content hash mismatch");
         }
     }
     /** @returns 完整且顺序不变的输入事实；不存在时为空。 @throws 格式、正文哈希或身份不匹配时拒绝。 */
     async read(goalId: string, runId: string): Promise<readonly ModelInputRecord[]> {
         const directory = this.path(goalId, runId);
         let content: string;
-        try { content = await readFile(join(directory, "requests.jsonl"), "utf8"); }
+        try { content = await this.fileOperations.readFile(join(directory, "requests.jsonl"), "utf8"); }
         catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
         const bodies = new Map<string, string>();
         const result: ModelInputRecord[] = [];
@@ -159,7 +171,7 @@ export class JsonFileModelInputStore implements ModelInputStore {
                 if (!/^[a-f0-9]{64}$/.test(message.ref)) throw new Error("Invalid model input message reference");
                 let body = bodies.get(message.ref);
                 if (body === undefined) {
-                    body = await readFile(join(dirname(directory), "messages", `${message.ref}.txt`), "utf8");
+                    body = await this.fileOperations.readFile(join(dirname(directory), "messages", `${message.ref}.txt`), "utf8");
                     if (digest(body) !== message.ref) throw new Error("Model input content hash mismatch");
                     bodies.set(message.ref, body);
                 }
@@ -199,7 +211,7 @@ export class JsonFileModelInputStore implements ModelInputStore {
      * ```
      */
     async deleteRun(goalId: string, runId: string): Promise<void> {
-        await rm(this.path(goalId, runId), { recursive: true, force: true });
+        await this.fileOperations.rm(this.path(goalId, runId), { recursive: true, force: true });
     }
 
     private path(goalId: string, runId: string) { return join(this.directory, id(goalId), id(runId)); }
