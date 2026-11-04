@@ -32,7 +32,7 @@ export function TrajectoryRecords({ goalId, runId, entries, unverifiedPageBounda
   }, [goalId, runId, offset, refresh, retry]);
   useEffect(() => { setOffset(0); }, [category]);
   useEffect(() => { onCalls(calls); }, [calls, onCalls]);
-  type RecordRow = { id: string; role: string; text: string; time: string; step?: number; entry?: BrowserTrajectoryEntry; call?: BrowserModelInputSummary; tab?: string; messageIndex?: number; input?: string; result?: string; request?: boolean; promptCallId?: string; status?: string; retryKey?: string; pageBoundaryBefore?: true };
+  type RecordRow = { id: string; text: string; time: string; step?: number; entry?: BrowserTrajectoryEntry; call?: BrowserModelInputSummary; tab?: string; messageIndex?: number; input?: string; result?: string; request?: boolean; promptCallId?: string; status?: string; retryKey?: string; pageBoundaryBefore?: true };
   const rows: RecordRow[] = [];
   const visibleCalls = (category === "All events" || category === "decision" || category === "memory" ? calls : []).filter(call => entries.length === 0 || entries.some(entry => call.executionUnitId === undefined || entry.executionUnitId === call.executionUnitId));
   const results = new Map(calls.map(call => [call.callId, requestResult(call, calls, entries, category === "All events")]));
@@ -43,7 +43,6 @@ export function TrajectoryRecords({ goalId, runId, entries, unverifiedPageBounda
     const messageCount = call.messages.length + call.omittedMessageCount;
     rows.push({
       id: `${call.callId}:prompt`,
-      role: "Prompt",
       text: `${call.stage}, ${messageCount} message${messageCount === 1 ? "" : "s"}, ${result.label}`,
       result: call.firstSystem
         ? "Initial system prompt"
@@ -60,8 +59,7 @@ export function TrajectoryRecords({ goalId, runId, entries, unverifiedPageBounda
     if (entry.sequence !== selectedSequence && entry.eventType === "model_context_frame" && visibleCalls.some(call => call.callId === entry.modelCallId)) continue;
     if (entry.sequence !== selectedSequence && category === "All events" && (["state_committed", "action_staged", "observation_recorded"].includes(entry.eventType) || entry.category === "commit")) continue;
     if (entry.eventType === "tool_finished" && entries.some(start => start.eventType === "tool_started" && start.actionId === entry.actionId)) continue;
-    rows.push({ id: entry.eventId, role: entry.category === "tool" ? "Tool" : entry.eventType === "decision_received" ? "Assistant" : entry.eventType === "think_completed" || entry.eventType === "think_requested" ? "Thinking" : entry.eventType === "model_context_frame" || entry.category === "memory" ? "Context" : "Run",
-      text: eventLabel(entry),
+    rows.push({ id: entry.eventId, text: eventLabel(entry),
       time: entry.occurredAt, step: displaySteps.get(entry.sequence), entry, input: entry.inputPreview, result: entry.resultPreview,
       request: entry.eventType === "decision_received" || entry.eventType === "think_completed" || rejectedCalls.has(entry.sequence), promptCallId: rejectedCalls.get(entry.sequence)?.callId, status: entry.eventType === "model_repair_feedback_recorded" || entry.eventType === "execution_error" ? "rejected" : undefined });
   }
@@ -119,7 +117,7 @@ export function TrajectoryRecords({ goalId, runId, entries, unverifiedPageBounda
     return <div className={`ct-record ${row.status ?? ""} ${selected ? "selected" : ""} ${row.entry?.parentActionId !== undefined && row.entry.callIndex !== undefined ? "child" : ""}`} key={row.id} onClick={handleSelect}>
       <div className="ct-gutter"><span className="ct-sequence">{row.entry?.sequence ?? "—"}</span>{showRequests && row.request && <Button variant="ghost" size="sm" className="ct-request-dot" aria-label={row.entry ? `View prompt for event ${row.entry.sequence}` : `Inspect model request ${row.call!.callId}`} onClick={(event) => { event.stopPropagation(); selectInput({ callId: row.call?.callId ?? row.promptCallId ?? row.entry?.modelCallId ?? null, tab: "Messages" }); }}/>}</div>
       <Button variant="ghost" size="sm" id={row.entry ? `trajectory-event-${row.entry.sequence}` : undefined} className="ct-record-body" aria-pressed={selected} aria-label={row.call ? `Inspect model request ${row.call.callId}` : undefined} onClick={(event) => { event.stopPropagation(); handleSelect(); }}>
-        <span className="ct-preview"><span className={`ct-badge ${row.role.toLowerCase()}`}>{row.role}</span><span className="ct-event-text"><strong>{row.text}</strong>{row.entry?.parentActionId !== undefined && row.entry.callIndex !== undefined && <small title={`Program ${row.entry.parentActionId}`}>Program call {row.entry.callIndex + 1}</small>}</span></span>
+        <span className="ct-preview"><span className="ct-event-text"><strong>{row.text}</strong>{row.entry?.parentActionId !== undefined && row.entry.callIndex !== undefined && <small title={`Program ${row.entry.parentActionId}`}>Program call {row.entry.callIndex + 1}</small>}</span></span>
         <time className="ct-time" dateTime={row.time} title={row.time}>{formatEventTime(row.time)}</time>
         <span className="ct-detail">{row.entry?.resultPreview ?? row.result ?? row.entry?.inputPreview ?? row.input ?? row.entry?.preview ?? ""}</span>
       </Button>

@@ -52,10 +52,10 @@
   --shadow-sm: 0 1px 3px var(--shadow), 0 1px 2px var(--shadow);
   --shadow-md: 0 4px 6px -1px var(--shadow-strong), 0 2px 4px -2px var(--shadow);
   --shadow-lg: 0 10px 15px -3px var(--shadow-strong), 0 4px 6px -4px var(--shadow);
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-xl: 12px;
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-xl: 0;
 }
 
 @layer base {

@@ -124,7 +124,7 @@ function project(
     goalId: "goal-1",
     runId: "run-1",
     items,
-    liveEvents,
+    liveEvents: liveEvents.map((event, index) => ({ event, order: index + 1 })),
     current: options.current ?? true,
     runStatus: options.runStatus ?? "running",
   });

@@ -1,6 +1,6 @@
 import { Button } from "./ui/button";
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, ChevronDown, ChevronRight, Folder, LayoutDashboard, PanelLeftClose, PanelLeftOpen, Search, Settings, SquarePen, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder, LayoutDashboard, PanelLeftClose, PanelLeftOpen, PanelRight, Search, Settings, SquarePen, X } from "lucide-react";
 import { browserApi } from "../api";
 import { Modal } from "../modal";
 import markOnLight from "../assets/lazygoal/mark-on-light.svg?no-inline";
@@ -23,6 +23,7 @@ import { SettingsPage } from "./SettingsPage";
 import { SessionBoundary } from "./error-boundary";
 import { WorkspaceContext } from "./WorkspaceContext";
 import { Sheet, SheetContent, SheetTitle } from "./ui/sheet";
+import { Dialog, DialogContent, DialogTitle } from "./ui/dialog";
 import { Popover, PopoverTrigger, PopoverContent } from "./ui/popover";
 import { ResizablePanelGroup, ResizablePanel } from "./ui/resizable";
 import { ResizableSidebar } from "./ResizableSidebar";
@@ -52,19 +53,12 @@ export function WorkspaceShell() {
   const [widthSaveError, setWidthSaveError] = useState<string | undefined>();
   const [preferenceNotice, setPreferenceNotice] = useState<string | undefined>();
   const restoredFor = useRef<string | null>(null);
-  const settingsHeading = useRef<HTMLHeadingElement>(null);
   const settingsButton = useRef<HTMLButtonElement>(null);
   const sidebarToggle = useRef<HTMLButtonElement>(null);
 
   const changeActivityWidth = (width: "standard" | "wide") => {
     setActivityWidth(width);
   };
-
-  useEffect(() => {
-    if (!settingsOpen) return;
-    settingsHeading.current?.focus();
-    return () => { (settingsButton.current ?? sidebarToggle.current)?.focus(); };
-  }, [settingsOpen]);
 
   useEffect(() => {
     setSearchShortcut(/Mac|iPhone|iPad/.test(navigator.platform) ? "⌘ K" : "Ctrl K");
@@ -201,7 +195,22 @@ export function WorkspaceShell() {
   return (
     <GoalSessionProvider value={app.sessionContextValue}>
       <RunControlProvider value={app.runControlContextValue}>
-        <ResizablePanelGroup direction="horizontal" style={{ height: "100dvh" }} className={`workspace-shell ${collapsed ? "is-collapsed" : ""}`} data-activity-width={activityWidth}>
+        <div className="app-frame">
+          <div className="windowbar">
+            <img className="windowbar-logo" src={logoOnLight} alt="LazyGoal" />
+            <span className="windowbar-sep" aria-hidden="true" />
+            <span className="windowbar-title">LazyGoal</span>
+            <span className="windowbar-muted" aria-hidden="true">›</span>
+            <span className="windowbar-muted">{workspaceName}</span>
+            <span className="windowbar-spacer" />
+            <Button variant="ghost" size="sm" className="windowbar-search" aria-label="Search goals" aria-haspopup="dialog" aria-expanded={searchOpen} aria-keyshortcuts="Meta+K Control+K" onClick={() => { if (mobile) setCollapsed(true); setSearchOpen(true); }}>
+              <Search size={14} aria-hidden="true" />
+              <span>Search goals</span>
+              <kbd>{searchShortcut}</kbd>
+            </Button>
+            <span className="windowbar-muted">{context?.branch == null ? workspaceName : `${context.branch} / ${workspaceName}`}</span>
+          </div>
+        <ResizablePanelGroup direction="horizontal" style={{ flex: 1, minHeight: 0 }} className={`workspace-shell ${collapsed ? "is-collapsed" : ""}`} data-activity-width={activityWidth}>
           {mobile ? <Sheet open={!collapsed} onOpenChange={open => setCollapsed(!open)}><SheetContent showCloseButton={false} side="left" className="workspace-sidebar workspace-sidebar-dialog" aria-describedby={undefined} onCloseAutoFocus={event => { event.preventDefault(); sidebarToggle.current?.focus(); }}><SheetTitle className="sr-only">Workspace navigation</SheetTitle>{navigation}</SheetContent></Sheet> : <ResizableSidebar hidden={collapsed}>{navigation}</ResizableSidebar>}
           <ResizablePanel minSize={30} className="min-w-0">
           <main className="workspace-main">
@@ -218,18 +227,16 @@ export function WorkspaceShell() {
                     <Button variant="ghost" size="sm" ref={sidebarToggle} className="icon workspace-toggle" aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} title={collapsed ? "Show sidebar" : "Hide sidebar"} aria-expanded={!collapsed} aria-controls="workspace-navigation" onClick={() => setCollapsed(value => !value)}>
                       {collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
                     </Button>
-                    {settingsOpen ? <h1 ref={settingsHeading} tabIndex={-1}>Settings</h1> : app.sessionVisible ? <Breadcrumb><BreadcrumbList><BreadcrumbItem><Button variant="ghost" size="sm" onClick={app.closeSession}>Goals</Button></BreadcrumbItem><BreadcrumbSeparator /><BreadcrumbItem><BreadcrumbPage className="breadcrumb-current truncate">{app.activeGoal?.intent ?? "New goal"}</BreadcrumbPage></BreadcrumbItem></BreadcrumbList></Breadcrumb> : <h1>Goals</h1>}
+                    {app.sessionVisible ? <Breadcrumb><BreadcrumbList><BreadcrumbItem><Button variant="ghost" size="sm" onClick={app.closeSession}>Goals</Button></BreadcrumbItem><BreadcrumbSeparator /><BreadcrumbItem><BreadcrumbPage className="breadcrumb-current truncate">{app.activeGoal?.intent ?? "New goal"}</BreadcrumbPage></BreadcrumbItem></BreadcrumbList></Breadcrumb> : <h1>Goals</h1>}
                   </div>
                   <div className="header-actions">
                     {!settingsOpen && app.sessionVisible && <WorkspaceContext context={app.workspaceContext} error={app.sessionContextValue.workspaceContextError} />}
-                    {settingsOpen && <Button variant="ghost" size="sm" className="settings-back" onClick={() => setSettingsOpen(false)}><ArrowLeft size={15} />{app.sessionVisible ? "Back to goal" : "Back to goals"}</Button>}
-                    {!settingsOpen && app.isCurrentGoalSelected && <Button variant="ghost" size="sm" className="goal-info-toggle" aria-label="Goal information and permissions" onClick={() => app.setGoalInfoOpen(true)}>Goal info</Button>}
+                    {!settingsOpen && app.isCurrentGoalSelected && <Button variant="ghost" size="sm" className="icon goal-info-toggle" aria-label="Goal information and permissions" title="Goal information and permissions" onClick={() => app.setGoalInfoOpen(true)}><PanelRight size={17} aria-hidden="true" /></Button>}
                     {!settingsOpen && app.sessionVisible && <Button variant="ghost" size="sm" className="icon" title="Back to goals" aria-label="Close session" onClick={app.closeSession}><X size={17} /></Button>}
                     {!settingsOpen && !app.sessionVisible && <span className="workspace-heading-location" title={workspacePath}><Folder size={14} />{workspaceName}</span>}
                   </div>
                 </header>
-                {settingsOpen && <SettingsPage activityWidth={activityWidth} onActivityWidthChange={changeActivityWidth} widthSaveError={widthSaveError} />}
-                <div className={`content ${app.sessionVisible ? "session-open" : ""}`} hidden={settingsOpen}>
+                <div className={`content ${app.sessionVisible ? "session-open" : ""}`}>
                   <SessionBoundary label="Board and session content" onReload={() => window.location.reload()}>
                   {app.sessionVisible && app.manageError && <div className="manage-error-overlay" role="alert">{app.manageError}<Button variant="ghost" size="sm" onClick={app.onClearManageError}>Dismiss</Button></div>}
                   {!app.sessionVisible && app.goalBoardElement}
@@ -243,8 +250,27 @@ export function WorkspaceShell() {
           </main>
           </ResizablePanel>
           {searchOpen && <GoalSearch goals={app.goals} onSelect={selectGoal} onClose={() => setSearchOpen(false)} />}
+          <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+            <DialogContent className="settings-dialog" aria-describedby={undefined} onCloseAutoFocus={event => { event.preventDefault(); settingsButton.current?.focus(); }}>
+              <DialogTitle className="settings-dialog-title">Settings</DialogTitle>
+              <SettingsPage activityWidth={activityWidth} onActivityWidthChange={changeActivityWidth} widthSaveError={widthSaveError} />
+            </DialogContent>
+          </Dialog>
           {app.modelPickerTarget !== null && <ModelPicker key={app.modelPickerTarget.kind === "draft" ? "draft" : `${app.modelPickerTarget.goalId}:${app.modelPickerTarget.runId}`} target={app.modelPickerTarget} selectedId={app.modelPickerTarget.kind === "draft" ? app.draftModelId : null} onSelect={app.onSelectModel} onClose={() => app.setModelPickerTarget(null)} onDone={app.onDoneModelPicker} />}
         </ResizablePanelGroup>
+          <footer className="statusbar">
+            <Button variant="ghost" size="sm" className="icon statusbar-button" aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} title={collapsed ? "Show sidebar" : "Hide sidebar"} aria-expanded={!collapsed} aria-controls="workspace-navigation" onClick={() => setCollapsed(value => !value)}>
+              <PanelLeftClose size={14} aria-hidden="true" />
+            </Button>
+            <span className="statusbar-sep" aria-hidden="true" />
+            <span>LazyGoal</span>
+            <span className="statusbar-spacer" />
+            <span className="statusbar-count">{goals.length} goal{goals.length === 1 ? "" : "s"}</span>
+            <Button variant="ghost" size="sm" className="icon statusbar-button" aria-label="Goal information" title={app.isCurrentGoalSelected ? "Goal information" : "Select a goal to inspect it"} disabled={!app.isCurrentGoalSelected} onClick={() => app.setGoalInfoOpen(true)}>
+              <PanelRight size={14} aria-hidden="true" />
+            </Button>
+          </footer>
+        </div>
       </RunControlProvider>
     </GoalSessionProvider>
   );

@@ -10,12 +10,15 @@ import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { captureAnchor, resolveAnchorScrollTop, FOLLOW_THRESHOLD_PX, type ActivityAnchor } from "../activity-page-window";
 import type { ReactNode } from "react";
 import {
+  Activity,
   AlertCircle,
   ArrowDown,
   Check,
   ChevronRight,
   CircleHelp,
   CornerUpRight,
+  LayoutDashboard,
+  ListTree,
   Trash2,
   X,
 } from "lucide-react";
@@ -36,6 +39,12 @@ import { projectSessionTimeline } from "../session-timeline";
 import { SessionTimeline } from "./SessionTimeline";
 import { collectActivityProjections } from "../collect-activity-projections";
 import type { ActivityGroup } from "../activity-projector";
+
+function SessionTabIcon({ tab }: { tab: string }) {
+  if (tab === "Board") return <LayoutDashboard size={16} aria-hidden="true" />;
+  if (tab === "Trajectory") return <ListTree size={16} aria-hidden="true" />;
+  return <Activity size={16} aria-hidden="true" />;
+}
 
 function timelineOffsets(element: HTMLElement): ReadonlyMap<string, number> {
   const top = element.getBoundingClientRect().top;
@@ -95,7 +104,7 @@ export function GoalSession({
     toolGrantsLoading,
     toolGrantsError,
     revokingGrantId,
-    liveText,
+    livePreviews,
     liveActivity,
     progressEntries,
     liveEvents,
@@ -201,9 +210,11 @@ export function GoalSession({
   const timelineProjection = useMemo(
     () => session === null || activityPage === null
       ? { items: [], stages: [], actionGroups: [], currentPlanRoute: undefined }
-      : projectSessionTimeline(activityPage, session, activityGroups, liveText, candidatePresentation),
-    [activityPage, session, activityGroups, liveText, candidatePresentation],
+      : projectSessionTimeline(activityPage, session, activityGroups, livePreviews, candidatePresentation),
+    [activityPage, session, activityGroups, livePreviews, candidatePresentation],
   );
+
+  const pageMessageCount = activityPage?.items.filter((item) => item.type === "message").length ?? 0;
 
   useLayoutEffect(() => {
     const element = timeline.current;
@@ -237,7 +248,7 @@ export function GoalSession({
         }
       });
     }
-  }, [activityPage?.items, currentRun?.runId, liveText, candidatePresentation, follow]);
+  }, [activityPage?.items, currentRun?.runId, livePreviews, candidatePresentation, follow]);
 
   const sessionTabs = session?.goalPlan === undefined
     ? (["Board", "Activity", "Trajectory"] as const)
@@ -288,7 +299,7 @@ export function GoalSession({
           </div>}
           <div className="session-tabs">
             <Tabs value={sessionTab} onValueChange={value => { setTrajectoryTarget(null); setSessionTab(value as typeof sessionTab); }}><TabsList className="session-tab-buttons">
-              <TabsTrigger value="Activity">Activity</TabsTrigger>
+              <TabsTrigger value="Activity" aria-label="Activity" title="Activity"><SessionTabIcon tab="Activity" /></TabsTrigger>
             </TabsList></Tabs>
             <span className="stream-state">
               <span className="dot" />Local Runtime
@@ -401,9 +412,11 @@ export function GoalSession({
               {sessionTabs.map((tab) => (
                 <TabsTrigger value={tab} onClick={() => { setTrajectoryTarget(null); setSessionTab(tab); }}
                   key={tab}
+                  aria-label={tab}
+                  title={tab}
                   aria-pressed={sessionTab === tab}
                 >
-                  {tab}
+                  <SessionTabIcon tab={tab} />
                 </TabsTrigger>
               ))}
             </TabsList></Tabs>
@@ -472,7 +485,7 @@ export function GoalSession({
                     />
                     Execution details
                   </Label>
-                  <span>{activityPage?.items.filter((item) => item.type === "message").length ?? 0} messages in this page</span>
+                  <span>{pageMessageCount} {pageMessageCount === 1 ? "message" : "messages"} in this page</span>
                 </div>
               </div>
               <SessionBoundary label="Activity view" onReload={() => void refreshSelectedSession()}>
@@ -706,20 +719,6 @@ export function GoalSession({
               {session.runStatus === "waiting" &&
                 (session.interaction !== undefined || session.pendingAction !== undefined ? (
                   <>
-                    <div className="composer-extra-controls">
-                      {renderPermissionControl(true)}
-                      <CurrentModelControl
-                        label={currentModelName}
-                        enabled={canSwitchCurrentModel && !commandBusy && sessionError === null}
-                        onClick={() =>
-                          setModelPickerTarget({
-                            kind: "goal",
-                            goalId: session.goalId,
-                            runId: session.currentRunId,
-                          })
-                        }
-                      />
-                    </div>
                     <WaitingInteraction
                       session={session}
                       busy={commandBusy || !connection.allowsNewDecisions || (!draftSessionOpen && sessionError !== null)}
@@ -748,10 +747,26 @@ export function GoalSession({
                           primaryActions={workbench}
                           textareaLabel="Queue next task"
                           describedBy="queue-next-task-note"
-                          showHint={true}
+                          showHint={false}
                           placeholder="Queue next task…"
                           busy={commandBusy || (!draftSessionOpen && sessionError !== null)}
                           onSubmit={onSubmitMessage}
+                          footerControls={
+                            <>
+                              {renderPermissionControl(true)}
+                              <CurrentModelControl
+                                label={currentModelName}
+                                enabled={canSwitchCurrentModel && !commandBusy && sessionError === null}
+                                onClick={() =>
+                                  setModelPickerTarget({
+                                    kind: "goal",
+                                    goalId: session.goalId,
+                                    runId: session.currentRunId,
+                                  })
+                                }
+                              />
+                            </>
+                          }
                         />
                       </div>
                     )}

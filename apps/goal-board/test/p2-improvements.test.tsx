@@ -332,7 +332,8 @@ test("当前执行中的工具组自动展开，并在 Activity Run 状态显示
 
   assert.match(html, /timeline-activity running[\s\S]*activity-snake-loader/);
   assert.match(html, /<button(?=[^>]*timeline-activity-heading)(?=[^>]*aria-expanded="true")[^>]*>/);
-  assert.match(html, /timeline-activity-member-label[^>]*>Read src\/app\.ts/);
+  assert.match(html, /title="Read src\/app\.ts">Read src\/app\.ts/);
+  assert.doesNotMatch(html, /class="timeline-activity-member-label"/);
 });
 
 test("SessionTimeline 保留显式 Think 的获准摘要、已提交输出与详情入口", async () => {
@@ -506,4 +507,49 @@ test("TrajectoryRecords 渲染记录行时保留选择按钮且不使用 option 
   assert.doesNotMatch(html, /aria-selected/);
   assert.match(html, /aria-pressed="false"/);
   assert.match(html, /class="[^"]*ct-record-body"/);
+});
+
+test("SessionTimeline 按首次出现顺序排列实时正文、工具与恢复输出", async () => {
+  const React = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { SessionTimeline } = await import("../src/components/SessionTimeline");
+
+  const group = {
+    id: "action:run-1:a1",
+    runId: "run-1",
+    category: "single" as const,
+    status: "running" as const,
+    summary: "shell",
+    counts: { running: 1, retrying: 0, waiting: 0, "pending-result": 0, completed: 0, failed: 0, rejected: 0 },
+    members: [],
+    live: true as const,
+    liveOrder: 5,
+  };
+
+  const html = renderToStaticMarkup(
+    React.createElement(SessionTimeline, {
+      projection: {
+        items: [
+          { kind: "live-preview" as const, itemId: "live:1", runId: "run-1", content: "FIRST_BLOCK", liveOrder: 2, active: false },
+          { kind: "activity" as const, itemId: "activity:shell", runId: "run-1", group, liveOrder: 5 },
+          { kind: "live-preview" as const, itemId: "live:2", runId: "run-1", content: "SECOND_BLOCK", liveOrder: 7, active: true },
+        ],
+        stages: [],
+        actionGroups: [],
+        currentPlanRoute: undefined,
+      },
+      currentRunId: "run-1",
+      runStatus: "running",
+      olderAvailable: false,
+      showExecutionFacts: false,
+      liveActivity: null,
+      progressEntries: [],
+      streamConnected: true,
+      brandMark: "/logo.svg",
+    }),
+  );
+
+  assert.ok(html.indexOf("FIRST_BLOCK") < html.indexOf("shell"));
+  assert.ok(html.indexOf("shell") < html.indexOf("SECOND_BLOCK"));
+  assert.equal((html.match(/class="cursor"/g) ?? []).length, 1);
 });

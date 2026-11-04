@@ -241,6 +241,7 @@ export function useGoalBoardApp() {
     toolGrantsError,
     revokingGrantId: permissionsManager.revokingGrantId,
     liveText: streamManager.liveText,
+    livePreviews: streamManager.livePreviews,
     liveActivity: streamManager.liveActivity,
     progressEntries: streamManager.progressEntries,
     candidatePresentation: streamManager.candidatePresentation,

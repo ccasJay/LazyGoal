@@ -1,11 +1,13 @@
 import type {
   BrowserActivityItem,
+  BrowserActivityPage,
   BrowserActivityPosition,
   BrowserActivityToolLifecycleEntry,
   BrowserActivityToolState,
   BrowserGoalEvent,
   BrowserRunStatus,
 } from "../../../packages/web-contracts/src/index";
+import type { OrderedGoalEvent } from "./live-timeline";
 
 /** 活动组根据工具语义划分的展示类别。 */
 export type ActivityGroupCategory = "explore" | "execute" | "edit" | "think" | "single";
@@ -125,6 +127,8 @@ export interface ActivityGroup {
   readonly position?: BrowserActivityPosition;
   /** 是否为尚未提交的实时活动组。 */
   readonly live?: true;
+  /** 本连接首次观察到该组成员的事件顺序；用于与实时正文、进度保持稳定排序。 */
+  readonly liveOrder?: number;
 }
 
 interface MutableMember {
@@ -137,6 +141,7 @@ interface MutableMember {
   status: ActivityMemberStatus;
   isCommitted: boolean;
   hasLiveUpdate?: boolean;
+  liveOrder?: number;
   actionId?: string;
   executionUnitId?: string;
   inputSummary?: string;
@@ -172,7 +177,7 @@ export function projectActivityGroups(input: {
   readonly goalId: string;
   readonly runId: string;
   readonly items: readonly BrowserActivityItem[];
-  readonly liveEvents: readonly BrowserGoalEvent[];
+  readonly liveEvents: readonly OrderedGoalEvent[];
   readonly current: boolean;
   readonly runStatus: BrowserRunStatus;
 }): readonly ActivityGroup[] {
@@ -260,6 +265,7 @@ export function projectActivityGroups(input: {
     saved.summary = liveMember.summary ?? saved.summary;
     saved.attempts = uniqueAttempts([...saved.attempts, ...liveMember.attempts]);
     saved.hasLiveUpdate = true;
+    saved.liveOrder = saved.liveOrder ?? liveMember.liveOrder;
   }
 
   return groupAdjacent(members);
@@ -341,29 +347,31 @@ function committedMemberStatus(tool: BrowserActivityToolState): ActivityMemberSt
 function projectLiveMembers(
   goalId: string,
   runId: string,
-  events: readonly BrowserGoalEvent[],
+  events: readonly OrderedGoalEvent[],
 ): { readonly members: readonly MutableMember[] } {
   const latestByIdentity = new Map<string, {
     readonly event: Extract<BrowserGoalEvent, { readonly type: "activity" }>;
     readonly cursor: number;
+    readonly order: number;
   }>();
-  for (const event of events) {
+  for (const { event, order } of events) {
     if (event.type !== "activity" || event.goalId !== goalId || event.runId !== runId) continue;
     const activity = event.activity;
     if (!("sourceEventId" in activity) || !("sourceCursor" in activity)) continue;
     latestByIdentity.set(`${activity.sourceCursor}\u0000${activity.sourceEventId}`, {
       event,
       cursor: activity.sourceCursor,
+      order,
     });
   }
   const ordered = [...latestByIdentity.values()]
-    .sort((left, right) => left.cursor - right.cursor)
-    .map(({ event }) => event);
+    .sort((left, right) => left.order - right.order)
+    .map(({ event, order }) => ({ event, order }));
   const mutable = new Map<string, MutableMember>();
   const insertionOrder: string[] = [];
   let breakBeforeNext = true;
 
-  for (const event of ordered) {
+  for (const { event, order } of ordered) {
     if (event.type !== "activity") continue;
     const activity = event.activity;
     if (activity.kind === "activity_boundary" || activity.kind === "assistant_text_delta") {
@@ -381,6 +389,7 @@ function projectLiveMembers(
         label: labelForTool(activity.toolId, activity.inputSummary, "running"),
         status: "running",
         isCommitted: false,
+        liveOrder: order,
         actionId: activity.actionId,
         executionUnitId: activity.executionUnitId,
         attempts: [],
@@ -421,6 +430,10 @@ function groupAdjacent(members: readonly MutableMember[]): ActivityGroup[] {
     const first = current[0]!;
     const projectedMembers = current.map(toPublicMember);
     const live = current.every((member) => !member.isCommitted);
+    const liveOrders = current
+      .map((member) => member.liveOrder)
+      .filter((order): order is number => order !== undefined);
+    const liveOrder = liveOrders.length === 0 ? undefined : Math.min(...liveOrders);
     groups.push({
       id: first.id,
       runId: first.runId,
@@ -430,6 +443,7 @@ function groupAdjacent(members: readonly MutableMember[]): ActivityGroup[] {
       summary: summarizeActivityGroup(first.category, projectedMembers),
       counts: countActivityMembers(projectedMembers),
       members: projectedMembers,
+      ...(liveOrder === undefined ? {} : { liveOrder }),
       ...(live ? { live: true as const } : { position: first.position }),
     });
     current = [];

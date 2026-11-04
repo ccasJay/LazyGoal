@@ -58,7 +58,7 @@ test("live events only participate in the current run projection", () => {
     activity: { kind: "activity_boundary", sourceEventId: "evt-1", sourceCursor: 1, reason: "assistant_reply" },
   }] as unknown as readonly BrowserGoalEvent[];
 
-  const withLive = collectActivityProjections(pageFixture(), goalId, live);
+  const withLive = collectActivityProjections(pageFixture(), goalId, live.map((event) => ({ event, order: 1 })));
   const withoutLive = collectActivityProjections(pageFixture(), goalId, []);
 
   assert.deepEqual(

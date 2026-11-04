@@ -3,7 +3,7 @@ import { test } from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { projectActivityGroups } from "../src/activity-projector";
-import { SessionTimeline, ActivityGroupRow } from "../src/components/SessionTimeline";
+import { SessionTimeline, ActivityGroupRow, isRunExpanded, runVisibleEntries } from "../src/components/SessionTimeline";
 import type { SessionTimelineEntry, SessionTimelineProjection } from "../src/session-timeline";
 
 (globalThis as any).React = React;
@@ -258,20 +258,23 @@ test("a settled mixed result exposes its failure without a working animation", (
   assert.doesNotMatch(html, /activity-snake-loader/);
 });
 
-test("historical execution collapses while user messages and final answers remain readable", () => {
+test("historical runs expand by default while their execution stays readable", () => {
   const old = (entry: SessionTimelineEntry): SessionTimelineEntry => ({ ...entry, runId: "old-run" });
-  const html = render([
+  const items: SessionTimelineEntry[] = [
     old({ kind: "run", itemId: "run:old-run", runId: "old-run", status: "failed", detail: { code: "INVALID_AGENT_DECISION", message: "The model response was invalid." }, position: position(0) }),
     old({ kind: "message", itemId: "user", presentationKey: "user", runId: "old-run", role: "user", content: "Original question", position: position(1) }),
     old({ kind: "message", itemId: "process", presentationKey: "process", runId: "old-run", role: "assistant", purpose: "process", content: "Hidden investigation", position: position(2) }),
     old(activity("failed")),
     old({ kind: "message", itemId: "answer", presentationKey: "answer", runId: "old-run", role: "assistant", purpose: "answer", content: "Saved final answer", position: position(4) }),
-  ]);
+  ];
+  const html = render(items);
   assert.match(html, /Original question/);
   assert.match(html, /Saved final answer/);
+  assert.match(html, /Hidden investigation/);
+  assert.match(html, /timeline-activity-heading/);
   assert.match(html, /The model response was invalid/);
-  assert.match(html, /aria-expanded="false"/);
-  assert.doesNotMatch(html, /Hidden investigation|timeline-activity-heading/);
+  assert.match(html, /aria-expanded="true"/);
+  assert.deepEqual(runVisibleEntries(items, false), []);
 });
 
 test("an active stage expands without waiting for assistant text", () => {
@@ -436,4 +439,21 @@ test("successful permission lifecycle stays inside its collapsed tool summary wh
   const html = render([{ ...entry, group }], { showExecutionFacts: false });
   assert.match(html, /Run tests/);
   assert.doesNotMatch(html, /Permission granted|Result saved/);
+});
+
+test("Run 展开状态未记录时默认展开", () => {
+  assert.equal(isRunExpanded(new Map(), "run-2"), true);
+  assert.equal(isRunExpanded(new Map([["run-2", false]]), "run-2"), false);
+  assert.equal(isRunExpanded(new Map([["run-2", true]]), "run-3"), true);
+});
+
+test("非当前 Run 默认展示其执行细节", () => {
+  const html = render([
+    { kind: "run", itemId: "run:run-2", runId: "run-2", status: "completed",
+      position: { runId: "run-2", runOrder: 1, sequence: 0, itemKind: "fact", order: 0 } },
+    { kind: "fact", itemId: "fact:run-2:tool", runId: "run-2", eventType: "tool_started",
+      title: "Historical tool started", position: { runId: "run-2", runOrder: 1, sequence: 1, itemKind: "fact", order: 0 } },
+  ]);
+  assert.match(html, /Historical tool started/);
+  assert.match(html, /aria-expanded="true"/);
 });

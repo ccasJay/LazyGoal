@@ -46,7 +46,7 @@ export function CurrentModelControl({
  *
  * @remarks
  * 普通工作状态下，空输入触发暂停、带文本输入消息；Run 可恢复时，空输入恢复原 Run，
- * 带文本仍排入后续 Run；终态下仅发送新消息。
+ * 带文本仍排入后续 Run；终态下仅发送新消息，此时空输入不具备主操作，发送按钮禁用。
  */
 export function MessageComposer({
   busy,
@@ -221,7 +221,9 @@ export function MessageComposer({
                         ? recoveryActionLabel
                         : running && !hasDraft
                           ? "Pause Run"
-                          : "Send message"
+                          : !hasDraft
+                            ? "Type a message to send"
+                            : "Send message"
                 }
                 title={
                   primaryReason !== undefined
@@ -232,7 +234,9 @@ export function MessageComposer({
                         ? recoveryActionLabel
                         : running && !hasDraft
                           ? "Pause this Run"
-                          : "Send message"
+                          : !hasDraft
+                            ? "Type a message to send"
+                            : "Send message"
                 }
                 disabled={
                   primaryAction === undefined
@@ -243,7 +247,7 @@ export function MessageComposer({
                           ? !hasDraft && (stopping || onInterrupt === undefined)
                           : !hasDraft
                     )
-                    : !primaryAction.available || (stopping && !hasDraft)
+                    : !primaryAction.available || (primaryMode === "send_message" && !hasDraft) || (stopping && !hasDraft)
                 }
                 onClick={() => void activatePrimaryAction()}
               >

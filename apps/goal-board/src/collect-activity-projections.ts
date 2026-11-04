@@ -1,8 +1,8 @@
 import type {
   BrowserActivityPage,
-  BrowserGoalEvent,
 } from "../../../packages/web-contracts/src/index";
 import { projectActivityGroups, type ActivityGroup } from "./activity-projector";
+import type { OrderedGoalEvent } from "./live-timeline";
 
 /**
  * 一次会话渲染所需的全部 Run 活动组投影集合。
@@ -24,7 +24,7 @@ import { projectActivityGroups, type ActivityGroup } from "./activity-projector"
 export function collectActivityProjections(
   page: BrowserActivityPage,
   goalId: string,
-  liveEvents: readonly BrowserGoalEvent[],
+  liveEvents: readonly OrderedGoalEvent[],
 ): ReadonlyMap<string, readonly ActivityGroup[]> {
   const projections = new Map<string, readonly ActivityGroup[]>();
   for (const run of page.runs) {
