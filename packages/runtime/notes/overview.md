@@ -187,3 +187,11 @@ Decide 返回值可以是 `decision`、`request_think`、`assistant_message` 或
 **恢复点** = `pendingAction`（队首）+ `pendingActionBatch.remaining`（其余）。指针与该 Action 在同一次提交写入，避免"Action 已暂存但队列未推进"导致恢复后重放。已产生 `action_staged` 的 `actionId` 再次出现时按不可重放拒绝并要求模型改用新 Action。
 
 失败预算分两类、各自含首次最多三次、互不占用：`attemptsStarted` 覆盖契约、Tool 选择、Tool 输入与证据类失败；`continuationsStarted` 覆盖零调用正文与无可用结果。`latestFailureClass` 决定下一次调用计入哪个预算，有效 `request_think` 结束当前链时两者一并归零。零调用正文在提交为 Goal 消息后按不推进类预算继续；预算用尽时保留每次原因与该次正文并明确失败。
+
+## 子 Agent 委派执行（Subagent Spawner）
+
+`RuntimeSubagentSpawner` 实现父 Goal 委派自包含子任务给子 Goal 的生命周期管理：
+- **启动环境与继承**：子 Goal 复用父级相同的 workspaceRoot、profileId、模型选择（modelSelection），并在普通非规划（normal）模式下运行。子 Goal 意图自动前缀说明其为委托子 Agent，必须自主独立完成任务而不得向用户提问。
+- **状态同步与取消**：通过 SessionManager 及其事件流监听子 Goal 终态（`completed` / `failed` / `cancelled`）。当父 Run 触发取消（ExecutionControl 的 AbortSignal）时，通过向子会话发送 `interrupt` 停止子 Goal 执行并快速解除父级等待，不阻塞挂起进程。
+- **运行时递归防护**：通过 `createChildProfileRegistry` 包装子会话的 AgentProfileRegistry，从子 Agent Profile 的 `toolIds` 中剔除 `spawn_subagent`，从运行时执行器与授权规则层面杜绝递归派发。
+

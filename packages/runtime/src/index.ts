@@ -627,3 +627,15 @@ export type {
 
 export type { ModelInputMessage, ModelInputRecord, ModelInputStore } from "./model-input";
 export type { ModelPreference, ModelPreferenceStore } from "./model-preference";
+
+export {
+    SUBAGENT_INTENT_PREFIX,
+    RuntimeSubagentSpawner,
+    createChildProfileRegistry,
+    SPAWN_SUBAGENT_TOOL_ID,
+} from "./subagent-spawner";
+export type {
+    SpawnSubagentInput,
+    SpawnSubagentOutput,
+    SubagentSpawner,
+} from "./subagent-spawner";
