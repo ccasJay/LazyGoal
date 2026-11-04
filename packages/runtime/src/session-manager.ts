@@ -434,8 +434,10 @@ export class SessionManager implements SessionHandlePort {
         this.alignModelBinding = dependencies.alignModelBinding;
         this.defaultModelSelection = dependencies.defaultModelSelection;
         this.executionStream = dependencies.executionStream;
+        const readRevision = this.store.readRevision?.bind(this.store);
         this.revisionMonitor = new GoalRevisionMonitor({
             readGoal: (goalId) => this.store.restore(goalId),
+            ...(readRevision === undefined ? {} : { readRevision }),
             ...(dependencies.resyncIntervalMs === undefined ? {} : { intervalMs: dependencies.resyncIntervalMs }),
             ...(dependencies.setInterval === undefined ? {} : { setInterval: dependencies.setInterval }),
             ...(dependencies.clearInterval === undefined ? {} : { clearInterval: dependencies.clearInterval }),

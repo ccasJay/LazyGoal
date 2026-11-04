@@ -30,6 +30,12 @@ import { KeyedSerialQueue } from "./keyed-serial-queue";
 
 type GoalFileOperations = Partial<Pick<typeof import("node:fs/promises"), "mkdir" | "open" | "readFile" | "rename" | "unlink">>;
 
+interface GoalRevisionHint {
+    readonly revision: number;
+    readonly mtimeMs: number;
+    readonly size: number;
+}
+
 /**
  * 单进程内的 Goal 快照存储。
  *
@@ -56,6 +62,11 @@ export class InMemoryGoalStore implements GoalStore {
 
         return goalSnapshotCodec.decode(snapshot);
     }
+
+    async readRevision(goalId: string): Promise<number | undefined> {
+        const snapshot = this.snapshots.get(goalId);
+        return snapshot === undefined ? undefined : snapshot.state.commitRevision ?? 0;
+    }
 }
 
 /**
@@ -74,6 +85,7 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
     private readonly saveQueue = new KeyedSerialQueue();
     private readonly directory: string;
     private readonly fileOperations: Required<GoalFileOperations>;
+    private readonly revisionHints = new Map<string, GoalRevisionHint>();
 
     /**
      * @param directory - 保存 Goal JSON 文件的目录；保存时按需递归创建。
@@ -126,6 +138,17 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
         const status = goal.state.run.status;
         if (status !== "completed" && status !== "failed" && status !== "cancelled") {
             await this.removeArchiveMarkerWithRetry(this.archivePath(goal.id));
+        }
+
+        try {
+            const stats = await stat(filePath);
+            this.revisionHints.set(goal.id, {
+                revision: snapshot.state.commitRevision ?? 0,
+                mtimeMs: stats.mtimeMs,
+                size: stats.size,
+            });
+        } catch {
+            this.revisionHints.delete(goal.id);
         }
     }
 
@@ -239,6 +262,7 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
             if (error.code !== "ENOENT") throw error;
         });
         await unlink(this.filePath(goalId));
+        this.revisionHints.delete(goalId);
         return true;
     }
 
@@ -288,6 +312,11 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
                 }
 
                 fileStats = await stat(filePath);
+                this.revisionHints.set(goal.id, {
+                    revision: goal.state.commitRevision ?? 0,
+                    mtimeMs: fileStats.mtimeMs,
+                    size: fileStats.size,
+                });
             } catch (error) {
                 if (!tolerateUnreadable) throw error;
                 unreadableCount += 1;
@@ -372,6 +401,73 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
         }
 
         return goal;
+    }
+
+    /**
+     * 读取只用于变更检测的提交修订。
+     *
+     * @remarks
+     * 同实例保存或扫描过的 Goal 使用内存 hint；文件 mtime/size 未变化时只做一次
+     * `stat`。文件被外部替换时回退完整 `restore`，并用恢复结果刷新 hint。该值
+     * 不保证跨进程实时，也不能替代快照恢复。
+     *
+     * @param goalId - Goal 的稳定标识。
+     * @returns 当前提交修订；Goal 不存在时返回 `undefined`。
+     * @throws 文件读取失败或快照损坏时传播异常。
+     */
+    async readRevision(goalId: string): Promise<number | undefined> {
+        const filePath = this.filePath(goalId);
+        const hint = this.revisionHints.get(goalId);
+
+        if (hint !== undefined) {
+            try {
+                const stats = await stat(filePath);
+                if (stats.mtimeMs === hint.mtimeMs && stats.size === hint.size) {
+                    return hint.revision;
+                }
+            } catch (error) {
+                if (error instanceof Error && (error as NodeJS.ErrnoException).code === "ENOENT") {
+                    this.revisionHints.delete(goalId);
+                    return undefined;
+                }
+                throw error;
+            }
+        }
+
+        const before = await stat(filePath).catch((error: unknown) => {
+            if (error instanceof Error && (error as NodeJS.ErrnoException).code === "ENOENT") {
+                return undefined;
+            }
+            throw error;
+        });
+        if (before === undefined) {
+            this.revisionHints.delete(goalId);
+            return undefined;
+        }
+
+        const goal = await this.restore(goalId);
+        if (goal === undefined) {
+            this.revisionHints.delete(goalId);
+            return undefined;
+        }
+
+        const revision = goal.state.commitRevision ?? 0;
+        const after = await stat(filePath).catch((error: unknown) => {
+            if (error instanceof Error && (error as NodeJS.ErrnoException).code === "ENOENT") {
+                return undefined;
+            }
+            throw error;
+        });
+        if (after !== undefined
+            && after.mtimeMs === before.mtimeMs
+            && after.size === before.size) {
+            this.revisionHints.set(goalId, {
+                revision,
+                mtimeMs: after.mtimeMs,
+                size: after.size,
+            });
+        }
+        return revision;
     }
 
     private filePath(goalId: string): string {

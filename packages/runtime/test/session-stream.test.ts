@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
     GoalCoordinator,
+    GoalRevisionMonitor,
     InlineScheduler,
     Runner,
     SessionManager,
@@ -459,4 +460,43 @@ test("detaching a handle releases only its own subscriptions", async () => {
     // Goal 与执行不受解除连接影响。
     const state = await harness.sessions.readSessionState("goal-detach");
     assert.equal(state?.runStatus, "completed");
+});
+
+test("GoalRevisionMonitor 使用 readRevision，仅在实际变化时通知", async () => {
+    const clock = createFakeClock();
+    let revision = 1;
+    let goalReads = 0;
+    let revisionReads = 0;
+    const signals: number[] = [];
+    const monitor = new GoalRevisionMonitor({
+        readGoal: async () => {
+            goalReads += 1;
+            return undefined;
+        },
+        readRevision: async () => {
+            revisionReads += 1;
+            return revision;
+        },
+        setInterval: clock.setIntervalFn,
+        clearInterval: clock.clearIntervalFn,
+    });
+    const unsubscribe = monitor.observe("goal-revision", (signal) => {
+        if (signal.kind === "revision_changed") signals.push(signal.revision);
+    });
+
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(revisionReads, 1);
+    assert.equal(goalReads, 0);
+
+    clock.tick();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(revisionReads, 2);
+    assert.equal(goalReads, 0);
+    assert.deepEqual(signals, []);
+
+    revision = 2;
+    clock.tick();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.deepEqual(signals, [2]);
+    unsubscribe();
 });

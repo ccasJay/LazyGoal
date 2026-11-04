@@ -68,7 +68,7 @@ superseded_by: null
 - [x] //TODO 5. 移除 Snapshot encode/decode 外层 clone、改 compact JSON，并补 aliasing/往返测试 → R1.7；检查：`npx tsx --test packages/storage/test/goal-snapshot-current.test.ts` 与 aliasing 测试通过。
 - [x] //TODO 6. 去重预算计量：token 模式惰性计算 `characterCount`，缓存单元计量并复用 → R1.8；检查：model-context selection 等价性测试通过。
 - [x] //TODO 7. 用预计算索引替代逐消息会话扫描来判定 Model Input 来源 → R1.9；检查：`npx tsx --test packages/model-call/test/model-input-recording.test.ts` 通过。
-- [ ] //TODO 8. 增加 `GoalStore.readRevision` hint 并让 GoalRevisionMonitor 走轻量轮询与 `restore` 回退 → R1.10；检查：`npx tsx --test packages/runtime/test/session-stream.test.ts` 通过。
+- [x] //TODO 8. 增加 `GoalStore.readRevision` hint 并让 GoalRevisionMonitor 走轻量轮询与 `restore` 回退 → R1.10；检查：`npx tsx --test packages/runtime/test/session-stream.test.ts` 通过。
 - [ ] //TODO 9. 同步受影响模块的 TSDoc/notes，并完成完整回归与同机前后基准记录 → R1.12；检查：`npm run check:docs` 与 `npm test` 通过，基准数字记录到执行记录。
 
 ## 执行记录

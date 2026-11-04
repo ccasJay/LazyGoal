@@ -30,6 +30,24 @@ export interface GoalStore {
      * @throws 已存在快照损坏或底层存储读取失败时抛出异常。
      */
     restore(goalId: string): Promise<Goal | undefined>;
+
+    /**
+     * 读取只用于变更检测的提交修订提示。
+     *
+     * @remarks
+     * 该值必须与 `restore` 返回的 `state.commitRevision` 一致，但不保证跨进程实时；
+     * 调用方只能用它判断 Goal 是否发生变化，不能用它恢复状态。省略时调用方回退
+     * 完整 `restore`。
+     *
+     * @param goalId - Session 的稳定标识。
+     * @returns 当前提交修订；Goal 不存在时返回 `undefined`。
+     * @throws 底层读取失败时传播异常。
+     * @example
+     * ```ts
+     * const revision = await store.readRevision?.("goal-1");
+     * ```
+     */
+    readRevision?(goalId: string): Promise<number | undefined>;
 }
 
 /**
