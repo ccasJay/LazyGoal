@@ -717,6 +717,30 @@ export interface TrajectoryIncrementalReadPort {
     ): Promise<Readonly<TrajectoryReadResult>>;
 }
 
+/**
+ * Trajectory 派生索引的显式刷新端口。
+ *
+ * @remarks
+ * 实现可以把可重建索引的写入推迟到提交边界。调用方在追加批次结束后调用
+ * `flushIndex`，使索引不必对每条事件开启事务。索引不是恢复权威，也不影响
+ * 已落盘的 JSONL 事实；刷新失败时实现丢弃该批索引写入并在后续读取时从
+ * 事实源修复，调用方不因派生索引失败而回滚已完成的追加。
+ *
+ * @example
+ * ```ts
+ * await store.flushIndex?.("goal-1", "run-1");
+ * ```
+ */
+export interface TrajectoryIndexFlushPort {
+    /**
+     * @param goalId - 事件所属 Goal。
+     * @param runId - 事件所属 Run。
+     * @returns 缓冲已提交或索引修复状态已失效时 resolve。
+     * @throws 标识非法或无法打开索引时拒绝；已打开索引的事务错误由实现内部处理。
+     */
+    flushIndex(goalId: string, runId: string): Promise<void>;
+}
+
 /** Trajectory 按 Goal、Run 和序列范围读取的查询条件。 */
 export interface TrajectoryReadQuery {
     /** Goal 稳定标识。 */

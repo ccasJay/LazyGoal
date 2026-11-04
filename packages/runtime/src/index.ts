@@ -576,6 +576,7 @@ export type {
     TrajectoryEventProjection,
     TrajectoryEventType,
     TrajectoryIncrementalReadPort,
+    TrajectoryIndexFlushPort,
     TrajectoryPhase,
     TrajectoryReadQuery,
     TrajectoryReadResult,

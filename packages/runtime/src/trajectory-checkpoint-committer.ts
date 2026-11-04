@@ -26,6 +26,7 @@ import {
     type TrajectoryEventDraft,
     type TrajectoryPhase,
     type TrajectoryStore,
+    type TrajectoryIndexFlushPort,
     type ModelContextFramePayload,
     computeContentHash,
 } from "./trajectory";
@@ -493,6 +494,25 @@ export class TrajectoryCheckpointCommitter implements TrajectoryCheckpointCommit
     }
 
     /**
+     * 在提交边界刷新本 Run 的派生索引。
+     *
+     * @remarks
+     * 索引可从 JSONL 重建，刷新不属于提交成功条件；实现内部已经把事务失败
+     * 降级为脏标记，这里额外忽略打开索引的瞬时错误。
+     */
+    private async flushTrajectoryIndex(goal: Goal): Promise<void> {
+        const store = this.trajectoryStore;
+        if (store === undefined) return;
+        const flush = (store as Partial<TrajectoryIndexFlushPort>).flushIndex;
+        if (flush === undefined) return;
+        try {
+            await flush.call(store, goal.id, goal.state.run.id);
+        } catch {
+            // 派生索引不是恢复权威；后续索引读取会从 JSONL 修复。
+        }
+    }
+
+    /**
      * 按 facts → model context frame → accepted Patch → Snapshot → marker 顺序提交一次边界。
      *
      * @param goal - 本次业务转换后的 Goal 状态；不会被原地修改。
@@ -636,6 +656,8 @@ export class TrajectoryCheckpointCommitter implements TrajectoryCheckpointCommit
             }, request.control);
         }
         if (memoryPatchEvent !== undefined) events.push(memoryPatchEvent);
+
+        await this.flushTrajectoryIndex(goal);
 
         const key = trajectoryKey(goal);
         const priorBoundary = goal.state.run.committedThroughSequence ?? 0;

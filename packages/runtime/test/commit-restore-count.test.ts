@@ -36,6 +36,14 @@ class CountingGoalStore implements GoalStore {
     }
 }
 
+class FlushCountingTrajectoryStore extends InMemoryTrajectoryStore {
+    readonly flushes: Array<{ readonly goalId: string; readonly runId: string }> = [];
+
+    async flushIndex(goalId: string, runId: string): Promise<void> {
+        this.flushes.push({ goalId, runId });
+    }
+}
+
 function runningGoal(): Goal {
     const goal = createGoal({
         memoryProtocol: { kind: "structured", version: 1 },
@@ -90,6 +98,21 @@ test("commit 只读取一次最新 Snapshot 并在 prepare 返回后保存一次
     assert.equal(store.saves, 1);
     assert.equal(committed.events.length, 1);
     assert.ok(committed.goal.state.run.committedThroughSequence >= 1);
+});
+
+test("commit 在保存 Snapshot 前刷新该 Run 的派生索引", async () => {
+    const goal = runningGoal();
+    const inner = new InMemoryGoalStore();
+    await inner.save(goal);
+    const store = new CountingGoalStore(inner);
+    const trajectoryStore = new FlushCountingTrajectoryStore();
+    const committer = new TrajectoryCheckpointCommitter({ store, trajectoryStore });
+
+    await committer.commit(goal, { facts: [runStartedFact(goal)] });
+
+    assert.deepEqual(trajectoryStore.flushes, [
+        { goalId: goal.id, runId: goal.state.run.id },
+    ]);
 });
 
 test("prepare 抛错时中止提交且不追加事实或保存 Snapshot", async () => {
