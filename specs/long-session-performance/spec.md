@@ -65,7 +65,7 @@ superseded_by: null
 - [x] //TODO 2. 实现索引驱动的 `readAfter` 后缀读取、身份校验与全量回退 → R1.5, R1.6；检查：`npx tsx --test packages/storage/test/trajectory-store.test.ts` 及新增 increment-read 测试通过。
 - [x] //TODO 3. 实现 assembler 单元/计量缓存、失效规则与有界 LRU → R1.2, R1.3, R1.4；检查：cached-vs-fresh 等价性与失效路径测试通过。
 - [x] //TODO 4. 将 commit 收敛为 committer 单次 `restore` + `prepare(latest)`，并迁移 Runner 调用点 → R1.1；检查：`npx tsx --test packages/runtime/test/commit-restore-count.test.ts` 与现有 runner 回归通过。
-- [ ] //TODO 5. 移除 Snapshot encode/decode 外层 clone、改 compact JSON，并补 aliasing/往返测试 → R1.7；检查：`npx tsx --test packages/storage/test/goal-snapshot-current.test.ts` 与 aliasing 测试通过。
+- [x] //TODO 5. 移除 Snapshot encode/decode 外层 clone、改 compact JSON，并补 aliasing/往返测试 → R1.7；检查：`npx tsx --test packages/storage/test/goal-snapshot-current.test.ts` 与 aliasing 测试通过。
 - [ ] //TODO 6. 去重预算计量：token 模式惰性计算 `characterCount`，缓存单元计量并复用 → R1.8；检查：model-context selection 等价性测试通过。
 - [ ] //TODO 7. 用预计算索引替代逐消息会话扫描来判定 Model Input 来源 → R1.9；检查：`npx tsx --test packages/model-call/test/model-input-recording.test.ts` 通过。
 - [ ] //TODO 8. 增加 `GoalStore.readRevision` hint 并让 GoalRevisionMonitor 走轻量轮询与 `restore` 回退 → R1.10；检查：`npx tsx --test packages/runtime/test/session-stream.test.ts` 通过。

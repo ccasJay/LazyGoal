@@ -20,9 +20,9 @@ Snapshot、Trajectory、Profile 和调用事实的文件 Schema 与 Store。本�
 | [AgentProfileFile](../src/agent-profile-file.ts) | Profile 文件 DTO（`schemaVersion: 1`）、具名 `NonEmptyString` 约束、生成绑定与 `AgentProfileConfigurationError` | 读取文件系统、构造 Runtime Profile |
 | [JsonFileAgentProfileStore](../src/json-file-agent-profile-store.ts) | 实现 Runtime `AgentProfileStore` Port，读取单个 `<profileId>.json` | 扫描其它 Profile、读取 Tool 实例、校验 Tool 注册 |
 | [GoalSnapshotV1 协议](../src/goal-snapshot.ts) | 当前唯一 Snapshot DTO、生成结构绑定与字段级/跨字段语义校验；模型选择可保存动态执行 API 与容量；并保存当前 Prompt/Memory/Model Context/Retrieval 组合、完整消息、`mode`、GoalPlan、`completedRuns`、Run/todo 关系、Run 的唯一 `exposedToolIds`、Context Epoch、内部阶段（`currentStage`）、获批 Plan Run 路线（`planRoute`）、待执行 Action 的授权引用、Goal 提交修订（`commitRevision`）、输入账本（`inputLedger`）与消息队列（`messageQueue`） | 文件系统 I/O、构造 Runtime Goal、迁移历史 Snapshot |
-| [GoalSnapshotCodec](../src/goal-snapshot-codec.ts) | Runtime Goal↔v1 Snapshot 的 encode/decode 深复制转换；只接受当前 v1，不迁移或回写历史版本 | 文件系统 I/O、读写 Store |
+| [GoalSnapshotCodec](../src/goal-snapshot-codec.ts) | Runtime Goal↔v1 Snapshot 的 encode/decode 转换；隔离由 `binding.read` 的副本提供，不再叠加外层 `structuredClone`；只接受当前 v1，不迁移或回写历史版本 | 文件系统 I/O、读写 Store |
 | [InMemoryGoalStore](../src/goal-store.ts) | 实现 Runtime `GoalStore` Port：save 经 Codec encode、restore 经 decode | 跨实例或跨进程恢复 |
-| [JsonFileGoalStore](../src/goal-store.ts) | 实现 `GoalStore` 与 `GoalCatalog`：base64url 文件名、经共享原语原子替换快照、目录扫描摘要 | 跨进程锁、乐观锁、租约或版本冲突检测 |
+| [JsonFileGoalStore](../src/goal-store.ts) | 实现 `GoalStore` 与 `GoalCatalog`：base64url 文件名、经共享原语以 compact JSON + trailing newline 原子替换快照、目录扫描摘要 | 跨进程锁、乐观锁、租约或版本冲突检测 |
 | [JsonFileToolGrantStore](../src/json-file-tool-grant-store.ts) | 以生成绑定严格验证 workspace 授权账本，经共享原语保存 pending/active/revoked Grant，按来源 Action 幂等暂存/激活 | Goal 状态转换、跨进程锁或分布式事务 |
 | [JsonFileModelPreferenceStore](../src/json-file-model-preference-store.ts) | 以生成绑定严格解析并保存 Web 模型偏好身份；损坏文件不被覆盖 | 模型可选性判断、Goal Snapshot 或跨进程锁 |
 | [JsonFileTrajectoryStore](../src/json-file-trajectory-store.ts) | 将每个 Goal/Run 的事实事件（包括结构化 `model_context_frame`）追加到安全编码的 JSONL 分段，并把大型 payload 外置为内容寻址 Blob；维护可删除重建的 SQLite 查询索引；提供序列范围读取与 Snapshot 边界分类；追加结果未知时核对当前分段尾部 | Snapshot 恢复、marker 推导边界、跨进程锁、exactly-once 与旧存储编码迁移 |
@@ -62,7 +62,7 @@ Snapshot 原样保存 Goal 级 `commitRevision`、`inputLedger` 与 `messageQueu
 
 当前 Snapshot 同时校验 `pendingProgram` 与运行中父 Action、子 `pendingAction` 的身份及调用位置；Codec 原位保存恢复指针和已用结果字节数。PTC 子事实的 `programId/callIndex` 随 Trajectory 严格解析，结果仍以 Snapshot 的提交边界为准。`program_time_reserved` 是例外：它在同一 JSONL 中单独同步到磁盘，恢复时无论 Snapshot 是否纳入该事件都要计入预算，防止崩溃重置额度。Storage 不推断工具是否已经产生外部副作用。
 
-`JsonFileGoalStore.save` 对 Snapshot 只编码一次，并调用共享 `atomicWriteJson` 原子替换：临时文件、`0600` 文件、`0700` 目录、`fsync`、`EINTR`／`EAGAIN`／`EBUSY` 三次重试、目标内容核对与失败清理由写入原语统一执行。替换已成功但调用返回临时错误时继续完成归档标记清理，不重放 Runtime 提交。`listResumable` 只扫描正式 `.json` 普通文件并忽略 `.tmp`；任一正式快照损坏都会报告协议错误而非静默跳过；过滤三个终态后按 `mtime` 倒序、`goalId` 升序返回摘要。`listHistory` 面向历史复盘：遇到无法解码的快照时跳过该条并计入 `unreadableCount`，不让一条旧版本快照使整份历史列表不可用；目录级读取失败仍然拒绝。
+`JsonFileGoalStore.save` 对 Snapshot 只编码一次，并调用共享 `atomicWriteJson` 以 compact JSON + trailing newline 原子替换：临时文件、`0600` 文件、`0700` 目录、`fsync`、`EINTR`／`EAGAIN`／`EBUSY` 三次重试、目标内容核对与失败清理由写入原语统一执行。替换已成功但调用返回临时错误时继续完成归档标记清理，不重放 Runtime 提交。`listResumable` 只扫描正式 `.json` 普通文件并忽略 `.tmp`；任一正式快照损坏都会报告协议错误而非静默跳过；过滤三个终态后按 `mtime` 倒序、`goalId` 升序返回摘要。`listHistory` 面向历史复盘：遇到无法解码的快照时跳过该条并计入 `unreadableCount`，不让一条旧版本快照使整份历史列表不可用；目录级读取失败仍然拒绝。
 
 `JsonFileToolGrantStore` 将当前 workspace 的 Grant 写入私有 `tool-grants.json`；损坏 JSON、结构或语义错误、重复 ID/来源或同一来源授权冲突均失败关闭，不会重置账本。只有 active 且 workspace 与操作匹配的 Grant 可被 Runner 查询；goal 范围还必须匹配 `goalId`。pending Grant 仅供 Coordinator 在批准 Snapshot 提交后恢复激活，revoked Grant 不再匹配。Store 实例内写入经 `KeyedSerialQueue` 串行化，不提供跨进程并发事务。
 

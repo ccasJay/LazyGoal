@@ -113,7 +113,7 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
         await atomicWriteJson({
             path: filePath,
             value: snapshot,
-            indent: 2,
+            indent: undefined,
             trailingNewline: true,
             durable: true,
             retry: WRITE_RETRY_THREE_ATTEMPTS,
