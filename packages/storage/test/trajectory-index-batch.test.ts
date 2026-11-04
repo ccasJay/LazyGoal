@@ -82,3 +82,52 @@ test("flushIndex does not create an index for a run without buffered rows", asyn
         await assert.rejects(readFile(indexPath(directory)), { code: "ENOENT" });
     });
 });
+
+test("a failed index flush is dropped and repaired from JSONL", async () => {
+    await withStore(async (store, directory) => {
+        await store.append(draft());
+        await store.flushIndex(goalId, runId);
+        await store.append(draft());
+
+        const database = new DatabaseSync(indexPath(directory));
+        try {
+            const row = database.prepare("SELECT * FROM events WHERE sequence = 1").get() as
+                Record<string, unknown>;
+            const columns = Object.keys(row);
+            const conflicting = columns.map((column) => column === "sequence" ? 2
+                : column === "event_id" ? "conflict"
+                    : column === "byte_offset" ? 0
+                        : row[column]);
+            database.prepare(
+                `INSERT INTO events (${columns.join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`,
+            ).run(...conflicting as never[]);
+        } finally {
+            database.close();
+        }
+
+        await store.flushIndex(goalId, runId);
+
+        const suffix = await store.readAfter({ goalId, runId, afterSequence: 1 }, 2);
+        assert.deepEqual(suffix.committed.map((event) => event.sequence), [2]);
+        assert.deepEqual(
+            (await store.read({ goalId, runId })).map((event) => event.sequence),
+            [1, 2],
+        );
+    });
+});
+
+test("unflushed buffered rows survive a restart through JSONL replay", async () => {
+    await withStore(async (store, directory) => {
+        await store.append(draft());
+        await store.append(draft());
+
+        const reopened = new JsonFileTrajectoryStore(directory);
+
+        assert.deepEqual(
+            (await reopened.read({ goalId, runId })).map((event) => event.sequence),
+            [1, 2],
+        );
+        const suffix = await reopened.readAfter({ goalId, runId, afterSequence: 0 }, 2);
+        assert.deepEqual(suffix.committed.map((event) => event.sequence), [1, 2]);
+    });
+});
