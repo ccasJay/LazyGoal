@@ -50,7 +50,8 @@ function isValidManifest(value: ModelInputManifest, goalId: string, runId: strin
  * 实例按 Goal 维护进程内正文摘要集合：首次追加时用一次 `readdir` 种子化，之后
  * 每次追加用一次 `stat` 校验正文目录身份；目录被外部删除或重建时重新种子化。
  * 集合只跳过写入与读回比对，不改变清单内容；它不是跨进程事实源，进程重启后
- * 自然失效。未命中集合的摘要仍执行 `wx` 写入与 EEXIST 读回校验。
+ * 自然失效。未命中集合的摘要仍执行 `wx` 写入与 EEXIST 读回校验。种子化只信任
+ * 已有文件名，正文内容损坏仍由读取路径的摘要校验发现。
  *
  * @example
  * ```ts

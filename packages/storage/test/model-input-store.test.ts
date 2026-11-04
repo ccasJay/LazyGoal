@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { JsonFileModelInputStore } from "../src/index";
@@ -84,6 +85,32 @@ test("model input store reseeds digest state after the body directory is deleted
 
         assert.equal((await readdir(bodyDirectory)).length, 2);
         assert.deepEqual((await store.read("goal-1", "run-1"))[1]!.messages, record.messages);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("model input store rejects an unknown reference whose stored body no longer matches its digest", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "lazygoal-input-"));
+    try {
+        const record: ModelInputRecord = { goalId: "goal-1", runId: "run-1", callId: "call-1", stage: "decide", stepIndex: 1, occurredAt: new Date().toISOString(), messages: [
+            { role: "system", source: "system", content: "fixed system" },
+        ] };
+        const store = new JsonFileModelInputStore(directory);
+        await store.append(record);
+        const runPath = join(directory, Buffer.from("goal-1").toString("base64url"), Buffer.from("run-1").toString("base64url"));
+        const bodyDirectory = join(dirname(runPath), "messages");
+        const lateContent = "appeared after seeding";
+        const lateRef = createHash("sha256").update(lateContent).digest("hex");
+        await writeFile(join(bodyDirectory, `${lateRef}.txt`), "corrupted");
+
+        await assert.rejects(
+            store.append({
+                ...record,
+                callId: "call-2",
+                stepIndex: 2,
+                messages: [{ role: "user", source: "conversation", content: lateContent }],
+            }),
+            /hash mismatch/,
+        );
     } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
