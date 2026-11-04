@@ -67,7 +67,7 @@ superseded_by: null
 - [x] //TODO 4. 索引刷新失败与未刷新重开的恢复路径 → R2.3；检查：故障注入测试
 - [x] //TODO 5. Committer 在 commit 边界调用 `flushIndex` → R2.1；检查：`npx tsx --test packages/runtime/test/commit-restore-count.test.ts`
 - [x] //TODO 6. 保存快照时写 catalog 摘要，且摘要失败不影响快照结果 → R3.1；检查：`npx tsx --test packages/storage/test/goal-catalog-summary.test.ts`
-- [ ] //TODO 7. `listHistory` 读摘要、指纹校验与回退重写 → R3.2、R3.3；检查：同一测试文件的回退用例
+- [x] //TODO 7. `listHistory` 读摘要、指纹校验与回退重写 → R3.2、R3.3；检查：同一测试文件的回退用例
 - [ ] //TODO 8. catalog 与快照目录对账并保持 `unreadableCount` 语义 → R3.4；检查：目录对账测试
 - [ ] //TODO 9. 增加三档 I/O 基准测试 → R4.1；检查：运行基准并记录数字
 
