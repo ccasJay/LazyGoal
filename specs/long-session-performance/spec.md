@@ -1,9 +1,9 @@
 ---
 feature: long-session-performance
-status: proposed
+status: delivered
 risk: medium
 created_at: 2026-11-04
-delivered_at: null
+delivered_at: 2026-11-04
 supersedes: []
 superseded_by: null
 ---
@@ -58,19 +58,6 @@ superseded_by: null
 | medium | 跨 Runtime/Storage/Model Context 读路径与公共端口变化，Snapshot 磁盘字节形态变化；无 schema、durability 或权限变更，失败时可回退现有全量路径 | 无 |
 
 增量缓存只在同进程、同 Store 实例、同 Goal/Run 且前缀已校验时生效，不得作为跨进程恢复权威。`readAfter` 不得替代 `read` 的全量校验；索引不可用时必须回退。缓存失效、回退和等价性由 R1.2–R1.6 覆盖。快照去重不得引入输入、输出或存储之间的共享可变引用；compact JSON 不改变 schema 或字段语义，由 R1.7 覆盖。本次不改变 fsync/durability、不合并 step 内快照、不新增持久化缓存，也不把未提交 tail 注入模型上下文；由 R1.12 覆盖。
-
-## 任务
-
-- [x] //TODO 1. 建立长会话性能基准与结构计数基线，覆盖 commit、cold assembly、warm assembly、encode/decode 三档规模 → R1.11；检查：`npx tsx --test packages/runtime/test/long-session-benchmark.test.ts` 输出三档数字。
-- [x] //TODO 2. 实现索引驱动的 `readAfter` 后缀读取、身份校验与全量回退 → R1.5, R1.6；检查：`npx tsx --test packages/storage/test/trajectory-store.test.ts` 及新增 increment-read 测试通过。
-- [x] //TODO 3. 实现 assembler 单元/计量缓存、失效规则与有界 LRU → R1.2, R1.3, R1.4；检查：cached-vs-fresh 等价性与失效路径测试通过。
-- [x] //TODO 4. 将 commit 收敛为 committer 单次 `restore` + `prepare(latest)`，并迁移 Runner 调用点 → R1.1；检查：`npx tsx --test packages/runtime/test/commit-restore-count.test.ts` 与现有 runner 回归通过。
-- [x] //TODO 5. 移除 Snapshot encode/decode 外层 clone、改 compact JSON，并补 aliasing/往返测试 → R1.7；检查：`npx tsx --test packages/storage/test/goal-snapshot-current.test.ts` 与 aliasing 测试通过。
-- [x] //TODO 6. 去重预算计量：token 模式惰性计算 `characterCount`，缓存单元计量并复用 → R1.8；检查：model-context selection 等价性测试通过。
-- [x] //TODO 7. 用预计算索引替代逐消息会话扫描来判定 Model Input 来源 → R1.9；检查：`npx tsx --test packages/model-call/test/model-input-recording.test.ts` 通过。
-- [x] //TODO 8. 增加 `GoalStore.readRevision` hint 并让 GoalRevisionMonitor 走轻量轮询与 `restore` 回退 → R1.10；检查：`npx tsx --test packages/runtime/test/session-stream.test.ts` 通过。
-- [x] //TODO 9. 同步受影响模块的 TSDoc/notes，并完成完整回归与同机前后基准记录 → R1.12；检查：`npm run check:docs` 与 `npm test` 通过，基准数字记录到执行记录。
-
 ## 执行记录
 
 - 状态：passed
