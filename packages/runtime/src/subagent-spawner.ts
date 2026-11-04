@@ -283,14 +283,17 @@ export class RuntimeSubagentSpawner implements SubagentSpawner {
 
                         if (runStatus === "completed") {
                             // 读取子 agent 产生的最后一条 assistant message
-                            const msgResult = await session.messages();
-                            const msgs = msgResult.ok ? msgResult.messages : [];
-                            const assistantMsgs = msgs.filter((m) => m.role === "assistant");
-                            const lastMsg = assistantMsgs.length > 0 ? assistantMsgs[assistantMsgs.length - 1] : undefined;
-                            if (lastMsg) {
-                                const fullMsg = await session.message(lastMsg.messageId);
-                                if (fullMsg.ok && fullMsg.entry && fullMsg.entry.content) {
-                                    answer = fullMsg.entry.content;
+                            const listResult = await session.messages();
+                            if (listResult.ok) {
+                                for (let i = listResult.messages.length - 1; i >= 0; i--) {
+                                    const msg = listResult.messages[i];
+                                    if (msg !== undefined && msg.role === "assistant") {
+                                        const body = await session.message(msg.messageId);
+                                        if (body.ok && body.entry && body.entry.content) {
+                                            answer = body.entry.content;
+                                        }
+                                        break;
+                                    }
                                 }
                             }
                         } else {
