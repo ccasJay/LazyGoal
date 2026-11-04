@@ -206,5 +206,13 @@ export {
 export {
     DEFAULT_TOOL_IDS,
     createDefaultToolRegistrations,
-    type DefaultToolRegistrationsOptions,
+    type DefaultToolOptions,
 } from "./default-tools";
+export {
+    SPAWN_SUBAGENT_TOOL_ID,
+    SpawnSubagentTool,
+    spawnSubagentInputBinding,
+    type SpawnSubagentInput,
+    type SpawnSubagentOutput,
+    type SubagentSpawner,
+} from "./spawn-subagent";

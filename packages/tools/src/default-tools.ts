@@ -49,6 +49,11 @@ import {
     GIT_WORKTREE_REMOVE_TOOL_ID,
 } from "./git-worktree-tools";
 import { ReadFileTool, READ_FILE_TOOL_ID } from "./read-file";
+import {
+    SpawnSubagentTool,
+    SPAWN_SUBAGENT_TOOL_ID,
+    type SubagentSpawner,
+} from "./spawn-subagent";
 import { WebFetchTool, WEB_FETCH_TOOL_ID } from "./web-fetch";
 import { WebSearchTool, WEB_SEARCH_TOOL_ID } from "./web-search";
 import { WriteFileTool, WRITE_FILE_TOOL_ID } from "./write-file";
@@ -62,7 +67,7 @@ import { WriteFileTool, WRITE_FILE_TOOL_ID } from "./write-file";
  *
  * @example
  * ```ts
- * const toolIds = DEFAULT_TOOL_IDS;
+ * const isDefault = DEFAULT_TOOL_IDS.includes("read_file");
  * ```
  */
 export const DEFAULT_TOOL_IDS: readonly string[] = Object.freeze([
@@ -82,25 +87,28 @@ export const DEFAULT_TOOL_IDS: readonly string[] = Object.freeze([
     GIT_DIFF_TOOL_ID,
     GIT_LOG_TOOL_ID,
     GIT_SHOW_TOOL_ID,
+    GIT_BRANCH_LIST_TOOL_ID,
+    GIT_WORKTREE_LIST_TOOL_ID,
     GIT_ADD_TOOL_ID,
     GIT_COMMIT_TOOL_ID,
-    GIT_BRANCH_LIST_TOOL_ID,
     GIT_BRANCH_CREATE_TOOL_ID,
     GIT_BRANCH_SWITCH_TOOL_ID,
-    GIT_WORKTREE_LIST_TOOL_ID,
     GIT_WORKTREE_ADD_TOOL_ID,
     GIT_WORKTREE_REMOVE_TOOL_ID,
     EXECUTE_PROGRAM_TOOL_ID,
+    SPAWN_SUBAGENT_TOOL_ID,
 ]);
 
 /**
  * 创建默认工具集时的配置项。
  */
-export interface DefaultToolRegistrationsOptions {
+export interface DefaultToolOptions {
     /** 长进程生命周期管理器。 */
     readonly processManager?: ProcessManager;
     /** 进程持久化存储。 */
     readonly processSessionStore?: ProcessSessionStore;
+    /** 子 Agent 委派创建与等待执行器。 */
+    readonly subagentSpawner?: SubagentSpawner;
 }
 
 /**
@@ -121,8 +129,8 @@ export interface DefaultToolRegistrationsOptions {
  */
 export function createDefaultToolRegistrations(
     workspaceRoot: string,
-    options?: DefaultToolRegistrationsOptions,
-): readonly ToolRegistration[] {
+    options?: DefaultToolOptions,
+): ToolRegistration[] {
     const registrations: ToolRegistration[] = [
         createToolRegistration(new ListDirectoryTool(workspaceRoot)),
         createToolRegistration(new FindFilesTool(workspaceRoot)),
@@ -137,12 +145,12 @@ export function createDefaultToolRegistrations(
         createToolRegistration(new GitDiffTool(workspaceRoot)),
         createToolRegistration(new GitLogTool(workspaceRoot)),
         createToolRegistration(new GitShowTool(workspaceRoot)),
+        createToolRegistration(new GitBranchListTool(workspaceRoot)),
+        createToolRegistration(new GitWorktreeListTool(workspaceRoot)),
         createToolRegistration(new GitAddTool(workspaceRoot)),
         createToolRegistration(new GitCommitTool(workspaceRoot)),
-        createToolRegistration(new GitBranchListTool(workspaceRoot)),
         createToolRegistration(new GitBranchCreateTool(workspaceRoot)),
         createToolRegistration(new GitBranchSwitchTool(workspaceRoot)),
-        createToolRegistration(new GitWorktreeListTool(workspaceRoot)),
         createToolRegistration(new GitWorktreeAddTool(workspaceRoot)),
         createToolRegistration(new GitWorktreeRemoveTool(workspaceRoot)),
     ];
@@ -152,6 +160,12 @@ export function createDefaultToolRegistrations(
             createToolRegistration(new ProcessStartTool(workspaceRoot, options.processManager)),
             createToolRegistration(new ProcessReadTool(options.processManager, options.processSessionStore)),
             createToolRegistration(new ProcessStopTool(options.processManager, options.processSessionStore)),
+        );
+    }
+
+    if (options?.subagentSpawner !== undefined) {
+        registrations.push(
+            createToolRegistration(new SpawnSubagentTool(options.subagentSpawner)),
         );
     }
 
