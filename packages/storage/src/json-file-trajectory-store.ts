@@ -821,7 +821,12 @@ export class JsonFileTrajectoryStore implements TrajectoryStore, TrajectoryQuery
 
     private async readyIndex(goalId: string, runId: string): Promise<TrajectoryIndex> {
         const key = this.keyFor(goalId, runId);
-        return this.appendQueue.run(key, () => this.ensureIndex(goalId, runId));
+        return this.appendQueue.run(key, async () => {
+            const index = await this.ensureIndex(goalId, runId);
+            // 索引读取必须先看到已缓冲的行，否则 maxSequence 会落后于 JSONL。
+            this.flushPendingIndex(key, index);
+            return index;
+        });
     }
 
     private async readEventAtRow(
@@ -1305,9 +1310,12 @@ export class JsonFileTrajectoryStore implements TrajectoryStore, TrajectoryQuery
     private async ensureIndex(goalId: string, runId: string): Promise<TrajectoryIndex> {
         const key = this.keyFor(goalId, runId);
         const index = await this.openIndex(goalId, runId);
-        this.flushPendingIndex(key, index);
 
         if (this.verifiedIndexes.has(key) && !this.dirtyIndexes.has(key)) return index;
+
+        // 校验或重建会从 JSONL 重新读取事实；先把缓冲写入索引，
+        // 避免同一事件既出现在索引中又留在缓冲里。
+        this.flushPendingIndex(key, index);
 
         if (await this.normalizeTrailingSegment(goalId, runId)) {
             this.sequenceCache.delete(key);
