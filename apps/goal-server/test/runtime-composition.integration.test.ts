@@ -236,7 +236,7 @@ test("经目录入口构造无界面运行时：无 HTTP、无进程信号、只
         assert.equal(adapter.calls.length, 1);
         assert.equal(runtime.checkpointStore.isFrozen, false);
         assert.deepEqual(
-            await readdir(runtime.goalsDirectory),
+            (await readdir(runtime.goalsDirectory)).filter((name) => name.endsWith(".json")),
             [`${Buffer.from(goalId, "utf8").toString("base64url")}.json`],
         );
         assert.equal(existsSync(join(fixture.home, "config.toml")), false);

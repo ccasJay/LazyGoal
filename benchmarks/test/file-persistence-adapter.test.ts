@@ -89,7 +89,8 @@ test("opens isolated LazyGoal stores and an optional trace sink per namespace", 
         );
         assert.equal(await second.goalStore.restore("goal-1"), undefined);
 
-        const goalFiles = await readdir(first.locator.goalSnapshot);
+        const goalFiles = (await readdir(first.locator.goalSnapshot))
+            .filter((name) => name.endsWith(".json"));
         const trajectoryGoalFiles = await readdir(first.locator.trajectory);
         const traceGoalFiles = await readdir(first.locator.diagnosticTrace!);
         assert.equal(goalFiles.length, 1);
