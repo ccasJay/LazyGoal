@@ -227,6 +227,8 @@ export interface HotWindowSelectionOptions<T> {
     readonly budget: number;
     /** 把一个执行单元投影为最终计量结构；省略时优先使用其 `items`。 */
     readonly project?: (unit: T) => unknown;
+    /** 可选的单元计量；省略时使用构造时注入的 Estimator。 */
+    readonly measure?: (unit: T) => number;
 }
 
 /**
@@ -269,12 +271,14 @@ export class HotWindowSelector<T> {
         assertNonNegativeSafeInteger(options.budget, "hotBudget");
 
         const projectUnit = options.project ?? defaultHotProjection;
+        const measureUnit = options.measure
+            ?? ((unit: T) => this.estimator.estimate(projectUnit(unit)));
         let used = 0;
         let start = units.length;
         let stoppedAtIndex: number | undefined;
 
         for (let index = units.length - 1; index >= 0; index -= 1) {
-            const measured = this.estimator.estimate(projectUnit(units[index]!));
+            const measured = measureUnit(units[index]!);
             assertNonNegativeSafeInteger(measured, "estimated execution unit size");
 
             if (measured > options.budget - used) {

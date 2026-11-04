@@ -60,6 +60,25 @@ export interface WarmReducerOptions {
     readonly estimator?: ModelInputEstimator;
     /** 当前轮次临时保护的条目 ID；仍受所在分区配额约束。 */
     readonly protectedIds?: readonly string[];
+    /** 可选的进程内计量缓存；命中时跳过 Estimator，缺失时计算并写回。 */
+    readonly measurementCache?: Map<string, number>;
+}
+
+/**
+ * 计算 Warm 条目在进程内计量缓存中的稳定键。
+ *
+ * @remarks
+ * 键只由条目身份与来源摘要组成；内容变化必须伴随 `sourceHash` 变化。
+ *
+ * @example
+ * ```ts
+ * const key = warmEntryMeasurementKey({ id: "finding-1", sourceHash: "sha256:finding" });
+ * ```
+ */
+export function warmEntryMeasurementKey(
+    entry: Pick<WarmCompactEntry, "id" | "sourceHash">,
+): string {
+    return `${entry.id}\u0000${entry.sourceHash}`;
 }
 
 /**
@@ -110,8 +129,9 @@ export class WarmReducer {
     private readonly quotas: WarmPartitionQuotas;
     private readonly estimator: ModelInputEstimator;
     private readonly protectedIds: ReadonlySet<string>;
+    private readonly measurementCache: Map<string, number> | undefined;
 
-    /** @param options - 分区配额、计量器和本轮临时保护集合。 */
+    /** @param options - 分区配额、计量器、本轮临时保护集合与可选计量缓存。 */
     constructor(options: WarmReducerOptions = {}) {
         this.quotas = normalizeQuotas(options.quotas);
         this.estimator = options.estimator ?? new CharacterModelInputEstimator();
@@ -120,6 +140,7 @@ export class WarmReducer {
             throw new RangeError("protectedIds must contain non-empty strings");
         }
         this.protectedIds = new Set(protectedIds);
+        this.measurementCache = options.measurementCache;
     }
 
     /**
@@ -148,7 +169,7 @@ export class WarmReducer {
                     return true;
                 });
             const scored = partition
-                .map((entry) => ({ entry, measurement: measure(this.estimator, entry) }))
+                .map((entry) => ({ entry, measurement: this.measure(entry) }))
                 .sort((left, right) => compareRetention(
                     left.entry,
                     right.entry,
@@ -188,6 +209,18 @@ export class WarmReducer {
             retainedMeasurement,
             overflowMeasurement,
         });
+    }
+
+    private measure(entry: WarmCompactEntry): number {
+        const key = warmEntryMeasurementKey(entry);
+        const cached = this.measurementCache?.get(key);
+        if (cached !== undefined) {
+            assertNonNegativeSafeInteger(cached, "Warm entry measurement");
+            return cached;
+        }
+        const measured = measure(this.estimator, entry);
+        this.measurementCache?.set(key, measured);
+        return measured;
     }
 }
 

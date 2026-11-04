@@ -11,6 +11,7 @@ import type {
     TrajectoryEvent,
     ModelContextFramePayload,
     ModelContextSectionIdentity,
+    TrajectoryIncrementalReadPort,
     TrajectoryStore,
 } from "../../runtime/src/index";
 import { selectCommittedModelContextFrames } from "../../runtime/src/index";
@@ -18,6 +19,7 @@ import type {
     ModelContextBudgetPolicy,
     ModelInputEstimator,
 } from "../../context-budget/src/index";
+import { stableJson } from "../../context-budget/src/index";
 import {
     HotWindowSelector,
     ModelContextSourceError,
@@ -33,6 +35,7 @@ import type {
     ModelExecutionUnitProjection,
     ModelInferenceView,
     ModelTrajectoryContext,
+    NativeModelExchange,
     WarmCompactEntry,
     WarmEntryKind,
 } from "../../model-view/src/index";
@@ -40,6 +43,7 @@ import { ModelInferenceProjector } from "./model-inference-projector";
 import {
     WarmReducer,
     WARM_ENTRY_KINDS,
+    warmEntryMeasurementKey,
 } from "./warm-reducer";
 import { deterministicWarmEntryExtractor } from "./deterministic-warm";
 import { ModelContextHardOverflowError } from "../../context-budget/src/index";
@@ -139,12 +143,51 @@ export interface TrajectoryModelContextAssemblyInput {
     readonly control?: ExecutionControl;
 }
 
+/** 单个 assembler 实例保留的 Run 级 committed 前缀缓存上限。 */
+const MAX_CACHED_TRAJECTORY_RUNS = 2;
+
+/** 原生交换已承载、不再重复投影的事件类型。 */
+const NATIVE_OMITTED_EVENT_TYPES: ReadonlySet<string> = new Set([
+    "model_response_received",
+    "decision_received",
+    "think_requested",
+    "think_completed",
+    "tool_finished",
+    "observation_recorded",
+    "context_lookup_completed",
+    "context_lookup_not_found",
+    "context_lookup_failed",
+]);
+
+interface AssemblerTrajectorySnapshot {
+    readonly committed: readonly TrajectoryEvent[];
+    readonly baseUnits: readonly ModelExecutionUnit[];
+    readonly units: readonly ModelExecutionUnit[];
+    readonly semanticUnits: readonly ModelExecutionUnitProjection[];
+    readonly projectedUnits: readonly ModelExecutionUnitProjection[];
+    readonly native: ReadonlyMap<string, readonly NativeModelExchange[]>;
+    readonly hotMeasurements: Map<string, number>;
+    readonly warmMeasurements: Map<string, number>;
+}
+
+interface AssemblerTrajectoryCacheEntry {
+    readonly goalId: string;
+    readonly runId: string;
+    readonly boundary: number;
+    readonly epochKey: string;
+    readonly nativeIdentityKey: string;
+    readonly snapshot: AssemblerTrajectorySnapshot;
+}
+
 /**
  * 将基础 ModelInferenceView 与 committed Trajectory 的 Hot/Warm 组装为分层 View。
  *
  * @remarks
- * 每次 `assemble` 都从 Snapshot boundary 和 TrajectoryStore 重新读取，实例不缓存
- * Goal、Trajectory 或 Warm；调用结束、等待、中断和进程退出都可以丢弃其结果。
+ * 实例按 `(goalId, runId)` 保留至多两个已校验的 committed 前缀、执行单元投影与
+ * 计量缓存。同一 boundary、Epoch 和 native identity 直接复用；boundary 前进时
+ * 只读取并适配后缀。Run/Epoch/native identity 变化、边界回退或 Store 实例变化时
+ * 回退全量读取。缓存不持久化，不跨进程，也不作为恢复权威。
+ *
  * Conversation 必须已按当前 Context Epoch 裁剪，Assembler 不会再次改变它。
  * Assembler 从不写入任何持久化边界。
  *
@@ -155,11 +198,12 @@ export interface TrajectoryModelContextAssemblyInput {
  * ```
  */
 export class TrajectoryModelContextAssembler {
-    private readonly trajectoryStore: TrajectoryStore | undefined;
+    private readonly trajectoryStore: (TrajectoryStore & Partial<TrajectoryIncrementalReadPort>) | undefined;
     private readonly policy: ModelContextBudgetPolicy;
     private readonly executionUnitAdapter: TrajectoryExecutionUnitAdapter;
     private readonly eventProjector: TrajectoryEventProjector;
     private readonly warmEntryExtractor: TrajectoryWarmEntryExtractor | undefined;
+    private readonly trajectoryCache = new Map<string, AssemblerTrajectoryCacheEntry>();
 
     /** @param options - Trajectory、预算策略和可选纯投影扩展。 */
     constructor(options: TrajectoryModelContextAssemblerOptions) {
@@ -189,8 +233,8 @@ export class TrajectoryModelContextAssembler {
     async assemble(
         input: TrajectoryModelContextAssemblyInput,
     ): Promise<ModelInferenceView> {
-        const committed = await this.loadCommittedFor(input);
-        const context = await this.assembleContextFromCommitted(input, committed);
+        const snapshot = await this.loadTrajectoryFor(input);
+        const context = this.assembleContextFromCommitted(input, snapshot);
         throwIfAborted(input.control);
         return new ModelInferenceProjector().withTrajectoryContext(
             input.view,
@@ -229,9 +273,9 @@ export class TrajectoryModelContextAssembler {
         readonly view: ModelInferenceView;
         readonly sectionFrames: readonly ModelContextFramePayload[];
     }>> {
-        const committed = await this.loadCommittedFor(input);
+        const snapshot = await this.loadTrajectoryFor(input);
         const epoch = input.view.contextEpoch;
-        const frames = selectCommittedModelContextFrames(committed, {
+        const frames = selectCommittedModelContextFrames(snapshot.committed, {
             goalId: input.goal.id,
             runId: input.goal.state.run.id,
             committedThroughSequence: input.goal.state.run.committedThroughSequence,
@@ -241,10 +285,10 @@ export class TrajectoryModelContextAssembler {
             sectionIdentities: input.sectionIdentities,
         }).map((event) => event.payload);
         throwIfAborted(input.control);
-        const context = await this.assembleContextFromCommitted({
+        const context = this.assembleContextFromCommitted({
             ...input,
             fixedInput: prepareFixedInput(frames),
-        }, committed);
+        }, snapshot);
         throwIfAborted(input.control);
         return Object.freeze({
             view: new ModelInferenceProjector().withTrajectoryContext(input.view, context),
@@ -267,33 +311,295 @@ export class TrajectoryModelContextAssembler {
     async assembleContext(
         input: TrajectoryModelContextAssemblyInput,
     ): Promise<ModelTrajectoryContext> {
-        const committed = await this.loadCommittedFor(input);
-        return this.assembleContextFromCommitted(input, committed);
+        const snapshot = await this.loadTrajectoryFor(input);
+        return this.assembleContextFromCommitted(input, snapshot);
     }
 
-    private async loadCommittedFor(
+    private async loadTrajectoryFor(
         input: TrajectoryModelContextAssemblyInput,
-    ): Promise<readonly TrajectoryEvent[]> {
+    ): Promise<AssemblerTrajectorySnapshot> {
         throwIfAborted(input.control);
         if (this.trajectoryStore === undefined) {
             throw new ModelContextSourceError(
                 "trajectory-layered model context requires a TrajectoryStore",
             );
         }
+
+        const goalId = input.goal.id;
+        const runId = input.goal.state.run.id;
         const boundary = input.goal.state.run.committedThroughSequence;
         assertNonNegativeSafeInteger(boundary, "committedThroughSequence");
-        return this.readCommittedTrajectory(
-            input.goal.id,
-            input.goal.state.run.id,
+        const key = `${goalId}\u0000${runId}`;
+        const epochKey = contextEpochCacheKey(input.view);
+        const nativeIdentityKey = input.nativeConversationIdentity === undefined
+            ? "none"
+            : stableJson(input.nativeConversationIdentity);
+        const cached = this.trajectoryCache.get(key);
+
+        if (cached !== undefined
+            && cached.epochKey === epochKey
+            && cached.nativeIdentityKey === nativeIdentityKey) {
+            if (cached.boundary === boundary) {
+                this.rememberTrajectoryCache(key, cached);
+                return cached.snapshot;
+            }
+            if (cached.boundary < boundary) {
+                const suffix = await this.readCommittedSuffix(
+                    goalId,
+                    runId,
+                    cached.boundary,
+                    boundary,
+                    input.control,
+                );
+                if (suffix !== undefined) {
+                    const snapshot = this.mergeIncrementalSnapshot(
+                        input,
+                        cached,
+                        suffix,
+                        boundary,
+                    );
+                    this.rememberTrajectoryCache(key, { ...cached, boundary, snapshot });
+                    return snapshot;
+                }
+            }
+        }
+
+        const committed = await this.readCommittedTrajectory(
+            goalId,
+            runId,
             boundary,
             input.control,
         );
+        const snapshot = this.buildSnapshot(input, committed);
+        this.rememberTrajectoryCache(key, {
+            goalId,
+            runId,
+            boundary,
+            epochKey,
+            nativeIdentityKey,
+            snapshot,
+        });
+        return snapshot;
     }
 
-    private async assembleContextFromCommitted(
+    private async readCommittedSuffix(
+        goalId: string,
+        runId: string,
+        afterSequence: number,
+        boundary: number,
+        control: ExecutionControl | undefined,
+    ): Promise<readonly TrajectoryEvent[] | undefined> {
+        const store = this.trajectoryStore;
+        const readAfter = store?.readAfter;
+        if (store === undefined || readAfter === undefined) return undefined;
+
+        try {
+            const result = await readAfter.call(store, { goalId, runId, afterSequence }, boundary);
+            throwIfAborted(control);
+            return result.committed;
+        } catch (error) {
+            if (isExecutionAbortedError(error)) throw error;
+            return undefined;
+        }
+    }
+
+    private buildSnapshot(
         input: TrajectoryModelContextAssemblyInput,
         committed: readonly TrajectoryEvent[],
-    ): Promise<ModelTrajectoryContext> {
+    ): AssemblerTrajectorySnapshot {
+        const boundary = input.goal.state.run.committedThroughSequence;
+        const baseUnits = this.executionUnitAdapter.adapt(committed, {
+            committedThroughSequence: boundary,
+            goalId: input.goal.id,
+            runId: input.goal.state.run.id,
+        });
+        const native = input.nativeConversationIdentity === undefined
+            ? new Map<string, readonly NativeModelExchange[]>()
+            : collectNativeModelExchanges(
+                committed,
+                input.nativeConversationIdentity,
+                this.eventProjector,
+            );
+        const units = this.mergeNativeUnits(input, committed, baseUnits, native);
+        const semanticUnits = units.map(unit => this.eventProjector.projectExecutionUnit(unit));
+        const projectedUnits = this.projectUnits(units, semanticUnits, native);
+
+        return {
+            committed,
+            baseUnits,
+            units,
+            semanticUnits,
+            projectedUnits,
+            native,
+            hotMeasurements: new Map(),
+            warmMeasurements: new Map(),
+        };
+    }
+
+    private mergeIncrementalSnapshot(
+        input: TrajectoryModelContextAssemblyInput,
+        cached: AssemblerTrajectoryCacheEntry,
+        suffix: readonly TrajectoryEvent[],
+        boundary: number,
+    ): AssemblerTrajectorySnapshot {
+        const appended = suffix.filter((event) =>
+            event.sequence > cached.boundary && event.sequence <= boundary);
+        const committed = [...cached.snapshot.committed, ...appended];
+        const lastBase = cached.snapshot.baseUnits.at(-1);
+        const recomputedUnitIds = new Set<string>();
+        let baseUnits: readonly ModelExecutionUnit[];
+
+        if (lastBase === undefined) {
+            baseUnits = this.executionUnitAdapter.adapt(committed, {
+                committedThroughSequence: boundary,
+                goalId: input.goal.id,
+                runId: input.goal.state.run.id,
+            });
+            for (const unit of baseUnits) recomputedUnitIds.add(unit.executionUnitId);
+        } else {
+            const startIndex = cached.snapshot.committed.findIndex(
+                (event) => event.sequence === lastBase.firstSequence,
+            );
+            if (startIndex < 0) {
+                return this.buildSnapshot(input, committed);
+            }
+            const tailEvents = [
+                ...cached.snapshot.committed.slice(startIndex),
+                ...appended,
+            ];
+            const tailUnits = this.executionUnitAdapter.adapt(tailEvents, {
+                committedThroughSequence: boundary,
+                goalId: input.goal.id,
+                runId: input.goal.state.run.id,
+            });
+            baseUnits = [...cached.snapshot.baseUnits.slice(0, -1), ...tailUnits];
+            recomputedUnitIds.add(lastBase.executionUnitId);
+            for (const unit of tailUnits) recomputedUnitIds.add(unit.executionUnitId);
+        }
+
+        const native = input.nativeConversationIdentity === undefined
+            ? new Map<string, readonly NativeModelExchange[]>()
+            : collectNativeModelExchanges(
+                committed,
+                input.nativeConversationIdentity,
+                this.eventProjector,
+            );
+        const units = this.mergeNativeUnits(input, committed, baseUnits, native);
+        const cachedSemantic = new Map(cached.snapshot.units.map((unit, index) => [
+            unit.executionUnitId,
+            cached.snapshot.semanticUnits[index]!,
+        ] as const));
+        const semanticUnits = units.map((unit) => {
+            const cachedProjection = cachedSemantic.get(unit.executionUnitId);
+            if (cachedProjection !== undefined
+                && !recomputedUnitIds.has(unit.executionUnitId)) {
+                return cachedProjection;
+            }
+            return this.eventProjector.projectExecutionUnit(unit);
+        });
+        const projectedUnits = this.projectUnits(units, semanticUnits, native);
+        const hotMeasurements = new Map(cached.snapshot.hotMeasurements);
+        const presentUnitIds = new Set(units.map((unit) => unit.executionUnitId));
+
+        for (const unitId of [...hotMeasurements.keys()]) {
+            if (!presentUnitIds.has(unitId)) hotMeasurements.delete(unitId);
+        }
+        const nativeUnitIds = new Set(native.keys());
+        for (let index = 0; index < units.length; index += 1) {
+            const unitId = units[index]!.executionUnitId;
+            if (recomputedUnitIds.has(unitId)
+                || nativeUnitIds.has(unitId)
+                || !hotMeasurements.has(unitId)) {
+                hotMeasurements.set(
+                    unitId,
+                    this.policy.estimator.estimate(projectedUnits[index]!),
+                );
+            }
+        }
+
+        return {
+            committed,
+            baseUnits,
+            units,
+            semanticUnits,
+            projectedUnits,
+            native,
+            hotMeasurements,
+            warmMeasurements: new Map(cached.snapshot.warmMeasurements),
+        };
+    }
+
+    private mergeNativeUnits(
+        input: TrajectoryModelContextAssemblyInput,
+        committed: readonly TrajectoryEvent[],
+        baseUnits: readonly ModelExecutionUnit[],
+        native: ReadonlyMap<string, readonly NativeModelExchange[]>,
+    ): ModelExecutionUnit[] {
+        const units = [...baseUnits];
+        const known = new Set(units.map((unit) => unit.executionUnitId));
+
+        for (const [unitId, exchanges] of native) {
+            if (known.has(unitId)) continue;
+            const events = committed.filter((event) => event.executionUnitId === unitId);
+            if (events.length === 0) {
+                throw new ModelContextSourceError(
+                    `Native exchange ${unitId} has no committed events`,
+                );
+            }
+            units.push({
+                executionUnitId: unitId,
+                goalId: input.goal.id,
+                runId: input.goal.state.run.id,
+                phase: "executing",
+                firstSequence: events[0]!.sequence,
+                lastSequence: exchanges.at(-1)!.settledThroughSequence,
+                items: events,
+                events,
+                characterCount: 0,
+            });
+            known.add(unitId);
+        }
+
+        units.sort((left, right) => left.firstSequence - right.firstSequence);
+        return units;
+    }
+
+    private projectUnits(
+        units: readonly ModelExecutionUnit[],
+        semanticUnits: readonly ModelExecutionUnitProjection[],
+        native: ReadonlyMap<string, readonly NativeModelExchange[]>,
+    ): readonly ModelExecutionUnitProjection[] {
+        return Object.freeze(units.map((unit, index) => {
+            const projection = semanticUnits[index]!;
+            const exchanges = native.get(unit.executionUnitId);
+            if (exchanges === undefined) return projection;
+            return {
+                ...projection,
+                nativeExchanges: exchanges,
+                events: projection.events
+                    .filter((event) => !NATIVE_OMITTED_EVENT_TYPES.has(event.eventType))
+                    .map(stripActionParameters),
+            };
+        }));
+    }
+
+    private rememberTrajectoryCache(
+        key: string,
+        entry: AssemblerTrajectoryCacheEntry,
+    ): void {
+        this.trajectoryCache.delete(key);
+        this.trajectoryCache.set(key, entry);
+        while (this.trajectoryCache.size > MAX_CACHED_TRAJECTORY_RUNS) {
+            const oldest = this.trajectoryCache.keys().next().value;
+            if (oldest === undefined) break;
+            this.trajectoryCache.delete(oldest);
+        }
+    }
+
+    private assembleContextFromCommitted(
+        input: TrajectoryModelContextAssemblyInput,
+        snapshot: AssemblerTrajectorySnapshot,
+    ): ModelTrajectoryContext {
         throwIfAborted(input.control);
         if (input.view.workingMemory === undefined) {
             throw new ModelContextAssemblyError(
@@ -305,42 +611,6 @@ export class TrajectoryModelContextAssembler {
                 "基础 View 缺少 trajectory-layered model context protocol",
             );
         }
-        const boundary = input.goal.state.run.committedThroughSequence;
-        const baseUnits = this.executionUnitAdapter.adapt(committed, {
-            committedThroughSequence: boundary,
-            goalId: input.goal.id,
-            runId: input.goal.state.run.id,
-        });
-        const native = input.nativeConversationIdentity === undefined
-            ? new Map()
-            : collectNativeModelExchanges(committed, input.nativeConversationIdentity, this.eventProjector);
-        const units = [...baseUnits];
-        for (const [unitId, exchanges] of native) {
-            if (units.some(unit => unit.executionUnitId === unitId)) continue;
-            const events = committed.filter(event => event.executionUnitId === unitId);
-            units.push({
-                executionUnitId: unitId, goalId: input.goal.id, runId: input.goal.state.run.id, phase: "executing",
-                firstSequence: events[0]!.sequence, lastSequence: exchanges.at(-1)!.settledThroughSequence,
-                items: events, events, characterCount: 0,
-            });
-        }
-        units.sort((a, b) => a.firstSequence - b.firstSequence);
-        const semanticUnits = units.map(unit => this.eventProjector.projectExecutionUnit(unit));
-        const projectedUnits = Object.freeze(units.map((unit, index) => {
-            const projection = semanticUnits[index]!;
-            const exchanges = native.get(unit.executionUnitId);
-            if (exchanges === undefined) return projection;
-            return {
-                ...projection,
-                nativeExchanges: exchanges,
-                events: projection.events
-                    .filter(event => ![
-                        "model_response_received", "decision_received", "think_requested", "think_completed",
-                        "tool_finished", "observation_recorded", "context_lookup_completed", "context_lookup_not_found", "context_lookup_failed",
-                    ].includes(event.eventType))
-                    .map(stripActionParameters),
-            };
-        }));
         const fixedInput = input.fixedInput ?? defaultFixedInput(input.view);
         const budget = this.policy.plan({ fixedInput });
 
@@ -350,12 +620,25 @@ export class TrajectoryModelContextAssembler {
             );
         }
 
-        const firstSelection = this.selectHot(projectedUnits, units, budget.hotBudget);
+        const units = snapshot.units;
+        const projectedUnits = snapshot.projectedUnits;
+        const projectedById = new Map(projectedUnits.map((unit) => [
+            unit.executionUnitId,
+            unit,
+        ] as const));
+
+        const firstSelection = this.selectHot(
+            projectedUnits,
+            units,
+            budget.hotBudget,
+            snapshot.hotMeasurements,
+        );
         const firstWarm = this.reduceWarm(
             input,
             firstSelection,
-            semanticUnits,
+            snapshot.semanticUnits,
             budget.warmBudget,
+            snapshot.warmMeasurements,
         );
         const reallocatedHotBudget = this.policy.reallocateHotBudget(
             budget,
@@ -365,20 +648,22 @@ export class TrajectoryModelContextAssembler {
             projectedUnits,
             units,
             reallocatedHotBudget,
+            snapshot.hotMeasurements,
         );
         const finalWarm = this.reduceWarm(
             input,
             finalSelection,
-            semanticUnits,
+            snapshot.semanticUnits,
             budget.warmBudget,
+            snapshot.warmMeasurements,
         );
-        const compactedWarm = finalWarm.retained;
 
         return freezeContext({
             measuredAs: budget.measuredAs,
             softOverflow: false,
-            hot: finalSelection.selected.map(unit => projectedUnits.find(projected => projected.executionUnitId === unit.executionUnitId)!),
-            warm: compactedWarm,
+            hot: finalSelection.selected.map((unit) =>
+                projectedById.get(unit.executionUnitId)!),
+            warm: finalWarm.retained,
             budget,
         });
     }
@@ -411,19 +696,28 @@ export class TrajectoryModelContextAssembler {
         projectedUnits: readonly ModelExecutionUnitProjection[],
         rawUnits: readonly ModelExecutionUnit[],
         budget: number,
+        measurements: Map<string, number>,
     ): HotWindowSelection<ModelExecutionUnit> {
         // Selector 的预算必须使用同一个 Policy estimator；projectedUnits 只用于
         // 计量，rawUnits 保留原始 unit 作为最终选择结果，避免重复反序列化事实。
         const selector = new HotWindowSelector<ModelExecutionUnit>(
             this.policy.estimator,
         );
+        const projectedById = new Map(projectedUnits.map((unit) => [
+            unit.executionUnitId,
+            unit,
+        ] as const));
         return selector.select(rawUnits, {
             budget,
-            project: (unit) => {
-                const index = rawUnits.indexOf(unit);
-                return index < 0
-                    ? unit.events
-                    : projectedUnits[index];
+            project: (unit) => projectedById.get(unit.executionUnitId) ?? unit.events,
+            measure: (unit) => {
+                const cached = measurements.get(unit.executionUnitId);
+                if (cached !== undefined) return cached;
+                const measured = this.policy.estimator.estimate(
+                    projectedById.get(unit.executionUnitId) ?? unit.events,
+                );
+                measurements.set(unit.executionUnitId, measured);
+                return measured;
             },
         });
     }
@@ -431,15 +725,17 @@ export class TrajectoryModelContextAssembler {
     private reduceWarm(
         input: TrajectoryModelContextAssemblyInput,
         selection: HotWindowSelection<ModelExecutionUnit>,
-        projectedUnits: readonly ModelExecutionUnitProjection[],
+        candidateUnits: readonly ModelExecutionUnitProjection[],
         budget: number,
+        measurements: Map<string, number>,
     ): WarmReductionForAssembly {
-        const omitted = selection.omitted.map((unit) => {
-            const index = projectedUnits.findIndex((candidate) =>
-                candidate.executionUnitId === unit.executionUnitId,
-            );
-            return index < 0 ? undefined : projectedUnits[index];
-        }).filter((unit): unit is ModelExecutionUnitProjection => unit !== undefined);
+        const byId = new Map(candidateUnits.map((unit) => [
+            unit.executionUnitId,
+            unit,
+        ] as const));
+        const omitted = selection.omitted
+            .map((unit) => byId.get(unit.executionUnitId))
+            .filter((unit): unit is ModelExecutionUnitProjection => unit !== undefined);
         const candidates = this.extractWarmEntries(input, omitted);
         if (candidates.length === 0) {
             return {
@@ -456,6 +752,7 @@ export class TrajectoryModelContextAssembler {
                 }]),
             ) as Record<WarmEntryKind, { maxEntries: number; maxMeasurement: number }>,
             protectedIds: activeBlockerIds(input.view),
+            measurementCache: measurements,
         });
         let reduced;
         try {
@@ -470,12 +767,14 @@ export class TrajectoryModelContextAssembler {
             this.policy.estimator,
             reduced.retained,
             budget,
+            measurements,
         );
         const deduplicated = retained.retained.filter((entry) =>
             !isAuthoritativeBlockerDuplicate(input.view, entry),
         );
         const measurement = deduplicated.reduce((total, entry) => {
-            const size = this.policy.estimator.estimate(entry);
+            const size = measurements.get(warmEntryMeasurementKey(entry))
+                ?? this.policy.estimator.estimate(entry);
             assertNonNegativeSafeInteger(size, "Warm entry measurement");
             return total + size;
         }, 0);
@@ -510,6 +809,13 @@ export class TrajectoryModelContextAssembler {
 interface WarmReductionForAssembly {
     readonly retained: readonly WarmCompactEntry[];
     readonly retainedMeasurement: number;
+}
+
+function contextEpochCacheKey(view: ModelInferenceView): string {
+    const epoch = view.contextEpoch;
+    return epoch === undefined
+        ? "none"
+        : `${epoch.epochNumber}\u0000${epoch.conversationStartIndex}\u0000${epoch.openedAtSequence}`;
 }
 
 function defaultFixedInput(view: ModelInferenceView): unknown {
@@ -553,11 +859,13 @@ function fitWarmBudget(
     estimator: ModelInputEstimator,
     entries: readonly WarmCompactEntry[],
     budget: number,
+    measurements?: ReadonlyMap<string, number>,
 ): { readonly retained: readonly WarmCompactEntry[]; readonly measurement: number } {
     const retained: WarmCompactEntry[] = [];
     let measurement = 0;
     for (const entry of entries) {
-        const size = estimator.estimate(entry);
+        const size = measurements?.get(warmEntryMeasurementKey(entry))
+            ?? estimator.estimate(entry);
         assertNonNegativeSafeInteger(size, "Warm entry measurement");
         if (size <= budget - measurement) {
             retained.push(entry);
