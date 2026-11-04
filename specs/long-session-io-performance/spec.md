@@ -63,7 +63,7 @@ superseded_by: null
 
 - [x] //TODO 1. 模型输入正文摘要集合：懒种子化、目录身份校验与命中跳过 → R1.1、R1.2；检查：`npx tsx --test packages/storage/test/model-input-store.test.ts`
 - [x] //TODO 2. 模型输入未命中路径保留 `wx` 与 EEXIST 读回校验 → R1.3；检查：同一测试文件的篡改用例
-- [ ] //TODO 3. 轨迹索引行缓冲、阈值刷新与索引读取前强制刷新 → R2.1、R2.2、R2.4；检查：`npx tsx --test packages/storage/test/trajectory-index-batch.test.ts` 与现有 trajectory-store 回归
+- [x] //TODO 3. 轨迹索引行缓冲、阈值刷新与索引读取前强制刷新 → R2.1、R2.2、R2.4；检查：`npx tsx --test packages/storage/test/trajectory-index-batch.test.ts` 与现有 trajectory-store 回归
 - [ ] //TODO 4. 索引刷新失败与未刷新重开的恢复路径 → R2.3；检查：故障注入测试
 - [ ] //TODO 5. Committer 在 commit 边界调用 `flushIndex` → R2.1；检查：`npx tsx --test packages/runtime/test/commit-restore-count.test.ts`
 - [ ] //TODO 6. 保存快照时写 catalog 摘要，且摘要失败不影响快照结果 → R3.1；检查：`npx tsx --test packages/storage/test/goal-catalog-summary.test.ts`

@@ -66,7 +66,7 @@ Snapshot 原样保存 Goal 级 `commitRevision`、`inputLedger` 与 `messageQueu
 
 `JsonFileToolGrantStore` 将当前 workspace 的 Grant 写入私有 `tool-grants.json`；损坏 JSON、结构或语义错误、重复 ID/来源或同一来源授权冲突均失败关闭，不会重置账本。只有 active 且 workspace 与操作匹配的 Grant 可被 Runner 查询；goal 范围还必须匹配 `goalId`。pending Grant 仅供 Coordinator 在批准 Snapshot 提交后恢复激活，revoked Grant 不再匹配。Store 实例内写入经 `KeyedSerialQueue` 串行化，不提供跨进程并发事务。
 
-`JsonFileTrajectoryStore` 将轨迹写入 `<directory>/<base64url(goalId)>/<base64url(runId)>.jsonl`；超过 64 MiB 后继续写入 `<run>.part2.jsonl` 等分段，超过 64 KiB 的 payload 写入同 Goal 的 `blobs/<sha256>.json`，JSONL 行只保留 `payloadRef`。同目录的 `<run>.index.db` 是只保存查询元数据与字节位置的可重建索引；首次追加或查询前会校验索引与 JSONL 的最后位置，索引超前时重建、落后时从最后已验证位置补齐，缺失时从 JSONL 完整重建。索引使用 DELETE journal，不使用 WAL。
+`JsonFileTrajectoryStore` 将轨迹写入 `<directory>/<base64url(goalId)>/<base64url(runId)>.jsonl`；超过 64 MiB 后继续写入 `<run>.part2.jsonl` 等分段，超过 64 KiB 的 payload 写入同 Goal 的 `blobs/<sha256>.json`，JSONL 行只保留 `payloadRef`。同目录的 `<run>.index.db` 是只保存查询元数据与字节位置的可重建索引；首次追加或查询前会校验索引与 JSONL 的最后位置，索引超前时重建、落后时从最后已验证位置补齐，缺失时从 JSONL 完整重建。索引行按 Run 缓冲，在缓冲达到 128 行、显式 `flushIndex` 或任何索引读取前合并为一个事务写入；缓冲未写入只表示索引滞后，JSONL 仍是唯一事实源，写入失败时丢弃缓冲并标记为脏，由后续读取修复。索引使用 DELETE journal，不使用 WAL。
 
 同一 Store 实现 `TrajectoryQueryPort`：分页、详情、执行单元与时间线查询都只使用调用方固定的 `committedThroughSequence`；索引负责定位与关联，不扩大可见性。分页游标绑定 Run、水位与过滤条件，跨水位或跨过滤复用会失败。列表查询不读取 JSONL 或 Blob，详情与 payload 只读取目标事件及同 Action 的有限关联事件。
 同一实例内按 Run 串行追加并严格校验存储编码版本、JSONL、事件身份和该 Run 内的单调序列；不支持旧编码时直接失败。追加结果未知时由 Store 提供的当前分段尾部核对判定：完整命中视为成功，序号恰为前一条视为未写入并交由原语重试，部分行或无法确认的状态立即失败。新 Run 从本地序号 1 开始，缺失文件或空文件读取为空。`run_created`、`plan_mode_entered` 和 `goal_plan_updated` 是事实事件，不能替代 Goal Snapshot 的当前状态。

@@ -116,6 +116,7 @@ test("index records event metadata, byte location and program parent", async () 
         await store.append(programStarted("program-1", "action-parent"));
         await store.append(toolStarted("action-1", "program-1"));
         await store.append(toolFinished("action-1"));
+        await store.flushIndex(goalId, runId);
 
         const indexed = rows(directory);
         assert.deepEqual(indexed.map((row) => row.sequence), [1, 2, 3, 4]);
@@ -143,6 +144,7 @@ test("deleting the index rebuilds it from JSONL", async () => {
 
         const reopened = new JsonFileTrajectoryStore(directory);
         await reopened.append(toolFinished("action-1"));
+        await reopened.flushIndex(goalId, runId);
 
         assert.deepEqual(rows(directory).map((row) => row.sequence), [1, 2, 3]);
     } finally {
@@ -163,6 +165,7 @@ test("a lagging index is repaired from the last verified location", async () => 
 
         const reopened = new JsonFileTrajectoryStore(directory);
         await reopened.append(toolFinished("action-1"));
+        await reopened.flushIndex(goalId, runId);
 
         assert.deepEqual(rows(directory).map((row) => row.sequence), [1, 2, 3]);
     } finally {
@@ -182,6 +185,7 @@ test("an index that leads JSONL is rebuilt instead of trusted", async () => {
 
         const reopened = new JsonFileTrajectoryStore(directory);
         await reopened.append(toolStarted("action-1"));
+        await reopened.flushIndex(goalId, runId);
 
         assert.deepEqual(rows(directory).map((row) => row.sequence), [1, 2]);
     } finally {
@@ -201,6 +205,7 @@ test("an incomplete tail is truncated and its event is not replayed", async () =
 
         const reopened = new JsonFileTrajectoryStore(directory);
         const next = await reopened.append(toolFinished("action-1"));
+        await reopened.flushIndex(goalId, runId);
 
         assert.equal(next.sequence, 2);
         assert.deepEqual(rows(directory).map((row) => row.sequence), [1, 2]);
@@ -225,6 +230,7 @@ test("an unsupported index schema is deleted and rebuilt", async () => {
 
         const reopened = new JsonFileTrajectoryStore(directory);
         await reopened.append(toolStarted("action-1"));
+        await reopened.flushIndex(goalId, runId);
 
         assert.deepEqual(rows(directory).map((row) => row.sequence), [1, 2]);
     } finally {
@@ -243,6 +249,7 @@ test("index associates decisions with the preceding model call and records exter
         });
         await store.append(modelFrame("call-1"));
         await store.append(decision("action-1"));
+        await store.flushIndex(goalId, runId);
 
         const indexed = rows(directory);
         assert.equal(indexed[1]?.model_call_id, "call-1");

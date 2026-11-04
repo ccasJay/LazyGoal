@@ -121,6 +121,17 @@ interface EncodedStoredEvent {
     readonly payloadBytes: number;
 }
 
+/** 尚未写入派生索引的一条已落盘事件。 */
+interface PendingIndexEntry {
+    readonly event: Readonly<TrajectoryEvent>;
+    readonly location: { readonly segment: number; readonly byteOffset: number; readonly byteLength: number };
+    readonly payloadBytes: number;
+    readonly payloadRef: StoredPayloadReference | undefined;
+}
+
+/** 触发一次索引事务的行数上限。 */
+const INDEX_BATCH_SIZE = 128;
+
 /**
  * 解析尾部扫描定位到的最后一个非空行,提取其 `sequence`。
  *
@@ -292,6 +303,10 @@ function toTrajectorySummary(row: TrajectoryIndexRow): TrajectoryEventSummary {
  * 存储编码直接失败。该实现不提供跨进程锁、Outbox 或 exactly-once 语义。Snapshot 的
  * `committedThroughSequence` 由调用方传入，不从 `state_committed` marker 推导。
  *
+ * 派生索引按 Run 缓冲：事件行仍逐条落盘，索引行在缓冲达到上限、显式 `flushIndex`
+ * 或任何索引读取前合并为一个事务写入。缓冲未写入时索引只是滞后，JSONL 仍是唯一
+ * 事实源；写入失败时丢弃缓冲并把索引标记为脏，后续读取从 JSONL 修复。
+ *
  * @example
  * ```ts
  * const store = new JsonFileTrajectoryStore("~/.lazygoal/workspaces/<workspace-id>/trajectories");
@@ -309,6 +324,7 @@ export class JsonFileTrajectoryStore implements TrajectoryStore, TrajectoryQuery
     private readonly indexes = new Map<string, TrajectoryIndex>();
     private readonly verifiedIndexes = new Set<string>();
     private readonly dirtyIndexes = new Set<string>();
+    private readonly pendingIndexEntries = new Map<string, PendingIndexEntry[]>();
     private readonly directory: string;
     private readonly fileOperations: Required<JsonTrajectoryFileOperations>;
     private readonly blobThresholdBytes: number;
@@ -435,7 +451,7 @@ export class JsonFileTrajectoryStore implements TrajectoryStore, TrajectoryQuery
             });
 
             try {
-                this.indexEvent(index, event, {
+                this.indexEvent(key, index, event, {
                     segment: active.segment,
                     byteOffset: active.size,
                     byteLength: lineBytes,
@@ -446,6 +462,31 @@ export class JsonFileTrajectoryStore implements TrajectoryStore, TrajectoryQuery
             }
 
             return event;
+        });
+    }
+
+    /**
+     * 把已缓冲的派生索引行写入一次事务。
+     *
+     * @remarks
+     * 只影响可重建的索引，不改变 JSONL 事实。缓冲为空时不打开或创建索引。
+     * 写入失败时丢弃本批缓冲并把索引标记为脏，后续读取通过 repair 或 rebuild
+     * 从 JSONL 恢复，不返回不完整结果。
+     *
+     * @param goalId - 事件所属 Goal。
+     * @param runId - 事件所属 Run。
+     * @returns 缓冲已提交或已被丢弃时 resolve。
+     * @throws 无效标识符或底层索引打开失败时拒绝；事务内的插入错误不传播。
+     * @example
+     * ```ts
+     * await store.flushIndex("goal-1", "run-1");
+     * ```
+     */
+    async flushIndex(goalId: string, runId: string): Promise<void> {
+        const key = this.keyFor(goalId, runId);
+        if ((this.pendingIndexEntries.get(key)?.length ?? 0) === 0) return;
+        await this.appendQueue.run(key, async () => {
+            this.flushPendingIndex(key, await this.openIndex(goalId, runId));
         });
     }
 
@@ -1264,6 +1305,7 @@ export class JsonFileTrajectoryStore implements TrajectoryStore, TrajectoryQuery
     private async ensureIndex(goalId: string, runId: string): Promise<TrajectoryIndex> {
         const key = this.keyFor(goalId, runId);
         const index = await this.openIndex(goalId, runId);
+        this.flushPendingIndex(key, index);
 
         if (this.verifiedIndexes.has(key) && !this.dirtyIndexes.has(key)) return index;
 
@@ -1389,14 +1431,49 @@ export class JsonFileTrajectoryStore implements TrajectoryStore, TrajectoryQuery
     }
 
     private indexEvent(
+        key: string,
         index: TrajectoryIndex,
         event: Readonly<TrajectoryEvent>,
         location: { readonly segment: number; readonly byteOffset: number; readonly byteLength: number },
         encoded: EncodedStoredEvent,
     ): void {
-        index.runInTransaction(() => {
-            this.indexDecodedEvent(index, event, location, encoded.payloadBytes, encoded.stored.payloadRef);
+        const pending = this.pendingIndexEntries.get(key) ?? [];
+        pending.push({
+            event,
+            location,
+            payloadBytes: encoded.payloadBytes,
+            payloadRef: encoded.stored.payloadRef,
         });
+        this.pendingIndexEntries.set(key, pending);
+        if (pending.length >= INDEX_BATCH_SIZE) this.flushPendingIndex(key, index);
+    }
+
+    /**
+     * 把一条 Run 的缓冲索引行写入单个事务。
+     *
+     * @remarks
+     * 事务失败时丢弃缓冲并把索引标记为脏；索引是派生数据，不从失败中恢复。
+     */
+    private flushPendingIndex(key: string, index: TrajectoryIndex): void {
+        const pending = this.pendingIndexEntries.get(key);
+        if (pending === undefined || pending.length === 0) return;
+        this.pendingIndexEntries.delete(key);
+        try {
+            index.runInTransaction(() => {
+                for (const item of pending) {
+                    this.indexDecodedEvent(
+                        index,
+                        item.event,
+                        item.location,
+                        item.payloadBytes,
+                        item.payloadRef,
+                    );
+                }
+            });
+        } catch {
+            this.verifiedIndexes.delete(key);
+            this.dirtyIndexes.add(key);
+        }
     }
 
     private indexDecodedEvent(
