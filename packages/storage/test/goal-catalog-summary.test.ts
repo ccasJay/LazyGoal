@@ -138,6 +138,50 @@ test("listHistory rebuilds a missing, corrupt or fingerprint-mismatched summary"
     }
 });
 
+
+test("listHistory reconciles the snapshot directory and keeps unreadable counts", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "lazygoal-catalog-summary-"));
+    try {
+        const store = new JsonFileGoalStore(directory);
+        const saved = goalWithId("goal-saved");
+        const external = goalWithId("goal-external");
+        await store.save(saved);
+        await writeFile(
+            snapshotPath(directory, external.id),
+            `${JSON.stringify(goalSnapshotCodec.encode(external))}\n`,
+        );
+        await writeFile(join(directory, `${encodePathSegment("goal-bad")}.json`), "{");
+
+        const scan = await store.listHistory();
+
+        assert.deepEqual(scan.entries.map((entry) => entry.goalId).sort(), [external.id, saved.id]);
+        assert.equal(scan.unreadableCount, 1);
+        assert.equal(
+            (JSON.parse(await readFile(summaryPath(directory, external.id), "utf8")) as { goalId: string }).goalId,
+            external.id,
+        );
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test("listHistory ignores a catalog summary whose snapshot no longer exists", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "lazygoal-catalog-summary-"));
+    try {
+        const store = new JsonFileGoalStore(directory);
+        const goal = goalWithId("goal-1");
+        await store.save(goal);
+        await rm(snapshotPath(directory, goal.id));
+
+        const scan = await store.listHistory();
+
+        assert.deepEqual(scan.entries, []);
+        assert.equal(scan.unreadableCount, 0);
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
 test("a catalog summary write failure does not fail the completed snapshot save", async () => {
     const directory = await mkdtemp(join(tmpdir(), "lazygoal-catalog-summary-"));
     try {
