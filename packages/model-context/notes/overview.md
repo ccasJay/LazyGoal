@@ -20,4 +20,4 @@
 
 ## 限制
 
-Assembler 每次调用都从 Snapshot boundary 与 `TrajectoryStore` 重新读取，不缓存 Goal、Trajectory 或 Warm；调用结束、等待、中断与进程退出都可以丢弃其结果。Conversation 必须已按当前 Context Epoch 裁剪，Assembler 不会再次改变它。Warm 只是可丢弃的有损上下文，不替代 Goal Task、Working Memory 或 Cold Trajectory。
+Assembler 按 `(goalId, runId)` 保留至多两个进程内 committed 前缀、执行单元投影与 Hot/Warm 计量缓存；同一 boundary、Epoch 与 native identity 直接复用，boundary 前进时只读取并适配后缀，Run/Epoch/native identity 变化或边界回退时回退全量读取。缓存不持久化、不跨进程，也不替代 Snapshot 与 Trajectory 的恢复权威；调用结束、等待、中断与进程退出都可以丢弃其结果。Conversation 必须已按当前 Context Epoch 裁剪，Assembler 不会再次改变它。Warm 只是可丢弃的有损上下文，不替代 Goal Task、Working Memory 或 Cold Trajectory。

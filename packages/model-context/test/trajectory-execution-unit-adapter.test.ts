@@ -14,6 +14,7 @@ import type {
 import {
     allocateImmutableEvent,
 } from "../../runtime/src/index";
+import { stableJson } from "../../context-budget/src/index";
 
 test("Adapter 只投影 committed boundary 内的完整 Tool execution unit", () => {
     const source = [
@@ -102,6 +103,30 @@ test("Adapter 只投影 committed boundary 内的完整 Tool execution unit", ()
     assert.equal(units[0]?.events, units[0]?.items);
     assert.equal(Object.isFrozen(units), true);
     assert.equal(Object.isFrozen(units[0]?.events), true);
+});
+
+test("Adapter 的 characterCount 按需计算并缓存", () => {
+    const source = [
+        event(1, {
+            unitId: "unit-lazy",
+            eventType: "decision_received",
+            payload: {
+                type: "decision_received",
+                decision: { kind: "complete", summary: "done", completionEvidence: [] },
+            },
+        }),
+        event(2, {
+            unitId: "unit-lazy",
+            eventType: "run_completed",
+            payload: { type: "run_completed", summary: "done" },
+        }),
+    ];
+    const unit = new TrajectoryExecutionUnitAdapter().adapt(source, 2)[0]!;
+    const descriptor = Object.getOwnPropertyDescriptor(unit, "characterCount");
+
+    assert.equal(typeof descriptor?.get, "function");
+    assert.equal(unit.characterCount, stableJson(unit.items).length);
+    assert.equal(unit.characterCount, stableJson(unit.items).length);
 });
 
 test("Adapter 将暂存待审、批准事实与 Tool 生命周期合为完整单元", () => {

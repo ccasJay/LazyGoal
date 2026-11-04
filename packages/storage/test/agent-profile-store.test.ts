@@ -207,5 +207,8 @@ test("loaded Profile metadata survives Goal snapshot persistence", async () => {
         join(goalsDirectory, `${Buffer.from(goal.id).toString("base64url")}.json`),
         "utf8",
     );
-    assert.match(files, /"name": "Default"/);
+    const snapshot = JSON.parse(files) as {
+        definition?: { profile?: { name?: string } };
+    };
+    assert.equal(snapshot.definition?.profile?.name, "Default");
 });

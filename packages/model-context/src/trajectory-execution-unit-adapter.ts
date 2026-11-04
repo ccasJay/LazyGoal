@@ -43,7 +43,7 @@ export class ModelContextSourceError extends Error {
  * `items`/`events` 保持 Trajectory 原始顺序；两个字段引用同一个冻结数组，方便
  * 通用上下文选择器和分层模型 DTO 分别消费。单位边界由稳定的
  * `executionUnitId` 定义，生命周期、marker、Memory Patch 和不完整单元不会出现。
- * `characterCount` 仅是字符模式的便捷计量，Token 模式应由选择器重新估算。
+ * `characterCount` 仅是字符模式的便捷计量，首次读取时计算并缓存；Token 模式应由选择器重新估算。
  *
  * @example
  * ```ts
@@ -227,6 +227,8 @@ export interface HotWindowSelectionOptions<T> {
     readonly budget: number;
     /** 把一个执行单元投影为最终计量结构；省略时优先使用其 `items`。 */
     readonly project?: (unit: T) => unknown;
+    /** 可选的单元计量；省略时使用构造时注入的 Estimator。 */
+    readonly measure?: (unit: T) => number;
 }
 
 /**
@@ -269,12 +271,14 @@ export class HotWindowSelector<T> {
         assertNonNegativeSafeInteger(options.budget, "hotBudget");
 
         const projectUnit = options.project ?? defaultHotProjection;
+        const measureUnit = options.measure
+            ?? ((unit: T) => this.estimator.estimate(projectUnit(unit)));
         let used = 0;
         let start = units.length;
         let stoppedAtIndex: number | undefined;
 
         for (let index = units.length - 1; index >= 0; index -= 1) {
-            const measured = this.estimator.estimate(projectUnit(units[index]!));
+            const measured = measureUnit(units[index]!);
             assertNonNegativeSafeInteger(measured, "estimated execution unit size");
 
             if (measured > options.budget - used) {
@@ -426,7 +430,8 @@ function completeExecutionUnit(
     }
 
     const items = Object.freeze([...events]);
-    return Object.freeze({
+    let characterCount: number | undefined;
+    const unit = {
         executionUnitId,
         goalId: goalId ?? events[0]!.goalId,
         runId: runId ?? events[0]!.runId,
@@ -435,8 +440,18 @@ function completeExecutionUnit(
         lastSequence: events.at(-1)!.sequence,
         items,
         events: items,
-        characterCount: stableJson(items).length,
+    } as ModelExecutionUnit;
+
+    Object.defineProperty(unit, "characterCount", {
+        enumerable: true,
+        configurable: false,
+        get(): number {
+            characterCount ??= stableJson(unit.items).length;
+            return characterCount;
+        },
     });
+
+    return Object.freeze(unit);
 }
 
 function defaultHotProjection(value: unknown): unknown {

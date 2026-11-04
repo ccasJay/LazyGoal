@@ -678,7 +678,7 @@ function encodeSnapshot(goal: Goal): GoalSnapshotV1 {
     } catch (error) {
         throw protocolError("Goal does not satisfy the current snapshot schema", error);
     }
-    return structuredClone(validation.data);
+    return validation.data;
 }
 
 function decodeProfile(profile: GoalSnapshotProfileV1): AgentProfile {
@@ -1337,7 +1337,7 @@ export const goalSnapshotCodec: GoalSnapshotCodec = new (class implements GoalSn
         }
 
         assertGoalSnapshotSemantics(validation.data);
-        return decodeSnapshot(structuredClone(validation.data));
+        return decodeSnapshot(validation.data);
     }
 });
 

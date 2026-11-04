@@ -346,13 +346,18 @@ function resolveInteractionKind(
  *
  * @example
  * ```ts
- * const monitor = new GoalRevisionMonitor({ readRevision: async (goalId) => (await store.restore(goalId))?.state.commitRevision ?? 0 });
+ * const monitor = new GoalRevisionMonitor({
+ *     readGoal: (goalId) => store.restore(goalId),
+ *     readRevision: (goalId) => store.readRevision?.(goalId) ?? Promise.resolve(undefined),
+ * });
  * const unsubscribe = monitor.observe("goal-1", () => console.log("changed"));
  * ```
  */
 export interface GoalRevisionMonitorDependencies {
-    /** 读取指定 Goal 的最新快照。 */
+    /** 读取指定 Goal 的最新快照；`readRevision` 不可用时使用。 */
     readonly readGoal: (goalId: string) => Promise<Goal | undefined>;
+    /** 可选的轻量提交修订读取；提供时替代完整 Goal 读取，返回值必须与 `commitRevision` 一致。 */
+    readonly readRevision?: ((goalId: string) => Promise<number | undefined>) | undefined;
     /** 核对间隔（毫秒）；默认 1000，必须为正整数且不超过 1000。 */
     readonly intervalMs?: number | undefined;
     /** 定时器边界；省略时使用进程 `setInterval`/`clearInterval`。 */
@@ -379,6 +384,7 @@ export const DEFAULT_RESYNC_INTERVAL_MS = 1000;
 export class GoalRevisionMonitor {
     private readonly observed = new Map<string, ObservedGoal>();
     private readonly readGoal: GoalRevisionMonitorDependencies["readGoal"];
+    private readonly readRevision: GoalRevisionMonitorDependencies["readRevision"];
     private readonly intervalMs: number;
     private readonly setIntervalFn: (handler: () => void, timeout: number) => unknown;
     private readonly clearIntervalFn: (handle: unknown) => void;
@@ -387,6 +393,7 @@ export class GoalRevisionMonitor {
     /** @param dependencies - 快照读取、间隔与定时器边界。 */
     constructor(dependencies: GoalRevisionMonitorDependencies) {
         this.readGoal = dependencies.readGoal;
+        this.readRevision = dependencies.readRevision;
         this.intervalMs = dependencies.intervalMs ?? DEFAULT_RESYNC_INTERVAL_MS;
         if (!Number.isSafeInteger(this.intervalMs) || this.intervalMs <= 0 || this.intervalMs > DEFAULT_RESYNC_INTERVAL_MS) {
             throw new RangeError("intervalMs must be a positive integer no greater than 1000");
@@ -462,20 +469,24 @@ export class GoalRevisionMonitor {
     private async check(goalId: string): Promise<void> {
         const entry = this.observed.get(goalId);
         if (entry === undefined) return;
-        let goal: Goal | undefined;
+        let revision: number | undefined;
         try {
-            goal = await this.readGoal(goalId);
+            if (this.readRevision !== undefined) {
+                revision = await this.readRevision(goalId);
+            } else {
+                const goal = await this.readGoal(goalId);
+                revision = goal === undefined ? undefined : goal.state.commitRevision ?? 0;
+            }
         } catch (error) {
             this.onError?.(goalId, error);
             // 读取故障也通知观察者重新同步，使订阅能报告同步故障而不是停留在旧状态。
             this.notify(goalId, entry, { kind: "read_failed" });
             return;
         }
-        if (goal === undefined) {
+        if (revision === undefined) {
             this.notify(goalId, entry, { kind: "read_failed" });
             return;
         }
-        const revision = goal.state.commitRevision ?? 0;
         if (entry.revision === revision) return;
         const changed = entry.revision !== undefined;
         entry.revision = revision;

@@ -18,7 +18,7 @@ Runtime 是控制平面：拥有 Goal/Run/Step 状态、Run 模式与 GoalPlan�
 | [RunExecutor](../src/runner.ts) | 持有单次活动执行的最新已提交 Goal，负责模型决策、Tool 授权、Action/Observation、PTC、Evidence 和 Run 转换；恢复历史经只读 reader 获取，检查点经共享提交器写入 | 供应商协议和 UI |
 | [RunRecoveryReader](../src/run-recovery-reader.ts) | 按 Goal/Run 身份恢复最新快照，按 Snapshot 提交边界读取 Trajectory | 推进 Run 或写入持久化 |
 | [WorkingMemorySession](../src/working-memory-session.ts) | 按 Snapshot 边界重建临时 Working Memory，校验 Patch/Evidence | 保存 Memory 内容到 Snapshot |
-| [TrajectoryCheckpointCommitter](../src/trajectory-checkpoint-committer.ts) | 统一事实、Patch、Snapshot 和提交 marker 的顺序；在保存前按原提交事实确定新消息位置；维护 Goal 提交修订并在未声明会话权威时保留最新会话状态 | 业务分支和模型调用 |
+| [TrajectoryCheckpointCommitter](../src/trajectory-checkpoint-committer.ts) | 统一事实、Patch、Snapshot 和提交 marker 的顺序；gate 内只读取一次最新 Snapshot 并通过 `prepare(latest)` 复用给前置检查或状态构造；在保存前按原提交事实确定新消息位置；维护 Goal 提交修订并在未声明会话权威时保留最新会话状态 | 业务分支和模型调用 |
 | [SessionInputAdmission](../src/session-admission.ts) | 在共享短提交边界内持久化受理会话输入、按 `inputId` 与载荷摘要去重、维护输入账本与待处理消息队列、返回稳定收据 | 推进 Run、调用模型或工具、调度后继 Run |
 | [SessionManager](../src/session-manager.ts) | 创建/只读连接长期 Session、单活动 Goal 执行名额、被追踪的后台执行与安全状态投影 | 复制执行循环、直接执行 Tool、跨进程租约 |
 | [Session](../src/session.ts) | Goal 句柄：读取安全状态、受理输入、查询收据、解除连接 | 拥有实例关闭权、改写 Goal 快照 |
@@ -30,7 +30,7 @@ Runtime 是控制平面：拥有 Goal/Run/Step 状态、Run 模式与 GoalPlan�
 | [Model Call Metrics](../src/model-call-metrics.ts) | 模型调用开始/结束事实、请求/解码计时、用量覆盖标记及追加/读取 Port | Goal 恢复状态、指标汇总与诊断 Trace |
 | [RunStage](../src/run-stage.ts) | Run 内部阶段声明、修订与流转纯规则、前序接受约束与审查拒绝记录 | 执行调度与模型调用 |
 | [RunPlan](../src/run-plan.ts) | Plan Run 完整路线的 Runtime 身份分配、顺序游标及阶段状态流转 | 模型复杂度判断与 I/O |
-| [Trajectory](../src/trajectory.ts) | 追加事实事件、提交 marker 和只读恢复查询 | 改写 Runtime State |
+| [Trajectory](../src/trajectory.ts) | 追加事实事件、提交 marker 和只读恢复查询；`read` 全量校验，`readAfter` 仅向已持有已校验前缀的调用方提供后缀增量读取 | 改写 Runtime State |
 | [Trajectory query](../src/trajectory-query.ts) | 浏览器查询的水位上下文、事件关联、有界摘要，以及分页／详情／执行单元／时间线查询 Port | 写入事实、索引实现与 HTTP 投影 |
 | [Tool Core](../../tool-core/src/index.ts) | 通用 Tool 接口、输入 Contract 准备、Registry 与暂时故障分类 | Goal/Run 状态与授权策略 |
 | [Tool contracts](../src/tool.ts) | Tool Policy 边界、授权过滤与运行时上下文绑定 | 具体 Tool 业务逻辑与通用输入准备 |
@@ -69,7 +69,7 @@ waiting 输入调用 `resume` 并保留当前 Run；浏览器可从 AskUser 表�
 
 输出语义由 [会话输出分类器](../src/session-output.ts) 拥有：[`SessionOutputEvent`](../src/session-output.ts) 是可辨识联合，成员为 `state_sync`、`input_result`、`generation_event`、`message_committed`、`tool_activity`、`interaction_required`、`interaction_settled`、`run_status`、`run_result`、`stream_fault`、`commit_boundary` 与 `closed`。分类器只依据来源事件自身的事实：公开生成、工具活动与分组边界在 Runtime 内判定，Browser 与 wire 只做受授权的序列化，不再按任意 `kind: string` 猜测业务；reasoning、结构化协议 JSON、工具原始参数与私有阶段输出不进入公开信封。模型开始事件只保留白名单调用阶段、调用身份与执行单元，来源未提供的元数据不推断；工具输入摘要可包含有界 Bash 命令，不包含环境或其它任意参数。`state_sync` 同时携带当前等待的规范交互引用与已提交消息的有界范围（总数、末尾身份与最近摘要）；同步时新出现的消息按稳定身份发出 `message_committed`，新建立的等待发出 `interaction_required`，重复同步不追加第二条通知。`commit_boundary` 携带本批次 `eventTypes` 以及来源可用的 `actionId`／`executionUnitId`，消费者据此声明实际变化范围；工具活动事件在来源提供时携带执行单元，使同一 Action 的尝试与结果保持稳定身份。
 
-存在订阅时，[GoalRevisionMonitor](../src/session-stream.ts) 按不超过一秒的间隔（默认 1000ms，可注入定时器与间隔）合并核对被观察 Goal 的最新提交修订，弥补末次提交通知丢失；没有观察者时停止核对，核对只读、不调度执行。读取失败作为同步故障报告，不伪装业务结果。订阅队列沿用 Core 的有界背压：控制事件无法保留时订阅以 `backpressure` 结束，执行不受影响；退出迭代或解除句柄只释放该订阅自己的队列与监听。
+存在订阅时，[GoalRevisionMonitor](../src/session-stream.ts) 按不超过一秒的间隔（默认 1000ms，可注入定时器与间隔）合并核对被观察 Goal 的最新提交修订，弥补末次提交通知丢失；提供了 `GoalStore.readRevision` 时优先使用轻量修订提示，避免每秒完整 `restore`，否则回退完整读取。没有观察者时停止核对，核对只读、不调度执行。读取失败作为同步故障报告，不伪装业务结果。订阅队列沿用 Core 的有界背压：控制事件无法保留时订阅以 `backpressure` 结束，执行不受影响；退出迭代或解除句柄只释放该订阅自己的队列与监听。
 
 完成候选由模型执行层在完成审查之前作为旁路预览发布，因此始终未确认：预览不授权工具、不代替审批、不作为完成证据，也不进入 Snapshot 或模型上下文。审查拒绝、Steer 到达使旧决策被弃用、Interrupt 被受理或出现新候选时，Runtime 明确发布作废通知（`candidate_invalidated`）；候选作废不等同于 Run 失败，也不改变既有重试与纠错预算。只有完成审查接受、且对应答复消息随决策提交保存成功后，正式消息才以 `answer` 用途出现，并通过 `message_committed` 通知关联回被替换的预览来源。
 

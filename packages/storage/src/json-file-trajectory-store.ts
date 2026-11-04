@@ -23,6 +23,7 @@ import type {
     TrajectoryEventSummary,
     TrajectoryEventType,
     TrajectoryExecutionUnitPage,
+    TrajectoryIncrementalReadPort,
     TrajectoryPage,
     TrajectoryPageQuery,
     TrajectoryPayloadReference,
@@ -301,7 +302,7 @@ function toTrajectorySummary(row: TrajectoryIndexRow): TrajectoryEventSummary {
  * );
  * ```
  */
-export class JsonFileTrajectoryStore implements TrajectoryStore, TrajectoryQueryPort {
+export class JsonFileTrajectoryStore implements TrajectoryStore, TrajectoryQueryPort, TrajectoryIncrementalReadPort {
     private readonly appendQueue = new KeyedSerialQueue();
     private readonly sequenceCache = new Map<string, number>();
     private readonly segmentState = new Map<string, SegmentState>();
@@ -481,6 +482,99 @@ export class JsonFileTrajectoryStore implements TrajectoryStore, TrajectoryQuery
     ): Promise<Readonly<TrajectoryReadResult>> {
         const events = await this.read(query);
         return classifyTrajectoryTail(events, committedThroughSequence);
+    }
+
+    /**
+     * 只读取并校验已校验前缀之后的事件。
+     *
+     * @remarks
+     * 调用方必须已经通过同一 Store 实例的 `read` 或 `readWithBoundary` 校验过
+     * `afterSequence` 及之前的全部事件。实现优先使用已验证索引从该事件的下一
+     * 字节开始读取；索引缺失、损坏、行身份不匹配或读取失败时回退到全量 `read`，
+     * 因此不会改变 `read` 的全量 fail-closed 语义。后缀本身仍执行完整事件协议
+     * 校验，非法 JSON、身份不匹配或序列非单调照常抛出 `TrajectoryProtocolError`。
+     *
+     * @param query - Goal/Run 与已校验前缀的最后序号。
+     * @param committedThroughSequence - Snapshot 记录的最大已提交序号。
+     * @returns 只包含 `afterSequence` 之后事件并按提交边界分类的结果。
+     * @throws 边界非法、后缀损坏或全量回退读取失败时拒绝。
+     */
+    async readAfter(
+        query: {
+            readonly goalId: string;
+            readonly runId: string;
+            readonly afterSequence: number;
+        },
+        committedThroughSequence: number,
+    ): Promise<Readonly<TrajectoryReadResult>> {
+        this.assertQuery({ goalId: query.goalId, runId: query.runId });
+        if (!Number.isSafeInteger(query.afterSequence) || query.afterSequence < 0) {
+            throw new TrajectoryProtocolError("afterSequence must be a non-negative integer");
+        }
+        if (!Number.isSafeInteger(committedThroughSequence) || committedThroughSequence < 0) {
+            throw new TrajectoryProtocolError(
+                "committedThroughSequence must be a non-negative integer",
+            );
+        }
+
+        try {
+            const index = await this.readyIndex(query.goalId, query.runId);
+            const maxSequence = index.maxSequence();
+            if (query.afterSequence >= maxSequence) {
+                return Object.freeze({
+                    committed: Object.freeze([]),
+                    uncommittedTail: Object.freeze([]),
+                });
+            }
+
+            const after = index.rowAt(query.afterSequence, maxSequence);
+            if (after === undefined
+                || !(await this.locationMatches(query.goalId, query.runId, after))) {
+                return this.readAfterFallback(
+                    query.goalId,
+                    query.runId,
+                    query.afterSequence,
+                    committedThroughSequence,
+                );
+            }
+
+            const events = await this.readStoredEvents(
+                query.goalId,
+                query.runId,
+                after,
+                query.afterSequence,
+            );
+            if (events.length === 0 || events[0]!.sequence !== query.afterSequence + 1) {
+                return this.readAfterFallback(
+                    query.goalId,
+                    query.runId,
+                    query.afterSequence,
+                    committedThroughSequence,
+                );
+            }
+            return classifyTrajectoryTail(events, committedThroughSequence);
+        } catch (error) {
+            if (error instanceof TrajectoryProtocolError) throw error;
+            return this.readAfterFallback(
+                query.goalId,
+                query.runId,
+                query.afterSequence,
+                committedThroughSequence,
+            );
+        }
+    }
+
+    private async readAfterFallback(
+        goalId: string,
+        runId: string,
+        afterSequence: number,
+        committedThroughSequence: number,
+    ): Promise<Readonly<TrajectoryReadResult>> {
+        const events = await this.readStoredEvents(goalId, runId);
+        return classifyTrajectoryTail(
+            events.filter((event) => event.sequence > afterSequence),
+            committedThroughSequence,
+        );
     }
 
     async queryPage(
@@ -930,10 +1024,11 @@ export class JsonFileTrajectoryStore implements TrajectoryStore, TrajectoryQuery
     private async readStoredEvents(
         goalId: string,
         runId: string,
+        after?: TrajectoryIndexLocation,
+        previousSequence = 0,
     ): Promise<readonly TrajectoryEvent[]> {
-        const lines = await this.scanStoredLines(goalId, runId);
+        const lines = await this.scanStoredLines(goalId, runId, after);
         const events: TrajectoryEvent[] = [];
-        let previousSequence = 0;
 
         for (const line of lines) {
             const location = this.describeLine(runId, line);
@@ -1372,18 +1467,21 @@ export class JsonFileTrajectoryStore implements TrajectoryStore, TrajectoryQuery
             if (after !== undefined && segment < after.segment) continue;
 
             const filePath = this.segmentFilePath(goalId, runId, segment);
+            const baseOffset = after !== undefined && segment === after.segment
+                ? after.byteOffset + after.byteLength
+                : 0;
             let buffer: Buffer;
 
             try {
-                buffer = await this.fileOperations.readFile(filePath) as Buffer;
+                buffer = baseOffset === 0
+                    ? await this.fileOperations.readFile(filePath) as Buffer
+                    : await this.readSegmentFrom(filePath, baseOffset);
             } catch (error) {
                 if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
                 throw error;
             }
 
-            let offset = after !== undefined && segment === after.segment
-                ? after.byteOffset + after.byteLength
-                : 0;
+            let offset = 0;
 
             while (offset < buffer.length) {
                 const newline = buffer.indexOf(0x0a, offset);
@@ -1399,11 +1497,16 @@ export class JsonFileTrajectoryStore implements TrajectoryStore, TrajectoryQuery
                         parsed = JSON.parse(text);
                     } catch {
                         throw new TrajectoryProtocolError(
-                            `Invalid Trajectory JSONL at ${basename(filePath)} byte ${offset}`,
+                            `Invalid Trajectory JSONL at ${basename(filePath)} byte ${baseOffset + offset}`,
                         );
                     }
 
-                    result.push({ segment, byteOffset: offset, byteLength: end - offset, parsed });
+                    result.push({
+                        segment,
+                        byteOffset: baseOffset + offset,
+                        byteLength: end - offset,
+                        parsed,
+                    });
                 }
 
                 offset = end;
@@ -1411,6 +1514,34 @@ export class JsonFileTrajectoryStore implements TrajectoryStore, TrajectoryQuery
         }
 
         return result;
+    }
+
+    private async readSegmentFrom(filePath: string, offset: number): Promise<Buffer> {
+        const handle = await this.fileOperations.open(filePath, "r");
+
+        try {
+            const { size } = await handle.stat();
+            if (size <= offset) return Buffer.alloc(0);
+
+            const length = size - offset;
+            const buffer = Buffer.alloc(length);
+            let total = 0;
+
+            while (total < length) {
+                const { bytesRead } = await handle.read(
+                    buffer,
+                    total,
+                    length - total,
+                    offset + total,
+                );
+                if (bytesRead === 0) break;
+                total += bytesRead;
+            }
+
+            return total === length ? buffer : buffer.subarray(0, total);
+        } finally {
+            await handle.close();
+        }
     }
 
     private async normalizeTrailingSegment(goalId: string, runId: string): Promise<boolean> {
