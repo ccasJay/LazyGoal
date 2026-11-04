@@ -1,9 +1,9 @@
 ---
 feature: long-session-io-performance
-status: proposed
+status: delivered
 risk: medium
 created_at: 2026-11-04
-delivered_at: null
+delivered_at: 2026-11-04
 supersedes: []
 superseded_by: null
 ---
@@ -58,18 +58,6 @@ superseded_by: null
 | medium | 触及 Storage 写路径并新增派生文件；无 schema、durability、权限或轨迹协议变更，失败时均可回退现有全量路径 | 无 |
 
 索引缓冲不得改变 JSONL 的落盘顺序、重试或 fail-closed 语义（R2.1、R2.3、R2.4）。catalog 摘要不是恢复权威，缺失或陈旧时以快照 decode 结果为准（R3.3、R3.4）；摘要写入失败不得使已提交快照报错或回滚（R3.1）。本次不改变 durability 与 fsync 边界，不引入 WAL，也不承诺检测原地被篡改且 `mtime`/`size` 保持不变的快照。
-
-## 任务
-
-- [x] //TODO 1. 模型输入正文摘要集合：懒种子化、目录身份校验与命中跳过 → R1.1、R1.2；检查：`npx tsx --test packages/storage/test/model-input-store.test.ts`
-- [x] //TODO 2. 模型输入未命中路径保留 `wx` 与 EEXIST 读回校验 → R1.3；检查：同一测试文件的篡改用例
-- [x] //TODO 3. 轨迹索引行缓冲、阈值刷新与索引读取前强制刷新 → R2.1、R2.2、R2.4；检查：`npx tsx --test packages/storage/test/trajectory-index-batch.test.ts` 与现有 trajectory-store 回归
-- [x] //TODO 4. 索引刷新失败与未刷新重开的恢复路径 → R2.3；检查：故障注入测试
-- [x] //TODO 5. Committer 在 commit 边界调用 `flushIndex` → R2.1；检查：`npx tsx --test packages/runtime/test/commit-restore-count.test.ts`
-- [x] //TODO 6. 保存快照时写 catalog 摘要，且摘要失败不影响快照结果 → R3.1；检查：`npx tsx --test packages/storage/test/goal-catalog-summary.test.ts`
-- [x] //TODO 7. `listHistory` 读摘要、指纹校验与回退重写 → R3.2、R3.3；检查：同一测试文件的回退用例
-- [x] //TODO 8. catalog 与快照目录对账并保持 `unreadableCount` 语义 → R3.4；检查：目录对账测试
-- [x] //TODO 9. 增加三档 I/O 基准测试 → R4.1；检查：运行基准并记录数字
 
 ## 执行记录
 
