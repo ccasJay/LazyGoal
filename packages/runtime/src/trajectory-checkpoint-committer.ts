@@ -102,6 +102,14 @@ export interface TrajectoryCheckpointCommitRequest {
      * 执行提交覆盖并发受理；只有已完成最新读取的会话受理与队列写入才传 `caller`。
      */
     readonly sessionState?: "latest" | "caller";
+    /**
+     * 在提交器唯一一次读取最新 Snapshot 后执行的前置检查或状态构造。
+     *
+     * @remarks
+     * 回调在 mutation gate 内、任何事实或 Snapshot 写入之前运行；返回的 Goal 成为
+     * 本次提交的业务转换结果，必须保持相同 Goal ID。抛错会中止提交且不写入事实。
+     */
+    readonly prepare?: (latest: Goal | undefined) => Goal | Promise<Goal>;
     /** 当前调用级中止控制。 */
     readonly control?: ExecutionControl;
 }
@@ -142,22 +150,41 @@ export async function saveGoalWithSessionState(
     options?: { readonly sessionState?: "latest" | "caller" },
 ): Promise<Goal> {
     return withGoalMutationGate(store, goal.id, async () => {
-        const baseRevision = goal.state.commitRevision ?? 0;
         const latest = await store.restore(goal.id);
-        const latestRevision = latest?.state.commitRevision ?? 0;
-        const merged = latest !== undefined && options?.sessionState !== "caller" && latestRevision > baseRevision
-            ? withLatestSessionState(goal, latest)
-            : goal;
-        const checkpoint: Goal = {
-            ...merged,
-            state: {
-                ...merged.state,
-                commitRevision: Math.max(baseRevision, latestRevision) + 1,
-            },
-        };
-        await store.save(checkpoint);
-        return checkpoint;
+        return writeGoalWithSessionState(store, goal, latest, options);
     });
+}
+
+async function saveGoalWithSessionStateFromLatest(
+    store: GoalStore,
+    goal: Goal,
+    latest: Goal | undefined,
+    options?: { readonly sessionState?: "latest" | "caller" },
+): Promise<Goal> {
+    return withGoalMutationGate(store, goal.id, () =>
+        writeGoalWithSessionState(store, goal, latest, options));
+}
+
+async function writeGoalWithSessionState(
+    store: GoalStore,
+    goal: Goal,
+    latest: Goal | undefined,
+    options?: { readonly sessionState?: "latest" | "caller" },
+): Promise<Goal> {
+    const baseRevision = goal.state.commitRevision ?? 0;
+    const latestRevision = latest?.state.commitRevision ?? 0;
+    const merged = latest !== undefined && options?.sessionState !== "caller" && latestRevision > baseRevision
+        ? withLatestSessionState(goal, latest)
+        : goal;
+    const checkpoint: Goal = {
+        ...merged,
+        state: {
+            ...merged.state,
+            commitRevision: Math.max(baseRevision, latestRevision) + 1,
+        },
+    };
+    await store.save(checkpoint);
+    return checkpoint;
 }
 
 /**
@@ -217,7 +244,7 @@ export interface TrajectoryCheckpointCommitterPort {
         control?: ExecutionControl,
         countAsFact?: boolean,
     ): Promise<Readonly<TrajectoryEvent> | undefined>;
-    /** 按统一边界追加事实、Patch 并保存 Snapshot。 */
+    /** 按统一边界追加事实、Patch 并保存 Snapshot；gate 内只读取一次最新 Snapshot，`prepare` 可复用该读取。 */
     commit(
         goal: Goal,
         request?: TrajectoryCheckpointCommitRequest,
@@ -494,19 +521,31 @@ export class TrajectoryCheckpointCommitter implements TrajectoryCheckpointCommit
                 );
             }
             const persisted = await this.store.restore(goal.id);
+            const prepared = await this.applyPrepare(goal, persisted, request);
             const positionedGoal: Goal = {
-                ...goal,
+                ...prepared,
                 state: {
-                    ...goal.state,
-                    messages: positionMessages(goal, persisted, []),
+                    ...prepared.state,
+                    messages: positionMessages(prepared, persisted, []),
                 },
             };
-            const saved = await saveGoalWithSessionState(this.store, positionedGoal, {
-                ...(request.sessionState === undefined ? {} : { sessionState: request.sessionState }),
-            });
+            const saved = await saveGoalWithSessionStateFromLatest(
+                this.store,
+                positionedGoal,
+                persisted,
+                {
+                    ...(request.sessionState === undefined
+                        ? {}
+                        : { sessionState: request.sessionState }),
+                },
+            );
             throwIfAborted(request.control);
             return { goal: saved, events: [] };
         }
+
+        const persisted = await this.store.restore(goal.id);
+        goal = await this.applyPrepare(goal, persisted, request);
+        throwIfAborted(request.control);
 
         if (request.modelContextFrame !== undefined) {
             if (request.modelContextFrame.epochNumber !== goal.state.run.contextEpoch.number) {
@@ -617,7 +656,6 @@ export class TrajectoryCheckpointCommitter implements TrajectoryCheckpointCommit
                 : { committedThroughSequence }),
             ...(revision === undefined ? {} : { memoryRevision: revision }),
         };
-        const persisted = await this.store.restore(goal.id);
         const persistedMessageIds = new Set((persisted?.state.messages ?? []).map((message) => message.messageId));
         const newMessageRunIds = new Set(goal.state.messages
             .filter((message) => !persistedMessageIds.has(message.messageId))
@@ -648,9 +686,16 @@ export class TrajectoryCheckpointCommitter implements TrajectoryCheckpointCommit
             },
         };
 
-        const saved = await saveGoalWithSessionState(this.store, checkpoint, {
-            ...(request.sessionState === undefined ? {} : { sessionState: request.sessionState }),
-        });
+        const saved = await saveGoalWithSessionStateFromLatest(
+            this.store,
+            checkpoint,
+            persisted,
+            {
+                ...(request.sessionState === undefined
+                    ? {}
+                    : { sessionState: request.sessionState }),
+            },
+        );
         throwIfAborted(request.control);
         try {
             await this.append({
@@ -687,6 +732,21 @@ export class TrajectoryCheckpointCommitter implements TrajectoryCheckpointCommit
      * @param control - 当前调用级中止控制。
      * @returns 成功保存的 Goal 副本。
      */
+    private async applyPrepare(
+        goal: Goal,
+        latest: Goal | undefined,
+        request: TrajectoryCheckpointCommitRequest,
+    ): Promise<Goal> {
+        if (request.prepare === undefined) return goal;
+        const prepared = await request.prepare(latest);
+        if (prepared.id !== goal.id) {
+            throw new TrajectoryAppendError(
+                "prepare must return a Goal with the same Goal ID",
+            );
+        }
+        return prepared;
+    }
+
     async saveCheckpoint(goal: Goal, control?: ExecutionControl): Promise<Goal> {
         const result = await this.commit(goal, {
             ...(control === undefined ? {} : { control }),

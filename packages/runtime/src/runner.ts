@@ -2603,19 +2603,27 @@ class RunExecutor {
         expectedStageKey?: string,
     ): Promise<Goal> {
         return withGoalMutationGate(this.store, goal.id, async () => {
-            const latest = await this.restore({ goalId: goal.id, runId: goal.state.run.id }, control);
-            if (expectedStageKey !== undefined && latest !== undefined && stageRequestKey(latest) !== expectedStageKey) {
-                throw new StaleStageRequestError(latest);
-            }
-            if (latest?.state.run.interruption?.status === "requested") {
-                throw new RunInterruptAcceptedError("Run Interrupt was accepted before the model checkpoint");
-            }
-            if (latest !== undefined && (latest.state.run.steerInputs ?? []).some(input => input.status === "pending")) {
-                throw new PendingSteerAcceptedError();
-            }
             const result = await this.checkpointCommitter.commit(goal, {
                 facts,
                 ...(acceptedPatch === undefined ? {} : { acceptedPatch }),
+                prepare: (latest) => {
+                    const latestForRun = latest?.state.run.id === goal.state.run.id
+                        ? latest
+                        : undefined;
+                    if (expectedStageKey !== undefined
+                        && latestForRun !== undefined
+                        && stageRequestKey(latestForRun) !== expectedStageKey) {
+                        throw new StaleStageRequestError(latestForRun);
+                    }
+                    if (latestForRun?.state.run.interruption?.status === "requested") {
+                        throw new RunInterruptAcceptedError("Run Interrupt was accepted before the model checkpoint");
+                    }
+                    if (latestForRun !== undefined
+                        && (latestForRun.state.run.steerInputs ?? []).some(input => input.status === "pending")) {
+                        throw new PendingSteerAcceptedError();
+                    }
+                    return goal;
+                },
                 ...(control === undefined ? {} : { control }),
                 ...(modelContextFrame === undefined ? {} : { modelContextFrame }),
             });
@@ -2680,37 +2688,39 @@ class RunExecutor {
         facts: readonly TrajectoryEventDraft[],
         control?: ExecutionControl,
     ): Promise<TrajectoryCheckpointCommitResult> {
-        return withGoalMutationGate(this.store, goal.id, async () => {
-            const latest = await this.restore({ goalId: goal.id, runId: goal.state.run.id }, control);
-            if (latest?.state.run.interruption?.status === "requested") {
-                throw new RunInterruptAcceptedError("Run Interrupt was accepted before a new Tool attempt");
-            }
-            const steerInputs = latest?.state.run.steerInputs;
-            const progressGoal = steerInputs === undefined
-                ? goal
-                : this.withRun(goal, { ...goal.state.run, steerInputs });
-            const committed = await this.checkpointCommitter.commit(progressGoal, {
-                facts,
-                ...(control === undefined ? {} : { control }),
-            });
-            this.publishCommittedEvents(committed);
-            this.publishCheckpointCommitted(committed, facts);
-            if (goal.state.historicalStages === undefined && goal.state.notes === undefined) {
-                return committed;
-            }
-            const nextState: GoalState = {
-                ...committed.goal.state,
-                ...(goal.state.historicalStages !== undefined ? { historicalStages: goal.state.historicalStages } : {}),
-                ...(goal.state.notes !== undefined ? { notes: goal.state.notes } : {}),
-            };
-            return {
-                ...committed,
-                goal: {
-                    ...committed.goal,
-                    state: nextState,
-                },
-            };
+        const committed = await this.checkpointCommitter.commit(goal, {
+            facts,
+            prepare: (latest) => {
+                const latestForRun = latest?.state.run.id === goal.state.run.id
+                    ? latest
+                    : undefined;
+                if (latestForRun?.state.run.interruption?.status === "requested") {
+                    throw new RunInterruptAcceptedError("Run Interrupt was accepted before a new Tool attempt");
+                }
+                const steerInputs = latestForRun?.state.run.steerInputs;
+                return steerInputs === undefined
+                    ? goal
+                    : this.withRun(goal, { ...goal.state.run, steerInputs });
+            },
+            ...(control === undefined ? {} : { control }),
         });
+        this.publishCommittedEvents(committed);
+        this.publishCheckpointCommitted(committed, facts);
+        if (goal.state.historicalStages === undefined && goal.state.notes === undefined) {
+            return committed;
+        }
+        const nextState: GoalState = {
+            ...committed.goal.state,
+            ...(goal.state.historicalStages !== undefined ? { historicalStages: goal.state.historicalStages } : {}),
+            ...(goal.state.notes !== undefined ? { notes: goal.state.notes } : {}),
+        };
+        return {
+            ...committed,
+            goal: {
+                ...committed.goal,
+                state: nextState,
+            },
+        };
     }
 
     private async applyPendingSteers(goal: Goal, control?: ExecutionControl): Promise<Goal> {
@@ -4062,46 +4072,47 @@ class RunExecutor {
             eventType: "observation_recorded",
             payload: { type: "observation_recorded", actionId: prepared.action.actionId, observation },
         };
-        const committed = await withGoalMutationGate(this.store, goal.id, async () => {
-            const latest = await this.restore({ goalId: goal.id, runId: goal.state.run.id }, control);
-            if (latest === undefined) throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "Run disappeared before Observation commit");
-            const toolFinishedEvent = await this.appendTrajectory({
-                goalId: latest.id,
-                runId: latest.state.run.id,
-                phase: "executing",
-                executionUnitId,
-                actionId: prepared.action.actionId,
-                ...association,
-                eventType: "tool_finished",
-                payload: { type: "tool_finished", actionId: prepared.action.actionId, toolId: prepared.action.toolId, observation },
-            }, control);
-            void toolFinishedEvent;
-            const observedRun = program === undefined
-                ? this.applyTransition(latest.state.run, {
-                    kind: "observe_action",
+        const committed = await this.checkpointCommitter.commit(goal, {
+            facts: [observationFact],
+            prepare: async (latest) => {
+                if (latest === undefined || latest.state.run.id !== goal.state.run.id) {
+                    throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "Run disappeared before Observation commit");
+                }
+                await this.appendTrajectory({
+                    goalId: latest.id,
+                    runId: latest.state.run.id,
+                    phase: "executing",
+                    executionUnitId,
                     actionId: prepared.action.actionId,
-                    observation,
-                })
-                : (() => {
-                    const { pendingAction: _pendingAction, ...run } = latest.state.run;
-                    const current = run.pendingProgram;
-                    if (current?.programId !== program.programId
-                        || current.nextCallIndex !== program.callIndex) {
-                        throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "PTC_REPLAY_MISMATCH");
-                    }
-                    return {
-                        ...run,
-                        pendingProgram: {
-                            ...current,
-                            nextCallIndex: current.nextCallIndex + 1,
-                            resultBytes: current.resultBytes + programResultBytes,
-                        },
-                    };
-                })();
-            return this.checkpointCommitter.commit(this.withRun(latest, observedRun), {
-                facts: [observationFact],
-                ...(control === undefined ? {} : { control }),
-            });
+                    ...association,
+                    eventType: "tool_finished",
+                    payload: { type: "tool_finished", actionId: prepared.action.actionId, toolId: prepared.action.toolId, observation },
+                }, control);
+                const observedRun = program === undefined
+                    ? this.applyTransition(latest.state.run, {
+                        kind: "observe_action",
+                        actionId: prepared.action.actionId,
+                        observation,
+                    })
+                    : (() => {
+                        const { pendingAction: _pendingAction, ...run } = latest.state.run;
+                        const current = run.pendingProgram;
+                        if (current?.programId !== program.programId
+                            || current.nextCallIndex !== program.callIndex) {
+                            throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "PTC_REPLAY_MISMATCH");
+                        }
+                        return {
+                            ...run,
+                            pendingProgram: {
+                                ...current,
+                                nextCallIndex: current.nextCallIndex + 1,
+                                resultBytes: current.resultBytes + programResultBytes,
+                            },
+                        };
+                    })();
+                return this.withRun(latest, observedRun);
+            },
+            ...(control === undefined ? {} : { control }),
         });
         this.publishCommittedEvents(committed);
         this.publishCheckpointCommitted(committed, [observationFact]);
