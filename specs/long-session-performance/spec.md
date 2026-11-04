@@ -73,7 +73,7 @@ superseded_by: null
 
 ## 执行记录
 
-- 状态：未执行
-- 验证：-
-- 结果：-
+- 状态：passed
+- 验证：cccd175e · 2026-11-04T11:23:16+08:00
+- 结果：R1.1-R1.12 全部覆盖；npm test 全量通过；5,000 档对比基线 bb1f0a7c：commit 360.3→237.3ms、cold assembly 216.1→113.6ms、warm assembly 198.4→30.9ms、encode 141.8→118.6ms、decode 134.2→123.7ms。
 - 未决：无
