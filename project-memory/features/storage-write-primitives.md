@@ -4,7 +4,7 @@ status: active
 summary: 让 storage 的原子替换、JSONL 与字节追加、按键串行只有一份实现，并把权限、重试与阶段 ENOENT 策略交给调用点显式声明
 source_spec: specs/storage-write-primitives/
 distilled_at: 2026-10-29
-reviewed_at: 2026-10-29
+reviewed_at: 2026-11-04
 tags: [storage, atomic-write, jsonl-append, keyed-queue, permissions, enoent, fault-injection, sqlite]
 authorities: [packages/storage/src/json-file-write.ts, packages/storage/src/keyed-serial-queue.ts, packages/storage/src/json-file-process-session-store.ts, packages/storage/test/storage-write-invariants.test.ts, packages/storage/notes/overview.md]
 ---
@@ -31,7 +31,7 @@ authorities: [packages/storage/src/json-file-write.ts, packages/storage/src/keye
 - 权限只在创建时设置：不对已存在路径补 `chmod`，历史宽松权限不被自动纠正。 [S1]
 - 不得吞掉非 `ENOENT` 的写入错误；临时文件清理失败不得掩盖原始错误。 [S1]
 - 不得新增依赖、SQLite、原生模块、跨进程锁，也不承诺 exactly-once。 [S1]
-- 不得改变持久化路径、文件名、JSON/JSONL 字节格式或 Store 公开类型签名。 [S1]
+- 持久化路径与文件名保持不变；字节格式只在对应 Store 的显式 Spec 中变更（Goal Snapshot 当前为 compact JSON + trailing newline），写入原语不得自行改变缩进或换行；新增或修改公开 Store 类型签名必须由独立 Spec 声明。 [S1, S10]
 
 ## Revisit When
 
@@ -49,3 +49,4 @@ authorities: [packages/storage/src/json-file-write.ts, packages/storage/src/keye
 - S7: `packages/storage/notes/overview.md`
 - S8: `packages/storage/test/storage-write-invariants.test.ts`
 - S9: `packages/storage/test/json-file-write.test.ts`
+- S10: `specs/long-session-performance/spec.md`

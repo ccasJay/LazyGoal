@@ -4,7 +4,7 @@ status: active
 summary: "Runtime 事实轨迹、Snapshot 提交边界与诊断 Trace 分流"
 source_spec: specs/execution-trajectory/
 distilled_at: 2026-08-26
-reviewed_at: 2026-11-02
+reviewed_at: 2026-11-04
 tags: [trajectory, domain-events, snapshot-boundary, diagnostic-trace, recovery, audit]
 authorities: [packages/runtime/notes/overview.md, packages/storage/notes/overview.md, packages/agent/notes/overview.md, apps/goal-server/notes/overview.md, packages/runtime/src/trajectory.ts, packages/runtime/src/runner.ts, packages/runtime/src/goal-coordinator.ts, packages/storage/src/goal-snapshot-codec.ts, packages/storage/src/json-file-trajectory-store.ts, packages/storage/src/trajectory-index.ts, packages/model-call/src/llm-diagnostic-trace.ts, apps/goal-server/src/composition-root.ts]
 ---
@@ -21,7 +21,7 @@ authorities: [packages/runtime/notes/overview.md, packages/storage/notes/overvie
 - D1 — Trajectory Event 只保存已经发生的事实，禁止把 `currentRunStatus`、`currentPlan` 或 `currentPendingAction` 等派生状态写入 payload；每个事件带有 `eventId`、Run 内单调 `sequence`、Goal/Run、phase 和可选执行单元、Action 关联。 [S1, S2, S5, S6, S11]
 - D2 — Runtime 在外部 Tool 效果或状态转换前追加必要事实；追加失败采用 fail-closed。`tool_started` 后若 Tool 未返回，不伪造 `tool_finished` 或成功 Observation；已有 pending Action 保持可恢复。 [S1, S2, S6, S11]
 - D3 — 当前 Goal Snapshot 的 `schemaVersion: 1` 与 `committedThroughSequence` 共同定义恢复边界；事实追加后先保存 Snapshot，成功后再追加 `state_committed` marker，未提交 tail 永不自动 replay。 [S1, S2, S3, S4, S7, S11, S12]
-- D4 — `JsonFileTrajectoryStore` 使用 Goal/Run 安全编码路径和 JSONL，按 Run 串行追加、严格校验、支持序列范围读取与 committed/tail 查询；存储编码 v2 将大 payload 外置到内容寻址 Blob 并支持 JSONL 分段。查询侧使用同一 Run 的可重建 SQLite 索引和固定 Snapshot 水位，索引只提供定位与关联，不构成事实来源；当前不提供跨进程锁或 exactly-once。 [S1, S2, S8, S12, S17, S18, S19]
+- D4 — `JsonFileTrajectoryStore` 使用 Goal/Run 安全编码路径和 JSONL，按 Run 串行追加、严格校验、支持序列范围读取与 committed/tail 查询；存储编码 v2 将大 payload 外置到内容寻址 Blob 并支持 JSONL 分段。查询侧使用同一 Run 的可重建 SQLite 索引和固定 Snapshot 水位，索引只提供定位与关联，不构成事实来源；当前不提供跨进程锁或 exactly-once。新增的 `TrajectoryIncrementalReadPort.readAfter` 只服务已通过同一 Store 实例校验过前缀的同进程调用方：用索引定位并只校验后缀，索引缺失、身份不匹配或读取失败时回退全量 `read`，不改变 `read`／`readWithBoundary` 的全量 fail-closed 契约。 [S1, S2, S8, S12, S17, S18, S19, S20]
 - D5 — LLM 请求、响应、Provider metadata、耗时和异常进入独立 Diagnostic Trace；上游负责递归脱敏与大小限制，Trace 缺失或写入失败不得改变 Snapshot、Domain Event 或执行结果。 [S1, S2, S9, S13]
 - D6 — TUI 与浏览器通过 Composition Root 提供按 Goal/Run 读取轨迹的只读入口；两者投影已提交领域事实，浏览器轨迹查询以固定水位和可重建索引分页，且不修改事件、Snapshot、执行或授权状态。Context Adapter 也不能修改这些权威数据，且不会自动加入当前 Prompt。 [S1, S2, S3, S4, S10, S13, S14, S16, S18]
 - D7 — 当前只支持 Snapshot v1；历史版本、旧 Preparation 字段和未知协议在 Codec/Trajectory 边界拒绝，不实现 Durable Outbox、异步重试、exactly-once 或 Trajectory replay 恢复。 [S1, S2, S3, S4, S7, S12, S15]
@@ -64,3 +64,4 @@ authorities: [packages/runtime/notes/overview.md, packages/storage/notes/overvie
 - S17: `packages/storage/src/trajectory-index.ts`
 - S18: `project-memory/features/trajectory-query-contract.md`
 - S19: `packages/storage/test/trajectory-index-recovery.test.ts`
+- S20: `specs/long-session-performance/spec.md`
