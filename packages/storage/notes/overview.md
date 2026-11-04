@@ -73,6 +73,8 @@ Snapshot 原样保存 Goal 级 `commitRevision`、`inputLedger` 与 `messageQueu
 `readWithBoundary` 只使用调用方从最新 Goal Snapshot 读取的
 `committedThroughSequence` 分类 committed 与未提交 tail，`state_committed` 不具有恢复权威。Snapshot 已保存而 marker 追加失败时，恢复仍以 Snapshot 边界为准；孤立或越界事件只保留为未提交 tail，不会被自动 replay。`model_context_frame` 在 Trajectory 协议中校验阶段、Epoch、Conversation 位置、Section 身份、结构化 JSON 投影与实际更新文本；Runtime 恢复查询还会对照当前注册表过滤未知或身份不匹配的 Section。
 
+`readAfter` 是显式增量读取端口：调用方必须已经通过同一实例校验过 `afterSequence` 及之前的事件；实现使用已验证索引从该位置之后按字节读取并只校验后缀，索引缺失、行身份不匹配或读取失败时回退全量 `read`。`read` 与 `readWithBoundary` 仍执行全量 fail-closed 校验，`readAfter` 不能替代它们，也不能作为跨进程恢复权威。
+
 `JsonFileDiagnosticTraceSink` 使用独立的 `.jsonl` 目录和同样的安全编码路径；它只负责
 追加上游已经脱敏、限长的 `TraceRecord`，不被 `GoalStore` 或 Trajectory 读取，也不参与
 恢复边界。

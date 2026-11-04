@@ -683,6 +683,40 @@ export interface TrajectoryStore extends TrajectorySink {
 
 // Trajectory 不提供 durable Outbox、异步重试或原子双写，也不通过 replay 恢复 Runtime。
 
+/**
+ * Trajectory 的增量读取端口。
+ *
+ * @remarks
+ * 调用方必须已经通过同一 Store 实例读取并校验过 `afterSequence` 及之前的全部事件。
+ * 实现只校验 `afterSequence` 之后的后缀，因此不能替代 {@link TrajectoryStore.read}
+ * 的全量 fail-closed 校验；索引缺失、损坏或身份不匹配时调用方应回退到全量读取。
+ *
+ * @example
+ * ```ts
+ * const suffix = await store.readAfter(
+ *     { goalId: "goal-1", runId: "run-1", afterSequence: 42 },
+ *     50,
+ * );
+ * console.log(suffix.committed.length);
+ * ```
+ */
+export interface TrajectoryIncrementalReadPort {
+    /**
+     * @param query - Goal/Run 与已校验前缀的最后序号。
+     * @param committedThroughSequence - 最新有效 Goal Snapshot 记录的提交边界。
+     * @returns 只包含 `afterSequence` 之后事件并按提交边界分类的结果。
+     * @throws 边界非法、后缀损坏或存储读取失败时拒绝；索引不可用时由实现回退全量读取。
+     */
+    readAfter(
+        query: {
+            readonly goalId: string;
+            readonly runId: string;
+            readonly afterSequence: number;
+        },
+        committedThroughSequence: number,
+    ): Promise<Readonly<TrajectoryReadResult>>;
+}
+
 /** Trajectory 按 Goal、Run 和序列范围读取的查询条件。 */
 export interface TrajectoryReadQuery {
     /** Goal 稳定标识。 */
