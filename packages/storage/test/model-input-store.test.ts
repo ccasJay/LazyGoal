@@ -46,6 +46,47 @@ test("model input durable boundary rejects unsupported schema and unsafe content
     } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
+test("model input store skips writes and read-back for bodies already known in-process", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "lazygoal-input-"));
+    try {
+        const store = new JsonFileModelInputStore(directory);
+        const record: ModelInputRecord = { goalId: "goal-1", runId: "run-1", callId: "call-1", stage: "decide", stepIndex: 1, occurredAt: new Date().toISOString(), messages: [
+            { role: "system", source: "system", content: "fixed system" },
+            { role: "user", source: "conversation", content: "first question" },
+        ] };
+        await store.append(record);
+        const runPath = join(directory, Buffer.from("goal-1").toString("base64url"), Buffer.from("run-1").toString("base64url"));
+        const bodyDirectory = join(dirname(runPath), "messages");
+        const manifests = (await readFile(join(runPath, "requests.jsonl"), "utf8"))
+            .trim().split("\n").map((line) => JSON.parse(line) as { messages: Array<{ ref: string }> });
+        const systemRef = manifests[0]!.messages[0]!.ref;
+        await writeFile(join(bodyDirectory, `${systemRef}.txt`), "corrupted");
+
+        await store.append({ ...record, callId: "call-2", stepIndex: 2 });
+
+        await assert.rejects(store.read("goal-1", "run-1"), /hash mismatch/);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("model input store reseeds digest state after the body directory is deleted externally", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "lazygoal-input-"));
+    try {
+        const store = new JsonFileModelInputStore(directory);
+        const record: ModelInputRecord = { goalId: "goal-1", runId: "run-1", callId: "call-1", stage: "decide", stepIndex: 1, occurredAt: new Date().toISOString(), messages: [
+            { role: "system", source: "system", content: "fixed system" },
+            { role: "user", source: "conversation", content: "first question" },
+        ] };
+        await store.append(record);
+        const bodyDirectory = join(directory, Buffer.from("goal-1").toString("base64url"), "messages");
+        await rm(bodyDirectory, { recursive: true, force: true });
+
+        await store.append({ ...record, callId: "call-2", stepIndex: 2 });
+
+        assert.equal((await readdir(bodyDirectory)).length, 2);
+        assert.deepEqual((await store.read("goal-1", "run-1"))[1]!.messages, record.messages);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 test("native model input messages survive restart with independent reasoning, calls, signatures and tool IDs", async () => {
     const directory = await mkdtemp(join(tmpdir(), "native-input-"));
     try {
