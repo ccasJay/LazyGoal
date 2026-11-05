@@ -17,6 +17,9 @@ import {
     readTrajectoryAtSnapshot,
     launch,
     SessionManager,
+    RuntimeSubagentSpawner,
+    type SessionManagerDependencies,
+    type SubagentSpawner,
     type GoalInteractionView,
     type InteractionHandlerAttachOptions,
     type InteractionHandlerAttachResult,
@@ -631,6 +634,16 @@ async function assembleRuntimeComposition(
         resources,
     });
 
+    let runtimeSubagentSpawner: SubagentSpawner | undefined;
+    const deferredSubagentSpawner: SubagentSpawner = {
+        spawn(input, context, control) {
+            if (runtimeSubagentSpawner === undefined) {
+                throw new Error("Subagent spawner is not initialized");
+            }
+            return runtimeSubagentSpawner.spawn(input, context, control);
+        },
+    };
+
     let toolRegistry: InMemoryToolRegistry;
     let readFileTool: ReadFileTool | undefined;
     if (options.toolRegistry !== undefined) {
@@ -641,6 +654,7 @@ async function assembleRuntimeComposition(
         toolRegistry = new InMemoryToolRegistry(createDefaultToolRegistrations(workspaceRoot, {
             processManager,
             processSessionStore,
+            subagentSpawner: deferredSubagentSpawner,
         }));
     }
 
@@ -892,7 +906,7 @@ async function assembleRuntimeComposition(
         executionStream,
         runIdGenerator,
     });
-    const sessions = new SessionManager({
+    const sessionDependencies: SessionManagerDependencies = {
         store: checkpointStore,
         committer: checkpointCommitter,
         coordinator: executionComponents.commands,
@@ -917,7 +931,9 @@ async function assembleRuntimeComposition(
             const release = lifecycle.beginOperation(label);
             void task.finally(() => release());
         },
-    });
+    };
+    const sessions = new SessionManager(sessionDependencies);
+    runtimeSubagentSpawner = new RuntimeSubagentSpawner(checkpointStore, sessionDependencies);
     resources.register({
         close: () => sessions.close({ timeoutMs: 5000 }),
     });

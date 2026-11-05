@@ -24,5 +24,5 @@ HTML 可见文本由 [html-to-text 抽取](../src/web/html-extract.ts) 产生：
 
 ## 子 Agent 委派工具
 
-`spawn_subagent` 允许父 Goal 将独立自包含子任务委派给子 Goal，输入包括必填 `intent` 与可选 `title`。运行时在同一工作区、继承父级 Profile 与模型选择的普通（non-plan）模式下启动子 Goal 会话，阻塞等待子 Goal 达到终态（`completed` / `failed` / `cancelled`），并返回包含子 Goal ID、终态及最终答复或失败原因的有界结果观察。父 Run 取消会中止等待且不挂起进程。子 Agent 的 Profile 会由运行时自动剔除 `spawn_subagent` 权限，从代码层面杜绝递归派发。
+`spawn_subagent` 输入包括必填 `intent` 与可选 `title`；模型 JSON 由 Catalog 生成的 `ContractBinding` 校验，Tool 语义校验另行拒绝仅含空白字符的意图。Runtime 在同一工作区、继承父级 Profile 与模型选择的普通模式下启动子 Goal，并等待其到达终态。工具观察包含子 Goal ID、终态及最终答复或失败原因。父 Run 取消时，Runtime 向子会话提交 `interrupt`，并等待子 Run 持久化到终态后，才移除取消监听并关闭事件流与 Session 句柄。子 Profile 会剔除 `spawn_subagent`，阻止嵌套派发。
 

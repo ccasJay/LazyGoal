@@ -15,4 +15,4 @@
 | 网页抓取安全边界 | URL 协议与凭据、本机/私网/保留地址、逐跳 DNS 校验与连接地址绑定、最多 5 跳重定向、Host/TLS 身份、请求自有连接释放，以及导入 `undici` 后恢复 Node 内置 fetch 的环境代理 dispatcher。 | [内置工具](../README.md) | [默认抓取 handler](../src/web/fetch-default.ts)、[URL 与地址策略](../src/web/fetch-url-policy.ts) |
 | 网页响应解码 | content-type 白名单、charset 与 HTML meta 嗅探、UTF-8 回退、2 MiB 字节上限及稳定抓取错误码。 | [内置工具](../README.md) | [默认抓取 handler](../src/web/fetch-default.ts)、[Web Fetch Tool](../src/web-fetch.ts) |
 | HTML 文本抽取 | `html-to-text` 结构化抽取、单行折叠与分页 UTF-16 语义。 | [内置工具](../README.md) | [抽取实现](../src/web/html-extract.ts)、[Web Fetch Tool](../src/web-fetch.ts) |
-| 子 Agent 委派工具 | `spawn_subagent` 启动并等待子 Goal 终态，接收有界结果作为工具观察。 | [内置工具](../README.md) | [子 Agent 委派工具](../src/spawn-subagent.ts) |
+| 子 Agent 委派工具 | `spawn_subagent` 使用 Catalog 生成的输入绑定，并等待子 Goal 终态后返回工具观察。 | [内置工具](../README.md) | [子 Agent 委派工具](../src/spawn-subagent.ts)、[输入 Catalog](../../../contracts/catalog.json) |

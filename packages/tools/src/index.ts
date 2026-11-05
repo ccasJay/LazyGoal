@@ -212,7 +212,8 @@ export {
     SPAWN_SUBAGENT_TOOL_ID,
     SpawnSubagentTool,
     spawnSubagentInputBinding,
-    type SpawnSubagentInput,
+    type SpawnSubagentToolInput,
     type SpawnSubagentOutput,
     type SubagentSpawner,
 } from "./spawn-subagent";
+export type { SpawnSubagentInput } from "../../runtime/src/index";

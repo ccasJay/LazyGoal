@@ -192,6 +192,6 @@ Decide 返回值可以是 `decision`、`request_think`、`assistant_message` 或
 
 `RuntimeSubagentSpawner` 实现父 Goal 委派自包含子任务给子 Goal 的生命周期管理：
 - **启动环境与继承**：子 Goal 复用父级相同的 workspaceRoot、profileId、模型选择（modelSelection），并在普通非规划（normal）模式下运行。子 Goal 意图自动前缀说明其为委托子 Agent，必须自主独立完成任务而不得向用户提问。
-- **状态同步与取消**：通过 SessionManager 及其事件流监听子 Goal 终态（`completed` / `failed` / `cancelled`）。当父 Run 触发取消（ExecutionControl 的 AbortSignal）时，通过向子会话发送 `interrupt` 停止子 Goal 执行并快速解除父级等待，不阻塞挂起进程。
+- **状态同步与取消**：通过 SessionManager 及其事件流监听子 Goal 的持久化终态（`completed` / `failed` / `cancelled`）。父 Run 触发取消时，先向子会话发送 `interrupt`，并在子 Run 到达终态后才返回；结算时移除 AbortSignal 监听并关闭事件流与 Session 句柄。
 - **运行时递归防护**：通过 `createChildProfileRegistry` 包装子会话的 AgentProfileRegistry，从子 Agent Profile 的 `toolIds` 中剔除 `spawn_subagent`，从运行时执行器与授权规则层面杜绝递归派发。
 

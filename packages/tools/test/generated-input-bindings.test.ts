@@ -26,6 +26,7 @@ import { gitDiffInputBinding } from "../src/generated/git-diff/binding";
 import { gitLogInputBinding } from "../src/generated/git-log/binding";
 import { gitShowInputBinding } from "../src/generated/git-show/binding";
 import { processReadInputBinding } from "../src/generated/process-read/binding";
+import { spawnSubagentInputBinding } from "../src/generated/spawn-subagent/binding";
 
 const cases = [
     {
@@ -125,6 +126,13 @@ const cases = [
         valid: { processId: "p-1" },
         invalid: {},
         unknown: { processId: "p-1", extra: 1 },
+    },
+    {
+        id: "spawn_subagent",
+        binding: spawnSubagentInputBinding,
+        valid: { intent: "Run the focused tests", title: "Verify tests" },
+        invalid: { intent: "" },
+        unknown: { intent: "Run the focused tests", extra: 1 },
     },
     {
         id: "read_file",

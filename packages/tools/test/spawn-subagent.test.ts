@@ -170,7 +170,7 @@ function createSpawnerHarness(options: {
                 return {
                     ok: true,
                     messages: [
-                        { messageId: "msg-1", role: "assistant" },
+                        { messageId: "msg-1", role: "assistant", purpose: "answer" },
                     ],
                 };
             }

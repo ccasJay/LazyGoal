@@ -100,7 +100,14 @@ export const DEFAULT_TOOL_IDS: readonly string[] = Object.freeze([
 ]);
 
 /**
- * 创建默认工具集时的配置项。
+ * 创建默认工具集时的可选运行时依赖。
+ *
+ * @remarks 未提供 `subagentSpawner` 时不会注册 `spawn_subagent`。
+ *
+ * @example
+ * ```ts
+ * const registrations = createDefaultToolRegistrations("/workspace", { subagentSpawner });
+ * ```
  */
 export interface DefaultToolOptions {
     /** 长进程生命周期管理器。 */
@@ -118,12 +125,12 @@ export interface DefaultToolOptions {
  * 为指定的 `workspaceRoot` 实例化所有默认工具并封装为 `ToolRegistration`。
  *
  * @param workspaceRoot - 当前工作区根目录。
- * @param options - 可选的进程管理器与进程存储配置。
+ * @param options - 可选的进程管理器、进程存储与子 Agent 派发器。
  * @returns 包含默认工具绑定的 ToolRegistration 数组。
  *
  * @example
  * ```ts
- * const registrations = createDefaultToolRegistrations("/path/to/project");
+ * const registrations = createDefaultToolRegistrations("/path/to/project", { subagentSpawner });
  * const registry = new InMemoryToolRegistry(registrations);
  * ```
  */

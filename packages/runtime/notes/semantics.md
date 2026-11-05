@@ -67,6 +67,6 @@
 | 模型公开进度 | 从模型开始来源保留白名单调用阶段、调用身份与执行单元，不推断缺失元数据。 | [Goal Runtime](../README.md) | [会话输出分类器](../src/session-output.ts) |
 | 模型请求失败 | 适配边界确认的请求错误以 `MODEL_REQUEST_FAILED` 结算，不进入协议纠错。 | [Goal Runtime](../README.md) | [错误分类](../src/runner.ts) |
 | 阶段请求状态核对 | 在接受与提交前核对请求的阶段和路线版本，拒绝过期结果并重新决策。 | [Goal Runtime](../README.md) | [执行循环](../src/runner.ts) |
-| 子 Agent 委派执行 | `RuntimeSubagentSpawner` 启动子 Goal 会话、传递相同配置与模型、等待终态并向父 Run 返回有界结果。 | [Goal Runtime](../README.md) | [子 Agent 委派支持](../src/subagent-spawner.ts) |
+| 子 Agent 委派执行 | `RuntimeSubagentSpawner` 启动子 Goal 会话并传递模型选择；父 Run 取消时先中断子 Run，待持久化终态后再清理会话资源并返回。 | [Goal Runtime](../README.md) | [子 Agent 委派支持](../src/subagent-spawner.ts) |
 | 子 Agent 递归防护 | `createChildProfileRegistry` 剔除子 Agent 的 `spawn_subagent` 工具授权，在运行时阻断嵌套派发。 | [Goal Runtime](../README.md) | [子 Agent 委派支持](../src/subagent-spawner.ts) |
 

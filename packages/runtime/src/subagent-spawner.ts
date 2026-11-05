@@ -26,6 +26,8 @@ export const SPAWN_SUBAGENT_TOOL_ID = "spawn_subagent" as const;
 export interface SpawnSubagentInput {
     /**
      * 子任务的核心意图描述（非空字符串）。
+     *
+     * @minLength 1
      */
     readonly intent: string;
 
@@ -87,8 +89,9 @@ export interface SubagentSpawner {
      *
      * @param input - 衍生任务入参
      * @param context - 当前工具执行上下文（包含父 Goal ID）
-     * @param control - 执行控制（用于取消和超时传播）
-     * @returns 子代理执行终态结果
+     * @param control - 父 Run 的执行控制；取消时中断子 Run 并等待其终态。
+     * @returns 子代理执行终态结果。
+     * @throws 子会话创建、Interrupt 受理或会话读取失败时抛出异常。
      */
     spawn(
         input: SpawnSubagentInput,
@@ -201,20 +204,28 @@ export class RuntimeSubagentSpawner implements SubagentSpawner {
             modelSelection: parentModelSelection,
         });
 
-        // 4. 等待子 Agent 达到终态（completed / failed / cancelled），或父 Run 被取消
+        // 4. 等待子 Agent 达到终态；父 Run 取消时先中断子 Run，再等持久化终态。
         return new Promise<SpawnSubagentOutput>((resolve, reject) => {
             let settled = false;
-            let unsubscribeStream: (() => void) | undefined;
+            let eventStream: ReturnType<Session["events"]> | undefined;
+            let removeAbortListener: (() => void) | undefined;
+            let abortRequested = false;
+            let parentAbortReason: string | undefined;
+            let interruptSubmitted = false;
+            let interruptRequest: Promise<void> | undefined;
 
             const cleanup = () => {
-                if (unsubscribeStream) {
-                    unsubscribeStream();
-                    unsubscribeStream = undefined;
+                removeAbortListener?.();
+                removeAbortListener = undefined;
+                try {
+                    eventStream?.close();
+                } catch {
+                    // ignore stream close errors during settlement
                 }
                 try {
                     session.detach();
                 } catch {
-                    // ignore detach error
+                    // ignore detach errors during settlement
                 }
             };
 
@@ -232,126 +243,126 @@ export class RuntimeSubagentSpawner implements SubagentSpawner {
                 reject(err);
             };
 
-            // 监听父级 cancellation 信号
-            const abortSignal = control?.signal;
-            const onParentAbort = async () => {
-                if (settled) return;
-                try {
-                    const currentState = await session.read();
-                    if (currentState && currentState.runId) {
-                        await session.send({
-                            kind: "interrupt",
-                            inputId: randomUUID(),
-                            runId: currentState.runId,
-                        });
-                    }
-                } catch {
-                    // ignore abort send error
-                }
-                finish({
-                    childGoalId,
-                    status: "cancelled",
-                    reason:
-                        typeof abortSignal?.reason === "string"
-                            ? abortSignal.reason
-                            : "Parent run was cancelled while waiting for subagent",
-                });
-            };
+            const isTerminal = (status: RunStatus): status is Extract<RunStatus, "completed" | "failed" | "cancelled"> =>
+                status === "completed" || status === "failed" || status === "cancelled";
 
-            if (abortSignal?.aborted) {
-                onParentAbort();
-                return;
-            }
-
-            if (abortSignal) {
-                abortSignal.addEventListener("abort", onParentAbort, { once: true });
-            }
-
-            // 订阅 session 事件流，每次收到事件时检查子 agent 状态
             const checkTerminal = async (): Promise<boolean> => {
                 try {
                     const state = await session.read();
-                    if (!state) return false;
-                    const runStatus: RunStatus | "created" = state.runStatus;
-                    if (
-                        runStatus === "completed" ||
-                        runStatus === "failed" ||
-                        runStatus === "cancelled"
-                    ) {
-                        let answer: string | undefined;
-                        let reason: string | undefined;
+                    if (!state || !isTerminal(state.runStatus)) return false;
 
-                        if (runStatus === "completed") {
-                            // 读取子 agent 产生的最后一条 assistant message
-                            const listResult = await session.messages();
-                            if (listResult.ok) {
-                                for (let i = listResult.messages.length - 1; i >= 0; i--) {
-                                    const msg = listResult.messages[i];
-                                    if (msg !== undefined && msg.role === "assistant") {
-                                        const body = await session.message(msg.messageId);
-                                        if (body.ok && body.entry && body.entry.content) {
-                                            answer = body.entry.content;
-                                        }
-                                        break;
-                                    }
-                                }
+                    let answer: string | undefined;
+                    let reason: string | undefined;
+                    if (state.runStatus === "completed") {
+                        const listResult = await session.messages();
+                        if (listResult.ok) {
+                            const answerMessage = [...listResult.messages]
+                                .reverse()
+                                .find((message) => message.role === "assistant" && message.purpose === "answer");
+                            if (answerMessage !== undefined) {
+                                const body = await session.message(answerMessage.messageId);
+                                if (body.ok && body.entry?.content) answer = body.entry.content;
                             }
-                        } else {
-                            reason = `Subagent terminated with status ${runStatus}`;
                         }
-
-                        const out: SpawnSubagentOutput = {
-                            childGoalId,
-                            status: runStatus,
-                            ...(answer !== undefined ? { answer } : {}),
-                            ...(reason !== undefined ? { reason } : {}),
-                        };
-                        finish(out);
-                        return true;
+                    } else if (state.runStatus === "cancelled" && abortRequested) {
+                        reason = parentAbortReason ?? "Parent run was cancelled while waiting for subagent";
+                    } else {
+                        reason = `Subagent terminated with status ${state.runStatus}`;
                     }
+
+                    finish({
+                        childGoalId,
+                        status: state.runStatus,
+                        ...(answer !== undefined ? { answer } : {}),
+                        ...(reason !== undefined ? { reason } : {}),
+                    });
+                    return true;
                 } catch (err) {
                     fail(err);
                     return true;
                 }
-                return false;
             };
 
-            // 启动事件循环消费
+            const requestInterrupt = (): Promise<void> => {
+                if (interruptRequest !== undefined) return interruptRequest;
+                if (settled || !abortRequested || interruptSubmitted) return Promise.resolve();
+
+                const request = (async () => {
+                    const currentState = await session.read();
+                    if (!currentState) throw new Error(`Child goal ${childGoalId} disappeared while being cancelled`);
+                    if (isTerminal(currentState.runStatus)) {
+                        await checkTerminal();
+                        return;
+                    }
+                    if (currentState.runStatus === "created") return;
+
+                    const admission = await session.send({
+                        kind: "interrupt",
+                        inputId: randomUUID(),
+                        runId: currentState.runId,
+                    });
+                    if (admission.ok) {
+                        interruptSubmitted = true;
+                        return;
+                    }
+
+                    const latestState = await session.read();
+                    if (latestState && isTerminal(latestState.runStatus)) {
+                        await checkTerminal();
+                        return;
+                    }
+                    throw new Error(`Failed to interrupt child goal ${childGoalId}: ${admission.code} ${admission.message}`);
+                })();
+                interruptRequest = request;
+                void request.then(
+                    () => { if (interruptRequest === request) interruptRequest = undefined; },
+                    () => { if (interruptRequest === request) interruptRequest = undefined; },
+                );
+                return request;
+            };
+
+            const abortSignal = control?.signal;
+            const onParentAbort = () => {
+                if (settled || abortRequested) return;
+                abortRequested = true;
+                parentAbortReason = typeof abortSignal?.reason === "string"
+                    ? abortSignal.reason
+                    : "Parent run was cancelled while waiting for subagent";
+                void requestInterrupt().catch(fail);
+            };
+
             (async () => {
                 try {
-                    // 首先立即检查一次，可能直接已结束
-                    if (await checkTerminal()) return;
+                    eventStream = session.events();
+                    if (abortSignal) {
+                        abortSignal.addEventListener("abort", onParentAbort, { once: true });
+                        removeAbortListener = () => abortSignal.removeEventListener("abort", onParentAbort);
+                        if (abortSignal.aborted) onParentAbort();
+                    }
 
-                    const eventStream = session.events();
-                    unsubscribeStream = () => {
-                        try {
-                            eventStream.close();
-                        } catch {
-                            // ignore
-                        }
-                    };
+                    if (await checkTerminal()) return;
+                    if (abortRequested) await requestInterrupt();
 
                     for await (const _ of eventStream) {
                         if (settled) break;
                         if (await checkTerminal()) break;
+                        if (abortRequested) await requestInterrupt();
                     }
 
-                    // 如果 stream 结束但未 settled，做最后一次检查
                     if (!settled) {
-                        const finalState = await session.read();
-                        const finalStatus = finalState?.runStatus;
-                        if (
-                            finalStatus === "completed" ||
-                            finalStatus === "failed" ||
-                            finalStatus === "cancelled"
-                        ) {
-                            await checkTerminal();
-                        } else {
+                        if (!abortRequested) {
                             finish({
                                 childGoalId,
                                 status: "failed",
                                 reason: "Subagent event stream ended before reaching terminal state",
                             });
+                            return;
+                        }
+
+                        while (!settled) {
+                            if (await checkTerminal()) return;
+                            await requestInterrupt();
+                            if (!settled) await new Promise((resume) => setTimeout(resume, 250));
                         }
                     }
                 } catch (err) {

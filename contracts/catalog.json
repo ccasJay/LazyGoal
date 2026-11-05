@@ -2291,6 +2291,68 @@
             "role": "boundary-root"
         },
         {
+            "key": "tools/src/spawn-subagent.ts#SpawnSubagentToolInput",
+            "declaration": "SpawnSubagentToolInput",
+            "source": {
+                "path": "packages/tools/src/spawn-subagent.ts",
+                "line": 31
+            },
+            "owner": "@lazygoal/tools",
+            "module": "tools",
+            "boundary": "model-tools",
+            "section": "工具输入 TS 契约",
+            "definition": "原生 TS",
+            "definitionKind": "native-ts",
+            "relations": [],
+            "consumers": [
+                "packages/tools/src/spawn-subagent.ts"
+            ],
+            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费。",
+            "protocol": {
+                "identity": {
+                    "state": "declared",
+                    "value": "tool.spawn_subagent.input"
+                },
+                "version": {
+                    "state": "declared",
+                    "value": 1
+                }
+            },
+            "generation": {
+                "state": "enabled",
+                "detail": "由 contracts/catalog.json 生成 Schema、校验器与 ContractBinding；工具注册与 prepare 消费。",
+                "strategy": "typescript-binding",
+                "rootType": "SpawnSubagentToolInput",
+                "declaredTypes": [
+                    "SpawnSubagentToolInput"
+                ],
+                "outputDirectory": "packages/tools/src/generated/spawn-subagent",
+                "artifacts": {
+                    "schemaModule": "schema.ts",
+                    "validator": "validator.mjs",
+                    "validatorTypes": "validator.d.mts",
+                    "manifest": "manifest.json",
+                    "binding": "binding.ts"
+                },
+                "binding": {
+                    "module": "../../../../contract-binding/src/index",
+                    "dataType": "SpawnSubagentToolInput",
+                    "dataTypeModule": "../../spawn-subagent",
+                    "exportName": "spawnSubagentInputBinding",
+                    "names": {
+                        "schema": "spawnSubagentInputSchema",
+                        "metadata": "spawnSubagentInputMetadata",
+                        "validator": "validateSpawnSubagentInput"
+                    }
+                }
+            },
+            "validation": {
+                "state": "runtime-schema",
+                "detail": "生成绑定在 ToolRegistration.prepare 读取；非法已知字段拒绝，未知字段剥离并返回有界诊断。"
+            },
+            "role": "boundary-root"
+        },
+        {
             "key": "benchmarks/alfworld/src/alfworld-tools.ts#AlfworldResetInput",
             "declaration": "AlfworldResetInput",
             "source": {
