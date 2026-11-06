@@ -4,15 +4,15 @@ import type { UiFlow } from "./types";
 const MESSAGE = "Rotate the OAuth client secret before the next deploy.";
 
 /**
- * 从空闲会话发送一条消息，并观察 Run 由命令受理推进到事件提交的终态。
+ * 从空闲会话发送一条消息，并等待 Run 2 的助手回复提交。
  *
  * @remarks
- * 场景在受理时只提交到 `running`，终态延后通过 `state_committed` 推送。因此最后
- * 一步的 `Run finished` 只能由 SSE 失效后重新读取得到，不能由提交后的同步刷新得到。
+ * 受理时场景先提交用户消息和 `running` 状态；Run 完成后，`state_committed` 触发活动与
+ * 消息重读。继续执行的 Run 内联呈现，因此流程断言持久化助手正文，而非 Run 摘要。
  */
 export const sendMessageFlow: UiFlow = {
   id: "send-message",
-  description: "Send one message and observe the command plus the event-driven Run terminal state",
+  description: "Send one message and observe its persisted assistant response",
   view: "session",
   goalId: "goal-session-command",
   scenario: sessionCommandScenario,
@@ -40,8 +40,8 @@ export const sendMessageFlow: UiFlow = {
     },
     {
       action: "expect",
-      selector: "[data-run-id='run-command-2'] .timeline-run-result",
-      text: "Run finished",
+      selector: "[data-run-id='run-command-2'].message.assistant:not(.transient-message) .message-body",
+      text: "The deployment checklist is ready for review.",
       timeoutMs: 8000,
     },
     { action: "expectControl", kind: "session_input", inputKind: "message", count: 1 },

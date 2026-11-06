@@ -435,9 +435,9 @@ function schedule(delayMs: number, action: () => void): void {
  * 接受一条消息并完整播放一次 Run 工作流的 Session 场景。
  *
  * @remarks
- * 命令受理时立即提交用户消息并进入 `running`，随后按时间推进公开事件：
- * 模型开始、正文分块、工具开始与结束，最后提交助手消息并推送终态。运行期间
- * 页面应持续显示进度与临时正文，终态必须由事件驱动的定向重读到达。
+ * 命令受理时立即提交用户消息、进入 `running` 并推送 `state_committed`，让页面读取当前状态。
+ * 随后按时间推进公开事件：模型开始、正文分块、工具开始与结束，最后提交助手消息并推送终态。
+ * 运行期间页面应持续显示进度与临时正文，提交内容和终态由事件驱动的定向重读到达。
  */
 export const sessionCommandScenario: FixtureScenario = {
   ...scenarioFor(null, "completed", false),
@@ -451,6 +451,13 @@ export const sessionCommandScenario: FixtureScenario = {
 
     const content = command.input.content;
     context.updateScenario(scenarioFor(content, "running", false));
+    context.pushEvent(GOAL_ID, {
+      type: "state_committed",
+      goalId: GOAL_ID,
+      runId: SENT_RUN_ID,
+      commitRevision: 2,
+      changed: ["session", "activity"],
+    });
 
     schedule(MODEL_START_MS, () => {
       pushActivity(context, {

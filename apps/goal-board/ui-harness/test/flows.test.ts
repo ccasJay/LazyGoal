@@ -24,12 +24,13 @@ test("observe flow records frames with evolving page facts", { timeout: 30_000 }
   assert.equal(report.ok, true, report.error ?? "observation failed without an error message");
   assert.ok(report.frames.length >= 5);
   assert.equal(report.frames[0]?.facts.sendLabel, "Type a message to send");
-  assert.ok(report.frames.some((frame) => frame.facts.runStatuses.includes("Running")));
+  assert.ok(report.frames.some((frame) => frame.facts.currentRunStatus === "Running"));
   assert.ok(report.frames.some((frame) => frame.facts.liveResponses.length > 0));
   assert.ok(report.frames.some((frame) => frame.facts.liveResponses.length >= 2));
   assert.ok(report.frames.some((frame) => frame.facts.progressTitles.some((title) => title.includes("Waiting for model response"))));
   assert.ok(report.frames.some((frame) => frame.facts.progressTitles.some((title) => title.includes("shell"))));
-  assert.deepEqual(report.frames.at(-1)?.facts.runStatuses, ["Completed", "Completed"]);
+  assert.equal(report.frames.at(-1)?.facts.currentRunStatus, "Completed");
+  assert.deepEqual(report.frames.at(-1)?.facts.runStatuses, ["Completed"]);
   assert.equal(report.frames.at(-1)?.facts.liveResponses.length, 0);
   assert.ok(report.frames.every((frame) => frame.path.startsWith(outDir)));
 

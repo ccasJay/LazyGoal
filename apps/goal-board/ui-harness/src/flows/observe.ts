@@ -10,6 +10,8 @@ import type { FlowStep, FlowStepResult, UiFlow } from "./types";
 export interface ObservationFrameFacts {
   /** 输入区主按钮的可访问名称。 */
   readonly sendLabel: string | null;
+  /** 当前 Run 状态栏文本；与时间线中显示的历史 Run 摘要分开记录。 */
+  readonly currentRunStatus: string | null;
   /** 所有可见 Run 的状态文本。 */
   readonly runStatuses: readonly string[];
   /** 所有可见 Run 的结果文本。 */
@@ -67,6 +69,7 @@ const FRAME_FACTS_EXPRESSION = `(() => {
   const text = (selector) => document.querySelector(selector)?.textContent?.trim() ?? null;
   return {
     sendLabel: document.querySelector(".composer-actions .send")?.getAttribute("aria-label") ?? null,
+    currentRunStatus: text(".task-state"),
     runStatuses: Array.from(document.querySelectorAll(".timeline-run-status")).map((node) => node.textContent?.trim() ?? ""),
     runResults: Array.from(document.querySelectorAll(".timeline-run-result")).map((node) => node.textContent?.trim() ?? ""),
     messageCount: document.querySelectorAll(".message-content").length,
