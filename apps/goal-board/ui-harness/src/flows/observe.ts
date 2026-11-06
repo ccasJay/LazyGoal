@@ -74,7 +74,7 @@ const FRAME_FACTS_EXPRESSION = `(() => {
     runResults: Array.from(document.querySelectorAll(".timeline-run-result")).map((node) => node.textContent?.trim() ?? ""),
     messageCount: document.querySelectorAll(".message-content").length,
     liveResponses: Array.from(document.querySelectorAll(".transient-message .message-body")).map((node) => node.textContent?.trim() ?? ""),
-    progressTitles: Array.from(document.querySelectorAll(".timeline-step-trigger, .timeline-activity-heading")).map((node) => node.textContent?.trim() ?? ""),
+    progressTitles: Array.from(document.querySelectorAll(".timeline-step-summary, .timeline-step-trigger, .timeline-activity-heading")).map((node) => node.textContent?.trim() ?? ""),
     statusbar: text(".statusbar"),
     errorBanner: text(".command-error") ?? text("[role='alert']"),
   };
