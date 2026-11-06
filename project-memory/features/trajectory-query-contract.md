@@ -19,7 +19,7 @@ authorities: [packages/runtime/notes/overview.md, packages/storage/notes/overvie
 ## Durable Decisions
 
 - D1 — JSONL 仍是唯一事实账本；存储编码 v2 将超过 64 KiB 的 payload 外置为内容寻址 Blob（`<goal>/blobs/<sha256>.json`），超过 64 MiB 滚动到 `<run>.partN.jsonl`，`read()` 重新物化完整领域事件。 [S1, S5, S11]
-- D2 — 每个 Run 的 `<run>.index.db` 是只保存查询元数据的 SQLite 索引：sequence、JSONL 字节位置、eventId、时间、类型、执行单元、Action／ModelCall／Program 关联、有界预览与 payload 字节／引用；使用 DELETE journal 与 `PRAGMA user_version = 1`。索引可由 JSONL 完整重建，索引超前时重建、落后时从最后已验证位置补齐、缺失或损坏时删除重建，索引永不领先事实。 [S1, S2, S5, S6, S7, S12, S17]
+- D2 — 每个 Run 的 `<run>.index.db` 是只保存查询元数据的 SQLite 索引：sequence、JSONL 字节位置、eventId、时间、类型、执行单元、Action／ModelCall／Program 关联、有界预览与 payload 字节／引用；使用 DELETE journal 与 `PRAGMA user_version = 1`。索引可由 JSONL 完整重建，索引超前时重建、落后时从最后已验证位置补齐、缺失或损坏时删除重建，索引永不领先事实。索引行按 Run 缓冲，在 128 行、提交边界或任何索引读取前合并为一个事务；缓冲未写入时索引只是滞后，读取必须先刷新，刷新失败由既有 repair/rebuild 从 JSONL 恢复。 [S1, S2, S5, S6, S7, S12, S17, S21]
 - D3 — 所有浏览器轨迹查询必须携带首次读取的 `committedThroughSequence`；分页游标是不透明字符串并绑定 Run、水位与过滤条件，跨水位或跨过滤复用返回协议错误；列表、详情、执行单元与时间线都在同一水位内解释。 [S1, S4, S5, S9, S18, S19]
 - D4 — 执行单元查询拆分为「定位」与「精确查询」：`locateExecutionUnit` 只返回首条已提交序号；`queryExecutionUnitPage` 只返回显式携带该 `executionUnitId` 的事件，并用独立的 `contextBefore`／`contextAfter` 标注上下文；未归属事件不得按时间范围或相邻关系推断归属。 [S1, S3, S4, S5, S9, S18]
 - D5 — Action、ModelCall 与 Program 关联由索引元数据提供，只取事件自身事实；索引只提供定位能力，Snapshot 水位仍是最终可见性决定权，部分提交的关联不得泄露水位之后的事件。 [S1, S4, S5, S6, S9, S18]
@@ -66,3 +66,4 @@ authorities: [packages/runtime/notes/overview.md, packages/storage/notes/overvie
 - S18: `packages/runtime/src/trajectory-query.ts`
 - S19: `packages/browser/test/browser-trajectory-pagination.test.ts`
 - S20: `packages/storage/test/model-input-prune.test.ts`
+- S21: `specs/long-session-io-performance/spec.md`
