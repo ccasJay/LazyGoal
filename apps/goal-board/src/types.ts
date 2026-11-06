@@ -345,6 +345,7 @@ export function errorMessage(error: unknown): string {
       case "model_restore_failed": return "The saved model binding could not be restored. This Run was not advanced.";
       case "invalid_model_selection": return "Choose a valid model from this list.";
       case "goal_not_found": return "This Goal is no longer available in the current workspace.";
+      case "activity_read_failed": return "This Goal's saved Activity could not be read. Its local history may be from an incompatible version.";
       case "stale_run":
       case "stale_request":
       case "action_not_waiting":

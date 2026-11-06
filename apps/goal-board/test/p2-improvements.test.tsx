@@ -201,7 +201,6 @@ test("SessionTimeline 保留真实来源身份并按交错顺序渲染消息、�
   const positions = orderedIds.map((id) => html.indexOf(`data-item-id="${id}"`));
   assert.ok(positions.every((position) => position >= 0));
   assert.deepEqual(positions, [...positions].sort((left, right) => left - right));
-  assert.match(html, /Earlier activity/);
   assert.match(html, /Review the saved evidence/);
   assert.match(html, /Progress/);
   assert.match(html, /Run completed/);

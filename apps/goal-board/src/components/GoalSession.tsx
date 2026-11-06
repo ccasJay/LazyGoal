@@ -1,24 +1,18 @@
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "./ui/collapsible";
-import { Checkbox } from "./ui/checkbox";
-import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
-import { Label } from "./ui/label";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Sheet, SheetContent, SheetTitle } from "./ui/sheet";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { captureAnchor, resolveAnchorScrollTop, FOLLOW_THRESHOLD_PX, type ActivityAnchor } from "../activity-page-window";
-import type { ReactNode } from "react";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
 import {
-  Activity,
   AlertCircle,
   ArrowDown,
   Check,
   ChevronRight,
   CircleHelp,
   CornerUpRight,
-  LayoutDashboard,
-  ListTree,
   Trash2,
   X,
 } from "lucide-react";
@@ -27,7 +21,6 @@ import { GoalDetails, WaitingInteraction } from "../panels";
 import type { AcceptedDecisionSummary } from "../interaction-panel";
 import brandMark from "../assets/lazygoal/mark-on-light.svg?no-inline";
 import { Trajectory } from "../trajectory";
-import { sessionStatus, sessionStatusTone } from "../types";
 import { selectUnverifiedWorkbenchActions, selectWorkbenchActions, workbenchReasonText } from "../workbench-actions";
 import { selectConnectionPresentation } from "../connection-presentation";
 import { useGoalSessionContext } from "../context/GoalSessionContext";
@@ -40,17 +33,13 @@ import { SessionTimeline } from "./SessionTimeline";
 import { collectActivityProjections } from "../collect-activity-projections";
 import type { ActivityGroup } from "../activity-projector";
 
-function SessionTabIcon({ tab }: { tab: string }) {
-  if (tab === "Board") return <LayoutDashboard size={16} aria-hidden="true" />;
-  if (tab === "Trajectory") return <ListTree size={16} aria-hidden="true" />;
-  return <Activity size={16} aria-hidden="true" />;
-}
-
 function timelineOffsets(element: HTMLElement): ReadonlyMap<string, number> {
   const top = element.getBoundingClientRect().top;
   return new Map([...element.querySelectorAll<HTMLElement>("[data-item-id]")].map(item =>
     [item.dataset.itemId!, item.getBoundingClientRect().top - top + element.scrollTop]));
 }
+
+const failedRunContinuationDraft = "Please continue the original task. Review the previous failure and proceed with the available context.";
 
 export function GoalSession({
   activeGoal,
@@ -90,14 +79,14 @@ export function GoalSession({
     loadFullSession,
     sessionLoading,
     sessionError,
+    activityError,
+    loadingEarlier,
     sessionTab,
     setSessionTab,
     trajectoryTarget,
     setTrajectoryTarget,
     follow,
     setFollow,
-    showTools,
-    setShowTools,
     goalInfoOpen,
     setGoalInfoOpen,
     toolGrants,
@@ -174,6 +163,15 @@ export function GoalSession({
   const queueRevision = session?.queue?.revision ?? 0;
   const [draftNoticeDismissed, setDraftNoticeDismissed] = useState(false);
   const [decisionSummaries, setDecisionSummaries] = useState<readonly AcceptedDecisionSummary[]>([]);
+  const [continuationDraftState, setContinuationDraftState] = useState({ key: "", value: "" });
+  const continuationDraftKey = session === null ? "" : `${session.goalId}:${session.currentRunId}`;
+  const continuationDraft = continuationDraftState.key === continuationDraftKey ? continuationDraftState.value : "";
+  const updateContinuationDraft: Dispatch<SetStateAction<string>> = (update) => {
+    setContinuationDraftState((current) => {
+      const currentValue = current.key === continuationDraftKey ? current.value : "";
+      return { key: continuationDraftKey, value: typeof update === "function" ? update(currentValue) : update };
+    });
+  };
 
   const projectionGoalKey = session?.goalId ?? null;
   useEffect(() => {
@@ -214,7 +212,6 @@ export function GoalSession({
     [activityPage, session, activityGroups, livePreviews, candidatePresentation],
   );
 
-  const pageMessageCount = activityPage?.items.filter((item) => item.type === "message").length ?? 0;
 
   useLayoutEffect(() => {
     const element = timeline.current;
@@ -249,10 +246,6 @@ export function GoalSession({
       });
     }
   }, [activityPage?.items, currentRun?.runId, livePreviews, candidatePresentation, follow]);
-
-  const sessionTabs = session?.goalPlan === undefined
-    ? (["Board", "Activity", "Trajectory"] as const)
-    : (["Board", "Activity", "Plan", "Trajectory"] as const);
 
   return (
     <section className={`session${draftSessionOpen || sessionTab === "Activity" ? " session-activity" : ""}`}>
@@ -297,14 +290,6 @@ export function GoalSession({
             <p>{sessionError}</p>
             <Button variant="ghost" size="sm" className="secondary" onClick={() => void refreshSelectedSession()}>Reload session</Button>
           </div>}
-          <div className="session-tabs">
-            <Tabs value={sessionTab} onValueChange={value => { setTrajectoryTarget(null); setSessionTab(value as typeof sessionTab); }}><TabsList className="session-tab-buttons">
-              <TabsTrigger value="Activity" aria-label="Activity" title="Activity"><SessionTabIcon tab="Activity" /></TabsTrigger>
-            </TabsList></Tabs>
-            <span className="stream-state">
-              <span className="dot" />Local Runtime
-            </span>
-          </div>
           <div className="timeline draft-timeline">
             <div className="timeline-date">
               <span />No saved messages<span />
@@ -407,30 +392,6 @@ export function GoalSession({
             <Button variant="ghost" size="sm" className="secondary" onClick={() => void refreshSelectedSession()}>Reload session</Button>
           </div>}
           {session.nextRunMode === "plan" && <div className="session-intro">Next Run: Plan Mode</div>}
-          <div className="session-tabs">
-            <Tabs value={sessionTab} onValueChange={value => { setTrajectoryTarget(null); setSessionTab(value as typeof sessionTab); }}><TabsList className="session-tab-buttons">
-              {sessionTabs.map((tab) => (
-                <TabsTrigger value={tab} onClick={() => { setTrajectoryTarget(null); setSessionTab(tab); }}
-                  key={tab}
-                  aria-label={tab}
-                  title={tab}
-                  aria-pressed={sessionTab === tab}
-                >
-                  <SessionTabIcon tab={tab} />
-                </TabsTrigger>
-              ))}
-            </TabsList></Tabs>
-            <div className="session-state">
-              <span className={`task-state ${sessionStatusTone(session)}`}>
-                <span className="status-dot" />
-                {sessionStatus(session)}
-              </span>
-              <span className={`stream-state ${connection.state === "linked" ? "connected" : ""}`}>
-                <span className="dot" />
-                {connection.label}
-              </span>
-            </div>
-          </div>
           {connection.isOutdated && (
             <div className="state-stale" role="alert">
               The live connection dropped. The last confirmed content is shown, but it may be outdated. New Steer
@@ -474,20 +435,6 @@ export function GoalSession({
             )
           ) : (
             <>
-              <div className="activity-filter">
-                <div className="activity-filter-content">
-                  <Label htmlFor="filter-execution-steps">
-                    <Checkbox
-                      id="filter-execution-steps"
-                      name="showTools"
-                      checked={showTools}
-                      onCheckedChange={checked => setShowTools(checked === true)}
-                    />
-                    Execution details
-                  </Label>
-                  <span>{pageMessageCount} {pageMessageCount === 1 ? "message" : "messages"} in this page</span>
-                </div>
-              </div>
               <SessionBoundary label="Activity view" onReload={() => void refreshSelectedSession()}>
                 <div className="timeline-region">
                   {isWaitingApprovalOrInput && !follow && (
@@ -526,7 +473,10 @@ export function GoalSession({
                       programmaticTop.current = undefined;
                       const following = element.scrollHeight - element.scrollTop - element.clientHeight < FOLLOW_THRESHOLD_PX;
                       setFollow(following);
-                      if (!following) readingAnchor.current = captureAnchor({ offsets: timelineOffsets(element), scrollTop: element.scrollTop });
+                      if (!following) {
+                        readingAnchor.current = captureAnchor({ offsets: timelineOffsets(element), scrollTop: element.scrollTop });
+                        if (element.scrollTop <= 80 && activityPage?.range.olderAvailable === true) void loadEarlierActivity();
+                      }
                     }}
                     onClickCapture={event => {
                       if (event.target instanceof Element && event.target.closest("button[aria-expanded]")) {
@@ -537,14 +487,25 @@ export function GoalSession({
                     }}
                   >
                     {activityPage === null ? (
-                      <div className="session-empty"><p>Loading Activity…</p></div>
+                      activityError === null ? (
+                        <div className="session-empty"><p>Loading Activity…</p></div>
+                      ) : (
+                        <div className="session-empty" role="alert">
+                          <CircleHelp size={24} />
+                          <p>{activityError}</p>
+                          <Button variant="ghost" size="sm" className="secondary" onClick={() => void refreshSelectedSession()}>
+                            Reload activity
+                          </Button>
+                        </div>
+                      )
                     ) : (
                       <SessionTimeline
                         projection={timelineProjection}
                         currentRunId={session.currentRunId}
                         runStatus={session.runStatus}
                         olderAvailable={activityPage.range.olderAvailable}
-                        showExecutionFacts={showTools}
+                        loadingEarlier={loadingEarlier}
+                        showExecutionFacts={false}
                         liveActivity={liveActivity}
                         progressEntries={progressEntries}
                         streamConnected={connection.allowsNewDecisions}
@@ -554,11 +515,7 @@ export function GoalSession({
                         }}
                         onLoadEarlier={() => void loadEarlierActivity()}
                         onLoadNewer={() => void loadNewerActivity()}
-                        onContinueFailed={session.runStatus === "failed" ? () => void onSubmitMessage("Please continue the original task. Review the previous failure and proceed with the available context.") : undefined}
-                        continueDisabled={!workbench.send_message.available}
-                        olderItemCount={activityWindow.page?.gaps
-                          .filter((gap) => gap.direction === "older")
-                          .reduce((total, gap) => total + gap.itemCount, 0) ?? 0}
+                        onPrepareContinuation={session.runStatus === "failed" ? () => updateContinuationDraft(failedRunContinuationDraft) : undefined}
                         newerItemCount={activityWindow.page?.gaps
                           .filter((gap) => gap.direction === "newer")
                           .reduce((total, gap) => total + gap.itemCount, 0) ?? 0}
@@ -804,6 +761,8 @@ export function GoalSession({
                 session.pendingAction === undefined && (
                   <MessageComposer
                     key={`${session.currentRunId}:continue`}
+                    draftValue={continuationDraft}
+                    onDraftChange={updateContinuationDraft}
                     primaryActions={workbench}
                     showHint={false}
                     busy={commandBusy || (!draftSessionOpen && sessionError !== null)}

@@ -17,7 +17,7 @@
 | Wire DTO 消费 | 页面消费 web-contracts 的 DTO 与边界读取器；在线模型列表由生成绑定校验并剥离未知字段，其它响应继续使用 guard。 | [Goal Board](../README.md) | [模块说明](./overview.md)、[Web 传输契约](../../../packages/web-contracts/README.md)、[Provider 模型 API](../src/api.ts) |
 | Session view | 首屏并行读取不含历史的 Goal 状态与固定水位 Activity 页；完整会话按需用于 Plan、Trajectory 和 Goal details。 | [Goal Board](../README.md) | [useGoalSession](../src/hooks/useGoalSession.ts)、[模块说明](./overview.md) |
 | SessionTimeline | 按服务端 Run 内位置合并稳定来源身份，单列呈现消息、候选预览、活动事实、Run 边界与终态；候选按 `previewId` 在原展示身份转为正式消息。 | [Goal Board](../README.md) | [投影](../src/session-timeline.ts)、[视图](../src/components/SessionTimeline.tsx) |
-| 固定 Activity 页 | 有界正文／安全活动读取带固定水位和 cursor；当前页面提示更早来源存在，但不自动翻页。 | [浏览器服务边界](../../../packages/browser/README.md) | [Activity API](../../../packages/browser/src/browser-goal-routes.ts)、[页面说明](./overview.md) |
+| 固定 Activity 页 | 有界正文／安全活动读取带固定水位和 cursor；打开后自动预取更早页（300 项预算），超出预算后滚动到顶部继续读取。 | [浏览器服务边界](../../../packages/browser/README.md) | [Activity API](../../../packages/browser/src/browser-goal-routes.ts)、[页面说明](./overview.md) |
 | 输出速率展示 | 显示已结束模型调用的端到端输出速率；在调用完成事实更新后刷新。 | [Goal Board](../README.md) | [模块说明](./overview.md) |
 | 交互区域 | 按已提交等待种类分派的统一决定区：问答导航与审阅、任务范围审阅、工具能力与期限、未知结果恢复；替换旧三套表单。 | [Goal Board](../README.md) | [InteractionRegion](../src/interaction-panel.tsx) |
 | 交互提交状态 | 从控制意图派生的展示阶段（编辑、提交中、待核验、已受理、失效）；冻结身份只用于核验与原身份重试，不再维护第二份状态机。 | [Goal Board](../README.md) | [interaction-state.ts](../src/interaction-state.ts)、[控制 reducer](../src/control/reducer.ts) |
@@ -51,7 +51,7 @@
 | RunControlContext | 隔离指令分发、客户端排队有限状态机与原子单飞防重锁的局部上下文。 | [Goal Board](../README.md) | [模块说明](./overview.md) |
 | 已受理队列投影 | Runtime Snapshot 中的待处理普通消息、队列修订与暂停原因；页面只读取该投影，不再镜像本地任务或由前端 effect 启动后继 Run。 | [Goal Board](../README.md) | [Session Projection](../../../packages/browser/src/browser-projection.ts) |
 | 本地草稿 | 仅保存在输入框的未提交文本；提交中、拒绝与结果不明时保留，受理成功后由服务端收据接管。 | [Goal Board](../README.md) | [MessageComposer](../src/components/MessageComposer.tsx) |
-| 会话渐进加载 | 固定水位 Activity 页支持双向翻页：更早与更新的页按稳定身份并入当前窗口，缺口明确提示；历史页缓存至多三页，正文分段至多三段；阅读锚点按可见项身份恢复。 | [Goal Board](../README.md) | [Activity 窗口](../src/activity-page-window.ts)、[SessionTimeline](../src/components/SessionTimeline.tsx) |
+| 会话渐进加载 | 固定水位 Activity 页支持双向翻页：更早与更新的页按稳定身份并入当前窗口；打开时自动预取更早页至 300 项预算，超出后在滚动到顶部时续取，加载显示只读提示；历史页缓存至多三页，正文分段至多三段；阅读锚点按可见项身份恢复。 | [Goal Board](../README.md) | [Activity 窗口](../src/activity-page-window.ts)、[SessionTimeline](../src/components/SessionTimeline.tsx) |
 | 会话输出消费 | 页面消费同一条 Goal SSE：保存不明的候选保持待核验；正式 Activity 以同一展示 key 替换候选；确定作废后立即移除临时正文并保留有限身份标记以忽略迟到片段。 | [Goal Board](../README.md) | [会话输出归约](../src/session-output-consumer.ts) |
 | 运行中输入与主按钮 | Enter 排队普通消息、Shift+Enter 换行；唯一主按钮在有正文时排队发送，运行中空输入受理 Interrupt 并暂停当前 Run，可恢复空输入执行 Resume。不承担停止或恢复时，空输入禁用发送并提示输入正文。动态运行提示位于 Activity 时间线；暂停后由可恢复 Run 状态提供 Resume。 | [Goal Board](../README.md) | [输入区](../src/components/MessageComposer.tsx)、[Activity 时间线](../src/components/SessionTimeline.tsx)、[运行命令](../src/hooks/useRunCommands.ts) |
 | 可折叠队列状态框 | 汇总 Runtime 队列与待应用 Steer；每条普通消息可单独删除，或按观察到的队列修订原子转为当前 Run 的 Steer。暂停队列显式继续。 | [Goal Board](../README.md) | [会话视图](../src/components/GoalSession.tsx)、[队列控制](../src/hooks/useQueue.ts) |

@@ -49,6 +49,10 @@ export interface GoalSessionContextValue {
   /** 初始窄状态与 Activity 页是否正在读取。 */
   readonly sessionLoading: boolean;
   readonly sessionError: string | null;
+  /** Activity 固定窗口读取失败的原因；不影响已读取的窄会话状态。 */
+  readonly activityError: string | null;
+  /** 是否正在自动读取更早的 Activity 页；只读，不阻断已展示内容。 */
+  readonly loadingEarlier: boolean;
   readonly workspaceContext: BrowserWorkspaceContext | null;
   readonly workspaceContextError: boolean;
   readonly sessionTab: SessionTab;
@@ -57,8 +61,6 @@ export interface GoalSessionContextValue {
   readonly setTrajectoryTarget: (target: { runId: string; executionUnitId: string; nonce: number } | null) => void;
   readonly follow: boolean;
   readonly setFollow: (follow: boolean | ((current: boolean) => boolean)) => void;
-  readonly showTools: boolean;
-  readonly setShowTools: (show: boolean | ((current: boolean) => boolean)) => void;
   readonly goalInfoOpen: boolean;
   readonly setGoalInfoOpen: (open: boolean | ((current: boolean) => boolean)) => void;
   readonly toolGrants: readonly BrowserToolGrantSummary[];

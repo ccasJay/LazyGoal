@@ -11,6 +11,8 @@ import type {
 import { browserApi } from "../api";
 import { errorMessage } from "../types";
 import {
+  ACTIVITY_PREFETCH_ITEM_BUDGET,
+  ACTIVITY_PREFETCH_MAX_PAGES,
   applyActivityPage,
   applyActivityPageFailure,
   appendActivityPage,
@@ -57,6 +59,9 @@ export function useGoalSession({
   const [fullSessionError, setFullSessionError] = useState<string | null>(null);
   const [sessionLoading, setSessionLoading] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
+  const [activityError, setActivityError] = useState<string | null>(null);
+  const [loadingEarlier, setLoadingEarlier] = useState(false);
+  const loadingEarlierRef = useRef(false);
 
   const [draftSessionOpen, setDraftSessionOpen] = useState(false);
   const [draftPlanMode, setDraftPlanMode] = useState(false);
@@ -147,24 +152,34 @@ export function useGoalSession({
     const hadVisibleSession = latestSession.current !== null;
     if (!hadVisibleSession) setSessionLoading(true);
     try {
-      const [next, nextActivity] = await Promise.all([
+      const [stateResult, activityResult] = await Promise.allSettled([
         browserApi.readGoalSessionState(goalId),
         browserApi.readGoalActivity(goalId),
       ]);
       if (selectedGoalIdRef.current !== goalId) return;
-      const previousPage = latestActivityPage.current;
-      const previousMessageIds = new Set(previousPage?.items
-        .filter((item) => item.type === "message")
-        .map((item) => item.messageId) ?? []);
-      latestSession.current = next.goal;
-      latestActivityPage.current = nextActivity;
-      setSession(next.goal);
-      setSessionState(next.session ?? null);
-      setActivityPage(nextActivity);
-      setActivityWindow((current) => mergeLatestPage(current, nextActivity));
-      setSessionError(null);
-      const hasNewSavedMessage = nextActivity.items.some((item) => item.type === "message" && !previousMessageIds.has(item.messageId));
-      if (hadVisibleSession && hasNewSavedMessage) onClearLiveTextRef.current();
+      if (stateResult.status === "fulfilled") {
+        latestSession.current = stateResult.value.goal;
+        setSession(stateResult.value.goal);
+        setSessionState(stateResult.value.session ?? null);
+        setSessionError(null);
+      } else {
+        setSessionError(errorMessage(stateResult.reason));
+      }
+      if (activityResult.status === "fulfilled") {
+        const nextActivity = activityResult.value;
+        const previousPage = latestActivityPage.current;
+        const previousMessageIds = new Set(previousPage?.items
+          .filter((item) => item.type === "message")
+          .map((item) => item.messageId) ?? []);
+        latestActivityPage.current = nextActivity;
+        setActivityPage(nextActivity);
+        setActivityWindow((current) => mergeLatestPage(current, nextActivity));
+        setActivityError(null);
+        const hasNewSavedMessage = nextActivity.items.some((item) => item.type === "message" && !previousMessageIds.has(item.messageId));
+        if (hadVisibleSession && hasNewSavedMessage) onClearLiveTextRef.current();
+      } else {
+        setActivityError(errorMessage(activityResult.reason));
+      }
       await onGoalsRefreshRef.current();
       if (fullSessionRequested.current) await loadFullSession();
     } catch (error) {
@@ -238,10 +253,11 @@ export function useGoalSession({
       latestActivityPage.current = nextActivity;
       setActivityPage(nextActivity);
       setActivityWindow((current) => mergeLatestPage(current, nextActivity));
+      setActivityError(null);
       const hasNewSavedMessage = nextActivity.items.some((item) => item.type === "message" && !previousMessageIds.has(item.messageId));
       if (previousPage !== null && hasNewSavedMessage) onClearLiveTextRef.current();
-    } catch {
-      // 读取失败保留当前窗口；后续提交边界或故障重同步会再读取。
+    } catch (error) {
+      setActivityError(errorMessage(error));
     }
   }, [selectedGoalId]);
 
@@ -254,22 +270,52 @@ export function useGoalSession({
   }, [selectedGoalId]);
 
   /**
+   * 连续读取更早的 Activity 页并入当前窗口。
+   *
+   * @remarks
+   * 只读历史：读取不恢复执行、不消费队列，也不提交任何输入。调用方给出起始 cursor、
+   * 项数预算与页数上限；读取失败保留当前窗口，不阻断已展示内容。
+   */
+  const loadEarlierPages = useCallback(async (
+    goalId: string,
+    startCursor: string | undefined,
+    budgetItems: number,
+    maxPages: number,
+  ): Promise<void> => {
+    if (startCursor === undefined || loadingEarlierRef.current) return;
+    loadingEarlierRef.current = true;
+    setLoadingEarlier(true);
+    try {
+      let cursor: string | undefined = startCursor;
+      let items = 0;
+      let pages = 0;
+      while (cursor !== undefined && items < budgetItems && pages < maxPages) {
+        const page = await browserApi.readGoalActivity(goalId, { before: cursor });
+        if (selectedGoalIdRef.current !== goalId) return;
+        setActivityWindow((current) => prependActivityPage(current, page));
+        items += page.items.length;
+        pages += 1;
+        cursor = page.beforeCursor;
+      }
+    } catch {
+      // 保留当前窗口；用户继续上滑时仍可再次尝试。
+    } finally {
+      loadingEarlierRef.current = false;
+      if (selectedGoalIdRef.current === goalId) setLoadingEarlier(false);
+    }
+  }, []);
+
+  /**
    * 读取更早一页并并入当前窗口。
    *
    * @remarks 只读历史：读取不恢复执行、不消费队列，也不提交任何输入。失败保留当前窗口。
    */
   const loadEarlierActivity = useCallback(async (): Promise<void> => {
+    const goalId = selectedGoalId;
     const cursor = activityWindow.page?.beforeCursor;
-    if (cursor === undefined) return;
-    try {
-      const page = await readActivityWindow({ before: cursor });
-      if (page === undefined) return;
-      setActivityWindow((current) => prependActivityPage(current, page));
-      setActivityPage((current) => (current === null ? page : current));
-    } catch (error) {
-      setActivityWindow((current) => applyActivityPageFailure(current, { kind: "failed", message: errorMessage(error) }));
-    }
-  }, [activityWindow.page, readActivityWindow]);
+    if (goalId === null || cursor === undefined) return;
+    await loadEarlierPages(goalId, cursor, Number.MAX_SAFE_INTEGER, 1);
+  }, [activityWindow.page, loadEarlierPages, selectedGoalId]);
 
   /**
    * 读取更新一页并并入当前窗口。
@@ -318,6 +364,8 @@ export function useGoalSession({
       setFullSessionLoading(false);
       setFullSessionError(null);
       setSessionLoading(false);
+      setActivityError(null);
+      setLoadingEarlier(false);
       if (browserApi.hasAccessToken) setSessionError(null);
       return;
     }
@@ -335,19 +383,16 @@ export function useGoalSession({
     setFullSessionError(null);
     setSessionLoading(true);
     setSessionError(null);
+    setActivityError(null);
+    setLoadingEarlier(false);
 
-    void Promise.all([
-      browserApi.readGoalSessionState(selectedGoalId, controller.signal),
-      browserApi.readGoalActivity(selectedGoalId, {}, controller.signal),
-    ])
-      .then(([next, nextActivity]) => {
+    void browserApi.readGoalSessionState(selectedGoalId, controller.signal)
+      .then((next) => {
         if (!active) return;
         latestSession.current = next.goal;
-        latestActivityPage.current = nextActivity;
         setSession(next.goal);
         setSessionState(next.session ?? null);
-        setActivityPage(nextActivity);
-        setActivityWindow((current) => applyActivityPage(current, nextActivity));
+        setSessionError(null);
       })
       .catch((error: unknown) => {
         if (active && !controller.signal.aborted) setSessionError(errorMessage(error));
@@ -356,11 +401,29 @@ export function useGoalSession({
         if (active) setSessionLoading(false);
       });
 
+    void browserApi.readGoalActivity(selectedGoalId, {}, controller.signal)
+      .then((nextActivity) => {
+        if (!active) return;
+        latestActivityPage.current = nextActivity;
+        setActivityPage(nextActivity);
+        setActivityWindow((current) => applyActivityPage(current, nextActivity));
+        setActivityError(null);
+        void loadEarlierPages(
+          selectedGoalId,
+          nextActivity.beforeCursor,
+          Math.max(0, ACTIVITY_PREFETCH_ITEM_BUDGET - nextActivity.items.length),
+          ACTIVITY_PREFETCH_MAX_PAGES,
+        );
+      })
+      .catch((error: unknown) => {
+        if (active && !controller.signal.aborted) setActivityError(errorMessage(error));
+      });
+
     return () => {
       active = false;
       controller.abort();
     };
-  }, [selectedGoalId]);
+  }, [loadEarlierPages, selectedGoalId]);
 
   return {
     selectedGoalId,
@@ -380,6 +443,8 @@ export function useGoalSession({
     loadFullSession,
     sessionLoading,
     sessionError,
+    activityError,
+    loadingEarlier,
     setSessionError,
     latestSession,
     refreshSelectedSession,

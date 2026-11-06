@@ -18,6 +18,7 @@ import {
 } from "../workspace-preferences";
 import { GoalSession } from "./GoalSession";
 import { GoalSearch } from "./GoalSearch";
+import { SessionStatus, SessionViewTabs } from "./SessionToolbar";
 import { ModelPicker } from "./ModelPicker";
 import { SettingsPage } from "./SettingsPage";
 import { SessionBoundary } from "./error-boundary";
@@ -222,14 +223,16 @@ export function WorkspaceShell() {
             )}
             <div className="workspace-canvas">
               <div className="main project-view">
-                <header className="topbar">
+                <header className={`topbar${app.sessionVisible ? " session-topbar" : ""}`}>
                   <div className="topbar-identity">
                     <Button variant="ghost" size="sm" ref={sidebarToggle} className="icon workspace-toggle" aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} title={collapsed ? "Show sidebar" : "Hide sidebar"} aria-expanded={!collapsed} aria-controls="workspace-navigation" onClick={() => setCollapsed(value => !value)}>
                       {collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
                     </Button>
-                    {app.sessionVisible ? <Breadcrumb><BreadcrumbList><BreadcrumbItem><Button variant="ghost" size="sm" onClick={app.closeSession}>Goals</Button></BreadcrumbItem><BreadcrumbSeparator /><BreadcrumbItem><BreadcrumbPage className="breadcrumb-current truncate">{app.activeGoal?.intent ?? "New goal"}</BreadcrumbPage></BreadcrumbItem></BreadcrumbList></Breadcrumb> : <h1>Goals</h1>}
+                    {app.sessionVisible ? <Breadcrumb className="breadcrumb"><BreadcrumbList><BreadcrumbItem><Button variant="ghost" size="sm" onClick={app.closeSession}>Goals</Button></BreadcrumbItem><BreadcrumbSeparator /><BreadcrumbItem><BreadcrumbPage className="breadcrumb-current truncate">{app.activeGoal?.intent ?? "New goal"}</BreadcrumbPage></BreadcrumbItem></BreadcrumbList></Breadcrumb> : <h1>Goals</h1>}
+                    {app.sessionVisible && <SessionViewTabs />}
                   </div>
                   <div className="header-actions">
+                    {!settingsOpen && app.sessionVisible && <SessionStatus />}
                     {!settingsOpen && app.sessionVisible && <WorkspaceContext context={app.workspaceContext} error={app.sessionContextValue.workspaceContextError} />}
                     {!settingsOpen && app.isCurrentGoalSelected && <Button variant="ghost" size="sm" className="icon goal-info-toggle" aria-label="Goal information and permissions" title="Goal information and permissions" onClick={() => app.setGoalInfoOpen(true)}><PanelRight size={17} aria-hidden="true" /></Button>}
                     {!settingsOpen && app.sessionVisible && <Button variant="ghost" size="sm" className="icon" title="Back to goals" aria-label="Close session" onClick={app.closeSession}><X size={17} /></Button>}

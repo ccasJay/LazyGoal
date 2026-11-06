@@ -29,9 +29,10 @@ function stage(eventType: string, sequence: number): SessionTimelineEntry {
     ...(eventType === "run_stage_declared" ? { stageTarget: "Verify the implementation" } : {}) };
 }
 
-function render(items: readonly SessionTimelineEntry[], options: { showExecutionFacts?: boolean; running?: boolean; waiting?: boolean; olderAvailable?: boolean; newerItemCount?: number; stages?: SessionTimelineProjection["stages"]; actionGroups?: SessionTimelineProjection["actionGroups"] } = {}) {
+function render(items: readonly SessionTimelineEntry[], options: { showExecutionFacts?: boolean; running?: boolean; waiting?: boolean; olderAvailable?: boolean; loadingEarlier?: boolean; newerItemCount?: number; stages?: SessionTimelineProjection["stages"]; actionGroups?: SessionTimelineProjection["actionGroups"] } = {}) {
   return renderToStaticMarkup(<SessionTimeline projection={{ items, stages: options.stages ?? [], actionGroups: options.actionGroups ?? [], currentPlanRoute: undefined }}
     currentRunId="run-1" runStatus={options.waiting ? "waiting" : options.running ? "running" : "completed"} olderAvailable={options.olderAvailable ?? false}
+    loadingEarlier={options.loadingEarlier ?? false}
     showExecutionFacts={options.showExecutionFacts ?? true} liveActivity={null} streamConnected brandMark="/logo.svg"
     onLoadEarlier={options.olderAvailable ? () => {} : undefined} newerItemCount={options.newerItemCount} />);
 }
@@ -56,14 +57,14 @@ test("a stage identity without a real title stays a flat activity", () => {
   assert.match(html, /Run tests/);
 });
 
-test("saved correction and lookup activities retain collapsed diagnostics after the run ends", () => {
+test("filtered execution details hide model corrections while retaining lookup diagnostics", () => {
   const html = render([
     { kind: "fact", itemId: "correction", runId: "run-1", eventType: "model_repair_feedback_recorded",
       title: "Correcting model output", detail: "Tool input did not satisfy the current contract. Correction 2 of 3.", position: position(3) },
     { kind: "lookup", itemId: "lookup:run-1:missing", runId: "run-1", lookupId: "missing",
       status: "not_found", request: "History search", resultDetail: "No matching history was found.", position: position(4) },
   ], { showExecutionFacts: false });
-  assert.match(html, /Model output correction recorded/);
+  assert.doesNotMatch(html, /Model output correction|Retrying model response/);
   assert.match(html, /Look up history/);
   assert.match(html, /Not found/);
   assert.match(html, /aria-expanded="false"/);
@@ -86,8 +87,8 @@ test("failed current run offers continuation and explains model format failure",
   ];
   const html = renderToStaticMarkup(<SessionTimeline projection={{ items, stages: [], actionGroups: [], currentPlanRoute: undefined }}
     currentRunId="run-1" runStatus="failed" olderAvailable={false} showExecutionFacts={false} liveActivity={null}
-    streamConnected brandMark="/logo.svg" onContinueFailed={() => {}} />);
-  assert.match(html, /Continue Goal/);
+    streamConnected brandMark="/logo.svg" onPrepareContinuation={() => {}} />);
+  assert.match(html, /Draft continuation/);
   assert.match(html, /The model returned an invalid response/);
   assert.match(html, /INVALID_AGENT_DECISION/);
 });
@@ -213,7 +214,7 @@ test("an incomplete stage offers one stage-level load action instead of one per 
     target: "Verify the implementation", firstSequence: 1, completeWithinPage: false };
   const action = { runId: "run-1", actionId: "action-1", firstSequence: 1, lastSequence: 3, completeWithinPage: false };
   const html = render([stage("run_stage_declared", 1), entry], { running: true, olderAvailable: true, stages: [context], actionGroups: [action] });
-  assert.equal((html.match(/Load earlier activity/g) ?? []).length, 2, "one global control and one stage control");
+  assert.equal((html.match(/Load earlier activity/g) ?? []).length, 1, "one stage-level load action remains");
   assert.match(html, /Details not fully loaded/);
 });
 
@@ -447,6 +448,14 @@ test("Run 展开状态未记录时默认展开", () => {
   assert.equal(isRunExpanded(new Map([["run-2", true]]), "run-3"), true);
 });
 
+test("loading earlier history is announced without a load action", () => {
+  const html = render([
+    { kind: "message", itemId: "message:run-1", runId: "run-1", role: "assistant", content: "Current answer", position: position(1) },
+  ], { olderAvailable: true, loadingEarlier: true });
+  assert.match(html, /Loading earlier activity…/);
+  assert.doesNotMatch(html, /Load earlier activity/);
+});
+
 test("非当前 Run 默认展示其执行细节", () => {
   const html = render([
     { kind: "run", itemId: "run:run-2", runId: "run-2", status: "completed",
@@ -456,4 +465,28 @@ test("非当前 Run 默认展示其执行细节", () => {
   ]);
   assert.match(html, /Historical tool started/);
   assert.match(html, /aria-expanded="true"/);
+});
+
+test("a later run that starts with user input shows the input without a run header or duplicate applied event", () => {
+  const runPosition = (runId: string, runOrder: number, sequence: number) => ({
+    runId, runOrder, sequence, itemKind: "fact" as const, order: 0,
+  });
+  const html = renderToStaticMarkup(<SessionTimeline projection={{ items: [
+    { kind: "run", itemId: "run:run-2", runId: "run-2", status: "completed", position: runPosition("run-2", 1, 0) },
+    { kind: "run", itemId: "run:run-3", runId: "run-3", status: "completed", position: runPosition("run-3", 2, 0) },
+    { kind: "fact", itemId: "fact:input-applied", runId: "run-3", eventType: "session_input_applied",
+      title: "Queued input applied", position: runPosition("run-3", 2, 1) },
+    { kind: "message", itemId: "message:user-input", presentationKey: "message:user-input", runId: "run-3",
+      role: "user", content: "What are the optimization options?", position: runPosition("run-3", 2, 2) },
+    { kind: "message", itemId: "message:answer", presentationKey: "message:answer", runId: "run-3",
+      role: "assistant", purpose: "answer", content: "Optimization options", position: runPosition("run-3", 2, 3) },
+  ], stages: [], actionGroups: [], currentPlanRoute: undefined }} currentRunId="run-3" runStatus="completed"
+    olderAvailable={false} showExecutionFacts liveActivity={null} streamConnected brandMark="/logo.svg" />);
+
+  assert.match(html, /<strong>Run 2<\/strong>/);
+  assert.doesNotMatch(html, /<strong>Run 3<\/strong>/);
+  assert.doesNotMatch(html, /Queued input applied/);
+  assert.match(html, /class="message user"[^>]*data-run-id="run-3"/);
+  assert.match(html, /What are the optimization options\?/);
+  assert.match(html, /Optimization options/);
 });

@@ -144,16 +144,32 @@
 .project-view .goal-card h3 { font-size: var(--font-size-base); font-weight: 550; line-height: 1.45; }
 .project-view .goal-card-options { top: 0; right: 0; width: 28px; height: 28px; opacity: 1; }
 .project-view .empty-column { padding: 24px 10px; border-radius: 0; background: transparent; }
-.project-view .session-tabs { height: 38px; margin: 0; padding: 0 10px; background: var(--surface-raised); }
-.project-view .session-tab-buttons { gap: 0; }
-.project-view .session-tab-buttons [role="tab"] { display: grid; place-items: center; width: 40px; padding: 0; border: 0; background: transparent; color: var(--muted); }
-.project-view .session-tab-buttons [role="tab"]:hover:not([data-state="active"]) { background: var(--surface); color: var(--text-secondary); }
-.project-view .session-tab-buttons [role="tab"][data-state="active"] { background: var(--panel); box-shadow: inset 0 -1px var(--accent-ink); color: var(--text); }
-.project-view .session-tab-buttons button { font-size: var(--font-size-xs); padding: 0 11px; }
-.project-view .session-workspace { color: var(--muted); }
-.project-view .topbar .session-workspace { min-width: 0; min-height: 0; max-width: 200px; padding: 0; gap: 6px; }
+.project-view .topbar.session-topbar { height: 44px; }
+.project-view .topbar.session-topbar .topbar-identity { flex: 1 1 auto; gap: 12px; }
+.project-view .topbar.session-topbar .breadcrumb { flex: 0 1 auto; min-width: 0; }
+.project-view .topbar.session-topbar .breadcrumb ol { flex-wrap: nowrap; min-width: 0; }
+.project-view .topbar.session-topbar .breadcrumb li:last-child { min-width: 0; overflow: hidden; }
+.project-view .topbar.session-topbar .breadcrumb-current { max-width: min(26vw, 320px); min-width: 0; }
+.project-view .topbar.session-topbar .header-actions { flex: 0 0 auto; gap: 10px; min-width: 0; }
+.project-view .topbar .session-view-tabs { display: flex; align-items: center; flex-shrink: 0; height: 100%; padding-left: 12px; border-left: var(--border-width) solid var(--line); }
+.project-view .topbar .session-view-tabs .session-tab-buttons { height: 32px; gap: 2px; padding: 0; border: 0; background: transparent; }
+.project-view .topbar .session-tab-buttons [role="tab"] { display: grid; place-items: center; width: 30px; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--muted); }
+.project-view .topbar .session-tab-buttons [role="tab"]:hover:not([data-state="active"]) { background: var(--surface-wash); color: var(--text-secondary); }
+.project-view .topbar .session-tab-buttons [role="tab"][data-state="active"] { background: var(--surface-active); box-shadow: none; color: var(--text); }
+.project-view .topbar .session-tab-buttons [role="tab"]:focus-visible { outline: none; color: var(--accent-ink); }
+.project-view .topbar .session-tab-buttons [role="tab"]:focus-visible:not([data-state="active"]) { background: var(--surface-hover); }
+.project-view .topbar .session-state { gap: 12px; }
+.project-view .topbar .session-workspace { min-width: 0; min-height: 0; max-width: 280px; padding: 0; gap: 6px; }
+.project-view .topbar.session-topbar .workspace-branch { max-width: 60%; }
+@media (max-width: 1200px) {
+  .project-view .topbar.session-topbar .workspace-location,
+  .project-view .topbar.session-topbar .workspace-divider { display: none; }
+  .project-view .topbar.session-topbar .workspace-branch { max-width: none; }
+}
+@media (max-width: 1000px) {
+  .project-view .topbar.session-topbar .stream-state { display: none; }
+}
 @media (max-width: 760px) { .project-view .topbar .session-workspace { max-width: 120px; } }
-.project-view .activity-filter { border-bottom-color: var(--line); font-size: var(--font-size-xs); }
 .project-view .session-intro { padding: 9px 18px; color: var(--accent-ink); text-align: center; font-size: var(--font-size-xs); }
 .project-view .topbar h1 { font-size: var(--font-size-title); font-weight: 600; letter-spacing: -.3px; }
 .project-view .topbar .breadcrumb button { color: var(--muted); padding: 0; font-size: var(--font-size-xs); }
@@ -177,6 +193,7 @@
   .settings-empty { padding: 48px 20px; }
   .workspace-canvas { border-radius: 0 0 0 0; border-right: 0; border-bottom: 0; }
   .project-view .topbar { height: 54px; padding-inline: 14px; }
+  .project-view .topbar.session-topbar .breadcrumb-current { display: inline-block; max-width: 140px; }
   .project-view .toolbar { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; height: auto; padding: 10px 14px; }
   .project-view .search { grid-column: 1 / -1; grid-row: 2; margin-left: 0; padding-right: 38px; }
   .project-view .search input { width: 100%; }

@@ -261,7 +261,7 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await waitForExpression(socket, "document.querySelector('.permission-popover') === null");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.permission-trigger').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.permission-popover') !== null");
-    const outsidePermission = await value(socket, "(() => { const rect = document.querySelector('.session-tabs').getBoundingClientRect(); return { x: rect.right - 8, y: rect.top + 8 }; })()");
+    const outsidePermission = await value(socket, "(() => { const rect = document.querySelector('.statusbar').getBoundingClientRect(); return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }; })()");
     await cdp(socket, "Input.dispatchMouseEvent", { type: "mousePressed", button: "left", clickCount: 1, ...outsidePermission });
     await cdp(socket, "Input.dispatchMouseEvent", { type: "mouseReleased", button: "left", clickCount: 1, ...outsidePermission });
     await waitForExpression(socket, "document.querySelector('.permission-popover') === null");
@@ -832,18 +832,17 @@ test("activity width and compact composer remain usable and persist", { timeout:
     const bounds = () => value(socket, `(() => {
       const feed = document.querySelector('.session-timeline-feed').getBoundingClientRect();
       const item = document.querySelector('.session-timeline-feed > *').getBoundingClientRect();
-      const filter = document.querySelector('.activity-filter-content').getBoundingClientRect();
       const form = document.querySelector('.composer-area form').getBoundingClientRect();
       const text = document.querySelector('.composer textarea').getBoundingClientRect();
       const tools = document.querySelector('.composer-tools').getBoundingClientRect();
-      return { feedWidth: feed.width, itemWidth: item.width, filterWidth: filter.width, formWidth: form.width,
-        leftGap: Math.abs(feed.left - form.left), filterLeftGap: Math.abs(filter.left - form.left),
+      return { feedWidth: feed.width, itemWidth: item.width, formWidth: form.width,
+        leftGap: Math.abs(feed.left - form.left),
         textHeight: text.height, sameRow: text.top < tools.bottom && tools.top < text.bottom };
     })()`);
     const standard = await bounds();
     assert.ok(standard.feedWidth <= 840 && standard.formWidth <= 840);
-    assert.ok(standard.leftGap < 1 && standard.filterLeftGap < 1 && Math.abs(standard.feedWidth - standard.formWidth) < 1);
-    assert.ok(Math.abs(standard.itemWidth - standard.formWidth) < 1 && Math.abs(standard.filterWidth - standard.formWidth) < 1);
+    assert.ok(standard.leftGap < 1 && Math.abs(standard.feedWidth - standard.formWidth) < 1);
+    assert.ok(Math.abs(standard.itemWidth - standard.formWidth) < 1);
     assert.equal(standard.sameRow, true, "the textarea and controls share a row on desktop");
     await value(socket, "document.querySelector('.composer textarea').focus()");
     assert.equal(await value(socket, "getComputedStyle(document.querySelector('.composer textarea')).outlineStyle"), "none");
@@ -853,8 +852,8 @@ test("activity width and compact composer remain usable and persist", { timeout:
 
     await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 916, height: 900, deviceScaleFactor: 1, mobile: false });
     const mediumStandard = await bounds();
-    assert.ok(mediumStandard.leftGap < 1 && mediumStandard.filterLeftGap < 1);
-    assert.ok(Math.abs(mediumStandard.itemWidth - mediumStandard.formWidth) < 1 && Math.abs(mediumStandard.filterWidth - mediumStandard.formWidth) < 1);
+    assert.ok(mediumStandard.leftGap < 1);
+    assert.ok(Math.abs(mediumStandard.itemWidth - mediumStandard.formWidth) < 1);
     await value(socket, "document.querySelector('.workspace-settings').click()");
     await waitForExpression(socket, "[...document.querySelectorAll('[role=tab]')].some(tab => tab.textContent === 'Appearance')");
     await value(socket, "[...document.querySelectorAll('[role=tab]')].find(tab => tab.textContent === 'Appearance').focus()");

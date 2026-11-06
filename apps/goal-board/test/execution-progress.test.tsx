@@ -44,20 +44,16 @@ test("progress stays bounded and never marks a returned tool result as saved", (
   assert.equal(JSON.stringify(next).includes("PRIVATE_OUTPUT"), false);
 });
 
-test("the running view shows a real phase, source elapsed time and an inspectable live log", () => {
+test("the running view keeps a model wait status without inline diagnostics", () => {
   const entries = progress([], event({ kind: "model_started", stage: "completion_review",
     occurredAt: new Date(Date.now() - 42000).toISOString(), executionUnitId: "unit-1" }), Date.now());
   const html = renderToStaticMarkup(<SessionTimeline projection={{ items: [], stages: [], actionGroups: [], currentPlanRoute: undefined }}
     currentRunId="run-1" runStatus="running" olderAvailable={false} showExecutionFacts liveActivity={null}
     progressEntries={entries} streamConnected brandMark="/logo.svg" onOpenTrajectory={() => {}} />);
-  assert.match(html, /Checking the proposed answer/);
-  assert.match(html, /No response received yet/);
-  assert.match(html, /Time since the model request started/);
-  assert.match(html, /4[23]s/);
-  assert.match(html, /data-execution-unit-id="unit-1"/);
-  assert.match(html, /timeline-step-progress/);
+  assert.match(html, /Waiting for model response/);
+  assert.doesNotMatch(html, /Checking the proposed answer|No response received yet|Time since the model request started/);
+  assert.doesNotMatch(html, /data-execution-unit-id="unit-1"|timeline-step-progress|Inspect Waiting for model response/);
   assert.doesNotMatch(html, /timeline-progress|Recent live events from this connection/);
-  assert.match(html, /Inspect Waiting for model response/);
 });
 
 test("a later Run does not inherit the last operation of the previous Run", () => {
@@ -82,18 +78,20 @@ test("non-running runs hide live progress even when connection events remain cac
   }
 });
 
-test("model silence warns after sixty seconds while disconnection and fresh text do not", () => {
+test("model waiting omits connection diagnostics while response arrival updates its status", () => {
   const now = Date.now();
   const entries = progress([], event({ kind: "model_started", stage: "decide", executionUnitId: "unit-1", occurredAt: new Date(now - 70_000).toISOString() }), now - 61_000);
   const render = (progress: typeof entries, connected = true) => renderToStaticMarkup(<SessionTimeline projection={{ items: [], stages: [], actionGroups: [], currentPlanRoute: undefined }}
     currentRunId="run-1" runStatus="running" olderAvailable={false} showExecutionFacts liveActivity={null}
     progressEntries={progress} streamConnected={connected} brandMark="/logo.svg" />);
-  assert.match(render(entries), /No response update for 60 seconds/);
+  assert.match(render(entries), /Waiting for model response/);
+  assert.doesNotMatch(render(entries), /No response update for 60 seconds|No response received yet|Last event/);
   const disconnected = render(entries, false);
-  assert.match(disconnected, /Reconnecting. Showing the last observed operation/);
-  assert.doesNotMatch(disconnected, /No response update for 60 seconds|activity-snake-loader/);
+  assert.match(disconnected, /Waiting for model response/);
+  assert.doesNotMatch(disconnected, /Reconnecting. Showing the last observed operation|No response update for 60 seconds|activity-snake-loader/);
   const delta = event({ kind: "assistant_text_delta", text: "PRIVATE_TEXT", truncated: false, sourceEventId: "e2", sourceCursor: 2 });
   const resumed = progress(entries, delta, now);
+  assert.match(render(resumed), /Generating a response/);
   assert.doesNotMatch(render(resumed), /No response update for 60 seconds|PRIVATE_TEXT/);
 });
 
