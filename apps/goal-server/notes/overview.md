@@ -96,8 +96,10 @@ Home 与数据目录上装配模型、存储、工具与上下文默认实现，
 不创建 HTTP 服务、不注册进程信号；`runTrackedOperation` 供宿主把已受理的写操作纳入
 同一关闭结算边界。装配同时注入沙箱计划解析器：仅从已核准的 `effectiveScope` 为当前工作区和 Action 重建进程内执行计划，服务重建后的审批恢复使用同一路径，不重新授权或扩大范围。借用依赖不被接管，装配失败时只结算本层自有的受管资源并保留初始故障。
 
-`composition-root.ts` 是无界面装配之上的 HTTP 宿主：创建 HTTP 服务、挂载指标路由与
-浏览器访问控制、追加关闭准入中间件，并构造宿主退出协调器。
+`composition-root.ts` 是无界面装配之上的 HTTP 宿主：创建 HTTP 服务、挂载 `/healthz`
+存活探针与指标路由、应用浏览器访问控制、追加关闭准入中间件，并构造宿主退出协调器。
+浏览器访问中间件仅对精确的 `GET /healthz` 省略 bearer token 校验；Host、来源与 fetch-site
+检查仍先执行，探针响应固定为 `{"status":"ok"}`。
 
 恢复接线沿用既有 RecoveryReader、Coordinator、Tool replay policy 与模型绑定规则：
 重建实例后 `restore` 只读不推进，`resume` 必须匹配 Goal、Run、requestId 与 actionId；

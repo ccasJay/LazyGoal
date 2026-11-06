@@ -6,6 +6,7 @@
 | --- | --- | --- | --- |
 | Composition Root | 服务依赖装配边界。 | [Goal Server](../README.md) | [模块说明](./overview.md) |
 | Web service | 同源浏览器接口的显式启停入口。 | [Goal Server](../README.md) | [模块说明](./overview.md) |
+| Health probe | 精确的 `GET /healthz` 返回固定存活状态；免 bearer token，但仍受 Host 与来源边界保护。 | [Goal Server](../README.md) | [路由](../../../packages/browser/src/browser-healthz.ts)、[浏览器访问控制](../../../packages/browser/src/browser-session-access.ts) |
 | Provider profile resolution | 启动与选择期的受管档案解析、优先级与不可解析时的显式失败；档案变更后刷新解析视图。 | [Goal Server](../README.md) | [Composition Root](../src/composition-root.ts) |
 | Provider model preview | 校验表单连接并只读查询在线模型，不保存或激活档案。 | [Goal Server](../README.md) | [CLI 装配](../src/cli.ts) |
 | 动态模型选择与恢复 | 服务端按在线可选目录解析协议，Goal 保存执行契约并按当前 Profile 凭据恢复 Adapter。 | [Goal Server](../README.md) | [运行时装配](../src/runtime/composition.ts) |

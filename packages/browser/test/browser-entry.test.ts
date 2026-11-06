@@ -132,6 +132,53 @@ test("browser session routes reject unauthorized, cross-origin, and wrong-host r
     }
 });
 
+test("browser access exempts only GET /healthz from bearer token validation", async () => {
+    const access = createBrowserSessionAccess();
+    const service = createHttpService({ middleware: access.middleware });
+    const routes = new Hono()
+        .get("/healthz", (context) => context.json({ status: "ok" }))
+        .get("/private", (context) => context.json({ ok: true }))
+        .post("/healthz", (context) => context.json({ ok: true }));
+    service.mount("/", routes);
+    const address = await service.start(0);
+    access.bindOrigin(address.origin);
+
+    try {
+        const health = await fetch(`${address.origin}/healthz`);
+        assert.equal(health.status, 200);
+        assert.deepEqual(await health.json(), { status: "ok" });
+
+        const trailingSlash = await fetch(`${address.origin}/healthz/`);
+        assert.equal(trailingSlash.status, 401);
+        const privateRoute = await fetch(`${address.origin}/private`);
+        assert.equal(privateRoute.status, 401);
+        const otherMethod = await fetch(`${address.origin}/healthz`, {
+            method: "POST",
+            headers: { origin: address.origin },
+        });
+        assert.equal(otherMethod.status, 401);
+
+        const wrongHostStatus = await new Promise<number>((resolve, reject) => {
+            const request = httpRequest(`${address.origin}/healthz`, {
+                headers: { host: "127.0.0.1:1" },
+            }, (response) => {
+                response.resume();
+                response.on("end", () => resolve(response.statusCode ?? 0));
+            });
+            request.on("error", reject);
+            request.end();
+        });
+        assert.equal(wrongHostStatus, 403);
+
+        const crossOrigin = await fetch(`${address.origin}/healthz`, {
+            headers: { origin: "http://attacker.example" },
+        });
+        assert.equal(crossOrigin.status, 403);
+    } finally {
+        await service.close();
+    }
+});
+
 test("browser session Origin must be an exact IPv4 loopback HTTP origin", () => {
     const access = createBrowserSessionAccess();
     assert.throws(() => access.createLaunchUrl("http://127.0.0.1:43127"), /must be bound/);

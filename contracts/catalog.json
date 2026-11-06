@@ -8923,6 +8923,65 @@
             "role": "boundary-root"
         },
         {
+            "key": "web-contracts/src/wire#HealthzResponse",
+            "declaration": "HealthzResponse",
+            "source": {
+                "path": "packages/web-contracts/src/wire.ts",
+                "line": 30
+            },
+            "owner": "@lazygoal/web-contracts",
+            "module": "web-contracts",
+            "boundary": "web",
+            "section": "`wire`：原生 TS 边界根",
+            "definition": "原生 TS 契约根；Schema、校验器与绑定由 Catalog 生成",
+            "definitionKind": "native-ts",
+            "relations": [],
+            "consumers": [],
+            "protocol": {
+                "identity": {
+                    "state": "declared",
+                    "value": "web.healthz.response"
+                },
+                "version": {
+                    "state": "declared",
+                    "value": 1
+                }
+            },
+            "generation": {
+                "state": "enabled",
+                "detail": "由 wire.ts 生成 Schema、Ajv standalone 校验器、Manifest 与 contract-binding 绑定。",
+                "strategy": "typescript-binding",
+                "rootType": "HealthzResponse",
+                "declaredTypes": [
+                    "HealthzResponse"
+                ],
+                "outputDirectory": "packages/web-contracts/src/generated",
+                "artifacts": {
+                    "schemaModule": "healthz-response-schema.ts",
+                    "validator": "healthz-response-validator.mjs",
+                    "validatorTypes": "healthz-response-validator.d.mts",
+                    "manifest": "healthz-response-manifest.json",
+                    "binding": "healthz-response-binding.ts"
+                },
+                "binding": {
+                    "module": "../../../contract-binding/src/index",
+                    "dataType": "HealthzResponse",
+                    "dataTypeModule": "../wire",
+                    "exportName": "healthzResponseBinding",
+                    "names": {
+                        "schema": "healthzResponseSchema",
+                        "metadata": "healthzResponseMetadata",
+                        "validator": "healthzResponseValidator"
+                    }
+                }
+            },
+            "validation": {
+                "state": "runtime-schema",
+                "detail": "生成的 Schema 与 Ajv standalone 校验器；contract-binding 在 JSON 边界读取。"
+            },
+            "role": "boundary-root"
+        },
+        {
             "key": "web-contracts/src/wire#SessionMetricsSnapshot",
             "declaration": "SessionMetricsSnapshot",
             "source": {

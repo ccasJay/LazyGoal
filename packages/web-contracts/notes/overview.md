@@ -2,6 +2,8 @@
 
 正式消息 DTO 保留 Snapshot 中的稳定消息身份、所属 Run 和 Run 内事实位置，供历史窗口和实时提交通知使用。
 
+`HealthzResponse` 定义 Goal Server `GET /healthz` 的固定 JSON 响应。它只表示 HTTP 服务可响应，不承载 Provider、凭据、workspace、Goal、存储或诊断信息；Schema 与 binding 由 Catalog 生成。
+
 `BrowserGoalSessionState` 明确把消息、步骤和阶段历史标记为 Activity 外置，同时保留当前 Run、Plan 路线、等待、队列、中断和既有当前状态。`currentRunTerminalDetail` 只携带当前失败 Run 已保存的有界错误摘要，不包含供应商原始响应。`BrowserActivityPage` 只包含白名单事实摘要和有界正文，默认页大小为 50、上限为 100；Run 内事实序号与 Snapshot 保存的消息位置决定稳定顺序。cursor 绑定 Goal、筛选与每个相关 Run 的首次消息/轨迹水位，双向读取不吸收窗口之后追加的内容；`gaps` 给出页首尾尚未加载范围的准确项数和首尾位置。事实白名单包含模型纠错、请求失败和历史检索状态；可选 `detail` 最多 500 字符，只含固定状态文案、尝试次数及安全 HTTP 状态，不携带原始反馈或检索内容。DTO 不把原始事件 payload 或完整工具／Observation 载荷暴露给浏览器。
 
 四种检索事实必须携带有界 `lookupId`，仅请求事实可携带枚举生成的 `lookupRequest`，仅失败事实可携带已知 `lookupErrorCode`。wire guard 拒绝非检索事件上的这些字段、未知错误码以及原始查询或错误正文。

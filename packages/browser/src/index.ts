@@ -3,6 +3,7 @@ export {
     createBrowserStaticRoutes,
     type BrowserSessionAccess,
 } from "./browser-session-access";
+export { createHealthzRoutes } from "./browser-healthz";
 export {
     createBrowserGoalRoutes,
     type BrowserGoalApiPort,

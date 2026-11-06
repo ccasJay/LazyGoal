@@ -16,6 +16,21 @@ export type BrowserJsonValue =
     | readonly BrowserJsonValue[]
     | { readonly [key: string]: BrowserJsonValue };
 
+/**
+ * Goal Server 健康探针的成功响应。
+ *
+ * @remarks
+ * `GET /healthz` 只表示 HTTP 服务可响应，不包含业务依赖、配置或诊断状态。
+ *
+ * @example
+ * ```ts
+ * const response: HealthzResponse = { status: "ok" };
+ * ```
+ */
+export interface HealthzResponse {
+    readonly status: "ok";
+}
+
 /** wire 上可用的授权期限。 */
 export type BrowserGrantScope = "action" | "goal" | "workspace";
 
