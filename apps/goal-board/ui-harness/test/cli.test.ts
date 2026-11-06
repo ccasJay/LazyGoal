@@ -19,6 +19,11 @@ test("cli rejects invalid view name with code 1", async () => {
   assert.equal(code, 1);
 });
 
+test("cli rejects an unknown flow id with code 1", async () => {
+  const code = await runCli(["flow", "--flow", "invalid-non-existent-flow"]);
+  assert.equal(code, 1);
+});
+
 test("resolveUserPath resolves relative to the invoking npm directory", () => {
   const previous = process.env.INIT_CWD;
   process.env.INIT_CWD = "/tmp/lazygoal-invocation";

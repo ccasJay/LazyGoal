@@ -24,6 +24,7 @@ import {
   type BrowserActivityPage,
   type BrowserControlIntentCommand,
   type BrowserControlReceipt,
+  type BrowserGoalEvent,
   type BrowserGoalList,
   type BrowserGoalSessionEnvelope,
   type BrowserGoalSessionStateEnvelope,
@@ -187,7 +188,30 @@ export async function createFixtureServer(
   let scenario = options.scenario;
   const distDir = resolve(options.distDir ?? "apps/goal-board/dist");
   const token = options.token ?? "fixture-token";
-  const sseClients = new Set<ServerResponse>();
+  const metricsClients = new Set<ServerResponse>();
+  const goalEventClients = new Map<string, Set<ServerResponse>>();
+  const receivedIntents: BrowserControlIntentCommand[] = [];
+  let closed = false;
+
+  const pushEvent = (goalId: string, event: BrowserGoalEvent): void => {
+    const validated = browserGoalEventBinding.read(event, "strip");
+    if (!validated.ok) {
+      throw new Error(
+        `fixture_event_invalid: ${validated.contractId} rejected the pushed event (${validated.issues.length} issue(s))`,
+      );
+    }
+    const clients = goalEventClients.get(goalId);
+    if (clients === undefined || closed) return;
+    const payload = `data: ${JSON.stringify(validated.data)}\n\n`;
+    for (const client of clients) {
+      if (client.destroyed || client.writableEnded) continue;
+      try {
+        client.write(payload);
+      } catch {
+        clients.delete(client);
+      }
+    }
+  };
 
   const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
@@ -246,7 +270,13 @@ export async function createFixtureServer(
         connection: "keep-alive",
       });
       res.write("retry: 1000\n\n");
-      sseClients.add(res);
+      const clients = goalEventClients.get(goalId) ?? new Set<ServerResponse>();
+      clients.add(res);
+      goalEventClients.set(goalId, clients);
+      res.on("error", () => {
+        clients.delete(res);
+        if (clients.size === 0) goalEventClients.delete(goalId);
+      });
 
       if (eventConfig?.initialEvents) {
         for (const evt of eventConfig.initialEvents) {
@@ -258,7 +288,8 @@ export async function createFixtureServer(
       }
 
       req.on("close", () => {
-        sseClients.delete(res);
+        clients.delete(res);
+        if (clients.size === 0) goalEventClients.delete(goalId);
       });
       return;
     }
@@ -464,9 +495,9 @@ export async function createFixtureServer(
         connection: "keep-alive",
       });
       res.write("retry: 1000\n\n");
-      sseClients.add(res);
+      metricsClients.add(res);
       req.on("close", () => {
-        sseClients.delete(res);
+        metricsClients.delete(res);
       });
       return;
     }
@@ -490,16 +521,36 @@ export async function createFixtureServer(
         bodyText += chunk;
       });
       req.on("end", () => {
-        try {
-          const command = JSON.parse(bodyText) as BrowserControlIntentCommand;
-          const receipt: BrowserControlReceipt = scenario.controlReceipt
-            ? scenario.controlReceipt(command)
-            : { intentId: command.intentId, status: "unknown" };
-          sendValidatedJson(res, browserControlReceiptBinding, receipt);
-        } catch {
-          res.writeHead(400, { "content-type": "application/json" });
-          res.end(JSON.stringify({ code: "invalid_control_intent" }));
-        }
+        void (async () => {
+          let command: BrowserControlIntentCommand;
+          try {
+            command = JSON.parse(bodyText) as BrowserControlIntentCommand;
+          } catch {
+            res.writeHead(400, { "content-type": "application/json" });
+            res.end(JSON.stringify({ code: "invalid_control_intent" }));
+            return;
+          }
+          try {
+            receivedIntents.push(command);
+            const handled = scenario.handleControl
+              ? await scenario.handleControl(command, {
+                  getScenario: () => scenario,
+                  updateScenario: (next) => {
+                    scenario = next;
+                  },
+                  pushEvent,
+                })
+              : undefined;
+            const receipt: BrowserControlReceipt = handled ?? (scenario.controlReceipt
+              ? scenario.controlReceipt(command)
+              : { intentId: command.intentId, status: "unknown" });
+            sendValidatedJson(res, browserControlReceiptBinding, receipt);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            res.writeHead(500, { "content-type": "application/json" });
+            res.end(JSON.stringify({ code: "fixture_control_failed", message }));
+          }
+        })();
       });
       return;
     }
@@ -538,13 +589,24 @@ export async function createFixtureServer(
     updateScenario: (next: FixtureScenario) => {
       scenario = next;
     },
+    pushEvent,
+    getReceivedIntents: () => receivedIntents,
     close: async () => {
-      for (const client of sseClients) {
+      closed = true;
+      for (const client of goalEventClients.values()) {
+        for (const stream of client) {
+          try {
+            stream.end();
+          } catch {}
+        }
+      }
+      goalEventClients.clear();
+      for (const client of metricsClients) {
         try {
           client.end();
         } catch {}
       }
-      sseClients.clear();
+      metricsClients.clear();
       await new Promise<void>((resolve, reject) => {
         server.close((err) => (err ? reject(err) : resolve()));
       });

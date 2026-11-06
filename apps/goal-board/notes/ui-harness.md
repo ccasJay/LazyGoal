@@ -8,6 +8,7 @@
 - **业务代码零侵入**：`apps/goal-board/src` 不依赖、不导入任何 harness 模块；视图定位通过工作区偏好 Cookie 与既有 UI 导航实现。
 - **环境隔离**：每次执行均分配独立的 loopback 随机端口与独立 BrowserContext，结束后立即清理，绝不修改、污染真实的 `~/.lazygoal` 目录。
 - **确定性截图**：在 1280×900 视口、DPR 1、浅色模式与固定 UTC 时钟下关闭全部 CSS 动画与过渡，等待字体、图片与指标等异步数据加载就绪后输出。
+- **有状态 Fixture**：场景可为控制命令提供副作用，并在受理后向同一 Goal 的 SSE 订阅者推送事件；因此可以验证命令受理、提交边界与事件驱动刷新，而不只是首屏快照。
 
 ## 常用命令
 
@@ -54,7 +55,38 @@ npm run ui -- serve --scenario board-populated
 npm run ui -- shot --view board --attach "http://127.0.0.1:5173/#my-token"
 ```
 
-### 4. 视觉回归比较 (test:ui-visual)
+### 4. 声明式交互流程 (flow)
+
+```bash
+# 执行内置流程，按步骤输出 PASS/FAIL
+npm run ui -- flow --flow send-message
+
+# 输出单行 JSON 报告供脚本或 Agent 解析
+npm run ui -- flow --flow send-message --json
+
+# 指定失败截图目录与报告文件
+npm run ui -- flow --flow send-message --artifacts /tmp/lg-flow --report /tmp/lg-flow/report.json
+```
+
+流程定义在 `ui-harness/src/flows/`，由视图、专用场景和有序步骤组成。步骤支持 `click`、`fill`、`press`、`expect`（可见性、文本、输入值、禁用态、属性、数量）与 `expectControl`（校验 Fixture 实际收到的控制命令）。任一断言失败会立即停止、截取现场并返回失败步骤；运行时诊断与步骤结果相互独立，两者都通过才算通过。
+
+`send-message` 流程演示了完整闭环：场景在命令受理时提交用户消息并进入 `running`，随后依次推送模型开始、正文分块、工具开始与结束，最后提交助手消息并推送终态。因此连续观察能看到 `Waiting for model response`、临时 `Live response` 与工具活动组，而不是一段静止画面；最后的 `Run finished` 仍然只能依赖事件驱动的定向重读。
+
+### 5. 连续观察 (observe)
+
+```bash
+# 驱动一个 Goal 工作流，同时按固定间隔录制画面与页面事实
+npm run ui -- observe --flow send-message
+
+# 自定义间隔、输出目录与帧数上限
+npm run ui -- observe --flow send-message --interval 500 --out /tmp/lg-observe --maxFrames 60 --json
+```
+
+录制与步骤执行并发进行：流程负责触发状态迁移，观察器按间隔保留画面。每帧附带 `sendLabel`、可见 Run 状态与结果、消息数量、临时正文、步骤与活动标题、状态栏与错误提示等页面事实，写入 `manifest.json`。先截图再采样事实，因此事实不会领先于画面。
+
+典型闭环：`observe` 录制 → Agent 读取关键帧与 manifest → 描述行为与视觉问题 → 修改代码 → 用同一流程重新录制对比。相比逐步断言，它能保留 `Sending message` 这类瞬时状态和过渡中的布局变化。
+
+### 6. 视觉回归比较 (test:ui-visual)
 
 ```bash
 # 先执行 harness 自身的隔离、截图、诊断与契约测试

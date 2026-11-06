@@ -36,6 +36,43 @@ export interface FixtureEndpointConfig<T> {
   readonly errorCode?: string;
 }
 
+/** Fixture 命令处理器可用的运行时上下文。
+ *
+ * @example
+ * ```ts
+ * const context: FixtureControlContext = { getScenario, updateScenario, pushEvent };
+ * ```
+ */
+export interface FixtureControlContext {
+  /** 读取当前生效的场景。 */
+  readonly getScenario: () => FixtureScenario;
+  /** 用新场景替换当前数据，后续 HTTP 读取立即生效。 */
+  readonly updateScenario: (scenario: FixtureScenario) => void;
+  /** 向指定 Goal 的 SSE 订阅者推送一条事件。 */
+  readonly pushEvent: (goalId: string, event: BrowserGoalEvent) => void;
+}
+
+/**
+ * 有状态命令处理函数。
+ *
+ * @remarks
+ * 命令已被受理后调用，用于推进场景并推送事件；返回 `undefined` 时回退到
+ * `controlReceipt` 或无状态默认收据。
+ *
+ * @example
+ * ```ts
+ * const handler: FixtureControlHandler = (command, context) => {
+ *   context.updateScenario(next);
+ *   context.pushEvent(command.goalId, event);
+ *   return receipt;
+ * };
+ * ```
+ */
+export type FixtureControlHandler = (
+  command: BrowserControlIntentCommand,
+  context: FixtureControlContext,
+) => BrowserControlReceipt | undefined | Promise<BrowserControlReceipt | undefined>;
+
 /** 完整场景的 Fixture 数据集合。 */
 export interface FixtureScenario {
   /** 场景唯一标识。 */
@@ -78,6 +115,8 @@ export interface FixtureScenario {
   readonly metrics?: Record<string, FixtureEndpointConfig<SessionMetricsSnapshot>>;
   /** 控制命令受理结果。 */
   readonly controlReceipt?: (intent: BrowserControlIntentCommand) => BrowserControlReceipt;
+  /** 有状态控制命令处理；在命令受理时推进场景并可推送 SSE 事件。 */
+  readonly handleControl?: FixtureControlHandler;
   /** 交互详情查询（按 `${goalId}:${runId}:${interactionId}` 索引）。 */
   readonly interactionDetails?: Record<string, FixtureEndpointConfig<BrowserInteractionDetailResult>>;
 }
@@ -104,6 +143,10 @@ export interface FixtureServerInstance {
   readonly getScenario: () => FixtureScenario;
   /** 动态更新场景。 */
   readonly updateScenario: (scenario: FixtureScenario) => void;
+  /** 向指定 Goal 的 SSE 订阅者推送一条事件。 */
+  readonly pushEvent: (goalId: string, event: BrowserGoalEvent) => void;
+  /** 按受理顺序返回已收到的控制命令。 */
+  readonly getReceivedIntents: () => readonly BrowserControlIntentCommand[];
   /** 停止服务并释放端口。 */
   readonly close: () => Promise<void>;
 }

@@ -11,4 +11,4 @@ React 浏览器前端，呈现固定水位 Activity 时间线、Plan Run 阶段�
 - `src/context/`：局部隔离的双 Context（`GoalSessionContext.tsx` 会话快照、`RunControlContext.tsx` 运行控制与排队）。
 - `src/main.tsx`：应用顶层纯净装配入口与 Context Provider 嵌套（代码量收敛至约 110 行）。
 - `src/api.ts`：同源 HTTP/SSE 协议请求契约封装。
-- `ui-harness/`：独立的 Playwright UI 验收、确定性截图与视觉回归工具集。
+- `ui-harness/`：独立的 Playwright UI 验收、确定性截图、视觉回归与声明式交互流程工具集。
