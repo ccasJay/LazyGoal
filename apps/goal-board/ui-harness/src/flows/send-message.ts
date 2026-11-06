@@ -22,7 +22,7 @@ export const sendMessageFlow: UiFlow = {
       action: "expect",
       selector: ".composer-actions .send",
       disabled: true,
-      attribute: { name: "aria-label", value: "Send message" },
+      attribute: { name: "aria-label", value: "Type a message to send" },
     },
     { action: "fill", selector: ".composer textarea", value: MESSAGE },
     {
