@@ -143,6 +143,18 @@ export async function removeWorkerProcessRegistration(dataDirectory: string, wor
     ]);
 }
 
+/**
+ * 删除已确证退出 Worker 的可连接注册文件，保留其离线日志供后续审计。
+ *
+ * @param dataDirectory - 当前 LazyGoal 数据目录。
+ * @param workerId - 已确证退出的 Worker 身份。
+ * @throws 文件系统删除失败时抛出。
+ */
+export async function removeWorkerRegistration(dataDirectory: string, workerId: string): Promise<void> {
+    const digest = createHash("sha256").update(workerId).digest("hex");
+    await rm(join(registryDirectory(dataDirectory), `${digest}.json`), { force: true });
+}
+
 function isRegistration(value: unknown): value is WorkerProcessRegistration {
     if (typeof value !== "object" || value === null) return false;
     const item = value as Record<string, unknown>;

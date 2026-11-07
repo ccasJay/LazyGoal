@@ -42,6 +42,25 @@ export type WorkerProgress =
     | { readonly kind: "rejected"; readonly code: string; readonly message: string };
 
 /**
+ * Supervisor 直接子进程收到的 Worker 退出观察。
+ *
+ * @remarks
+ * `normal` 仅表示本 Supervisor 请求的优雅关闭获得零退出码；异常退出保留 OS
+ * 提供的 code 与 signal，不从 PID 或经过时间推断原因。
+ *
+ * @example
+ * ```ts
+ * const exit: WorkerProcessExit = { pid: 42, code: null, signal: "SIGKILL", normal: false };
+ * ```
+ */
+export interface WorkerProcessExit {
+    readonly pid: number;
+    readonly code: number | null;
+    readonly signal: NodeJS.Signals | null;
+    readonly normal: boolean;
+}
+
+/**
  * 独立 Worker 子进程的创建配置。
  *
  * @remarks
@@ -96,6 +115,9 @@ export class SupervisorWorkerProcess {
     private busy = false;
     private cancelling = false;
     private remoteActive: boolean | undefined;
+    private exitRecord: WorkerProcessExit | undefined;
+    private exitHandler: ((exit: WorkerProcessExit) => void) | undefined;
+    private closeRequested = false;
     private advanceCommandSent: Promise<void> | undefined;
     private goalId: string | undefined;
     private closed = false;
@@ -162,6 +184,10 @@ export class SupervisorWorkerProcess {
                     const error = new Error(`Worker process exited (${signal ?? code})`);
                     reject(error);
                     failPending(error);
+                    const exit: WorkerProcessExit = { pid: this.child!.pid!, code, signal,
+                        normal: this.closeRequested && code === 0 && signal === null };
+                    this.exitRecord = exit;
+                    this.exitHandler?.(exit);
                 });
             } else if (this.socket !== undefined) {
                 this.socket.on("data", (chunk: Buffer) => {
@@ -254,6 +280,21 @@ export class SupervisorWorkerProcess {
 
     /** @returns Worker 当前是否保留一个未结算 Goal。 */
     get assignedGoalId(): string | undefined { return this.goalId; }
+
+    /**
+     * 注册此 Supervisor 直接观察 Worker 退出的监听器。
+     *
+     * @remarks 若退出已在注册前发生，监听器会立即收到保存的 OS 退出记录。
+     * @param handler - 接收退出码、信号及是否为已确认优雅关闭的回调。
+     * @example
+     * ```ts
+     * worker.onExit((exit) => recordExit(exit));
+     * ```
+     */
+    onExit(handler: (exit: WorkerProcessExit) => void): void {
+        this.exitHandler = handler;
+        if (this.exitRecord !== undefined) handler(this.exitRecord);
+    }
 
     /** @returns Worker 握手报告其仍在执行操作；状态不明时返回 `undefined`。 */
     get remoteOperationActive(): boolean | undefined { return this.remoteActive; }
@@ -447,6 +488,7 @@ export class SupervisorWorkerProcess {
         if (this.closed) return;
         if (this.busy || this.cancelling || this.goalId !== undefined) throw new Error("Worker still owns an unsettled Goal");
         this.closed = true;
+        this.closeRequested = true;
         const closed = new Promise<void>((resolve, reject) => {
             const timeout = setTimeout(() => reject(new Error("Worker close was not confirmed")), 5000);
             if (this.child !== undefined) {

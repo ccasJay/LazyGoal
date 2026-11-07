@@ -81,6 +81,7 @@ test("FIFO 派发让不同 Goal 并行，等待绑定保留，终态后复用匹
     const factory = async (intent: string, reserved: string | undefined) => createWaitingGoal(reserved ?? `goal-${intent}`, intent, workspace);
     const event = (suffix: string) => ({ deliveryId: `delivery-${suffix}`, trigger: { id: `trigger-${suffix}`, purpose: "work", source: "user", payload: JSON.stringify({ intent: `goal-${suffix}` }) } });
     const acceptedIds: string[] = [];
+    let cleanupGoalId: string | undefined;
     const scheduler = new WorkerScheduler({ owner, deliveries, goals, cwd: workspace, dataDirectory, env, permissionAdapter: never });
     try {
         for (const suffix of ["a", "b"]) {
@@ -125,6 +126,7 @@ test("FIFO 派发让不同 Goal 并行，等待绑定保留，终态后复用匹
 
         const fourth = await admitTrigger(owner, deliveries, goals, never, event("d"), principal, factory);
         const fourthGoalId = acceptedGoalId(fourth);
+        cleanupGoalId = fourthGoalId;
         await scheduler.pump();
         await waitFor(() => deliveries.queueRecord(fourthGoalId)?.status === "waiting");
         const lostAssignment = deliveries.queueRecord(fourthGoalId)!;
@@ -140,6 +142,45 @@ test("FIFO 派发让不同 Goal 并行，等待绑定保留，终态后复用匹
         assert.equal(deliveries.queueRecord(fourthGoalId)?.status, "waiting");
         assert.equal(deliveries.read("cancel-delivery-d")?.status, "pending");
         assert.equal(scheduler.assignments().find((item) => item.workerId === lostAssignment.workerId)?.goalId, fourthGoalId);
+        await waitFor(() => deliveries.workerRecovery(fourthGoalId)?.status === "pending");
+        const exitEvidence = deliveries.listWorkerLifecycle(lostAssignment.workerId!, lostAssignment.generation!)
+            .find((item) => item.delivery.trigger.purpose === "lifecycle"
+                && JSON.parse(item.delivery.trigger.payload).type === "worker_exited");
+        assert.ok(exitEvidence?.status === "settled" && exitEvidence.result.kind === "handled");
+        const waitingCheckpoint = (await goals.restore(fourthGoalId))!;
+        const runningBaseline = createGoal({ ...currentProtocols, id: fourthGoalId, intent: waitingCheckpoint.definition.intent,
+            runId: waitingCheckpoint.state.run.id, promptBundleVersion: 1, profile: waitingCheckpoint.definition.profile });
+        const runningTransition = transition(runningBaseline.state.run, { kind: "start" });
+        assert.equal(runningTransition.ok, true);
+        await goals.save({ ...waitingCheckpoint, state: { ...waitingCheckpoint.state, run: runningTransition.state } });
+        await assert.rejects(scheduler.handleWorkerRecoveryTrigger({
+            deliveryId: "resume-uncertain-fourth-delivery",
+            goalId: fourthGoalId,
+            trigger: { id: "resume-uncertain-fourth-trigger", purpose: "lifecycle", source: "user", payload: JSON.stringify({
+                type: "worker_recovery_decision", decision: "resume_checkpoint", workerId: lostAssignment.workerId,
+                generation: lostAssignment.generation, acknowledgeUnknownEffects: false,
+            }) },
+        }, { role: "user", mayCreateGoal: false, goalIds: [fourthGoalId] }));
+        await goals.save(waitingCheckpoint);
+        const resumed = await scheduler.handleWorkerRecoveryTrigger({
+            deliveryId: "resume-fourth-delivery",
+            goalId: fourthGoalId,
+            trigger: { id: "resume-fourth-trigger", purpose: "lifecycle", source: "user", payload: JSON.stringify({
+                type: "worker_recovery_decision", decision: "resume_checkpoint", workerId: lostAssignment.workerId,
+                generation: lostAssignment.generation, acknowledgeUnknownEffects: false,
+            }) },
+        }, { role: "user", mayCreateGoal: false, goalIds: [fourthGoalId] });
+        assert.deepEqual(resumed, { kind: "resumed", goalId: fourthGoalId });
+        assert.equal(deliveries.workerRecovery(fourthGoalId)?.status, "resumed");
+        await scheduler.pump();
+        await waitFor(() => deliveries.queueRecord(fourthGoalId)?.status === "waiting");
+        assert.notEqual(deliveries.queueRecord(fourthGoalId)?.workerId, lostAssignment.workerId);
+        const recoveredCancellation = await scheduler.handleCancelTrigger({
+            deliveryId: "cancel-recovered-fourth-delivery",
+            goalId: fourthGoalId,
+            trigger: { id: "cancel-recovered-fourth-trigger", purpose: "cancel", source: "user", payload: "{}" },
+        }, { role: "user", mayCreateGoal: false, goalIds: [fourthGoalId] });
+        assert.deepEqual(recoveredCancellation, { kind: "terminal", status: "cancelled" });
 
         const fifth = await admitTrigger(owner, deliveries, goals, never, event("e"), principal, factory);
         const fifthGoalId = acceptedGoalId(fifth);
@@ -150,6 +191,11 @@ test("FIFO 派发让不同 Goal 并行，等待绑定保留，终态后复用匹
         assert.equal((await scheduler.advanceGoal(fifthGoalId)).kind, "terminal");
         await scheduler.closeIdle();
     } finally {
+        if (cleanupGoalId !== undefined && deliveries.queueRecord(cleanupGoalId)?.status !== "terminal") {
+            await scheduler.handleCancelTrigger({ deliveryId: "cleanup-recovery-cancel", goalId: cleanupGoalId,
+                trigger: { id: "cleanup-recovery-cancel-trigger", purpose: "cancel", source: "user", payload: "{}" } },
+            { role: "user", mayCreateGoal: false, goalIds: [cleanupGoalId] }).catch(() => undefined);
+        }
         await scheduler.closeIdle().catch(() => undefined);
         deliveries.close();
         await owner.close();

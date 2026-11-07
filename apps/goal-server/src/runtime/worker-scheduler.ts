@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { canonicalJson } from "../../../../packages/contracts/src/index";
+import { canonicalJson, isRecord } from "../../../../packages/contracts/src/index";
 import type { LLMAdapter } from "../../../../packages/llm-core/src/index";
 import type { Goal } from "../../../../packages/runtime/src/domain";
 import { projectInteractionView } from "../../../../packages/runtime/src/interaction-view";
@@ -19,11 +19,12 @@ import type {
 } from "../../../../packages/storage/src/trigger-delivery-store";
 import type { TriggerActionPermissionReply, TriggerActionPermissionRequest } from "../../../../packages/storage/src/trigger-permission";
 import { decideWorkerActionPermission } from "./worker-permission";
-import { SupervisorWorkerProcess, type WorkerProgress } from "./worker-process";
+import { SupervisorWorkerProcess, type WorkerProcessExit, type WorkerProgress } from "./worker-process";
 import {
     createWorkerProcessRegistration,
     listWorkerProcessRegistrations,
     removeWorkerProcessRegistration,
+    removeWorkerRegistration,
     type WorkerOfflineProgress,
     type WorkerProcessRegistration,
 } from "./worker-process-registry";
@@ -61,6 +62,18 @@ export type WorkerPermissionReplyResult =
     | { readonly kind: "handled"; readonly progress: WorkerProgress }
     | { readonly kind: "settled"; readonly progress: WorkerProgress };
 
+/**
+ * 显式恢复已确认退出 Worker 所持 Goal 的处理结果。
+ *
+ * @example
+ * ```ts
+ * const result: WorkerRecoveryResult = { kind: "resumed", goalId: "goal-1" };
+ * ```
+ */
+export type WorkerRecoveryResult =
+    | { readonly kind: "resumed"; readonly goalId: string }
+    | { readonly kind: "settled"; readonly goalId: string };
+
 interface WorkerSlot {
     readonly workerId: string;
     readonly generation: string;
@@ -69,13 +82,19 @@ interface WorkerSlot {
     readonly executionRoot: string;
 }
 
+type WorkerLifecycleEvent =
+    | { readonly type: "worker_started" | "worker_reconnected"; readonly pid: number }
+    | { readonly type: "worker_exited"; readonly pid: number; readonly code: number | null; readonly signal: NodeJS.Signals | null; readonly normal: boolean };
+
 /**
  * 将持久待派发队列按序绑定到可复用的独立 Worker。
  *
  * @remarks
  * 派发严格按 SQLite 队列顺序认领；没有空闲且工作区匹配的 Worker 时启动新进程。
- * 不限制不同 Goal 的并发。等待态继续占用 Worker；只有持久记录终态后才释放，
- * 崩溃或不确定结果保留原绑定，不自动重派。
+ * 不限制不同 Goal 的并发。等待态继续占用 Worker；只有持久记录终态后才释放。
+ * 已观察到的子进程退出会写入生命周期 Trigger 并留下待恢复记录，不自动重派。
+ * Supervisor 重启时只重新接管能通过本机挑战握手的 Worker；显式恢复 Trigger 才能
+ * 释放已确证退出进程的 Goal 绑定，运行中的不确定副作用需要单独确认。
  *
  * @example
  * ```ts
@@ -291,6 +310,75 @@ export class WorkerScheduler {
     }
 
     /**
+     * 处理用户明确要求从已确认退出 Worker 的最新 Goal 快照继续。
+     *
+     * @remarks
+     * 必须存在本 Supervisor 观察并持久化的同代 Worker 退出记录。运行中的 Goal 可能
+     * 已产生外部副作用，只有 Trigger 明确携带 `acknowledgeUnknownEffects: true` 时
+     * 才会重新排队；进程断连、PID 不可达或超时本身不能满足此操作。
+     *
+     * @param input - `lifecycle` Trigger，载荷为 `{ type: "worker_recovery_decision",
+     *   decision: "resume_checkpoint", workerId, generation, acknowledgeUnknownEffects }`。
+     * @param principal - 已认证且有权访问目标 Goal 的用户或 Supervisor。
+     * @returns 首次恢复为 `resumed`；已处理的同一投递返回 `settled`。
+     * @throws Worker 退出证据、Goal 授权、恢复代次或明确确认不匹配时抛出。
+     * @example
+     * ```ts
+     * await scheduler.handleWorkerRecoveryTrigger(delivery, userPrincipal);
+     * ```
+     */
+    async handleWorkerRecoveryTrigger(input: unknown, principal: TriggerIngressPrincipal): Promise<WorkerRecoveryResult> {
+        const parsed = triggerDeliveryFileBinding.read(input, "reject");
+        if (!parsed.ok || parsed.data.trigger.purpose !== "lifecycle" || parsed.data.goalId === undefined
+            || (principal.role !== "user" && principal.role !== "supervisor")
+            || parsed.data.trigger.source !== principal.role) {
+            throw new Error("Worker recovery requires an authorized Goal-bound lifecycle Trigger");
+        }
+        let payload: unknown;
+        try { payload = JSON.parse(parsed.data.trigger.payload) as unknown; }
+        catch { throw new Error("Worker recovery decision payload is invalid"); }
+        if (!isRecord(payload) || payload.type !== "worker_recovery_decision" || payload.decision !== "resume_checkpoint"
+            || typeof payload.workerId !== "string" || typeof payload.generation !== "string"
+            || typeof payload.acknowledgeUnknownEffects !== "boolean") {
+            throw new Error("Worker recovery decision payload is invalid");
+        }
+        const delivery = parsed.data;
+        if (delivery.goalId === undefined) throw new Error("Worker recovery requires an authorized Goal identity");
+        const goalId = delivery.goalId;
+        return this.options.owner.runExclusive(JSON.stringify(["worker-recovery-trigger", goalId, delivery.deliveryId]), async () => {
+            const receipt = receiveAuthorizedTrigger(this.options.deliveries, delivery, principal);
+            if (receipt.status === "settled") {
+                if (receipt.result.kind !== "handled") throw new Error("Worker recovery Trigger has a conflicting result");
+                return { kind: "settled", goalId };
+            }
+            const recovery = this.options.deliveries.workerRecovery(goalId);
+            if (recovery === undefined || recovery.status !== "pending" || recovery.workerId !== payload.workerId
+                || recovery.generation !== payload.generation) {
+                throw new Error("Goal has no matching confirmed Worker exit to recover");
+            }
+            const slot = this.workers.get(recovery.workerId);
+            if (slot !== undefined && slot.generation === recovery.generation) {
+                let responsive = true;
+                try { await slot.process.probe(); } catch { responsive = false; }
+                if (responsive) throw new Error("Worker is still responding and cannot be recovered as exited");
+            }
+            const goal = await this.options.goals.restore(goalId);
+            if (goal === undefined || ["completed", "failed", "cancelled"].includes(goal.state.run.status)) {
+                throw new Error("Terminal or missing Goal cannot be resumed");
+            }
+            if (goal.state.run.status === "running" && payload.acknowledgeUnknownEffects !== true) {
+                throw new Error("Resuming a running Goal requires explicit acknowledgement of possible external effects");
+            }
+            await this.options.deliveries.requeueRecoveredGoal(this.options.owner, goalId, recovery.workerId, recovery.generation);
+            this.workers.delete(recovery.workerId);
+            await removeWorkerRegistration(this.options.dataDirectory, recovery.workerId);
+            await this.options.deliveries.settle(delivery.deliveryId, { kind: "handled" });
+            void this.pump();
+            return { kind: "resumed", goalId };
+        });
+    }
+
+    /**
      * 优雅关闭当前空闲 Worker。
      *
      * @remarks 活动或等待中的 Goal 保留原进程与持久绑定，调用方须先结算其运行状态。
@@ -308,6 +396,7 @@ export class WorkerScheduler {
             this.workers.delete(workerId);
             await removeWorkerProcessRegistration(this.options.dataDirectory, workerId);
         }
+        while (this.progressTasks.size > 0) await Promise.allSettled([...this.progressTasks]);
     }
 
     private async dispatchQueuedGoals(): Promise<void> {
@@ -335,6 +424,9 @@ export class WorkerScheduler {
                 }
                 slot = { workerId, generation, process, projectRoot: workspace.projectRoot, executionRoot: workspace.executionRoot };
                 this.workers.set(workerId, slot);
+                this.observeWorkerExit(slot);
+                await this.recordWorkerLifecycle(registration.workerId, registration.generation,
+                    { type: "worker_started", pid: await process.probe() });
             }
 
             const claimed = await this.options.deliveries.claimNextGoal(this.options.owner, slot.workerId, slot.generation);
@@ -343,6 +435,49 @@ export class WorkerScheduler {
                 .then((progress) => this.reportProgress(slot, nextGoalId, progress))
                 .catch(() => undefined);
         }
+    }
+
+    private observeWorkerExit(slot: WorkerSlot): void {
+        slot.process.onExit((exit) => {
+            const goalId = slot.process.assignedGoalId;
+            let task!: Promise<void>;
+            task = this.recordWorkerLifecycle(slot.workerId, slot.generation, {
+                type: "worker_exited", pid: exit.pid, code: exit.code, signal: exit.signal, normal: exit.normal,
+            }).then(async (lifecycleDeliveryId) => {
+                if (exit.normal || goalId === undefined) return;
+                const queue = this.options.deliveries.queueRecord(goalId);
+                if (queue?.workerId !== slot.workerId || queue.generation !== slot.generation
+                    || (queue.status !== "claimed" && queue.status !== "waiting")) return;
+                await this.options.deliveries.recordWorkerRecovery(this.options.owner, {
+                    goalId, workerId: slot.workerId, generation: slot.generation, lifecycleDeliveryId,
+                });
+            }).catch(() => undefined).finally(() => this.progressTasks.delete(task));
+            this.progressTasks.add(task);
+        });
+    }
+
+    private async recordWorkerLifecycle(
+        workerId: string,
+        generation: string,
+        event: WorkerLifecycleEvent,
+    ): Promise<string> {
+        return this.options.owner.runExclusive(JSON.stringify(["worker-lifecycle", workerId, generation, event]), async () => {
+            const payload = canonicalJson(event);
+            const digest = createHash("sha256").update(canonicalJson({ workerId, generation, payload })).digest("hex");
+            const receipt = receiveAuthorizedTrigger(this.options.deliveries, {
+                deliveryId: `worker-lifecycle-delivery-${digest}`,
+                trigger: {
+                    id: `worker-lifecycle-${digest}`,
+                    purpose: "lifecycle",
+                    source: "worker",
+                    workerId,
+                    generation,
+                    payload,
+                },
+            }, { role: "worker", workerId, generation, mayCreateGoal: false });
+            if (receipt.status === "pending") this.options.deliveries.settle(receipt.delivery.deliveryId, { kind: "handled" });
+            return receipt.delivery.deliveryId;
+        });
     }
 
     private workerOptions(registration: WorkerProcessRegistration) {
@@ -396,6 +531,8 @@ export class WorkerScheduler {
                 continue;
             }
             await Promise.allSettled([...this.progressTasks]);
+            await this.recordWorkerLifecycle(registration.workerId, registration.generation,
+                { type: "worker_reconnected", pid: await process.probe() }).catch(() => undefined);
             if (assignedGoalId !== undefined && process.assignedGoalId === assignedGoalId) {
                 await this.reconcileAttachedWorker(slot, assignedGoalId).catch(() => undefined);
             }

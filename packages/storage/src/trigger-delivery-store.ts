@@ -1,6 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { closeSync, openSync } from "node:fs";
-import { canonicalJson } from "../../contracts/src/index";
+import { canonicalJson, isRecord } from "../../contracts/src/index";
 import { triggerDeliveryFileBinding } from "./generated/trigger-delivery-binding";
 import type { TriggerDeliveryFile, TriggerDeliveryOutcome } from "./trigger-delivery-file";
 import { triggerDeliveryOutcomeBinding } from "./generated/trigger-delivery-outcome-binding";
@@ -29,6 +29,29 @@ export interface TriggerGoalQueueRecord {
     readonly status: "queued" | "claimed" | "waiting" | "terminal";
     readonly workerId?: string;
     readonly generation?: string;
+}
+
+/**
+ * 已观察到 Worker 退出、等待明确恢复决定的 Goal 绑定。
+ *
+ * @remarks
+ * 此记录不会清除原 Worker 身份或自动重放 Goal；只有经过认证的恢复 Trigger 才能
+ * 将其重新放回队列。`resumed` 表示显式恢复已经提交。
+ *
+ * @example
+ * ```ts
+ * const recovery: TriggerWorkerRecoveryRecord = {
+ *   goalId: "goal-1", workerId: "worker-1", generation: "generation-1",
+ *   lifecycleDeliveryId: "delivery-exit-1", status: "pending",
+ * };
+ * ```
+ */
+export interface TriggerWorkerRecoveryRecord {
+    readonly goalId: string;
+    readonly workerId: string;
+    readonly generation: string;
+    readonly lifecycleDeliveryId: string;
+    readonly status: "pending" | "resumed";
 }
 
 /**
@@ -101,6 +124,13 @@ export class TriggerDeliveryStore {
                 CHECK ((worker_id IS NULL AND generation IS NULL) OR (worker_id IS NOT NULL AND generation IS NOT NULL))
             ) STRICT;
             CREATE INDEX IF NOT EXISTS trigger_deliveries_goal ON trigger_deliveries(json_extract(content, '$.goalId'));
+            CREATE TABLE IF NOT EXISTS trigger_worker_recoveries (
+                goal_id TEXT PRIMARY KEY REFERENCES trigger_goal_queue(goal_id),
+                worker_id TEXT NOT NULL,
+                generation TEXT NOT NULL,
+                lifecycle_delivery_id TEXT NOT NULL REFERENCES trigger_deliveries(id),
+                status TEXT NOT NULL CHECK (status IN ('pending', 'resumed'))
+            ) STRICT;
             DROP INDEX IF EXISTS trigger_goal_queue_worker;
             CREATE UNIQUE INDEX trigger_goal_queue_worker ON trigger_goal_queue(worker_id) WHERE worker_id IS NOT NULL AND status IN ('claimed', 'waiting');
             CREATE TABLE IF NOT EXISTS trigger_permission_failures (
@@ -205,6 +235,24 @@ export class TriggerDeliveryStore {
     listGoalDeliveries(goalId: string): readonly TriggerDeliveryResult[] {
         if (!goalId.trim()) throw new Error("Goal identity is required");
         const rows = this.database.prepare("SELECT id FROM trigger_deliveries WHERE json_extract(content, '$.goalId') = ? ORDER BY rowid").all(goalId) as { id: string }[];
+        return rows.map(({ id }) => this.read(id)).filter((result): result is TriggerDeliveryResult => result !== undefined);
+    }
+
+    /**
+     * 按接收顺序列出指定 Worker 代次的生命周期 Trigger。
+     *
+     * @param workerId - Worker 的稳定逻辑身份。
+     * @param generation - 待审计的 OS 进程代次。
+     * @returns 该进程代次的生命周期收据；没有事件时返回空数组。
+     * @throws 持久记录损坏或数据库读取失败时抛出。
+     */
+    listWorkerLifecycle(workerId: string, generation: string): readonly TriggerDeliveryResult[] {
+        if (!workerId.trim() || !generation.trim()) throw new Error("Worker identity is required");
+        const rows = this.database.prepare(`SELECT id FROM trigger_deliveries
+            WHERE json_extract(content, '$.trigger.purpose') = 'lifecycle'
+                AND json_extract(content, '$.trigger.workerId') = ?
+                AND json_extract(content, '$.trigger.generation') = ?
+            ORDER BY rowid`).all(workerId, generation) as { id: string }[];
         return rows.map(({ id }) => this.read(id)).filter((result): result is TriggerDeliveryResult => result !== undefined);
     }
 
@@ -485,6 +533,122 @@ export class TriggerDeliveryStore {
         const row = this.database.prepare("SELECT goal_id, generation FROM trigger_goal_queue WHERE worker_id = ? AND status IN ('claimed', 'waiting')").get(workerId) as { goal_id: string; generation: string } | undefined;
         if (row !== undefined && row.generation !== generation) throw new Error("Worker process generation does not match its Goal binding");
         return row?.goal_id;
+    }
+
+    /**
+     * 记录由当前 Supervisor 的子进程退出事件确证的未决 Worker Goal。
+     *
+     * @remarks
+     * 仅接受已结算的同代 Worker `worker_exited` 生命周期 Trigger 和仍绑定该 Worker
+     * 的活动 Goal。此记录保留原队列归属，不能通过 PID、超时或断连推断退出。
+     *
+     * @param owner - 当前工作区的 Supervisor 所有权。
+     * @param input - 已观察到退出的 Worker 与 Goal 身份。
+     * @returns 已存在或新建的待恢复记录。
+     * @throws 生命周期证据、队列绑定或存储失败时抛出。
+     */
+    async recordWorkerRecovery(
+        owner: SupervisorOwnership,
+        input: Omit<TriggerWorkerRecoveryRecord, "status">,
+    ): Promise<TriggerWorkerRecoveryRecord> {
+        return owner.runExclusive(JSON.stringify(["worker-recovery", input.goalId]), async () => {
+            this.database.exec("BEGIN IMMEDIATE");
+            try {
+                const queue = this.queueRecord(input.goalId);
+                if (queue === undefined || queue.workerId !== input.workerId || queue.generation !== input.generation
+                    || (queue.status !== "claimed" && queue.status !== "waiting")) {
+                    throw new Error("Worker recovery does not match an active Goal binding");
+                }
+                const lifecycle = this.read(input.lifecycleDeliveryId);
+                if (lifecycle?.status !== "settled" || lifecycle.result.kind !== "handled"
+                    || lifecycle.delivery.trigger.purpose !== "lifecycle" || lifecycle.delivery.trigger.source !== "worker"
+                    || lifecycle.delivery.trigger.workerId !== input.workerId || lifecycle.delivery.trigger.generation !== input.generation) {
+                    throw new Error("Worker recovery requires a settled lifecycle Trigger from the same generation");
+                }
+                const payload: unknown = JSON.parse(lifecycle.delivery.trigger.payload);
+                if (!isRecord(payload) || payload.type !== "worker_exited") throw new Error("Worker exit lifecycle evidence is invalid");
+                const existing = this.workerRecovery(input.goalId);
+                if (existing !== undefined) {
+                    if (existing.workerId !== input.workerId || existing.generation !== input.generation
+                        || existing.lifecycleDeliveryId !== input.lifecycleDeliveryId) throw new Error("Worker recovery identity conflict");
+                    this.database.exec("COMMIT");
+                    return existing;
+                }
+                this.database.prepare(`INSERT INTO trigger_worker_recoveries
+                    (goal_id, worker_id, generation, lifecycle_delivery_id, status) VALUES (?, ?, ?, ?, 'pending')`)
+                    .run(input.goalId, input.workerId, input.generation, input.lifecycleDeliveryId);
+                this.database.exec("COMMIT");
+                return { ...input, status: "pending" };
+            } catch (error) {
+                this.database.exec("ROLLBACK");
+                throw error;
+            }
+        });
+    }
+
+    /** @returns 指定 Goal 的 Worker 恢复记录；尚未观察到可信退出时返回 `undefined`。 */
+    workerRecovery(goalId: string): TriggerWorkerRecoveryRecord | undefined {
+        const row = this.database.prepare(`SELECT goal_id, worker_id, generation, lifecycle_delivery_id, status
+            FROM trigger_worker_recoveries WHERE goal_id = ?`).get(goalId) as {
+            goal_id: string; worker_id: string; generation: string; lifecycle_delivery_id: string; status: "pending" | "resumed";
+        } | undefined;
+        return row === undefined ? undefined : {
+            goalId: row.goal_id,
+            workerId: row.worker_id,
+            generation: row.generation,
+            lifecycleDeliveryId: row.lifecycle_delivery_id,
+            status: row.status,
+        };
+    }
+
+    /** @returns 尚待明确恢复决定的 Worker Goal，按原队列顺序排列。 */
+    workerRecoveries(): readonly TriggerWorkerRecoveryRecord[] {
+        const rows = this.database.prepare(`SELECT r.goal_id, r.worker_id, r.generation, r.lifecycle_delivery_id, r.status
+            FROM trigger_worker_recoveries r JOIN trigger_goal_queue q ON q.goal_id = r.goal_id
+            WHERE r.status = 'pending' ORDER BY q.sequence`).all() as {
+            goal_id: string; worker_id: string; generation: string; lifecycle_delivery_id: string; status: "pending" | "resumed";
+        }[];
+        return rows.map((row) => ({ goalId: row.goal_id, workerId: row.worker_id, generation: row.generation,
+            lifecycleDeliveryId: row.lifecycle_delivery_id, status: row.status }));
+    }
+
+    /**
+     * 在已验证的显式恢复决定后，保留队列顺序并释放原 Worker 绑定。
+     *
+     * @param owner - 当前工作区的 Supervisor 所有权。
+     * @param goalId - 等待恢复决定的 Goal。
+     * @param workerId - 生命周期证据中的 Worker。
+     * @param generation - 生命周期证据中的 OS 进程代次。
+     * @returns 首次恢复时返回 `true`；重复调用返回 `false`。
+     * @throws 恢复记录、原队列绑定不匹配或存储失败时抛出。
+     */
+    async requeueRecoveredGoal(owner: SupervisorOwnership, goalId: string, workerId: string, generation: string): Promise<boolean> {
+        return owner.runExclusive(JSON.stringify(["worker-recovery", goalId]), async () => {
+            this.database.exec("BEGIN IMMEDIATE");
+            try {
+                const recovery = this.workerRecovery(goalId);
+                if (recovery === undefined || recovery.workerId !== workerId || recovery.generation !== generation) {
+                    throw new Error("Goal has no matching confirmed Worker recovery");
+                }
+                if (recovery.status === "resumed") {
+                    this.database.exec("COMMIT");
+                    return false;
+                }
+                const queue = this.queueRecord(goalId);
+                if (queue === undefined || queue.workerId !== workerId || queue.generation !== generation
+                    || (queue.status !== "claimed" && queue.status !== "waiting")) {
+                    throw new Error("Goal queue assignment changed before recovery");
+                }
+                this.database.prepare(`UPDATE trigger_goal_queue SET worker_id = NULL, generation = NULL, status = 'queued'
+                    WHERE goal_id = ? AND worker_id = ? AND generation = ?`).run(goalId, workerId, generation);
+                this.database.prepare("UPDATE trigger_worker_recoveries SET status = 'resumed' WHERE goal_id = ?").run(goalId);
+                this.database.exec("COMMIT");
+                return true;
+            } catch (error) {
+                this.database.exec("ROLLBACK");
+                throw error;
+            }
+        });
     }
 
     /**
