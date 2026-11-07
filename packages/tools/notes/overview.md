@@ -21,8 +21,3 @@
 HTML 可见文本由 [html-to-text 抽取](../src/web/html-extract.ts) 产生：排除 `script`、`style`、`img`，保留表格、列表、标题和实体，再折叠为单行；`htmlToPlainText` 只委托该实现。抓取失败码包括 `WEB_FETCH_TIMEOUT`、`WEB_RESPONSE_TOO_LARGE`、`WEB_FETCH_FAILED`、`WEB_FETCH_BLOCKED_URL`、`WEB_FETCH_UNSUPPORTED_CONTENT_TYPE`、`WEB_FETCH_REDIRECT_LIMIT` 和 `WEB_FETCH_HTTP_ERROR`；429/5xx 仍映射为瞬态失败。
 
 上述 URL 策略是 Tool 层纵深防御，不提供内核级域名隔离，也不替代 [Sandbox](../../sandbox/README.md) 的 `SANDBOX_APPROVAL_REQUIRED` 与 `all_outbound` 审批。
-
-## 子 Agent 委派工具
-
-`spawn_subagent` 输入包括必填 `intent` 与可选 `title`；模型 JSON 由 Catalog 生成的 `ContractBinding` 校验，Tool 语义校验另行拒绝仅含空白字符的意图。Runtime 在同一工作区、继承父级 Profile 与模型选择的普通模式下启动子 Goal，并等待其到达终态。工具观察包含子 Goal ID、终态及最终答复或失败原因。父 Run 取消时，Runtime 向子会话提交 `interrupt`，并等待子 Run 持久化到终态后，才移除取消监听并关闭事件流与 Session 句柄。子 Profile 会剔除 `spawn_subagent`，阻止嵌套派发。
-

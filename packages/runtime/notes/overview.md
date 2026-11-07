@@ -190,13 +190,4 @@ Decide 返回值可以是 `decision`、`request_think`、`assistant_message` 或
 
 失败预算分两类、各自含首次最多三次、互不占用：`attemptsStarted` 覆盖契约、Tool 选择、Tool 输入与证据类失败；`continuationsStarted` 覆盖零调用正文与无可用结果。`latestFailureClass` 决定下一次调用计入哪个预算，有效 `request_think` 结束当前链时两者一并归零。零调用正文在提交为 Goal 消息后按不推进类预算继续；预算用尽时保留每次原因与该次正文并明确失败。
 
-## 子 Agent 委派执行（Subagent Spawner）
-
-`RuntimeSubagentSpawner` 实现父 Goal 委派自包含子任务给子 Goal 的生命周期管理：
-- **启动环境与继承**：子 Goal 复用父级相同的 workspaceRoot、profileId、模型选择（modelSelection），并在普通非规划（normal）模式下运行。子 Goal 意图自动前缀说明其为委托子 Agent，必须自主独立完成任务而不得向用户提问。
-- **状态同步与取消**：通过 SessionManager 及其事件流监听子 Goal 的持久化终态（`completed` / `failed` / `cancelled`）。父 Run 触发取消时，先向子会话发送 `interrupt`，并在子 Run 到达终态后才返回；结算时移除 AbortSignal 监听并关闭事件流与 Session 句柄。
-- **运行时递归防护**：通过 `createChildProfileRegistry` 包装子会话的 AgentProfileRegistry，从子 Agent Profile 的 `toolIds` 中剔除 `spawn_subagent`，从运行时执行器与授权规则层面杜绝递归派发。
-
-
-
 由 Trigger 准入创建的 Goal 在定义中携带不可变事件来源、投递身份，以及 Supervisor 冻结的 项目根与执行工作区映射、工具和沙箱能力上限；Runtime 的执行授权仍须结合宿主约束、有效授权与沙箱执行。

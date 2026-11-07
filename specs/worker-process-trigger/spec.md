@@ -1,9 +1,9 @@
 ---
 feature: worker-process-trigger
-status: proposed
+status: delivered
 risk: high
 created_at: 2026-11-07
-delivered_at: null
+delivered_at: 2026-11-08
 supersedes: []
 superseded_by: null
 ---
@@ -57,7 +57,7 @@ superseded_by: null
 | 等级 | 理由 | 关键操作 |
 |---|---|---|
 | high | LLM 自动授权、外部事件及跨进程授权竞争可能导致越权；Worker 上下文复用不按新 Goal 限制，先前资料可能进入后续任务；不限制并发可能耗尽资源。 | 验收使用受控模型与临时环境；真实外部服务、凭据和超出既定宿主权限的动作须单独授权。 |
-| high | Supervisor 退出后 Worker 仍运行，丢失事件、身份误认或重复派发可能产生不可逆副作用；文件 Store 现无跨进程事务。 | 使用真实子进程和故障注入验证 R1.2、R4.1、R4.2；不自动删除旧 Goal 数据或盲目重放未知效果。 |
+| high | Supervisor 退出后 Worker 仍运行，丢失事件、身份误认或重复派发可能产生不可逆副作用；通用 JSON File Store 的按键串行队列只保证单进程顺序，普通读改写不具有跨进程事务。Trigger 投递、队列和权限结算由 SQLite 事务保护，Supervisor 所有权由 SQLite 独占锁保护，Goal 创建通过持久化创建意图和不可覆盖硬链接发布。 | 使用真实子进程和故障注入验证 R1.2、R4.1、R4.2；不自动删除旧 Goal 数据或盲目重放未知效果。 |
 | high | Supervisor 自动决定 worktree 合并和清理可能改动仓库或丢失未提交内容。 | 实施及验收只操作临时测试仓库；对用户真实仓库执行提交、合并、覆盖或删除前须取得该具体操作的授权。 |
 
 ## 任务
@@ -72,11 +72,11 @@ superseded_by: null
 - [x] //TODO 8. 实现 Supervisor 离线队列、恢复扫描和 Worker 重新接管 → R4.1、R4.2；检查：运行新增重连基础测试。
 - [x] //TODO 9. 实现 Worker 生命周期 Hook 和异常后的显式恢复 → R4.2；检查：运行新增进程退出与恢复测试。
 - [x] //TODO 10. 迁移用户入口、结构化交互与观察流，移除子代理并明确旧数据及评测入口行为 → R5.1；检查：运行入口基础测试和 `npm run build:web`。
-- [ ] //TODO 11. 同步受影响的契约、所属模块文档与语义表 → R1.1、R2.1、R3.1、R4.1、R5.1；检查：运行 `npm run check:docs` 和 `npm run check:dependencies`。
+- [x] //TODO 11. 同步受影响的契约、所属模块文档与语义表 → R1.1、R2.1、R3.1、R4.1、R5.1；检查：运行 `npm run check:docs` 和 `npm run check:dependencies`。
 
 ## 执行记录
 
-- 状态：未执行
-- 验证：-
-- 结果：-
+- 状态：已交付
+- 验证：`npm test` 通过；`npm run build:web` 通过；`npm run test:web-e2e` 17/17 通过；`npm run check:docs` 通过（47 个模块、172 份说明）；`npm run check:dependencies` 通过（608 个源文件）；`npm run contracts:generate -- --check` 与 `git diff --check` 通过。
+- 结果：TODO 10 的入口和旧执行路径、TODO 11 的契约和模块文档均已完成；R5.1 用户入口与受影响模块说明已按当前实现对齐。
 - 未决：无

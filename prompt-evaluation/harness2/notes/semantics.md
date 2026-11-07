@@ -8,3 +8,4 @@
 | Propose–Probe–Compose | 提案生成、子集探针评测与对比轨迹合成的三阶段循环。 | [Harness2 优化](../README.md) | [循环引擎](../src/lazygoal_harness2/loop.py) |
 | ImprovementLibrary | 按 Invariant 与 Domain 分类持久化的历史改进库。 | [Harness2 优化](../README.md) | [改进库实现](../src/lazygoal_harness2/library.py) |
 | Contrastive trajectory view | 同一任务上 Baseline 与 Probe 全量已提交轨迹的故障与得分对比。 | [Harness2 优化](../README.md) | [轨迹读取器](../src/lazygoal_harness2/trajectory_reader.py) |
+| Harness2 execution gate | `start`、`resume` 和 `worker` 明确返回不支持；运行记录查询及既有产物应用保留。 | [Harness2 优化](../README.md) | [模块说明](./overview.md#当前执行边界)、[Python CLI](../src/lazygoal_harness2/cli.py) |

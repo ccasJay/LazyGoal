@@ -7,7 +7,7 @@ Snapshot、Trajectory、Profile 和调用事实的文件 Schema 与 Store。本�
 
 ## 摘要
 
-`@lazygoal/storage` 拥有持久化文件表示与实现：Profile 文件 DTO、当前 Goal Snapshot v1 DTO 与严格结构绑定、Runtime↔Snapshot 双向 Codec、Trajectory/Diagnostic JSONL Store、Tool/Sandbox Grant 授权账本，以及实现 Runtime/Agent Port 的内存/JSON 文件 Store。Snapshot、Agent Profile、Grant 账本、模型偏好、权限模式、调用指标、进程会话、模型输入清单和 Action 权限 Trigger 请求/回复的结构 Schema 由 Catalog 从 TS 文件 DTO 生成，并由生成绑定校验；生成能力归 [`@lazygoal/contract-binding`](../../contract-binding/src/index.ts) 与 `scripts/generate-contracts.mjs`。它依赖 Runtime 的 Port 与领域契约；Runtime 不反向加载本模块。所有文件写入经共享写入原语；同一进程内的写入顺序由按键串行队列保证。
+`@lazygoal/storage` 拥有持久化文件表示与实现：Profile 文件 DTO、当前 Goal Snapshot v1 DTO 与严格结构绑定、Runtime↔Snapshot 双向 Codec、Trajectory/Diagnostic JSONL Store、Tool/Sandbox Grant 授权账本，以及实现 Runtime/Agent Port 的内存/JSON 文件 Store。Supervisor 所有权锁与 Trigger 投递账本使用 SQLite；投递、准入结果、Worker 绑定、权限往返和恢复记录由事务边界保存。Snapshot、Agent Profile、Grant 账本、模型偏好、权限模式、调用指标、进程会话、模型输入清单和 Action 权限 Trigger 请求/回复的结构 Schema 由 Catalog 从 TS 文件 DTO 生成，并由生成绑定校验；生成能力归 [`@lazygoal/contract-binding`](../../contract-binding/src/index.ts) 与 `scripts/generate-contracts.mjs`。它依赖 Runtime 的 Port 与领域契约；Runtime 不反向加载本模块。文件写入经共享写入原语；同一进程内的文件写入顺序由按键串行队列保证。
 
 所有 Store 的路径段编码统一由内部 [`encodePathSegment`](../src/path-segment.ts) 完成（UTF-8 base64url），该模块不从公共入口导出；各 Store 只保留身份校验与目录布局，编码结果保持不变。
 
@@ -17,7 +17,7 @@ Snapshot、Trajectory、Profile 和调用事实的文件 Schema 与 Store。本�
 | --- | --- | --- |
 | [写入原语](../src/json-file-write.ts) | `atomicWriteJson`、`appendJsonl` 与 `appendFileChunk` 的唯一实现：同目录临时文件、创建时文件 `0600` 与目录 `0700`、按需 `fsync`、可重试 errno 的效果核对与失败清理 | 识别 Store 类型、协议错误或路径语义；跨进程锁、目录 `fsync` |
 | [Supervisor 所有权](../src/supervisor-ownership.ts) | SQLite 内核文件锁排斥同一路径的并发所有者，关闭等待已借用操作 | 验证锁路径与工作区映射、Worker 身份或运行时装配 |
-| [Trigger 投递存储](../src/trigger-delivery-store.ts) | SQLite 事务保存事件、投递身份、准入失败原因、Goal 创建意图、收据和带 FIFO 顺序、Worker generation、等待与终态的派发队列；保存 Worker Action 权限请求的失败分类，并在 Runtime 应用回复后原子结算请求与回复 | 传输身份认证、准入策略、权限决定、Worker 生命周期与实际派发 |
+| [Trigger 投递存储](../src/trigger-delivery-store.ts) | SQLite 事务保存不可变事件、投递身份、准入失败原因、Goal 创建意图、收据、FIFO Worker 绑定与显式恢复记录；保存 Worker Action 权限请求的失败分类，并在 Runtime 应用回复后原子结算请求与回复 | 传输身份认证、准入策略、权限决定、Worker 自有上下文/outbox、生命周期与实际派发 |
 | [串行队列](../src/keyed-serial-queue.ts) | `KeyedSerialQueue` 的按键 FIFO 串行、失败隔离、簿记释放与 `drain` | 跨进程锁、事务或 exactly-once |
 | [AgentProfileFile](../src/agent-profile-file.ts) | Profile 文件 DTO（`schemaVersion: 1`）、具名 `NonEmptyString` 约束、生成绑定与 `AgentProfileConfigurationError` | 读取文件系统、构造 Runtime Profile |
 | [JsonFileAgentProfileStore](../src/json-file-agent-profile-store.ts) | 实现 Runtime `AgentProfileStore` Port，读取单个 `<profileId>.json` | 扫描其它 Profile、读取 Tool 实例、校验 Tool 注册 |
