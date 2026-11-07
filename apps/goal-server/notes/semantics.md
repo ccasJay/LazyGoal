@@ -20,4 +20,5 @@
 | Trigger Admission | 将新工作交由确定性规则或 Supervisor 直接模型准入，失败保留待重试。 | [Goal Server](../README.md) | [准入实现](../src/runtime/trigger-admission.ts) |
 | SupervisorWorkerProcess | 独立 OS Worker 推进获派 Goal，经 Supervisor IPC 读取和保存 Goal 快照；等待状态保留绑定。 | [Goal Server](../README.md) | [Worker 实现](../src/runtime/worker-process.ts) |
 | WorkerScheduler | 按入队次序认领 Goal，匹配授权 workspace 并行运行；只在确认终态后复用 Worker。 | [Goal Server](../README.md) | [调度实现](../src/runtime/worker-scheduler.ts) |
+| Worker Action 权限回复 | Supervisor 直接调用 LLM 决定当前 Action 是否一次性批准；失败保留待处理请求，回复须精确匹配 Worker generation 并经 Runtime 应用后结算。 | [Goal Server](../README.md) | [权限调度](../src/runtime/worker-scheduler.ts)、[权限决策](../src/runtime/worker-permission.ts) |
 | Goal Workspace | 将项目授权根与共享或隔离的执行目录分开持久映射；worktree 合并需精确用户确认。 | [Goal Server](../README.md) | [工作区实现](../src/runtime/goal-workspace.ts) |

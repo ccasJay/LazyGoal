@@ -16,3 +16,4 @@
 | 生成绑定组合 | 按阶段、模式与授权集合组合 Provider Schema、声明与解码；分支确定后剥离未知字段。 | [模型协议契约](../README.md) | [绑定组合器](../src/model-output/bound-factory.ts) |
 | 模型生成绑定 | Catalog 从 TS 单源生成的 Schema、校验器与 `ContractBinding` 集合。 | [模型协议契约](../README.md) | [生成绑定装配](../src/model-output/generated-bindings.ts) |
 | Trigger 准入判断 | Supervisor 模型输出的接受或忽略决定；接受时提供工作意图及 shared/worktree 策略。 | [模型协议契约](../README.md) | [准入契约](../src/trigger-admission.ts) |
+| Supervisor 权限判断 | 对单个 Worker Action 输出 approve/reject；Provider wire 结果仍由消费端核验字段组合，不授予持续权限。 | [模型协议契约](../README.md) | [权限判断契约](../src/trigger-permission-decision.ts) |

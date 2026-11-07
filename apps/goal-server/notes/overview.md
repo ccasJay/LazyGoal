@@ -4,6 +4,8 @@
 
 [Trigger 传输组件](../src/runtime/trigger-wire-server.ts)可显式启动 loopback 进程入口，使用宿主发放的连接凭据验证来源与 Goal 目标后保存投递；它尚未接入默认 Composition Root，也不执行准入或派发。
 
+Worker 遇到 Action 审批时由 [WorkerScheduler](../src/runtime/worker-scheduler.ts) 根据已持久化的 Goal 等待创建权限请求 Trigger。Supervisor 直接调用配置的模型 Adapter，并先核对工具 ID 与实际沙箱范围仍在 Goal 冻结上限内；批准只生成针对当前 Action 的一次性回复。模型失败、输出无效或范围缺失时请求保持待处理并记录失败原因。用户回复与自动回复都要匹配同一请求、Run、Action、提交修订和 Worker generation；Worker Runtime 应用决定后，Scheduler 才原子结算请求与回复。
+
 ## 职责与使用
 
 通过本模块的公开入口使用上述能力；[公开入口](../src/index.ts)。状态或副作用由调用方在所属边界控制。

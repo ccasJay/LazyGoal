@@ -47,6 +47,68 @@ test("trigger delivery validates structure and worker process identity", async (
     } finally { await rm(dir, { recursive: true, force: true }); }
 });
 
+test("Action 权限请求只接受绑定原请求身份的回复并原子结算", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "lazygoal-trigger-permission-"));
+    try {
+        const store = new TriggerDeliveryStore(join(dir, "deliveries.db"));
+        const request = {
+            type: "action_approval_request",
+            requestId: "permission-request-1",
+            runId: "run-1",
+            actionId: "action-1",
+            interactionId: "action_approval:action-1",
+            commitRevision: 4,
+        };
+        const requestDelivery = {
+            deliveryId: "permission-request-delivery-1",
+            goalId: "goal-1",
+            trigger: {
+                id: request.requestId, purpose: "permission", source: "worker",
+                workerId: "worker-1", generation: "generation-1", payload: JSON.stringify(request),
+            },
+        };
+        store.receive(requestDelivery);
+        store.recordActionPermissionFailure(requestDelivery.deliveryId, "model-failed");
+        assert.equal(store.actionPermissionFailure(requestDelivery.deliveryId), "model-failed");
+
+        const reply = {
+            type: "action_approval_reply",
+            requestDeliveryId: requestDelivery.deliveryId,
+            requestId: request.requestId,
+            runId: request.runId,
+            actionId: request.actionId,
+            interactionId: request.interactionId,
+            commitRevision: request.commitRevision,
+            workerId: "worker-1",
+            generation: "generation-1",
+            decision: "approve",
+            scope: "action",
+        };
+        const mismatchedReply = {
+            deliveryId: "permission-reply-mismatch",
+            goalId: "goal-1",
+            trigger: { id: "permission-reply-event-mismatch", purpose: "permission", source: "supervisor", payload: JSON.stringify({ ...reply, actionId: "action-other" }) },
+        };
+        store.receive(mismatchedReply);
+        assert.throws(() => store.settleActionPermissionExchange(requestDelivery.deliveryId, mismatchedReply.deliveryId), /payload identity/);
+        assert.equal(store.read(requestDelivery.deliveryId)?.status, "pending");
+        assert.equal(store.read(mismatchedReply.deliveryId)?.status, "pending");
+
+        const validReply = {
+            deliveryId: "permission-reply-valid",
+            goalId: "goal-1",
+            trigger: { id: "permission-reply-event-valid", purpose: "permission", source: "supervisor", payload: JSON.stringify(reply) },
+        };
+        store.receive(validReply);
+        const settled = store.settleActionPermissionExchange(requestDelivery.deliveryId, validReply.deliveryId);
+        assert.deepEqual(settled.map((item) => item.status), ["settled", "settled"]);
+        assert.equal(store.actionPermissionFailure(requestDelivery.deliveryId), undefined);
+        const requestResult = store.read(requestDelivery.deliveryId);
+        assert.equal(requestResult?.status === "settled" ? requestResult.result.kind : undefined, "handled");
+        store.close();
+    } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
 
 test("separate processes atomically deduplicate the same delivery", async () => {
     const dir = await mkdtemp(join(tmpdir(), "lazygoal-trigger-"));

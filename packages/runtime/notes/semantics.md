@@ -70,4 +70,4 @@
 | 子 Agent 委派执行 | `RuntimeSubagentSpawner` 启动子 Goal 会话并传递模型选择；父 Run 取消时先中断子 Run，待持久化终态后再清理会话资源并返回。 | [Goal Runtime](../README.md) | [子 Agent 委派支持](../src/subagent-spawner.ts) |
 | 子 Agent 递归防护 | `createChildProfileRegistry` 剔除子 Agent 的 `spawn_subagent` 工具授权，在运行时阻断嵌套派发。 | [Goal Runtime](../README.md) | [子 Agent 委派支持](../src/subagent-spawner.ts) |
 
-| GoalTriggerContext | 记录创建 Goal 的 Trigger、投递身份和当前 Goal 的动作授权上限。 | [Runtime](../README.md) | [领域契约](../src/domain.ts) |
+| GoalTriggerContext | 记录创建 Goal 的 Trigger、投递身份和动作权限上限；Runner 在工具准备与授权时强制工具 ID 和实际沙箱范围不越界。 | [Runtime](../README.md) | [领域契约](../src/domain.ts)、[Runner](../src/runner.ts) |

@@ -9820,6 +9820,193 @@
                 "detail": "生成绑定校验结构与封闭对象；文件级语义约束由 Store 执行。"
             },
             "role": "boundary-root"
+        },
+        {
+            "key": "storage/src/trigger-permission#TriggerActionPermissionRequest",
+            "declaration": "TriggerActionPermissionRequest",
+            "source": {
+                "path": "packages/storage/src/trigger-permission.ts",
+                "line": 5
+            },
+            "owner": "storage",
+            "module": "storage",
+            "boundary": "durable",
+            "section": "Trigger 权限协议",
+            "definition": "原生 TypeScript 类型契约",
+            "definitionKind": "native-ts",
+            "relations": [],
+            "consumers": [
+                "apps/goal-server/src/runtime/worker-scheduler.ts"
+            ],
+            "protocol": {
+                "identity": {
+                    "state": "declared",
+                    "value": "storage.trigger-action-permission-request"
+                },
+                "version": {
+                    "state": "declared",
+                    "value": 1,
+                    "detail": "version: 1"
+                }
+            },
+            "generation": {
+                "state": "enabled",
+                "detail": "持久化 Worker Action 权限请求 Trigger 的结构绑定。",
+                "strategy": "typescript-binding",
+                "rootType": "TriggerActionPermissionRequest",
+                "declaredTypes": [
+                    "TriggerActionPermissionRequest"
+                ],
+                "outputDirectory": "packages/storage/src/generated",
+                "artifacts": {
+                    "schemaModule": "trigger-action-permission-request-schema.ts",
+                    "validator": "trigger-action-permission-request-validator.mjs",
+                    "validatorTypes": "trigger-action-permission-request-validator.d.mts",
+                    "manifest": "trigger-action-permission-request-manifest.json",
+                    "binding": "trigger-action-permission-request-binding.ts"
+                },
+                "binding": {
+                    "module": "../../../contract-binding/src/index",
+                    "dataType": "TriggerActionPermissionRequest",
+                    "dataTypeModule": "../trigger-permission",
+                    "exportName": "triggerActionPermissionRequestBinding",
+                    "names": {
+                        "schema": "triggerActionPermissionRequestSchema",
+                        "metadata": "triggerActionPermissionRequestMetadata",
+                        "validator": "validateTriggerActionPermissionRequest"
+                    }
+                }
+            },
+            "validation": {
+                "state": "generated-reader",
+                "detail": "消费端使用生成 binding 校验 JSON 结构，并在入口核对目标身份与业务不变量。"
+            },
+            "role": "boundary-root"
+        },
+        {
+            "key": "storage/src/trigger-permission#TriggerActionPermissionReply",
+            "declaration": "TriggerActionPermissionReply",
+            "source": {
+                "path": "packages/storage/src/trigger-permission.ts",
+                "line": 15
+            },
+            "owner": "storage",
+            "module": "storage",
+            "boundary": "durable",
+            "section": "Trigger 权限协议",
+            "definition": "原生 TypeScript 类型契约",
+            "definitionKind": "native-ts",
+            "relations": [],
+            "consumers": [
+                "apps/goal-server/src/runtime/worker-scheduler.ts",
+                "apps/goal-server/src/runtime/worker-process-entry.ts"
+            ],
+            "protocol": {
+                "identity": {
+                    "state": "declared",
+                    "value": "storage.trigger-action-permission-reply"
+                },
+                "version": {
+                    "state": "declared",
+                    "value": 1,
+                    "detail": "version: 1"
+                }
+            },
+            "generation": {
+                "state": "enabled",
+                "detail": "持久化 Supervisor／用户 Action 权限回复 Trigger 的结构绑定。",
+                "strategy": "typescript-binding",
+                "rootType": "TriggerActionPermissionReply",
+                "declaredTypes": [
+                    "TriggerActionPermissionReply"
+                ],
+                "outputDirectory": "packages/storage/src/generated",
+                "artifacts": {
+                    "schemaModule": "trigger-action-permission-reply-schema.ts",
+                    "validator": "trigger-action-permission-reply-validator.mjs",
+                    "validatorTypes": "trigger-action-permission-reply-validator.d.mts",
+                    "manifest": "trigger-action-permission-reply-manifest.json",
+                    "binding": "trigger-action-permission-reply-binding.ts"
+                },
+                "binding": {
+                    "module": "../../../contract-binding/src/index",
+                    "dataType": "TriggerActionPermissionReply",
+                    "dataTypeModule": "../trigger-permission",
+                    "exportName": "triggerActionPermissionReplyBinding",
+                    "names": {
+                        "schema": "triggerActionPermissionReplySchema",
+                        "metadata": "triggerActionPermissionReplyMetadata",
+                        "validator": "validateTriggerActionPermissionReply"
+                    }
+                }
+            },
+            "validation": {
+                "state": "generated-reader",
+                "detail": "消费端使用生成 binding 校验 JSON 结构，并在入口核对目标身份与业务不变量。"
+            },
+            "role": "boundary-root"
+        },
+        {
+            "key": "model-contracts/src/trigger-permission-decision#SupervisorPermissionDecisionWire",
+            "declaration": "SupervisorPermissionDecisionWire",
+            "source": {
+                "path": "packages/model-contracts/src/trigger-permission-decision.ts",
+                "line": 10
+            },
+            "owner": "model-contracts",
+            "module": "model-contracts",
+            "boundary": "model-output",
+            "section": "Supervisor 权限决策模型输出",
+            "definition": "原生 TypeScript 类型契约",
+            "definitionKind": "native-ts",
+            "relations": [],
+            "consumers": [
+                "apps/goal-server/src/runtime/worker-permission.ts"
+            ],
+            "protocol": {
+                "identity": {
+                    "state": "declared",
+                    "value": "model.supervisor-permission-decision"
+                },
+                "version": {
+                    "state": "declared",
+                    "value": 1,
+                    "detail": "version: 1"
+                }
+            },
+            "generation": {
+                "state": "enabled",
+                "detail": "Supervisor 对单次 Action 权限判断的模型输出绑定。",
+                "strategy": "typescript-binding",
+                "rootType": "SupervisorPermissionDecisionWire",
+                "declaredTypes": [
+                    "SupervisorPermissionDecisionWire"
+                ],
+                "outputDirectory": "packages/model-contracts/src/generated",
+                "artifacts": {
+                    "schemaModule": "supervisor-permission-decision-schema.ts",
+                    "validator": "supervisor-permission-decision-validator.mjs",
+                    "validatorTypes": "supervisor-permission-decision-validator.d.mts",
+                    "manifest": "supervisor-permission-decision-manifest.json",
+                    "binding": "supervisor-permission-decision-binding.ts"
+                },
+                "binding": {
+                    "module": "../../../contract-binding/src/index",
+                    "dataType": "SupervisorPermissionDecisionWire",
+                    "dataTypeModule": "../trigger-permission-decision",
+                    "exportName": "supervisorPermissionDecisionBinding",
+                    "names": {
+                        "schema": "supervisorPermissionDecisionSchema",
+                        "metadata": "supervisorPermissionDecisionMetadata",
+                        "validator": "validateSupervisorPermissionDecisionWire"
+                    }
+                }
+            },
+            "validation": {
+                "state": "generated-reader",
+                "detail": "消费端使用生成 binding 校验 JSON 结构，并在入口核对目标身份与业务不变量。"
+            },
+            "role": "boundary-root"
         }
     ]
 }

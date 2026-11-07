@@ -91,6 +91,7 @@ import type { ToolPolicy } from "./tool";
 import { resolveAuthorizedToolDefinitions } from "./tool";
 import {
     isSeatbeltSupported,
+    isEffectiveSandboxScopeWithin,
     resolveEffectiveSandboxScope,
     type DerivedSandboxAccess,
     type EffectiveSandboxScope,
@@ -637,6 +638,14 @@ function prepareToolAction(
         throw new RunnerExecutionError(
             "TOOL_NOT_AUTHORIZED",
             `Tool "${action.toolId}" is not authorized by the frozen Profile`,
+        );
+    }
+
+    const goalAuthorization = goal.definition.triggerContext?.authorization;
+    if (goalAuthorization !== undefined && !goalAuthorization.toolIds.includes(action.toolId)) {
+        throw new RunnerExecutionError(
+            "TOOL_NOT_AUTHORIZED",
+            `Tool "${action.toolId}" is outside the frozen Goal authorization`,
         );
     }
 
@@ -6704,6 +6713,14 @@ class RunExecutor {
             effectiveSandboxScope = await resolveEffectiveSandboxScope(
                 this.workspaceRoot,
                 sandboxAccessRequest,
+            );
+        }
+        const goalSandboxCeiling = goal.definition.triggerContext?.authorization.sandbox;
+        if (goalSandboxCeiling !== undefined
+            && !isEffectiveSandboxScopeWithin(effectiveSandboxScope, goalSandboxCeiling)) {
+            throw new RunnerExecutionError(
+                "TOOL_NOT_AUTHORIZED",
+                `Action "${validated.action.actionId}" exceeds the frozen Goal sandbox authorization`,
             );
         }
         const sandboxDecision = evaluateSandboxAuthorization({

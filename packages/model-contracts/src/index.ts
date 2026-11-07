@@ -90,3 +90,4 @@ export type {
 export type { RunStageToolContext } from "./model-output/system-tool-specs";
 
 export * from "./model-conversation";
+export type { SupervisorPermissionDecision, SupervisorPermissionDecisionWire } from "./trigger-permission-decision";

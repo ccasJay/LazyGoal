@@ -118,6 +118,8 @@ Runner 和 GoalCoordinator 可通过 [`@lazygoal/execution-stream`](../../execut
 
 持续授权按最终已验证参数与能力范围生成匹配器，并以来自会话输入的稳定批准身份作为事务来源；同一决定同内容重试复用同一条暂存记录，不同决定的未提交 pending 可以并存，但只有被已提交批准引用的一条会被激活。
 
+Trigger 创建的 Goal 将宿主冻结的工具 ID 与沙箱能力保存为当前 Goal 上限。Runner 在 Tool 准备时拒绝上限外的工具，并在授权及执行计划前复核解析后的实际沙箱能力；该上限不能覆盖 Profile、宿主权限模式、有效 Grant 或平台沙箱约束。
+
 ## 实例生命周期与资源所有权
 
 [RuntimeLifecycle](../src/lifecycle/runtime-lifecycle.ts) 的状态为 `open`、`closing` 与 `closed`。首次 `close()` 同步进入 `closing`：拒绝新的 `beginOperation` 受理、冻结 Checkpoint Gate、中止明确交付的实例控制器，然后依次执行正常和强制清理，请求 [ManagedResourceRegistry](../src/lifecycle/managed-resources.ts) 结算资源，并等待已受理操作与已进入保存边界的写入。两个阶段各以 `gracePeriodMs` 为上限，默认各 2 秒。

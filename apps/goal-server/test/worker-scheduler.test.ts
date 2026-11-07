@@ -25,8 +25,15 @@ function createWaitingGoal(id: string, intent: string, workspaceRoot: string) {
     assert.equal(waiting.ok, true);
     return {
         goal: { ...goal, state: { ...goal.state, run: waiting.state } },
-        authorization: { workspace: { mode: "shared", projectRoot: workspaceRoot, executionRoot: workspaceRoot }, toolIds: [], sandbox: { extraFiles: [], network: "none" as const } },
+        authorization: { workspace: { mode: "shared" as const, projectRoot: workspaceRoot, executionRoot: workspaceRoot }, toolIds: [], sandbox: { extraFiles: [], network: "none" as const } },
     };
+}
+
+function acceptedGoalId(admission: Awaited<ReturnType<typeof admitTrigger>>): string {
+    if (admission.kind !== "settled" || admission.receipt.status !== "settled" || admission.receipt.result.kind !== "accepted") {
+        throw new Error("Expected an accepted Trigger delivery");
+    }
+    return admission.receipt.result.goalId;
 }
 
 function createFailedRun(goal: Awaited<ReturnType<typeof createWaitingGoal>>["goal"]) {
@@ -72,12 +79,11 @@ test("FIFO 派发让不同 Goal 并行，等待绑定保留，终态后复用匹
     const factory = async (intent: string, reserved: string | undefined) => createWaitingGoal(reserved ?? `goal-${intent}`, intent, workspace);
     const event = (suffix: string) => ({ deliveryId: `delivery-${suffix}`, trigger: { id: `trigger-${suffix}`, purpose: "work", source: "user", payload: JSON.stringify({ intent: `goal-${suffix}` }) } });
     const acceptedIds: string[] = [];
-    const scheduler = new WorkerScheduler({ owner, deliveries, goals, cwd: workspace, dataDirectory, env });
+    const scheduler = new WorkerScheduler({ owner, deliveries, goals, cwd: workspace, dataDirectory, env, permissionAdapter: never });
     try {
         for (const suffix of ["a", "b"]) {
             const result = await admitTrigger(owner, deliveries, goals, never, event(suffix), principal, factory);
-            assert.equal(result.kind, "settled");
-            if (result.kind === "settled" && result.receipt.result.kind === "accepted") acceptedIds.push(result.receipt.result.goalId);
+            acceptedIds.push(acceptedGoalId(result));
         }
         await scheduler.pump();
         await waitFor(() => acceptedIds.every((goalId) => deliveries.queueRecord(goalId)?.status === "waiting"));
@@ -105,9 +111,7 @@ test("FIFO 派发让不同 Goal 并行，等待绑定保留，终态后复用匹
         assert.equal(scheduler.assignments().some((item) => item.goalId === acceptedIds[0]), false);
 
         const third = await admitTrigger(owner, deliveries, goals, never, event("c"), principal, factory);
-        assert.equal(third.kind, "settled");
-        assert.ok(third.kind === "settled" && third.receipt.result.kind === "accepted");
-        const thirdGoalId = third.kind === "settled" && third.receipt.result.kind === "accepted" ? third.receipt.result.goalId : "";
+        const thirdGoalId = acceptedGoalId(third);
         await scheduler.pump();
         await waitFor(() => deliveries.queueRecord(thirdGoalId)?.status === "waiting");
         assert.equal(deliveries.queueRecord(thirdGoalId)?.workerId, records[0]!.workerId);
@@ -118,8 +122,7 @@ test("FIFO 派发让不同 Goal 并行，等待绑定保留，终态后复用匹
         }
 
         const fourth = await admitTrigger(owner, deliveries, goals, never, event("d"), principal, factory);
-        assert.equal(fourth.kind, "settled");
-        const fourthGoalId = fourth.kind === "settled" && fourth.receipt.result.kind === "accepted" ? fourth.receipt.result.goalId : "";
+        const fourthGoalId = acceptedGoalId(fourth);
         await scheduler.pump();
         await waitFor(() => deliveries.queueRecord(fourthGoalId)?.status === "waiting");
         const lostAssignment = deliveries.queueRecord(fourthGoalId)!;
@@ -137,8 +140,7 @@ test("FIFO 派发让不同 Goal 并行，等待绑定保留，终态后复用匹
         assert.equal(scheduler.assignments().find((item) => item.workerId === lostAssignment.workerId)?.goalId, fourthGoalId);
 
         const fifth = await admitTrigger(owner, deliveries, goals, never, event("e"), principal, factory);
-        assert.equal(fifth.kind, "settled");
-        const fifthGoalId = fifth.kind === "settled" && fifth.receipt.result.kind === "accepted" ? fifth.receipt.result.goalId : "";
+        const fifthGoalId = acceptedGoalId(fifth);
         await scheduler.pump();
         await waitFor(() => deliveries.queueRecord(fifthGoalId)?.status === "waiting");
         assert.notEqual(deliveries.queueRecord(fifthGoalId)?.workerId, lostAssignment.workerId);
@@ -188,19 +190,18 @@ test("活动模型调用收到取消后等待 Runtime 结算，再持久化终�
     const owner = new SupervisorOwnership(join(dataDirectory, "owner.db"));
     const deliveries = new TriggerDeliveryStore(join(dataDirectory, "deliveries.db"));
     const goals = new JsonFileGoalStore(join(dataDirectory, "goals"));
-    const scheduler = new WorkerScheduler({ owner, deliveries, goals, cwd: workspace, dataDirectory, env });
+    const scheduler = new WorkerScheduler({ owner, deliveries, goals, cwd: workspace, dataDirectory, env, permissionAdapter: never });
     const factory = async (intent: string, reserved: string | undefined) => {
         const goal = createGoal({ ...currentProtocols, id: reserved ?? "goal-active-cancel", runId: "run-active-cancel", intent,
             promptBundleVersion: 1, modelSelection: { provider: "openai-compatible", modelId: "test", contextWindowTokens: 16000,
                 maxOutputTokens: 4096, inputEstimator: { kind: "character-v1" } },
             profile: { id: "default", systemPrompt: "Test", instructions: ["Test"], toolIds: [] } });
-        return { goal, authorization: { workspace: { mode: "shared", projectRoot: workspace, executionRoot: workspace }, toolIds: [], sandbox: { extraFiles: [], network: "none" as const } } };
+        return { goal, authorization: { workspace: { mode: "shared" as const, projectRoot: workspace, executionRoot: workspace }, toolIds: [], sandbox: { extraFiles: [], network: "none" as const } } };
     };
     const input = { deliveryId: "active-cancel-work", trigger: { id: "active-cancel-work-trigger", purpose: "work", source: "user", payload: '{"intent":"wait for cancellation"}' } };
     try {
         const accepted = await admitTrigger(owner, deliveries, goals, never, input, principal, factory);
-        assert.ok(accepted.kind === "settled" && accepted.receipt.result.kind === "accepted");
-        const goalId = accepted.kind === "settled" && accepted.receipt.result.kind === "accepted" ? accepted.receipt.result.goalId : "";
+        const goalId = acceptedGoalId(accepted);
         await scheduler.pump();
         await withTimeout(modelRequest, 5000, `Model request was not received; queue=${JSON.stringify(deliveries.queueRecord(goalId))}`);
         assert.equal((await goals.restore(goalId))?.state.run.status, "running");

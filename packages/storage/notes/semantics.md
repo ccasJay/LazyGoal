@@ -28,5 +28,6 @@
 | 按键串行队列 | 同一 key 的进程内 FIFO 执行、失败隔离、簿记释放与 `drain` 读己之写。 | [持久化实现](../README.md) | [串行队列](../src/keyed-serial-queue.ts) |
 | 缺失目录阶段语义 | 原子替换默认逐阶段抛出 `ENOENT`；只有调用点显式声明时才缩小静默范围。 | [持久化实现](../README.md) | [模块说明](./overview.md) |
 | 轨迹查询索引 | 单 Run 的 SQLite 元数据索引：事件顺序、JSONL 字节位置与 Action/ModelCall/Program 关联；可删除并从 JSONL 重建。 | [持久化实现](../README.md) | [轨迹索引](../src/trajectory-index.ts) |
-| TriggerDeliveryStore | 按独立投递身份去重，保存不可变 Trigger、准入待重试原因、接受收据及 FIFO 队列中的认领、等待和终态状态。 | [持久化实现](../README.md) | [投递存储](../src/trigger-delivery-store.ts) |
+| TriggerDeliveryStore | 按独立投递身份去重，保存不可变 Trigger、准入待重试原因、接受收据、FIFO Worker 状态及权限失败原因；Runtime 应用决定后原子结算请求与回复。 | [持久化实现](../README.md) | [投递存储](../src/trigger-delivery-store.ts) |
+| Action 权限 Trigger | 请求和回复都绑定同一 Goal、Run、Action、交互、提交修订与 Worker generation；失败原因保留在待处理请求上。 | [持久化实现](../README.md) | [权限载荷 Codec](../src/trigger-permission-codec.ts) |
 | GoalTriggerContext 快照 | 随 Goal 保存来源 Trigger、投递身份和可信宿主冻结的动作权限上限。 | [Runtime](../../runtime/README.md) | [Snapshot DTO](../src/goal-snapshot.ts) |

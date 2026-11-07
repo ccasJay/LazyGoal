@@ -2,13 +2,20 @@ import { randomUUID } from "node:crypto";
 import { createRuntimeComposition } from "./composition";
 import type { GoalStore } from "../../../../packages/runtime/src/goal-store";
 import type { Goal } from "../../../../packages/runtime/src/domain";
-import { goalSnapshotCodec, type GoalSnapshotV1 } from "../../../../packages/storage/src/index";
+import {
+    decodeTriggerActionPermissionReply,
+    goalSnapshotCodec,
+    type GoalSnapshotV1,
+    type TriggerDeliveryFile,
+} from "../../../../packages/storage/src/index";
+import { triggerDeliveryFileBinding } from "../../../../packages/storage/src/generated/trigger-delivery-binding";
 import type { WorkerProgress } from "./worker-process";
 
 type ParentMessage =
     | { readonly kind: "probe"; readonly requestId: string }
     | { readonly kind: "advance"; readonly requestId: string; readonly goalId: string; readonly runId: string }
     | { readonly kind: "cancel"; readonly requestId: string; readonly interruptId: string; readonly goalId: string; readonly runId: string }
+    | { readonly kind: "permission-response"; readonly requestId: string; readonly delivery: TriggerDeliveryFile }
     | { readonly kind: "store-reply"; readonly requestId: string; readonly ok: true; readonly snapshot?: GoalSnapshotV1 }
     | { readonly kind: "store-reply"; readonly requestId: string; readonly ok: false }
     | { readonly kind: "close" };
@@ -20,6 +27,7 @@ type ChildMessage =
     | { readonly kind: "store-save"; readonly requestId: string; readonly workerId: string; readonly generation: string; readonly goalId: string; readonly snapshot: unknown }
     | { readonly kind: "advance-result"; readonly requestId: string; readonly result: WorkerProgress }
     | { readonly kind: "cancel-result"; readonly requestId: string; readonly result: WorkerProgress }
+    | { readonly kind: "permission-result"; readonly requestId: string; readonly result: WorkerProgress }
     | { readonly kind: "closed" };
 
 function requiredEnvironment(name: string): string {
@@ -111,6 +119,20 @@ async function handle(message: ParentMessage): Promise<void> {
         send({ kind: "cancel-result", requestId: message.requestId, result: progress });
         return;
     }
+    if (message.kind === "permission-response") {
+        if (operationActive || assignedGoalId === undefined || assignedRunId === undefined
+            || message.delivery.goalId === undefined || assignedGoalId !== message.delivery.goalId) {
+            send({ kind: "permission-result", requestId: message.requestId, result: { kind: "rejected", code: "WORKER_GOAL_MISMATCH", message: "Worker does not own the permission target" } });
+            return;
+        }
+        operationActive = true;
+        const operation = executePermissionResponse(message);
+        activeAdvance = operation;
+        await operation;
+        if (activeAdvance === operation) activeAdvance = undefined;
+        operationActive = false;
+        return;
+    }
     if (message.kind === "close") {
         if (operationActive || assignedGoalId !== undefined) return;
         await runtime?.lifecycle.close();
@@ -148,6 +170,51 @@ async function executeAdvance(message: Extract<ParentMessage, { readonly kind: "
         send({ kind: "advance-result", requestId: message.requestId, result: { kind: "rejected", code: "WORKER_EXECUTION_FAILED", message: "Worker execution failed" } });
     } finally {
         operationActive = false;
+    }
+}
+
+async function executePermissionResponse(message: Extract<ParentMessage, { readonly kind: "permission-response" }>): Promise<void> {
+    try {
+        const parsed = triggerDeliveryFileBinding.read(message.delivery, "reject");
+        if (!parsed.ok) throw new Error("Invalid permission delivery");
+        const delivery = parsed.data;
+        if (delivery.trigger.purpose !== "permission" || delivery.goalId !== assignedGoalId
+            || (delivery.trigger.source !== "user" && delivery.trigger.source !== "supervisor")) {
+            throw new Error("Permission delivery target is invalid");
+        }
+        const reply = decodeTriggerActionPermissionReply(delivery.trigger.payload);
+        if (reply.workerId !== workerId || reply.generation !== generation || reply.runId !== assignedRunId
+            || reply.interactionId !== `action_approval:${reply.actionId}`) {
+            throw new Error("Permission reply identity does not match this Worker generation");
+        }
+        const currentRuntime = await ensureRuntime();
+        const goal = await currentRuntime.store.restore(delivery.goalId!);
+        if (goal === undefined || goal.state.run.id !== reply.runId || goal.state.run.status !== "waiting"
+            || (goal.state.commitRevision ?? 0) !== reply.commitRevision
+            || goal.state.run.pendingAction?.status !== "awaiting_approval"
+            || goal.state.run.pendingAction.action.actionId !== reply.actionId) {
+            throw new Error("Permission reply no longer matches the current Action wait");
+        }
+        const result = await currentRuntime.commands.resume({
+            ref: { goalId: goal.id, runId: reply.runId },
+            action: reply.decision === "approve"
+                ? { kind: "approve_action", actionId: reply.actionId, scope: "action", approvalInputId: delivery.trigger.id }
+                : { kind: "reject_action", actionId: reply.actionId, reason: reply.reason! },
+        });
+        const progress: WorkerProgress = !result.ok
+            ? { kind: "rejected", code: result.error.code, message: "Action permission reply was not accepted" }
+            : result.kind === "waiting"
+                ? { kind: "waiting", waitingFor: result.waitingFor }
+                : result.goal.state.run.status === "completed" || result.goal.state.run.status === "failed" || result.goal.state.run.status === "cancelled"
+                    ? { kind: "terminal", status: result.goal.state.run.status }
+                    : { kind: "rejected", code: "NONTERMINAL_RESULT", message: "Runtime returned an unsettled Goal" };
+        if (progress.kind === "terminal") {
+            assignedGoalId = undefined;
+            assignedRunId = undefined;
+        }
+        send({ kind: "permission-result", requestId: message.requestId, result: progress });
+    } catch {
+        send({ kind: "permission-result", requestId: message.requestId, result: { kind: "rejected", code: "PERMISSION_REPLY_REJECTED", message: "Permission reply was rejected" } });
     }
 }
 
@@ -215,6 +282,11 @@ function parseParentMessage(value: unknown): ParentMessage | undefined {
     if (value.kind === "cancel" && "requestId" in value && typeof value.requestId === "string"
         && "interruptId" in value && typeof value.interruptId === "string" && "goalId" in value && typeof value.goalId === "string"
         && "runId" in value && typeof value.runId === "string") return value as ParentMessage;
+    if (value.kind === "permission-response" && "requestId" in value && typeof value.requestId === "string"
+        && "delivery" in value) {
+        const delivery = triggerDeliveryFileBinding.read(value.delivery, "reject");
+        return delivery.ok ? { kind: "permission-response", requestId: value.requestId, delivery: delivery.data } : undefined;
+    }
     if (value.kind === "store-reply" && "requestId" in value && typeof value.requestId === "string"
         && "ok" in value && typeof value.ok === "boolean"
         && (value.ok === false || "snapshot" in value)) return value as ParentMessage;

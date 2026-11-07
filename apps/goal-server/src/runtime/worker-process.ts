@@ -7,6 +7,7 @@ import { goalSnapshotCodec, type GoalSnapshotV1 } from "../../../../packages/sto
 import { JsonFileGoalStore } from "../../../../packages/storage/src/goal-store";
 import { TriggerDeliveryStore } from "../../../../packages/storage/src/trigger-delivery-store";
 import { SupervisorOwnership } from "../../../../packages/storage/src/supervisor-ownership";
+import type { TriggerDeliveryFile } from "../../../../packages/storage/src/trigger-delivery-file";
 
 type WorkerMessage =
     | { readonly kind: "ready"; readonly workerId: string; readonly generation: string; readonly pid: number }
@@ -15,12 +16,14 @@ type WorkerMessage =
     | { readonly kind: "store-save"; readonly requestId: string; readonly workerId: string; readonly generation: string; readonly goalId: string; readonly snapshot: unknown }
     | { readonly kind: "advance-result"; readonly requestId: string; readonly result: WorkerProgress }
     | { readonly kind: "cancel-result"; readonly requestId: string; readonly result: WorkerProgress }
+    | { readonly kind: "permission-result"; readonly requestId: string; readonly result: WorkerProgress }
     | { readonly kind: "closed" };
 
 type WorkerCommand =
     | { readonly kind: "probe"; readonly requestId: string }
     | { readonly kind: "advance"; readonly requestId: string; readonly goalId: string; readonly runId: string }
     | { readonly kind: "cancel"; readonly requestId: string; readonly interruptId: string; readonly goalId: string; readonly runId: string }
+    | { readonly kind: "permission-response"; readonly requestId: string; readonly delivery: TriggerDeliveryFile }
     | { readonly kind: "store-reply"; readonly requestId: string; readonly ok: true; readonly snapshot?: GoalSnapshotV1 }
     | { readonly kind: "store-reply"; readonly requestId: string; readonly ok: false }
     | { readonly kind: "close" };
@@ -250,6 +253,41 @@ export class SupervisorWorkerProcess {
     }
 
     /**
+     * 将已认证并持久化的权限回复交给当前 Worker Runtime。
+     *
+     * @remarks Worker 再按当前 Goal、Run、Action 与 Snapshot 修订核对回复；只有 Runtime
+     * 结算结果返回后，Supervisor 才能结算对应权限 Trigger。
+     * @param delivery - 已通过 Supervisor 认证的权限回复投递。
+     * @returns Runtime 恢复后的等待、终态或稳定拒绝。
+     * @throws Worker 已断开、目标不匹配或 IPC 失败时拒绝，持久投递保持待处理。
+     * @example
+     * ```ts
+     * const progress = await worker.respondActionPermission(replyDelivery);
+     * ```
+     */
+    async respondActionPermission(delivery: TriggerDeliveryFile): Promise<WorkerProgress> {
+        const goalId = delivery.goalId;
+        if (goalId === undefined || this.closed || this.busy || this.cancelling || this.goalId !== goalId) {
+            throw new Error("Worker does not own the permission target");
+        }
+        this.busy = true;
+        let markCommandSent!: () => void;
+        const commandSent = new Promise<void>((resolve) => { markCommandSent = resolve; });
+        this.advanceCommandSent = commandSent;
+        try {
+            const response = this.request({ kind: "permission-response", requestId: randomUUID(), delivery });
+            markCommandSent();
+            const result = await response;
+            if (result.kind !== "permission-result") throw new Error("Unexpected Worker permission response");
+            return result.result;
+        } finally {
+            markCommandSent();
+            if (this.advanceCommandSent === commandSent) this.advanceCommandSent = undefined;
+            this.busy = false;
+        }
+    }
+
+    /**
      * 在 Supervisor 已保存对应终态报告与队列状态后释放本地 Worker 绑定。
      *
      * @param goalId - 已由该 Worker 终止并由 Supervisor 持久结算的 Goal。
@@ -335,7 +373,7 @@ function parseWorkerMessage(value: unknown): WorkerMessage | undefined {
     if (value.kind === "probe-result" && typeof value.requestId === "string" && typeof value.pid === "number" && typeof value.workerId === "string" && typeof value.generation === "string") return value as unknown as WorkerMessage;
     if ((value.kind === "store-read" || value.kind === "store-save") && typeof value.requestId === "string" && typeof value.workerId === "string" && typeof value.generation === "string" && typeof value.goalId === "string"
         && (value.kind !== "store-save" || "snapshot" in value)) return value as unknown as WorkerMessage;
-    if ((value.kind === "advance-result" || value.kind === "cancel-result") && typeof value.requestId === "string" && isWorkerProgress(value.result)) return value as unknown as WorkerMessage;
+    if ((value.kind === "advance-result" || value.kind === "cancel-result" || value.kind === "permission-result") && typeof value.requestId === "string" && isWorkerProgress(value.result)) return value as unknown as WorkerMessage;
     if (value.kind === "closed") return value as unknown as WorkerMessage;
     return undefined;
 }

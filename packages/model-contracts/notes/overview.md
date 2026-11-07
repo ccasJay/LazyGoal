@@ -14,6 +14,8 @@
 
 [Trigger 准入判断契约](../src/trigger-admission.ts) 定义 Supervisor 慢路径的接受或忽略结果及 shared/worktree 策略选择；模型结果不授予动作权限，生成绑定用于 Provider 结构投影与模型响应校验。
 
+[Supervisor 权限判断契约](../src/trigger-permission-decision.ts) 只表达当前 Worker Action 的 approve/reject 决定。Wire 类型使用字符串枚举和显式 `null` 以满足可移植 Provider Schema；消费端再校验批准与拒绝的互斥字段组合。该结果不授予持续 Grant，也不改变工具输入或沙箱范围。
+
 ## 对话续接
 
 [模型消息协议](../src/model-conversation.ts) 区分 system、user、assistant 和配对 tool 消息。原生续接身份包含 provider、端点、模型和协议；只有身份一致且响应已被 Runtime 接受并提交时，才可回放续接字段。Gemini 原始 Part 顺序和不透明签名不能改写；不支持的多模态 Part 在供应商边界拒绝。

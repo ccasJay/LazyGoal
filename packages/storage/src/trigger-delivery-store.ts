@@ -7,6 +7,7 @@ import { triggerDeliveryOutcomeBinding } from "./generated/trigger-delivery-outc
 import type { Goal } from "../../runtime/src/domain";
 import { goalSnapshotCodec } from "./goal-snapshot-codec";
 import { SupervisorOwnership } from "./supervisor-ownership";
+import { decodeTriggerActionPermissionReply, decodeTriggerActionPermissionRequest } from "./trigger-permission-codec";
 
 /** 单次投递的持久化处理结果。 */
 export type TriggerDeliveryResult =
@@ -29,6 +30,25 @@ export interface TriggerGoalQueueRecord {
     readonly workerId?: string;
     readonly generation?: string;
 }
+
+/**
+ * Action 权限请求在人工介入前保留的失败关闭原因。
+ *
+ * @remarks
+ * 分类只说明等待为何未自动结算，不携带模型正文或 Action 输入；请求仍保持待处理。
+ *
+ * @example
+ * ```ts
+ * const reason: TriggerActionPermissionFailureReason = "model-failed";
+ * ```
+ */
+export type TriggerActionPermissionFailureReason =
+    | "missing-goal-ceiling"
+    | "goal-scope-exceeded"
+    | "model-failed"
+    | "invalid-model-result"
+    | "worker-unavailable"
+    | "reply-rejected";
 
 /**
  * 使用 SQLite 事务保存 Trigger 与投递收据。
@@ -83,6 +103,10 @@ export class TriggerDeliveryStore {
             CREATE INDEX IF NOT EXISTS trigger_deliveries_goal ON trigger_deliveries(json_extract(content, '$.goalId'));
             DROP INDEX IF EXISTS trigger_goal_queue_worker;
             CREATE UNIQUE INDEX trigger_goal_queue_worker ON trigger_goal_queue(worker_id) WHERE worker_id IS NOT NULL AND status IN ('claimed', 'waiting');
+            CREATE TABLE IF NOT EXISTS trigger_permission_failures (
+                delivery_id TEXT PRIMARY KEY REFERENCES trigger_deliveries(id),
+                reason TEXT NOT NULL CHECK (reason IN ('missing-goal-ceiling', 'goal-scope-exceeded', 'model-failed', 'invalid-model-result', 'worker-unavailable', 'reply-rejected'))
+            ) STRICT;
             PRAGMA foreign_keys = ON;
         `);
     }
@@ -182,6 +206,83 @@ export class TriggerDeliveryStore {
         if (!goalId.trim()) throw new Error("Goal identity is required");
         const rows = this.database.prepare("SELECT id FROM trigger_deliveries WHERE json_extract(content, '$.goalId') = ? ORDER BY rowid").all(goalId) as { id: string }[];
         return rows.map(({ id }) => this.read(id)).filter((result): result is TriggerDeliveryResult => result !== undefined);
+    }
+
+    /**
+     * 保存 Action 权限 Trigger 当前需要人工处理的失败关闭原因。
+     *
+     * @remarks 投递保持 pending；相同请求的后续失败会更新原因，处理成功后由 `settle` 清除。
+     * @param deliveryId - 持久化的 Action 权限请求投递。
+     * @param reason - 不含原始 Action 参数的稳定故障分类。
+     * @throws 投递不是待处理权限请求或存储失败时抛出。
+     */
+    recordActionPermissionFailure(deliveryId: string, reason: TriggerActionPermissionFailureReason): void {
+        const current = this.read(deliveryId);
+        if (current?.status !== "pending" || current.delivery.trigger.purpose !== "permission"
+            || current.delivery.trigger.source !== "worker" || current.delivery.goalId === undefined
+            || current.delivery.trigger.workerId === undefined || current.delivery.trigger.generation === undefined) {
+            throw new Error("Action permission failure requires a pending permission delivery");
+        }
+        const request = decodeTriggerActionPermissionRequest(current.delivery.trigger.payload);
+        if (request.requestId !== current.delivery.trigger.id) throw new Error("Action permission failure request identity is invalid");
+        this.database.prepare(`INSERT INTO trigger_permission_failures (delivery_id, reason) VALUES (?, ?)
+            ON CONFLICT(delivery_id) DO UPDATE SET reason = excluded.reason`).run(deliveryId, reason);
+    }
+
+    /** @returns 待处理 Action 权限请求的失败关闭原因；尚未失败或不存在时返回 undefined。 */
+    actionPermissionFailure(deliveryId: string): TriggerActionPermissionFailureReason | undefined {
+        const row = this.database.prepare("SELECT reason FROM trigger_permission_failures WHERE delivery_id = ?").get(deliveryId) as { reason: TriggerActionPermissionFailureReason } | undefined;
+        return row?.reason;
+    }
+
+    /**
+     * 原子结算一组已由 Worker Runtime 应用的权限请求与回复。
+     *
+     * @remarks 两条投递必须属于同一 Goal 的权限事件；重复结算只接受原 `handled` 收据。
+     * @param requestDeliveryId - Worker 权限请求投递身份。
+     * @param replyDeliveryId - 已应用的 Supervisor／用户回复投递身份。
+     * @returns 已结算的请求与回复记录。
+     * @throws 身份、Goal、用途或既有结果不一致时抛出；事务不会部分结算。
+     */
+    settleActionPermissionExchange(requestDeliveryId: string, replyDeliveryId: string): readonly [TriggerDeliveryResult, TriggerDeliveryResult] {
+        this.database.exec("BEGIN IMMEDIATE");
+        try {
+            const request = this.read(requestDeliveryId);
+            const reply = this.read(replyDeliveryId);
+            if (request === undefined || reply === undefined
+                || request.delivery.trigger.purpose !== "permission" || request.delivery.trigger.source !== "worker"
+                || reply.delivery.trigger.purpose !== "permission"
+                || (reply.delivery.trigger.source !== "user" && reply.delivery.trigger.source !== "supervisor")
+                || request.delivery.goalId === undefined || request.delivery.goalId !== reply.delivery.goalId) {
+                throw new Error("Action permission exchange identity is inconsistent");
+            }
+            const requestPayload = decodeTriggerActionPermissionRequest(request.delivery.trigger.payload);
+            const replyPayload = decodeTriggerActionPermissionReply(reply.delivery.trigger.payload);
+            if (request.delivery.trigger.id !== requestPayload.requestId
+                || replyPayload.requestDeliveryId !== requestDeliveryId
+                || replyPayload.requestId !== requestPayload.requestId || replyPayload.runId !== requestPayload.runId
+                || replyPayload.actionId !== requestPayload.actionId || replyPayload.interactionId !== requestPayload.interactionId
+                || replyPayload.commitRevision !== requestPayload.commitRevision
+                || replyPayload.workerId !== request.delivery.trigger.workerId
+                || replyPayload.generation !== request.delivery.trigger.generation) {
+                throw new Error("Action permission exchange payload identity is inconsistent");
+            }
+            for (const current of [request, reply]) {
+                if (current.status === "settled" && current.result.kind !== "handled") {
+                    throw new Error("Action permission exchange has a conflicting result");
+                }
+            }
+            const result = canonicalJson({ kind: "handled" });
+            for (const deliveryId of [requestDeliveryId, replyDeliveryId]) {
+                this.database.prepare("UPDATE trigger_deliveries SET result = ? WHERE id = ? AND result IS NULL").run(result, deliveryId);
+                this.database.prepare("DELETE FROM trigger_permission_failures WHERE delivery_id = ?").run(deliveryId);
+            }
+            this.database.exec("COMMIT");
+            return [this.read(requestDeliveryId)!, this.read(replyDeliveryId)!];
+        } catch (error) {
+            this.database.exec("ROLLBACK");
+            throw error;
+        }
     }
 
     /**
@@ -470,6 +571,7 @@ export class TriggerDeliveryStore {
             }
             if (current.status === "settled" && canonicalJson(current.result) !== canonicalJson(result)) throw new Error("Trigger delivery result conflict");
             if (current.status === "pending") this.database.prepare("UPDATE trigger_deliveries SET result = ? WHERE id = ?").run(canonicalJson(result), deliveryId);
+            if (result.kind === "handled") this.database.prepare("DELETE FROM trigger_permission_failures WHERE delivery_id = ?").run(deliveryId);
             this.database.exec("COMMIT");
             return { status: "settled", delivery: current.delivery, result };
         } catch (error) {

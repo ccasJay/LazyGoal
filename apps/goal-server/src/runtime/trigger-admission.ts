@@ -111,6 +111,10 @@ export async function admitTrigger(
                 return { kind: "pending", reason: "invalid-model-result" };
             }
             if (decision.kind === "ignore") return { kind: "settled", receipt: deliveries.settle(delivery.deliveryId, { kind: "ignored" }) };
+            if (decision.workspaceMode === undefined) {
+                deliveries.recordAdmissionFailure(delivery.deliveryId, "invalid-model-result");
+                return { kind: "pending", reason: "invalid-model-result" };
+            }
             intent = decision.intent;
             workspaceMode = decision.workspaceMode;
         }

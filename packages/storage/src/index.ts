@@ -49,7 +49,19 @@ export type {
     SnapshotJsonValue,
 } from "./goal-snapshot";
 export { TriggerDeliveryStore } from "./trigger-delivery-store";
-export type { TriggerDeliveryResult, TriggerGoalQueueRecord } from "./trigger-delivery-store";
+export type {
+    TriggerActionPermissionFailureReason,
+    TriggerDeliveryResult,
+    TriggerGoalQueueRecord,
+} from "./trigger-delivery-store";
+export {
+    decodeTriggerActionPermissionReply,
+    decodeTriggerActionPermissionRequest,
+} from "./trigger-permission-codec";
+export type {
+    TriggerActionPermissionReply,
+    TriggerActionPermissionRequest,
+} from "./trigger-permission";
 export { SupervisorOwnership } from "./supervisor-ownership";
 export type { TriggerDeliveryFile, TriggerDeliveryOutcome, TriggerWireRequest } from "./trigger-delivery-file";
 export { receiveAuthorizedTrigger } from "./trigger-delivery-ingress";
