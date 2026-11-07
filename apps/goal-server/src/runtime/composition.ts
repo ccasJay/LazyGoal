@@ -262,6 +262,8 @@ function configuredModelAdapterConfig(config: LLMConfig): LLMConfig {
         contextWindowTokens: metadata.contextWindowTokens,
         maxOutputTokens: metadata.maxOutputTokens,
         reasoning: metadata.reasoning,
+        vision: metadata.vision,
+        supportsRequiredToolChoice: metadata.supportsRequiredToolChoice,
     };
 }
 
@@ -769,6 +771,11 @@ async function assembleRuntimeComposition(
         modelId: llmConfig?.model ?? (adapter as { readonly modelId?: string }).modelId ?? "default-model",
         structuredOutputMode: llmConfig?.structuredOutputMode ?? adapter.structuredOutputMode ?? "prompt_only",
         ...(defaultExecutionMetadata === undefined ? {} : { executionApi: defaultExecutionMetadata.executionApi }),
+        ...(defaultExecutionMetadata === undefined ? {} : { reasoning: defaultExecutionMetadata.reasoning }),
+        ...(defaultExecutionMetadata === undefined ? {} : { vision: defaultExecutionMetadata.vision }),
+        ...(defaultExecutionMetadata === undefined
+            ? {}
+            : { supportsRequiredToolChoice: defaultExecutionMetadata.supportsRequiredToolChoice }),
         ...(defaultExecutionMetadata !== undefined ? {
             contextWindowTokens: defaultExecutionMetadata.contextWindowTokens,
             maxOutputTokens: defaultExecutionMetadata.maxOutputTokens,
@@ -811,7 +818,7 @@ async function assembleRuntimeComposition(
                 if (baseConfig.provider !== "opencode-go") {
                     throw new LLMConfigurationError([], `Saved execution metadata requires OpenCode Go for model "${selection.modelId}"`);
                 }
-                if (metadata?.executionApi !== selection.executionApi
+                if (selection.executionApi !== "openai-completions"
                     || selection.contextWindowTokens === undefined
                     || selection.maxOutputTokens === undefined) {
                     throw new LLMConfigurationError([], `Saved execution metadata is unavailable for model "${selection.modelId}"`);
@@ -824,7 +831,16 @@ async function assembleRuntimeComposition(
                     executionApi: selection.executionApi,
                     contextWindowTokens: selection.contextWindowTokens,
                     maxOutputTokens: selection.maxOutputTokens,
-                    reasoning: metadata.reasoning,
+                    reasoning: selection.reasoning ?? metadata?.reasoning ?? false,
+                    ...(selection.vision === undefined && metadata === undefined
+                        ? {}
+                        : { vision: selection.vision ?? metadata?.vision ?? false }),
+                    ...(selection.supportsRequiredToolChoice === undefined && metadata === undefined
+                        ? {}
+                        : {
+                            supportsRequiredToolChoice: selection.supportsRequiredToolChoice
+                                ?? metadata?.supportsRequiredToolChoice,
+                        }),
                 };
             }
             return createLlmStageAdapters(selectionConfig);

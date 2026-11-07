@@ -95,7 +95,7 @@ function createOpenCodeGoDynamicDescriptor(): LlmModelDescriptor {
         reasoning: true,
         vision: false,
         availabilitySource: "live",
-        metadataSource: "execution",
+        metadataSource: "live",
         selectable: true,
     };
 }
@@ -176,7 +176,7 @@ test("Intent 阶段选择模型后，创建新 Goal 使用所选模型并冻结�
     }
 });
 
-test("浏览器只提交模型 ID，服务端目录生成并保存 OpenCode Go 执行契约", async () => {
+test("浏览器只提交模型 ID，服务端目录生成并保存 OpenCode Go 在线执行契约", async () => {
     const { workspace, dataDirectory, cleanup } = await setupTestWorkspace();
     const access = createBrowserSessionAccess();
     const ready = deferred<string>();
@@ -213,7 +213,7 @@ test("浏览器只提交模型 ID，服务端目录生成并保存 OpenCode Go �
         const base = createGoal({
             ...currentProtocols,
             id: "goal-dynamic-browser",
-            intent: "Select a registered dynamic model",
+            intent: "Select an online text model",
             promptBundleVersion: 1,
             profile: root.profile,
             runId: "run-dynamic-browser",
@@ -279,6 +279,9 @@ test("浏览器只提交模型 ID，服务端目录生成并保存 OpenCode Go �
             structuredOutputMode: "prompt_only",
             contextWindowTokens: 1_000_000,
             maxOutputTokens: 524_288,
+            reasoning: true,
+            vision: false,
+            supportsRequiredToolChoice: false,
             executionApi: "openai-completions",
             inputEstimator: { kind: "character-v1" },
         });
@@ -299,6 +302,9 @@ test("浏览器只提交模型 ID，服务端目录生成并保存 OpenCode Go �
             structuredOutputMode: "prompt_only",
             contextWindowTokens: 1_000_000,
             maxOutputTokens: 131_072,
+            reasoning: true,
+            vision: false,
+            supportsRequiredToolChoice: true,
             executionApi: "openai-completions",
             inputEstimator: { kind: "character-v1" },
         });
@@ -419,7 +425,7 @@ test("新进程从 Snapshot 恢复动态模型 API 与容量，并使用当前 P
         });
         assert.equal(accepted.ok, true);
         const request = await withTimeout(transport.promise, "Restored dynamic binding did not call its transport");
-        assert.equal(request.url, "https://opencode.ai/inference/go/v1/chat/completions");
+        assert.equal(request.url, "https://opencode.ai/inference/go/openai/v1/chat/completions");
         assert.equal(request.headers.get("authorization"), "Bearer sk-current-provider-key");
         assert.equal(request.headers.get("user-agent"), "lazygoal");
         assert.ok(request.headers.get("x-opencode-session"));

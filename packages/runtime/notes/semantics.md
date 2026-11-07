@@ -40,7 +40,7 @@
 | 提交核对 | 有观察者时按不超过一秒的间隔只读核对最新提交修订，弥补末次通知丢失。 | [Goal Runtime](../README.md) | [会话流](../src/session-stream.ts) |
 | 流背压 | 控制事件无法保留时以 `backpressure` 结束该订阅，不静默丢弃也不阻塞执行。 | [Goal Runtime](../README.md) | [事件 Core](../../execution-stream/src/publisher.ts) |
 | 模型 Binding 对齐 | 新 Run 启动前按最新 Goal 的 `modelSelection` 重新对齐实例绑定。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
-| Goal 动态模型执行选择 | 保存非敏感 API 协议与容量供宿主恢复 Binding；不含端点或凭据。 | [Goal Runtime](../README.md) | [领域契约](../src/domain.ts) |
+| Goal 动态模型执行选择 | 保存非敏感 API 协议、容量和模型能力供宿主恢复 Binding；不含端点或凭据。 | [Goal Runtime](../README.md) | [领域契约](../src/domain.ts) |
 | 会话 Interrupt 受理 | 中断意图、账本收据与队列暂停在同一提交生效；受理使旧交互引用失效，受理后停止执行，记录已开始工具的未知结果并直接结算 cancelled，不再调用模型。 | [Goal Runtime](../README.md) | [Runner](../src/runner.ts) |
 | 停止与交互竞争 | 停止先受理时旧等待的回答／批准不再被接受；回答先提交时按最新 Run 状态处理停止，不回滚已提交事实。 | [Goal Runtime](../README.md) | [GoalCoordinator](../src/goal-coordinator.ts) |
 | 后继 Run 绑定 | 队首消息、输入应用关联、队列修订与新 Run 创建在同一 Snapshot 提交中完成。 | [Goal Runtime](../README.md) | [GoalCoordinator](../src/goal-coordinator.ts) |

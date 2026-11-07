@@ -587,7 +587,7 @@ var require_GoalSnapshotV1_validator = __commonJS({
     }
     var schema16 = { "type": "object", "properties": { "nextRunMode": { "type": "string", "const": "plan" }, "commitRevision": { "type": "number", "description": "Goal \u7EA7\u5355\u8C03\u63D0\u4EA4\u4FEE\u8BA2\uFF1B\u7701\u7565\u7B49\u540C 0\u3002" }, "inputLedger": { "type": "array", "items": { "$ref": "#/definitions/GoalSnapshotSessionInputV1" }, "description": "\u5DF2\u53D7\u7406\u8F93\u5165\u8D26\u672C\uFF1B\u7701\u7565\u8868\u793A\u5C1A\u672A\u53D7\u7406\u8F93\u5165\u3002" }, "messageQueue": { "$ref": "#/definitions/GoalSnapshotMessageQueueV1", "description": "\u5F85\u5904\u7406\u666E\u901A\u6D88\u606F\u961F\u5217\uFF1B\u7701\u7565\u8868\u793A\u7A7A\u961F\u5217\u3002" }, "workflow": { "$ref": "#/definitions/GoalSnapshotWorkflowV1" }, "messages": { "type": "array", "items": { "$ref": "#/definitions/GoalSnapshotMessageV1" } }, "run": { "$ref": "#/definitions/GoalSnapshotRunStateV1" }, "modelSelection": { "$ref": "#/definitions/GoalSnapshotModelSelectionV1" }, "goalPlan": { "$ref": "#/definitions/GoalSnapshotGoalPlanV1" }, "completedRuns": { "type": "array", "items": { "$ref": "#/definitions/GoalSnapshotCompletedRunV1" } } }, "required": ["workflow", "messages", "run", "modelSelection", "completedRuns"], "additionalProperties": false, "description": "Snapshot \u4E2D\u7684 Goal \u72B6\u6001\u3002" };
     var schema17 = { "type": "object", "properties": { "inputId": { "type": "string" }, "kind": { "type": "string", "enum": ["message", "steer", "interrupt", "respond", "resume", "queue_control"] }, "digest": { "type": "string" }, "sequence": { "type": "number" }, "status": { "type": "string", "enum": ["pending", "applied", "cleared"] }, "admittedAtRevision": { "type": "number" }, "targetRunId": { "type": "string" }, "appliedRunId": { "type": "string" }, "messageIndex": { "type": "number" } }, "required": ["inputId", "kind", "digest", "sequence", "status", "admittedAtRevision"], "additionalProperties": false, "description": "Snapshot \u4E2D\u4E00\u6761\u5DF2\u53D7\u7406\u8F93\u5165\u7684\u8D26\u672C\u8BB0\u5F55\u3002" };
-    var schema64 = { "type": "object", "properties": { "provider": { "type": "string" }, "profileId": { "type": "string" }, "modelId": { "type": "string" }, "executionApi": { "type": "string", "const": "openai-completions" }, "structuredOutputMode": { "type": "string", "enum": ["strict", "prompt_only", "two_stage"] }, "contextWindowTokens": { "type": "number" }, "maxOutputTokens": { "type": "number" }, "inputEstimator": { "anyOf": [{ "type": "object", "properties": { "kind": { "type": "string", "const": "character-v1" } }, "required": ["kind"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "token-encoding" }, "encoding": { "type": "string", "enum": ["cl100k_base", "o200k_base"] } }, "required": ["kind", "encoding"], "additionalProperties": false }] } }, "required": ["provider", "modelId", "inputEstimator"], "additionalProperties": false, "description": "Snapshot v1 \u4E2D\u6301\u4E45\u5316\u7684\u6A21\u578B\u9009\u62E9\u4E0E\u6267\u884C\u534F\u8BAE\u3002" };
+    var schema64 = { "type": "object", "properties": { "provider": { "type": "string" }, "profileId": { "type": "string" }, "modelId": { "type": "string" }, "executionApi": { "type": "string", "const": "openai-completions" }, "structuredOutputMode": { "type": "string", "enum": ["strict", "prompt_only", "two_stage"] }, "contextWindowTokens": { "type": "number" }, "maxOutputTokens": { "type": "number" }, "reasoning": { "type": "boolean", "description": "\u6A21\u578B\u662F\u5426\u652F\u6301\u63A8\u7406\u5185\u5BB9\u3002" }, "vision": { "type": "boolean", "description": "\u6A21\u578B\u662F\u5426\u63A5\u53D7\u56FE\u50CF\u7B49\u89C6\u89C9\u8F93\u5165\u3002" }, "supportsRequiredToolChoice": { "type": "boolean", "description": "Chat Completions \u8DEF\u5F84\u662F\u5426\u63A5\u53D7 `tool_choice: required`\u3002" }, "inputEstimator": { "anyOf": [{ "type": "object", "properties": { "kind": { "type": "string", "const": "character-v1" } }, "required": ["kind"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "token-encoding" }, "encoding": { "type": "string", "enum": ["cl100k_base", "o200k_base"] } }, "required": ["kind", "encoding"], "additionalProperties": false }] } }, "required": ["provider", "modelId", "inputEstimator"], "additionalProperties": false, "description": "Snapshot v1 \u4E2D\u6301\u4E45\u5316\u7684\u6A21\u578B\u9009\u62E9\u4E0E\u6267\u884C\u534F\u8BAE\u3002" };
     var schema67 = { "type": "object", "properties": { "runId": { "type": "string", "description": "\u5DF2\u5F52\u6863 Run \u7684\u7A33\u5B9A\u8EAB\u4EFD\u3002" }, "status": { "type": "string", "enum": ["completed", "failed", "cancelled"], "description": "\u5DF2\u5F52\u6863 Run \u7684\u771F\u5B9E\u7EC8\u6001\u3002" }, "stepCount": { "type": "number", "description": "\u5F52\u6863\u65F6\u5DF2\u63D0\u4EA4\u7684 Step \u6570\u91CF\u3002" }, "committedThroughSequence": { "type": "number", "description": "\u8BE5 Run \u7684\u8F68\u8FF9\u53EF\u89C1\u8FB9\u754C\u3002" }, "messageRange": { "type": "object", "properties": { "start": { "type": "number" }, "end": { "type": "number" } }, "required": ["start", "end"], "additionalProperties": false, "description": "\u8BE5 Run \u5728 Goal \u6D88\u606F\u6570\u7EC4\u4E2D\u7684\u534A\u5F00\u533A\u95F4\u3002" }, "continuation": { "type": "object", "properties": { "messageId": { "type": "string" }, "content": { "type": "string" }, "nextRunId": { "type": "string" } }, "required": ["messageId", "content", "nextRunId"], "additionalProperties": false, "description": "\u6D4F\u89C8\u5668\u7EED\u5199\u7684\u6301\u4E45\u5316\u5E42\u7B49\u6536\u636E\u3002" } }, "required": ["runId", "status", "stepCount", "committedThroughSequence", "messageRange"], "additionalProperties": false, "description": "Snapshot \u4E2D\u5DF2\u5F52\u6863 Run \u7684\u6700\u5C0F\u5386\u53F2\u6458\u8981\u3002" };
     var func2 = Object.prototype.hasOwnProperty;
     var schema18 = { "type": "object", "properties": { "revision": { "type": "number" }, "items": { "type": "array", "items": { "$ref": "#/definitions/GoalSnapshotSessionQueueItemV1" } }, "pause": { "type": "object", "properties": { "reason": { "type": "string", "enum": ["run_failed", "user_interrupt"] }, "runId": { "type": "string" } }, "required": ["reason", "runId"], "additionalProperties": false } }, "required": ["revision", "items"], "additionalProperties": false, "description": "Snapshot \u4E2D\u7684\u5F85\u5904\u7406\u6D88\u606F\u961F\u5217\u3001\u4FEE\u8BA2\u4E0E\u6682\u505C\u72B6\u6001\u3002" };
@@ -10794,7 +10794,7 @@ var require_GoalSnapshotV1_validator = __commonJS({
               errors++;
             }
             for (const key3 in data19) {
-              if (!(key3 === "provider" || key3 === "profileId" || key3 === "modelId" || key3 === "executionApi" || key3 === "structuredOutputMode" || key3 === "contextWindowTokens" || key3 === "maxOutputTokens" || key3 === "inputEstimator")) {
+              if (!func2.call(schema64.properties, key3)) {
                 const err38 = { instancePath: instancePath + "/modelSelection", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key3 }, message: "must NOT have additional properties" };
                 if (vErrors === null) {
                   vErrors = [err38];
@@ -10903,69 +10903,69 @@ var require_GoalSnapshotV1_validator = __commonJS({
                 errors++;
               }
             }
-            if (data19.inputEstimator !== void 0) {
-              let data27 = data19.inputEstimator;
-              const _errs60 = errors;
-              let valid11 = false;
-              const _errs61 = errors;
-              if (data27 && typeof data27 == "object" && !Array.isArray(data27)) {
-                if (data27.kind === void 0) {
-                  const err48 = { instancePath: instancePath + "/modelSelection/inputEstimator", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/properties/inputEstimator/anyOf/0/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
-                  if (vErrors === null) {
-                    vErrors = [err48];
-                  } else {
-                    vErrors.push(err48);
-                  }
-                  errors++;
-                }
-                for (const key4 in data27) {
-                  if (!(key4 === "kind")) {
-                    const err49 = { instancePath: instancePath + "/modelSelection/inputEstimator", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/properties/inputEstimator/anyOf/0/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key4 }, message: "must NOT have additional properties" };
-                    if (vErrors === null) {
-                      vErrors = [err49];
-                    } else {
-                      vErrors.push(err49);
-                    }
-                    errors++;
-                  }
-                }
-                if (data27.kind !== void 0) {
-                  let data28 = data27.kind;
-                  if (typeof data28 !== "string") {
-                    const err50 = { instancePath: instancePath + "/modelSelection/inputEstimator/kind", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/properties/inputEstimator/anyOf/0/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                    if (vErrors === null) {
-                      vErrors = [err50];
-                    } else {
-                      vErrors.push(err50);
-                    }
-                    errors++;
-                  }
-                  if ("character-v1" !== data28) {
-                    const err51 = { instancePath: instancePath + "/modelSelection/inputEstimator/kind", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/properties/inputEstimator/anyOf/0/properties/kind/const", keyword: "const", params: { allowedValue: "character-v1" }, message: "must be equal to constant" };
-                    if (vErrors === null) {
-                      vErrors = [err51];
-                    } else {
-                      vErrors.push(err51);
-                    }
-                    errors++;
-                  }
-                }
-              } else {
-                const err52 = { instancePath: instancePath + "/modelSelection/inputEstimator", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/properties/inputEstimator/anyOf/0/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+            if (data19.reasoning !== void 0) {
+              if (typeof data19.reasoning !== "boolean") {
+                const err48 = { instancePath: instancePath + "/modelSelection/reasoning", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/properties/reasoning/type", keyword: "type", params: { type: "boolean" }, message: "must be boolean" };
                 if (vErrors === null) {
-                  vErrors = [err52];
+                  vErrors = [err48];
                 } else {
-                  vErrors.push(err52);
+                  vErrors.push(err48);
                 }
                 errors++;
               }
-              var _valid0 = _errs61 === errors;
-              valid11 = valid11 || _valid0;
-              if (!valid11) {
-                const _errs66 = errors;
-                if (data27 && typeof data27 == "object" && !Array.isArray(data27)) {
-                  if (data27.kind === void 0) {
-                    const err53 = { instancePath: instancePath + "/modelSelection/inputEstimator", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/properties/inputEstimator/anyOf/1/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
+            }
+            if (data19.vision !== void 0) {
+              if (typeof data19.vision !== "boolean") {
+                const err49 = { instancePath: instancePath + "/modelSelection/vision", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/properties/vision/type", keyword: "type", params: { type: "boolean" }, message: "must be boolean" };
+                if (vErrors === null) {
+                  vErrors = [err49];
+                } else {
+                  vErrors.push(err49);
+                }
+                errors++;
+              }
+            }
+            if (data19.supportsRequiredToolChoice !== void 0) {
+              if (typeof data19.supportsRequiredToolChoice !== "boolean") {
+                const err50 = { instancePath: instancePath + "/modelSelection/supportsRequiredToolChoice", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/properties/supportsRequiredToolChoice/type", keyword: "type", params: { type: "boolean" }, message: "must be boolean" };
+                if (vErrors === null) {
+                  vErrors = [err50];
+                } else {
+                  vErrors.push(err50);
+                }
+                errors++;
+              }
+            }
+            if (data19.inputEstimator !== void 0) {
+              let data30 = data19.inputEstimator;
+              const _errs66 = errors;
+              let valid11 = false;
+              const _errs67 = errors;
+              if (data30 && typeof data30 == "object" && !Array.isArray(data30)) {
+                if (data30.kind === void 0) {
+                  const err51 = { instancePath: instancePath + "/modelSelection/inputEstimator", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/properties/inputEstimator/anyOf/0/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
+                  if (vErrors === null) {
+                    vErrors = [err51];
+                  } else {
+                    vErrors.push(err51);
+                  }
+                  errors++;
+                }
+                for (const key4 in data30) {
+                  if (!(key4 === "kind")) {
+                    const err52 = { instancePath: instancePath + "/modelSelection/inputEstimator", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/properties/inputEstimator/anyOf/0/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key4 }, message: "must NOT have additional properties" };
+                    if (vErrors === null) {
+                      vErrors = [err52];
+                    } else {
+                      vErrors.push(err52);
+                    }
+                    errors++;
+                  }
+                }
+                if (data30.kind !== void 0) {
+                  let data31 = data30.kind;
+                  if (typeof data31 !== "string") {
+                    const err53 = { instancePath: instancePath + "/modelSelection/inputEstimator/kind", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/properties/inputEstimator/anyOf/0/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                     if (vErrors === null) {
                       vErrors = [err53];
                     } else {
@@ -10973,8 +10973,8 @@ var require_GoalSnapshotV1_validator = __commonJS({
                     }
                     errors++;
                   }
-                  if (data27.encoding === void 0) {
-                    const err54 = { instancePath: instancePath + "/modelSelection/inputEstimator", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/properties/inputEstimator/anyOf/1/required", keyword: "required", params: { missingProperty: "encoding" }, message: "must have required property 'encoding'" };
+                  if ("character-v1" !== data31) {
+                    const err54 = { instancePath: instancePath + "/modelSelection/inputEstimator/kind", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/properties/inputEstimator/anyOf/0/properties/kind/const", keyword: "const", params: { allowedValue: "character-v1" }, message: "must be equal to constant" };
                     if (vErrors === null) {
                       vErrors = [err54];
                     } else {
@@ -10982,42 +10982,42 @@ var require_GoalSnapshotV1_validator = __commonJS({
                     }
                     errors++;
                   }
-                  for (const key5 in data27) {
+                }
+              } else {
+                const err55 = { instancePath: instancePath + "/modelSelection/inputEstimator", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/properties/inputEstimator/anyOf/0/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                if (vErrors === null) {
+                  vErrors = [err55];
+                } else {
+                  vErrors.push(err55);
+                }
+                errors++;
+              }
+              var _valid0 = _errs67 === errors;
+              valid11 = valid11 || _valid0;
+              if (!valid11) {
+                const _errs72 = errors;
+                if (data30 && typeof data30 == "object" && !Array.isArray(data30)) {
+                  if (data30.kind === void 0) {
+                    const err56 = { instancePath: instancePath + "/modelSelection/inputEstimator", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/properties/inputEstimator/anyOf/1/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
+                    if (vErrors === null) {
+                      vErrors = [err56];
+                    } else {
+                      vErrors.push(err56);
+                    }
+                    errors++;
+                  }
+                  if (data30.encoding === void 0) {
+                    const err57 = { instancePath: instancePath + "/modelSelection/inputEstimator", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/properties/inputEstimator/anyOf/1/required", keyword: "required", params: { missingProperty: "encoding" }, message: "must have required property 'encoding'" };
+                    if (vErrors === null) {
+                      vErrors = [err57];
+                    } else {
+                      vErrors.push(err57);
+                    }
+                    errors++;
+                  }
+                  for (const key5 in data30) {
                     if (!(key5 === "kind" || key5 === "encoding")) {
-                      const err55 = { instancePath: instancePath + "/modelSelection/inputEstimator", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/properties/inputEstimator/anyOf/1/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key5 }, message: "must NOT have additional properties" };
-                      if (vErrors === null) {
-                        vErrors = [err55];
-                      } else {
-                        vErrors.push(err55);
-                      }
-                      errors++;
-                    }
-                  }
-                  if (data27.kind !== void 0) {
-                    let data29 = data27.kind;
-                    if (typeof data29 !== "string") {
-                      const err56 = { instancePath: instancePath + "/modelSelection/inputEstimator/kind", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/properties/inputEstimator/anyOf/1/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                      if (vErrors === null) {
-                        vErrors = [err56];
-                      } else {
-                        vErrors.push(err56);
-                      }
-                      errors++;
-                    }
-                    if ("token-encoding" !== data29) {
-                      const err57 = { instancePath: instancePath + "/modelSelection/inputEstimator/kind", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/properties/inputEstimator/anyOf/1/properties/kind/const", keyword: "const", params: { allowedValue: "token-encoding" }, message: "must be equal to constant" };
-                      if (vErrors === null) {
-                        vErrors = [err57];
-                      } else {
-                        vErrors.push(err57);
-                      }
-                      errors++;
-                    }
-                  }
-                  if (data27.encoding !== void 0) {
-                    let data30 = data27.encoding;
-                    if (typeof data30 !== "string") {
-                      const err58 = { instancePath: instancePath + "/modelSelection/inputEstimator/encoding", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/properties/inputEstimator/anyOf/1/properties/encoding/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                      const err58 = { instancePath: instancePath + "/modelSelection/inputEstimator", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/properties/inputEstimator/anyOf/1/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key5 }, message: "must NOT have additional properties" };
                       if (vErrors === null) {
                         vErrors = [err58];
                       } else {
@@ -11025,8 +11025,11 @@ var require_GoalSnapshotV1_validator = __commonJS({
                       }
                       errors++;
                     }
-                    if (!(data30 === "cl100k_base" || data30 === "o200k_base")) {
-                      const err59 = { instancePath: instancePath + "/modelSelection/inputEstimator/encoding", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/properties/inputEstimator/anyOf/1/properties/encoding/enum", keyword: "enum", params: { allowedValues: schema64.properties.inputEstimator.anyOf[1].properties.encoding.enum }, message: "must be equal to one of the allowed values" };
+                  }
+                  if (data30.kind !== void 0) {
+                    let data32 = data30.kind;
+                    if (typeof data32 !== "string") {
+                      const err59 = { instancePath: instancePath + "/modelSelection/inputEstimator/kind", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/properties/inputEstimator/anyOf/1/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                       if (vErrors === null) {
                         vErrors = [err59];
                       } else {
@@ -11034,32 +11037,62 @@ var require_GoalSnapshotV1_validator = __commonJS({
                       }
                       errors++;
                     }
+                    if ("token-encoding" !== data32) {
+                      const err60 = { instancePath: instancePath + "/modelSelection/inputEstimator/kind", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/properties/inputEstimator/anyOf/1/properties/kind/const", keyword: "const", params: { allowedValue: "token-encoding" }, message: "must be equal to constant" };
+                      if (vErrors === null) {
+                        vErrors = [err60];
+                      } else {
+                        vErrors.push(err60);
+                      }
+                      errors++;
+                    }
+                  }
+                  if (data30.encoding !== void 0) {
+                    let data33 = data30.encoding;
+                    if (typeof data33 !== "string") {
+                      const err61 = { instancePath: instancePath + "/modelSelection/inputEstimator/encoding", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/properties/inputEstimator/anyOf/1/properties/encoding/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                      if (vErrors === null) {
+                        vErrors = [err61];
+                      } else {
+                        vErrors.push(err61);
+                      }
+                      errors++;
+                    }
+                    if (!(data33 === "cl100k_base" || data33 === "o200k_base")) {
+                      const err62 = { instancePath: instancePath + "/modelSelection/inputEstimator/encoding", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/properties/inputEstimator/anyOf/1/properties/encoding/enum", keyword: "enum", params: { allowedValues: schema64.properties.inputEstimator.anyOf[1].properties.encoding.enum }, message: "must be equal to one of the allowed values" };
+                      if (vErrors === null) {
+                        vErrors = [err62];
+                      } else {
+                        vErrors.push(err62);
+                      }
+                      errors++;
+                    }
                   }
                 } else {
-                  const err60 = { instancePath: instancePath + "/modelSelection/inputEstimator", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/properties/inputEstimator/anyOf/1/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                  const err63 = { instancePath: instancePath + "/modelSelection/inputEstimator", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/properties/inputEstimator/anyOf/1/type", keyword: "type", params: { type: "object" }, message: "must be object" };
                   if (vErrors === null) {
-                    vErrors = [err60];
+                    vErrors = [err63];
                   } else {
-                    vErrors.push(err60);
+                    vErrors.push(err63);
                   }
                   errors++;
                 }
-                var _valid0 = _errs66 === errors;
+                var _valid0 = _errs72 === errors;
                 valid11 = valid11 || _valid0;
               }
               if (!valid11) {
-                const err61 = { instancePath: instancePath + "/modelSelection/inputEstimator", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/properties/inputEstimator/anyOf", keyword: "anyOf", params: {}, message: "must match a schema in anyOf" };
+                const err64 = { instancePath: instancePath + "/modelSelection/inputEstimator", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/properties/inputEstimator/anyOf", keyword: "anyOf", params: {}, message: "must match a schema in anyOf" };
                 if (vErrors === null) {
-                  vErrors = [err61];
+                  vErrors = [err64];
                 } else {
-                  vErrors.push(err61);
+                  vErrors.push(err64);
                 }
                 errors++;
               } else {
-                errors = _errs60;
+                errors = _errs66;
                 if (vErrors !== null) {
-                  if (_errs60) {
-                    vErrors.length = _errs60;
+                  if (_errs66) {
+                    vErrors.length = _errs66;
                   } else {
                     vErrors = null;
                   }
@@ -11067,11 +11100,11 @@ var require_GoalSnapshotV1_validator = __commonJS({
               }
             }
           } else {
-            const err62 = { instancePath: instancePath + "/modelSelection", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+            const err65 = { instancePath: instancePath + "/modelSelection", schemaPath: "#/definitions/GoalSnapshotModelSelectionV1/type", keyword: "type", params: { type: "object" }, message: "must be object" };
             if (vErrors === null) {
-              vErrors = [err62];
+              vErrors = [err65];
             } else {
-              vErrors.push(err62);
+              vErrors.push(err65);
             }
             errors++;
           }
@@ -11083,41 +11116,14 @@ var require_GoalSnapshotV1_validator = __commonJS({
           }
         }
         if (data.completedRuns !== void 0) {
-          let data32 = data.completedRuns;
-          if (Array.isArray(data32)) {
-            const len2 = data32.length;
+          let data35 = data.completedRuns;
+          if (Array.isArray(data35)) {
+            const len2 = data35.length;
             for (let i2 = 0; i2 < len2; i2++) {
-              let data33 = data32[i2];
-              if (data33 && typeof data33 == "object" && !Array.isArray(data33)) {
-                if (data33.runId === void 0) {
-                  const err63 = { instancePath: instancePath + "/completedRuns/" + i2, schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/required", keyword: "required", params: { missingProperty: "runId" }, message: "must have required property 'runId'" };
-                  if (vErrors === null) {
-                    vErrors = [err63];
-                  } else {
-                    vErrors.push(err63);
-                  }
-                  errors++;
-                }
-                if (data33.status === void 0) {
-                  const err64 = { instancePath: instancePath + "/completedRuns/" + i2, schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/required", keyword: "required", params: { missingProperty: "status" }, message: "must have required property 'status'" };
-                  if (vErrors === null) {
-                    vErrors = [err64];
-                  } else {
-                    vErrors.push(err64);
-                  }
-                  errors++;
-                }
-                if (data33.stepCount === void 0) {
-                  const err65 = { instancePath: instancePath + "/completedRuns/" + i2, schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/required", keyword: "required", params: { missingProperty: "stepCount" }, message: "must have required property 'stepCount'" };
-                  if (vErrors === null) {
-                    vErrors = [err65];
-                  } else {
-                    vErrors.push(err65);
-                  }
-                  errors++;
-                }
-                if (data33.committedThroughSequence === void 0) {
-                  const err66 = { instancePath: instancePath + "/completedRuns/" + i2, schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/required", keyword: "required", params: { missingProperty: "committedThroughSequence" }, message: "must have required property 'committedThroughSequence'" };
+              let data36 = data35[i2];
+              if (data36 && typeof data36 == "object" && !Array.isArray(data36)) {
+                if (data36.runId === void 0) {
+                  const err66 = { instancePath: instancePath + "/completedRuns/" + i2, schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/required", keyword: "required", params: { missingProperty: "runId" }, message: "must have required property 'runId'" };
                   if (vErrors === null) {
                     vErrors = [err66];
                   } else {
@@ -11125,8 +11131,8 @@ var require_GoalSnapshotV1_validator = __commonJS({
                   }
                   errors++;
                 }
-                if (data33.messageRange === void 0) {
-                  const err67 = { instancePath: instancePath + "/completedRuns/" + i2, schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/required", keyword: "required", params: { missingProperty: "messageRange" }, message: "must have required property 'messageRange'" };
+                if (data36.status === void 0) {
+                  const err67 = { instancePath: instancePath + "/completedRuns/" + i2, schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/required", keyword: "required", params: { missingProperty: "status" }, message: "must have required property 'status'" };
                   if (vErrors === null) {
                     vErrors = [err67];
                   } else {
@@ -11134,41 +11140,36 @@ var require_GoalSnapshotV1_validator = __commonJS({
                   }
                   errors++;
                 }
-                for (const key6 in data33) {
+                if (data36.stepCount === void 0) {
+                  const err68 = { instancePath: instancePath + "/completedRuns/" + i2, schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/required", keyword: "required", params: { missingProperty: "stepCount" }, message: "must have required property 'stepCount'" };
+                  if (vErrors === null) {
+                    vErrors = [err68];
+                  } else {
+                    vErrors.push(err68);
+                  }
+                  errors++;
+                }
+                if (data36.committedThroughSequence === void 0) {
+                  const err69 = { instancePath: instancePath + "/completedRuns/" + i2, schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/required", keyword: "required", params: { missingProperty: "committedThroughSequence" }, message: "must have required property 'committedThroughSequence'" };
+                  if (vErrors === null) {
+                    vErrors = [err69];
+                  } else {
+                    vErrors.push(err69);
+                  }
+                  errors++;
+                }
+                if (data36.messageRange === void 0) {
+                  const err70 = { instancePath: instancePath + "/completedRuns/" + i2, schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/required", keyword: "required", params: { missingProperty: "messageRange" }, message: "must have required property 'messageRange'" };
+                  if (vErrors === null) {
+                    vErrors = [err70];
+                  } else {
+                    vErrors.push(err70);
+                  }
+                  errors++;
+                }
+                for (const key6 in data36) {
                   if (!(key6 === "runId" || key6 === "status" || key6 === "stepCount" || key6 === "committedThroughSequence" || key6 === "messageRange" || key6 === "continuation")) {
-                    const err68 = { instancePath: instancePath + "/completedRuns/" + i2, schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key6 }, message: "must NOT have additional properties" };
-                    if (vErrors === null) {
-                      vErrors = [err68];
-                    } else {
-                      vErrors.push(err68);
-                    }
-                    errors++;
-                  }
-                }
-                if (data33.runId !== void 0) {
-                  if (typeof data33.runId !== "string") {
-                    const err69 = { instancePath: instancePath + "/completedRuns/" + i2 + "/runId", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/runId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                    if (vErrors === null) {
-                      vErrors = [err69];
-                    } else {
-                      vErrors.push(err69);
-                    }
-                    errors++;
-                  }
-                }
-                if (data33.status !== void 0) {
-                  let data35 = data33.status;
-                  if (typeof data35 !== "string") {
-                    const err70 = { instancePath: instancePath + "/completedRuns/" + i2 + "/status", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/status/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                    if (vErrors === null) {
-                      vErrors = [err70];
-                    } else {
-                      vErrors.push(err70);
-                    }
-                    errors++;
-                  }
-                  if (!(data35 === "completed" || data35 === "failed" || data35 === "cancelled")) {
-                    const err71 = { instancePath: instancePath + "/completedRuns/" + i2 + "/status", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/status/enum", keyword: "enum", params: { allowedValues: schema67.properties.status.enum }, message: "must be equal to one of the allowed values" };
+                    const err71 = { instancePath: instancePath + "/completedRuns/" + i2, schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key6 }, message: "must NOT have additional properties" };
                     if (vErrors === null) {
                       vErrors = [err71];
                     } else {
@@ -11177,10 +11178,9 @@ var require_GoalSnapshotV1_validator = __commonJS({
                     errors++;
                   }
                 }
-                if (data33.stepCount !== void 0) {
-                  let data36 = data33.stepCount;
-                  if (!(typeof data36 == "number" && isFinite(data36))) {
-                    const err72 = { instancePath: instancePath + "/completedRuns/" + i2 + "/stepCount", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/stepCount/type", keyword: "type", params: { type: "number" }, message: "must be number" };
+                if (data36.runId !== void 0) {
+                  if (typeof data36.runId !== "string") {
+                    const err72 = { instancePath: instancePath + "/completedRuns/" + i2 + "/runId", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/runId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                     if (vErrors === null) {
                       vErrors = [err72];
                     } else {
@@ -11189,10 +11189,10 @@ var require_GoalSnapshotV1_validator = __commonJS({
                     errors++;
                   }
                 }
-                if (data33.committedThroughSequence !== void 0) {
-                  let data37 = data33.committedThroughSequence;
-                  if (!(typeof data37 == "number" && isFinite(data37))) {
-                    const err73 = { instancePath: instancePath + "/completedRuns/" + i2 + "/committedThroughSequence", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/committedThroughSequence/type", keyword: "type", params: { type: "number" }, message: "must be number" };
+                if (data36.status !== void 0) {
+                  let data38 = data36.status;
+                  if (typeof data38 !== "string") {
+                    const err73 = { instancePath: instancePath + "/completedRuns/" + i2 + "/status", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/status/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                     if (vErrors === null) {
                       vErrors = [err73];
                     } else {
@@ -11200,139 +11200,139 @@ var require_GoalSnapshotV1_validator = __commonJS({
                     }
                     errors++;
                   }
+                  if (!(data38 === "completed" || data38 === "failed" || data38 === "cancelled")) {
+                    const err74 = { instancePath: instancePath + "/completedRuns/" + i2 + "/status", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/status/enum", keyword: "enum", params: { allowedValues: schema67.properties.status.enum }, message: "must be equal to one of the allowed values" };
+                    if (vErrors === null) {
+                      vErrors = [err74];
+                    } else {
+                      vErrors.push(err74);
+                    }
+                    errors++;
+                  }
                 }
-                if (data33.messageRange !== void 0) {
-                  let data38 = data33.messageRange;
-                  if (data38 && typeof data38 == "object" && !Array.isArray(data38)) {
-                    if (data38.start === void 0) {
-                      const err74 = { instancePath: instancePath + "/completedRuns/" + i2 + "/messageRange", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/messageRange/required", keyword: "required", params: { missingProperty: "start" }, message: "must have required property 'start'" };
+                if (data36.stepCount !== void 0) {
+                  let data39 = data36.stepCount;
+                  if (!(typeof data39 == "number" && isFinite(data39))) {
+                    const err75 = { instancePath: instancePath + "/completedRuns/" + i2 + "/stepCount", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/stepCount/type", keyword: "type", params: { type: "number" }, message: "must be number" };
+                    if (vErrors === null) {
+                      vErrors = [err75];
+                    } else {
+                      vErrors.push(err75);
+                    }
+                    errors++;
+                  }
+                }
+                if (data36.committedThroughSequence !== void 0) {
+                  let data40 = data36.committedThroughSequence;
+                  if (!(typeof data40 == "number" && isFinite(data40))) {
+                    const err76 = { instancePath: instancePath + "/completedRuns/" + i2 + "/committedThroughSequence", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/committedThroughSequence/type", keyword: "type", params: { type: "number" }, message: "must be number" };
+                    if (vErrors === null) {
+                      vErrors = [err76];
+                    } else {
+                      vErrors.push(err76);
+                    }
+                    errors++;
+                  }
+                }
+                if (data36.messageRange !== void 0) {
+                  let data41 = data36.messageRange;
+                  if (data41 && typeof data41 == "object" && !Array.isArray(data41)) {
+                    if (data41.start === void 0) {
+                      const err77 = { instancePath: instancePath + "/completedRuns/" + i2 + "/messageRange", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/messageRange/required", keyword: "required", params: { missingProperty: "start" }, message: "must have required property 'start'" };
                       if (vErrors === null) {
-                        vErrors = [err74];
+                        vErrors = [err77];
                       } else {
-                        vErrors.push(err74);
+                        vErrors.push(err77);
                       }
                       errors++;
                     }
-                    if (data38.end === void 0) {
-                      const err75 = { instancePath: instancePath + "/completedRuns/" + i2 + "/messageRange", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/messageRange/required", keyword: "required", params: { missingProperty: "end" }, message: "must have required property 'end'" };
+                    if (data41.end === void 0) {
+                      const err78 = { instancePath: instancePath + "/completedRuns/" + i2 + "/messageRange", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/messageRange/required", keyword: "required", params: { missingProperty: "end" }, message: "must have required property 'end'" };
                       if (vErrors === null) {
-                        vErrors = [err75];
+                        vErrors = [err78];
                       } else {
-                        vErrors.push(err75);
+                        vErrors.push(err78);
                       }
                       errors++;
                     }
-                    for (const key7 in data38) {
+                    for (const key7 in data41) {
                       if (!(key7 === "start" || key7 === "end")) {
-                        const err76 = { instancePath: instancePath + "/completedRuns/" + i2 + "/messageRange", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/messageRange/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key7 }, message: "must NOT have additional properties" };
+                        const err79 = { instancePath: instancePath + "/completedRuns/" + i2 + "/messageRange", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/messageRange/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key7 }, message: "must NOT have additional properties" };
                         if (vErrors === null) {
-                          vErrors = [err76];
+                          vErrors = [err79];
                         } else {
-                          vErrors.push(err76);
+                          vErrors.push(err79);
                         }
                         errors++;
                       }
                     }
-                    if (data38.start !== void 0) {
-                      let data39 = data38.start;
-                      if (!(typeof data39 == "number" && isFinite(data39))) {
-                        const err77 = { instancePath: instancePath + "/completedRuns/" + i2 + "/messageRange/start", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/messageRange/properties/start/type", keyword: "type", params: { type: "number" }, message: "must be number" };
+                    if (data41.start !== void 0) {
+                      let data42 = data41.start;
+                      if (!(typeof data42 == "number" && isFinite(data42))) {
+                        const err80 = { instancePath: instancePath + "/completedRuns/" + i2 + "/messageRange/start", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/messageRange/properties/start/type", keyword: "type", params: { type: "number" }, message: "must be number" };
                         if (vErrors === null) {
-                          vErrors = [err77];
+                          vErrors = [err80];
                         } else {
-                          vErrors.push(err77);
+                          vErrors.push(err80);
                         }
                         errors++;
                       }
                     }
-                    if (data38.end !== void 0) {
-                      let data40 = data38.end;
-                      if (!(typeof data40 == "number" && isFinite(data40))) {
-                        const err78 = { instancePath: instancePath + "/completedRuns/" + i2 + "/messageRange/end", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/messageRange/properties/end/type", keyword: "type", params: { type: "number" }, message: "must be number" };
+                    if (data41.end !== void 0) {
+                      let data43 = data41.end;
+                      if (!(typeof data43 == "number" && isFinite(data43))) {
+                        const err81 = { instancePath: instancePath + "/completedRuns/" + i2 + "/messageRange/end", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/messageRange/properties/end/type", keyword: "type", params: { type: "number" }, message: "must be number" };
                         if (vErrors === null) {
-                          vErrors = [err78];
+                          vErrors = [err81];
                         } else {
-                          vErrors.push(err78);
+                          vErrors.push(err81);
                         }
                         errors++;
                       }
                     }
                   } else {
-                    const err79 = { instancePath: instancePath + "/completedRuns/" + i2 + "/messageRange", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/messageRange/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                    const err82 = { instancePath: instancePath + "/completedRuns/" + i2 + "/messageRange", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/messageRange/type", keyword: "type", params: { type: "object" }, message: "must be object" };
                     if (vErrors === null) {
-                      vErrors = [err79];
+                      vErrors = [err82];
                     } else {
-                      vErrors.push(err79);
+                      vErrors.push(err82);
                     }
                     errors++;
                   }
                 }
-                if (data33.continuation !== void 0) {
-                  let data41 = data33.continuation;
-                  if (data41 && typeof data41 == "object" && !Array.isArray(data41)) {
-                    if (data41.messageId === void 0) {
-                      const err80 = { instancePath: instancePath + "/completedRuns/" + i2 + "/continuation", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/continuation/required", keyword: "required", params: { missingProperty: "messageId" }, message: "must have required property 'messageId'" };
+                if (data36.continuation !== void 0) {
+                  let data44 = data36.continuation;
+                  if (data44 && typeof data44 == "object" && !Array.isArray(data44)) {
+                    if (data44.messageId === void 0) {
+                      const err83 = { instancePath: instancePath + "/completedRuns/" + i2 + "/continuation", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/continuation/required", keyword: "required", params: { missingProperty: "messageId" }, message: "must have required property 'messageId'" };
                       if (vErrors === null) {
-                        vErrors = [err80];
+                        vErrors = [err83];
                       } else {
-                        vErrors.push(err80);
+                        vErrors.push(err83);
                       }
                       errors++;
                     }
-                    if (data41.content === void 0) {
-                      const err81 = { instancePath: instancePath + "/completedRuns/" + i2 + "/continuation", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/continuation/required", keyword: "required", params: { missingProperty: "content" }, message: "must have required property 'content'" };
+                    if (data44.content === void 0) {
+                      const err84 = { instancePath: instancePath + "/completedRuns/" + i2 + "/continuation", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/continuation/required", keyword: "required", params: { missingProperty: "content" }, message: "must have required property 'content'" };
                       if (vErrors === null) {
-                        vErrors = [err81];
+                        vErrors = [err84];
                       } else {
-                        vErrors.push(err81);
+                        vErrors.push(err84);
                       }
                       errors++;
                     }
-                    if (data41.nextRunId === void 0) {
-                      const err82 = { instancePath: instancePath + "/completedRuns/" + i2 + "/continuation", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/continuation/required", keyword: "required", params: { missingProperty: "nextRunId" }, message: "must have required property 'nextRunId'" };
+                    if (data44.nextRunId === void 0) {
+                      const err85 = { instancePath: instancePath + "/completedRuns/" + i2 + "/continuation", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/continuation/required", keyword: "required", params: { missingProperty: "nextRunId" }, message: "must have required property 'nextRunId'" };
                       if (vErrors === null) {
-                        vErrors = [err82];
+                        vErrors = [err85];
                       } else {
-                        vErrors.push(err82);
+                        vErrors.push(err85);
                       }
                       errors++;
                     }
-                    for (const key8 in data41) {
+                    for (const key8 in data44) {
                       if (!(key8 === "messageId" || key8 === "content" || key8 === "nextRunId")) {
-                        const err83 = { instancePath: instancePath + "/completedRuns/" + i2 + "/continuation", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/continuation/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key8 }, message: "must NOT have additional properties" };
-                        if (vErrors === null) {
-                          vErrors = [err83];
-                        } else {
-                          vErrors.push(err83);
-                        }
-                        errors++;
-                      }
-                    }
-                    if (data41.messageId !== void 0) {
-                      if (typeof data41.messageId !== "string") {
-                        const err84 = { instancePath: instancePath + "/completedRuns/" + i2 + "/continuation/messageId", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/continuation/properties/messageId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                        if (vErrors === null) {
-                          vErrors = [err84];
-                        } else {
-                          vErrors.push(err84);
-                        }
-                        errors++;
-                      }
-                    }
-                    if (data41.content !== void 0) {
-                      if (typeof data41.content !== "string") {
-                        const err85 = { instancePath: instancePath + "/completedRuns/" + i2 + "/continuation/content", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/continuation/properties/content/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                        if (vErrors === null) {
-                          vErrors = [err85];
-                        } else {
-                          vErrors.push(err85);
-                        }
-                        errors++;
-                      }
-                    }
-                    if (data41.nextRunId !== void 0) {
-                      if (typeof data41.nextRunId !== "string") {
-                        const err86 = { instancePath: instancePath + "/completedRuns/" + i2 + "/continuation/nextRunId", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/continuation/properties/nextRunId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                        const err86 = { instancePath: instancePath + "/completedRuns/" + i2 + "/continuation", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/continuation/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key8 }, message: "must NOT have additional properties" };
                         if (vErrors === null) {
                           vErrors = [err86];
                         } else {
@@ -11341,42 +11341,75 @@ var require_GoalSnapshotV1_validator = __commonJS({
                         errors++;
                       }
                     }
+                    if (data44.messageId !== void 0) {
+                      if (typeof data44.messageId !== "string") {
+                        const err87 = { instancePath: instancePath + "/completedRuns/" + i2 + "/continuation/messageId", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/continuation/properties/messageId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                        if (vErrors === null) {
+                          vErrors = [err87];
+                        } else {
+                          vErrors.push(err87);
+                        }
+                        errors++;
+                      }
+                    }
+                    if (data44.content !== void 0) {
+                      if (typeof data44.content !== "string") {
+                        const err88 = { instancePath: instancePath + "/completedRuns/" + i2 + "/continuation/content", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/continuation/properties/content/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                        if (vErrors === null) {
+                          vErrors = [err88];
+                        } else {
+                          vErrors.push(err88);
+                        }
+                        errors++;
+                      }
+                    }
+                    if (data44.nextRunId !== void 0) {
+                      if (typeof data44.nextRunId !== "string") {
+                        const err89 = { instancePath: instancePath + "/completedRuns/" + i2 + "/continuation/nextRunId", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/continuation/properties/nextRunId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                        if (vErrors === null) {
+                          vErrors = [err89];
+                        } else {
+                          vErrors.push(err89);
+                        }
+                        errors++;
+                      }
+                    }
                   } else {
-                    const err87 = { instancePath: instancePath + "/completedRuns/" + i2 + "/continuation", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/continuation/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                    const err90 = { instancePath: instancePath + "/completedRuns/" + i2 + "/continuation", schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/properties/continuation/type", keyword: "type", params: { type: "object" }, message: "must be object" };
                     if (vErrors === null) {
-                      vErrors = [err87];
+                      vErrors = [err90];
                     } else {
-                      vErrors.push(err87);
+                      vErrors.push(err90);
                     }
                     errors++;
                   }
                 }
               } else {
-                const err88 = { instancePath: instancePath + "/completedRuns/" + i2, schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                const err91 = { instancePath: instancePath + "/completedRuns/" + i2, schemaPath: "#/definitions/GoalSnapshotCompletedRunV1/type", keyword: "type", params: { type: "object" }, message: "must be object" };
                 if (vErrors === null) {
-                  vErrors = [err88];
+                  vErrors = [err91];
                 } else {
-                  vErrors.push(err88);
+                  vErrors.push(err91);
                 }
                 errors++;
               }
             }
           } else {
-            const err89 = { instancePath: instancePath + "/completedRuns", schemaPath: "#/properties/completedRuns/type", keyword: "type", params: { type: "array" }, message: "must be array" };
+            const err92 = { instancePath: instancePath + "/completedRuns", schemaPath: "#/properties/completedRuns/type", keyword: "type", params: { type: "array" }, message: "must be array" };
             if (vErrors === null) {
-              vErrors = [err89];
+              vErrors = [err92];
             } else {
-              vErrors.push(err89);
+              vErrors.push(err92);
             }
             errors++;
           }
         }
       } else {
-        const err90 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+        const err93 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
         if (vErrors === null) {
-          vErrors = [err90];
+          vErrors = [err93];
         } else {
-          vErrors.push(err90);
+          vErrors.push(err93);
         }
         errors++;
       }

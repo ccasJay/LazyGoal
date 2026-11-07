@@ -18,7 +18,7 @@ export type LLMProvider = "openai" | "google" | "anthropic" | "openrouter" | "de
  * Runtime 支持的模型执行 API 家族。
  *
  * @remarks
- * 该值描述请求协议，不包含 Provider 端点或凭据；目前仅登记 OpenCode Go 的 OpenAI Chat Completions 路径。
+ * 该值描述请求协议，不包含 Provider 端点或凭据；当前用于服务端目录确认可执行的 OpenCode Go 在线文本模型。
  *
  * @example
  * ```ts
@@ -40,7 +40,7 @@ type CommonConfig = {
  * @remarks
  * 自定义模型必须声明容量；目录模型只允许覆盖输出上限。
  * OpenAI 与 Google 可覆盖端点；Google baseURL 是包含所需版本路径的完整 API 前缀。
- * OpenCode Go 动态模型由服务端登记执行 API、容量与推理能力，端点仍由适配器固定拥有。
+ * OpenCode Go 在线模型由服务端目录提供执行 API、容量、推理和工具选择能力，端点仍由适配器固定拥有。
  * 配置不写入 Goal 或 Diagnostic Trace。
  * 本类型是无 I/O 的数据契约；环境与 TOML/Profile 的读取、合并和校验归 `@lazygoal/config` 的 `readLLMConfig` 与加载器。
  * @example
@@ -53,6 +53,7 @@ type CommonConfig = {
  *     provider: "opencode-go", model: "minimax-m3.1-flash-free", apiKey: "secret",
  *     structuredOutputMode: "prompt_only", executionApi: "openai-completions",
  *     contextWindowTokens: 1_000_000, maxOutputTokens: 524_288, reasoning: true,
+ *     vision: false, supportsRequiredToolChoice: false,
  * };
  * ```
  */
@@ -66,6 +67,10 @@ export type LLMConfig = CommonConfig & (
         readonly contextWindowTokens: number;
         readonly maxOutputTokens: number;
         readonly reasoning: boolean;
+        /** 模型是否接受图像等视觉输入；未提供时由静态模型目录决定。 */
+        readonly vision?: boolean | undefined;
+        /** OpenAI Chat Completions 路径是否接受强制工具选择；未知或不支持时使用 `auto`。 */
+        readonly supportsRequiredToolChoice?: boolean | undefined;
     }
     | { readonly provider: "openai-compatible"; readonly baseURL: string; readonly contextWindowTokens: number; readonly maxOutputTokens: number }
 );

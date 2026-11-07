@@ -323,7 +323,16 @@ test("ModelCatalog: OpenCode Go Beam Free 使用登记的执行元数据", async
         async fetchModels() {
             return [
                 { id: "beam-free" },
-                { id: "longcat-2.5-preview-free" },
+                {
+                    id: "crouton-alpha-free",
+                    displayName: "Crouton Alpha Free",
+                    contextWindowTokens: 1_048_576,
+                    maxOutputTokens: 270_000,
+                    reasoning: true,
+                    vision: false,
+                    supportsTools: true,
+                    isTextGeneration: true,
+                },
             ];
         },
     });
@@ -337,26 +346,43 @@ test("ModelCatalog: OpenCode Go Beam Free 使用登记的执行元数据", async
         assert.equal(beam.maxOutputTokens, 131_072);
         assert.equal(beam.reasoning, true);
         assert.equal(beam.selectable, true);
-        assert.equal(models.find(model => model.id === "longcat-2.5-preview-free")?.selectable, true);
+        const crouton = models.find(model => model.id === "crouton-alpha-free")!;
+        assert.equal(crouton.metadataSource, "live");
+        assert.equal(crouton.executionApi, "openai-completions");
+        assert.equal(crouton.contextWindowTokens, 1_048_576);
+        assert.equal(crouton.maxOutputTokens, 270_000);
+        assert.equal(crouton.selectable, true);
     }
 });
 
-test("ModelCatalog: 目标 OpenCode Go 模型用独立执行元数据动态标记可选", async () => {
+test("ModelCatalog: 未登记的 OpenCode Go 在线文本模型使用实时能力元数据", async () => {
     const catalog = createLlmModelCatalog({
         async fetchModels() {
-            return [{ id: "minimax-m3.1-flash-free" }];
+            return [{
+                id: "new-live-coding-model",
+                displayName: "New Live Coding Model",
+                contextWindowTokens: 262_144,
+                maxOutputTokens: 262_144,
+                reasoning: false,
+                vision: true,
+                supportsTools: true,
+                supportsRequiredToolChoice: false,
+                isTextGeneration: true,
+            }];
         },
     });
 
     const models = await catalog.list(opencodeGoConfig, { requireTokenCapacity: true });
-    const target = models.find(model => model.id === "minimax-m3.1-flash-free");
+    const target = models.find(model => model.id === "new-live-coding-model");
 
     assert.ok(target);
     assert.equal(target.availabilitySource, "live");
-    assert.equal(target.metadataSource, "execution");
+    assert.equal(target.metadataSource, "live");
     assert.equal(target.executionApi, "openai-completions");
-    assert.equal(target.contextWindowTokens, 1_000_000);
-    assert.equal(target.maxOutputTokens, 524_288);
+    assert.equal(target.contextWindowTokens, 262_144);
+    assert.equal(target.maxOutputTokens, 262_143);
+    assert.equal(target.reasoning, false);
+    assert.equal(target.supportsRequiredToolChoice, false);
     assert.equal(target.selectable, true);
 });
 

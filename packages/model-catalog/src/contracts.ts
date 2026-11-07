@@ -62,6 +62,10 @@ export interface RawFetchedModel {
     readonly maxOutputTokens?: number | undefined;
     readonly reasoning?: boolean | undefined;
     readonly vision?: boolean | undefined;
+    /** 模型是否支持 LazyGoal 执行所需的工具调用。 */
+    readonly supportsTools?: boolean | undefined;
+    /** OpenAI Chat Completions 路径是否支持 `tool_choice: required`。 */
+    readonly supportsRequiredToolChoice?: boolean | undefined;
     readonly supportedGenerationMethods?: readonly string[] | undefined;
     readonly isTextGeneration?: boolean | undefined;
     readonly supportsStrictOutput?: boolean | undefined;

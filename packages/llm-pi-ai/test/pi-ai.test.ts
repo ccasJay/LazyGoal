@@ -284,6 +284,8 @@ const minimaxDynamicConfig: LLMConfig = {
     contextWindowTokens: 1_000_000,
     maxOutputTokens: 524_288,
     reasoning: true,
+    vision: false,
+    supportsRequiredToolChoice: false,
 };
 
 test("PiAiAdapter 动态执行 OpenCode Go MiniMax 并沿用官方 Completions 路由与会话头", async () => {
@@ -333,13 +335,13 @@ test("PiAiAdapter 动态执行 OpenCode Go MiniMax 并沿用官方 Completions �
         assert.equal(captured.length, 2);
         for (const outgoing of captured) {
             assert.equal(outgoing.url.origin, "https://opencode.ai");
-            assert.equal(outgoing.url.pathname, "/inference/go/v1/chat/completions");
+            assert.equal(outgoing.url.pathname, "/inference/go/openai/v1/chat/completions");
             assert.equal(outgoing.headers.get("authorization"), "Bearer test-explicit-key");
             assert.equal(outgoing.headers.get("user-agent"), "lazygoal");
             assert.equal(outgoing.headers.get("x-opencode-session"), "goal-minimax");
             assert.equal(outgoing.body.model, minimaxDynamicConfig.model);
         }
-        assert.equal(captured[1]?.body.tool_choice, "required");
+        assert.equal(captured[1]?.body.tool_choice, "auto");
     } finally {
         globalThis.fetch = realFetch;
     }
@@ -351,6 +353,7 @@ test("PiAiAdapter 动态执行 OpenCode Go Beam Free", async () => {
         model: "beam-free",
         contextWindowTokens: 1_048_576,
         maxOutputTokens: 131_072,
+        supportsRequiredToolChoice: true,
     };
     let captured: Request | undefined;
     const realFetch = globalThis.fetch;
@@ -365,7 +368,7 @@ test("PiAiAdapter 动态执行 OpenCode Go Beam Free", async () => {
         const generated = await new PiAiAdapter(config).generate({ ...request, sessionId: "goal-beam" });
         assert.equal(readAssistantText(generated), json);
         assert.ok(captured);
-        assert.equal(new URL(captured.url).pathname, "/inference/go/v1/chat/completions");
+        assert.equal(new URL(captured.url).pathname, "/inference/go/openai/v1/chat/completions");
         assert.equal(captured.headers.get("authorization"), "Bearer test-explicit-key");
         assert.equal(captured.headers.get("user-agent"), "lazygoal");
         assert.equal(captured.headers.get("x-opencode-session"), "goal-beam");

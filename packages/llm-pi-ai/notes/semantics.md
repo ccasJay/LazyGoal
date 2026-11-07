@@ -9,5 +9,5 @@
 | piUsage | 非权威用量诊断字段；始终不等同正式 usage。 | [pi-ai 适配](../README.md) | [模块说明](./overview.md) |
 | 增量流转换 | SDK text/thinking/tool-call 增量到统一事件的映射。 | [pi-ai 适配](../README.md) | [实现](../src/pi-ai.ts) |
 | OpenCode Go 会话头 | 该 provider 专属 UA 与可选 `x-opencode-session`。 | [pi-ai 适配](../README.md) | [实现](../src/pi-ai.ts) |
-| 动态 OpenCode Go 模型 | 按服务端可信协议和容量创建 Completions Model，使用固定端点。 | [pi-ai 适配](../README.md) | [实现](../src/pi-ai.ts) |
+| OpenCode Go 模型 | 按服务端目录元数据创建 Completions Model，使用固定端点；不支持 required tool choice 时降为 auto。 | [pi-ai 适配](../README.md) | [实现](../src/pi-ai.ts) |
 | 供应商请求错误 | 安全诊断属于模型请求失败；可识别 HTTP 错误只保留状态码。 | [pi-ai 适配](../README.md) | [适配器](../src/pi-ai.ts) |

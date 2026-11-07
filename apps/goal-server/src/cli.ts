@@ -18,10 +18,12 @@ import {
     readBrowserGoalSessionState,
     resolveBrowserDraftModelCatalog,
     type BrowserModelCatalog,
+    type BrowserModelSource,
     type BrowserSessionAccess,
 } from "../../../packages/browser/src/index";
 import { DefaultProviderModelFetcher } from "../../../packages/model-catalog/src/index";
 import { ModelCatalogError } from "../../../packages/model-catalog/src/index";
+import type { LlmModelDescriptor } from "../../../packages/model-catalog/src/index";
 import {
     RuntimeLifecycleUnavailableError,
     type GoalModelSelection,
@@ -53,6 +55,23 @@ import {
     type CompositionRoot,
     type CompositionRootOptions,
 } from "./composition-root";
+
+/** 把目录领域描述映射为 Web 投影允许接收的非敏感字段。 */
+function toBrowserModelSources(models: readonly LlmModelDescriptor[]): readonly BrowserModelSource[] {
+    return models.map((model) => ({
+        id: model.id,
+        displayName: model.displayName,
+        provider: model.provider,
+        availabilitySource: model.availabilitySource,
+        metadataSource: model.metadataSource,
+        selectable: model.selectable,
+        ...(model.contextWindowTokens === undefined ? {} : { contextWindowTokens: model.contextWindowTokens }),
+        ...(model.maxOutputTokens === undefined ? {} : { maxOutputTokens: model.maxOutputTokens }),
+        ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
+        ...(model.vision === undefined ? {} : { vision: model.vision }),
+        ...(model.unavailableReason === undefined ? {} : { unavailableReason: model.unavailableReason }),
+    }));
+}
 
 /** 把受管档案投影为不含明文凭据的 wire 形态。 */
 function toBrowserProviderProfile(profile: ProviderProfile): BrowserProviderProfile {
@@ -234,7 +253,7 @@ export async function runServerSession(
                 },
                 configuredSelection.modelId,
                 preference,
-                models,
+                toBrowserModelSources(models),
             );
             const selectedModel = selected === undefined ? undefined : models.find((model) =>
                 model.provider === target.config.provider && model.id === selected.id && model.selectable);
@@ -248,6 +267,11 @@ export async function runServerSession(
                     ...(selectedModel.contextWindowTokens === undefined ? {} : { contextWindowTokens: selectedModel.contextWindowTokens }),
                     ...(selectedModel.maxOutputTokens === undefined ? {} : { maxOutputTokens: selectedModel.maxOutputTokens }),
                     ...(selectedModel.executionApi === undefined ? {} : { executionApi: selectedModel.executionApi }),
+                    ...(selectedModel.reasoning === undefined ? {} : { reasoning: selectedModel.reasoning }),
+                    ...(selectedModel.vision === undefined ? {} : { vision: selectedModel.vision }),
+                    ...(selectedModel.supportsRequiredToolChoice === undefined
+                        ? {}
+                        : { supportsRequiredToolChoice: selectedModel.supportsRequiredToolChoice }),
                     inputEstimator: configuredSelection.inputEstimator,
                 },
             };
@@ -282,6 +306,11 @@ export async function runServerSession(
                 ...(model.contextWindowTokens === undefined ? {} : { contextWindowTokens: model.contextWindowTokens }),
                 ...(model.maxOutputTokens === undefined ? {} : { maxOutputTokens: model.maxOutputTokens }),
                 ...(model.executionApi === undefined ? {} : { executionApi: model.executionApi }),
+                ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
+                ...(model.vision === undefined ? {} : { vision: model.vision }),
+                ...(model.supportsRequiredToolChoice === undefined
+                    ? {}
+                    : { supportsRequiredToolChoice: model.supportsRequiredToolChoice }),
                 inputEstimator: current.inputEstimator,
             };
         };
@@ -554,7 +583,7 @@ export async function runServerSession(
                     );
                     return {
                         ok: true,
-                        catalog: projectBrowserModelCatalog(source.config.provider, currentModelId, models, undefined, {
+                        catalog: projectBrowserModelCatalog(source.config.provider, currentModelId, toBrowserModelSources(models), undefined, {
                             ...(source.profileId === undefined ? {} : { profileId: source.profileId }),
                             sources: providerSources(),
                         }),

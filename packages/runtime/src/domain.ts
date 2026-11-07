@@ -1008,6 +1008,9 @@ export interface ModelContextEpochState {
  *   executionApi: "openai-completions",
  *   contextWindowTokens: 1_000_000,
  *   maxOutputTokens: 524_288,
+ *   reasoning: true,
+ *   vision: false,
+ *   supportsRequiredToolChoice: true,
  *   inputEstimator: { kind: "character-v1" },
  * };
  * ```
@@ -1019,7 +1022,7 @@ export interface GoalModelSelection {
     readonly profileId?: string | undefined;
     /** 模型唯一标识（如 "gpt-4o", "claude-sonnet-4-5"）。 */
     readonly modelId: string;
-    /** 服务端登记的非敏感执行 API；当前仅用于 OpenCode Go 动态模型。 */
+    /** 服务端目录解析的非敏感执行 API；当前仅用于 OpenCode Go 在线模型。 */
     readonly executionApi?: "openai-completions" | undefined;
     /** 结构化输出模式：原生 strict 约束、prompt_only 提示词约束或 two_stage 双阶段推演。 */
     readonly structuredOutputMode?: "strict" | "prompt_only" | "two_stage" | undefined;
@@ -1027,6 +1030,12 @@ export interface GoalModelSelection {
     readonly contextWindowTokens?: number | undefined;
     /** 单次补全最大输出 Token 限制。 */
     readonly maxOutputTokens?: number | undefined;
+    /** 是否保留该模型原生推理能力，用于进程重启后重建模型适配器。 */
+    readonly reasoning?: boolean | undefined;
+    /** 模型是否接受图像等视觉输入，用于进程重启后重建模型适配器。 */
+    readonly vision?: boolean | undefined;
+    /** OpenAI Chat Completions 路径是否接受强制工具选择；未知时省略。 */
+    readonly supportsRequiredToolChoice?: boolean | undefined;
     /** 输入估算器契约：字符估算或精确 Tokenizer 编码。 */
     readonly inputEstimator:
         | { readonly kind: "character-v1" }
@@ -1449,6 +1458,11 @@ function cloneModelSelection(selection: GoalModelSelection): GoalModelSelection 
         structuredOutputMode: selection.structuredOutputMode,
         ...(selection.contextWindowTokens !== undefined ? { contextWindowTokens: selection.contextWindowTokens } : {}),
         ...(selection.maxOutputTokens !== undefined ? { maxOutputTokens: selection.maxOutputTokens } : {}),
+        ...(selection.reasoning !== undefined ? { reasoning: selection.reasoning } : {}),
+        ...(selection.vision !== undefined ? { vision: selection.vision } : {}),
+        ...(selection.supportsRequiredToolChoice !== undefined
+            ? { supportsRequiredToolChoice: selection.supportsRequiredToolChoice }
+            : {}),
         inputEstimator: selection.inputEstimator.kind === "character-v1"
             ? { kind: "character-v1" }
             : { kind: "token-encoding", encoding: selection.inputEstimator.encoding },

@@ -5,7 +5,7 @@
 | 概念 | 简明含义 | 归属模块 | 权威说明 |
 | --- | --- | --- | --- |
 | Snapshot | Goal 最新完整持久化状态。 | [持久化实现](../README.md) | [模块说明](./overview.md) |
-| 动态模型执行快照 | Goal 选择保存 API 协议与容量，不保存端点或凭据。 | [持久化实现](../README.md) | [Snapshot Schema](../src/goal-snapshot.ts) |
+| 动态模型执行快照 | Goal 选择保存 API 协议、容量与推理/视觉/工具选择能力，不保存端点或凭据。 | [持久化实现](../README.md) | [Snapshot Schema](../src/goal-snapshot.ts) |
 | 输入账本快照 | 每条已受理输入的稳定身份、载荷摘要、受理序号与状态；不复制正文。 | [持久化实现](../README.md) | [Snapshot Schema](../src/goal-snapshot.ts) |
 | 消息队列快照 | 尚未应用的普通消息 FIFO、队列修订与暂停原因。 | [持久化实现](../README.md) | [Snapshot Schema](../src/goal-snapshot.ts) |
 | 消息身份快照 | 每条正式消息持久化 `messageId`、所属 `runId`、Run 内 `position`、判别式来源与助手用途；位置受 Run 边界和 Snapshot 顺序约束。 | [持久化实现](../README.md) | [Snapshot Schema](../src/goal-snapshot.ts) |

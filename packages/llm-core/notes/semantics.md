@@ -10,6 +10,6 @@
 | 内容块读投影 | 按块顺序派生正文、reasoning 与工具调用，不持有第二份状态。 | [LLM 核心契约](../README.md) | [content-blocks](../src/content-blocks.ts) |
 | 内容块流协议 | 响应开始、块开始／增量／完整结束与唯一成功完成；whole 交付不伪造分片。 | [LLM 核心契约](../README.md) | [content-block-stream](../src/content-block-stream.ts) |
 | LLMConfig / LLMConfigurationError | 共享连接配置与唯一配置错误构造器；读取归 Config。 | [LLM 核心契约](../README.md) | [配置契约](../src/llm-config.ts) |
-| LLMExecutionApi | 供应商无关配置中的协议族标识；当前只为登记的 OpenCode Go 动态模型开放。 | [LLM 核心契约](../README.md) | [配置契约](../src/llm-config.ts) |
+| LLMExecutionApi | 供应商无关配置中的协议族标识；当前用于服务端目录确认可执行的 OpenCode Go 在线文本模型。 | [LLM 核心契约](../README.md) | [配置契约](../src/llm-config.ts) |
 | NormalizedUsage / readNormalizedUsage | 归一化用量形态与安全读取；缺失不补零。 | [LLM 核心契约](../README.md) | [用量契约](../src/usage.ts) |
 | 暂时故障分类 | 把结构化识别的限流、5xx、连接与超时映射为 execution-control 身份。 | [LLM 核心契约](../README.md) | [故障分类](../src/model-request-failure.ts) |
