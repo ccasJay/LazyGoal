@@ -12,7 +12,7 @@ var require_GoalSnapshotV1_validator = __commonJS({
   "GoalSnapshotV1-validator.cjs"(exports, module) {
     module.exports = validate10;
     module.exports.default = validate10;
-    var schema14 = { "type": "object", "properties": { "triggerContext": { "type": "object", "properties": { "deliveryId": { "type": "string" }, "trigger": { "type": "object", "properties": { "id": { "type": "string" }, "purpose": { "type": "string", "enum": ["work", "permission", "interaction", "cancel", "progress", "lifecycle"] }, "source": { "type": "string", "enum": ["user", "worker", "external", "supervisor"] }, "workerId": { "type": "string" }, "generation": { "type": "string" }, "payload": { "type": "string" } }, "required": ["id", "purpose", "source", "payload"], "additionalProperties": false }, "authorization": { "type": "object", "properties": { "workspaceRoot": { "type": "string" }, "toolIds": { "type": "array", "items": { "type": "string" } }, "sandbox": { "type": "object", "properties": { "extraFiles": { "type": "array", "items": { "type": "object", "properties": { "canonicalPath": { "type": "string" }, "access": { "type": "string", "enum": ["read", "write"] }, "kind": { "type": "string", "enum": ["file", "directory_tree"] } }, "required": ["canonicalPath", "access", "kind"], "additionalProperties": false } }, "network": { "type": "string", "enum": ["none", "all_outbound"] } }, "required": ["extraFiles", "network"], "additionalProperties": false } }, "required": ["workspaceRoot", "toolIds", "sandbox"], "additionalProperties": false } }, "required": ["deliveryId", "trigger", "authorization"], "additionalProperties": false, "description": "\u521B\u5EFA Goal \u7684\u6295\u9012\u4E8B\u5B9E\u4E0E\u51BB\u7ED3\u7684\u52A8\u4F5C\u6743\u9650\u8303\u56F4\u3002" }, "intent": { "type": "string" }, "promptBundleVersion": { "type": "number", "const": 1 }, "memoryProtocol": { "type": "object", "properties": { "kind": { "type": "string", "const": "structured" }, "version": { "type": "number", "const": 1 } }, "required": ["kind", "version"], "additionalProperties": false }, "modelContextProtocol": { "type": "object", "properties": { "kind": { "type": "string", "const": "trajectory-layered" }, "version": { "type": "number", "const": 1 } }, "required": ["kind", "version"], "additionalProperties": false }, "contextRetrievalProtocol": { "type": "object", "properties": { "kind": { "type": "string", "const": "bm25-lite" }, "version": { "type": "number", "const": 1 } }, "required": ["kind", "version"], "additionalProperties": false }, "profile": { "$ref": "#/definitions/GoalSnapshotProfileV1" }, "executionPolicy": { "type": "object", "properties": { "maxSteps": { "type": "number" } }, "required": ["maxSteps"], "additionalProperties": false } }, "required": ["intent", "promptBundleVersion", "memoryProtocol", "modelContextProtocol", "contextRetrievalProtocol", "profile", "executionPolicy"], "additionalProperties": false, "description": "Snapshot \u4E2D\u51BB\u7ED3\u7684 Goal \u534F\u8BAE\u7EC4\u5408\u4E0E\u6267\u884C\u7B56\u7565\u3002" };
+    var schema14 = { "type": "object", "properties": { "triggerContext": { "type": "object", "properties": { "deliveryId": { "type": "string" }, "trigger": { "type": "object", "properties": { "id": { "type": "string" }, "purpose": { "type": "string", "enum": ["work", "permission", "interaction", "cancel", "progress", "lifecycle"] }, "source": { "type": "string", "enum": ["user", "worker", "external", "supervisor"] }, "workerId": { "type": "string" }, "generation": { "type": "string" }, "payload": { "type": "string" } }, "required": ["id", "purpose", "source", "payload"], "additionalProperties": false }, "authorization": { "type": "object", "properties": { "workspace": { "type": "object", "properties": { "mode": { "type": "string", "enum": ["shared", "worktree"] }, "projectRoot": { "type": "string" }, "executionRoot": { "type": "string" }, "branch": { "type": "string" }, "baseBranch": { "type": "string" }, "baseCommit": { "type": "string" } }, "required": ["mode", "projectRoot", "executionRoot"], "additionalProperties": false }, "toolIds": { "type": "array", "items": { "type": "string" } }, "sandbox": { "type": "object", "properties": { "extraFiles": { "type": "array", "items": { "type": "object", "properties": { "canonicalPath": { "type": "string" }, "access": { "type": "string", "enum": ["read", "write"] }, "kind": { "type": "string", "enum": ["file", "directory_tree"] } }, "required": ["canonicalPath", "access", "kind"], "additionalProperties": false } }, "network": { "type": "string", "enum": ["none", "all_outbound"] } }, "required": ["extraFiles", "network"], "additionalProperties": false } }, "required": ["workspace", "toolIds", "sandbox"], "additionalProperties": false } }, "required": ["deliveryId", "trigger", "authorization"], "additionalProperties": false, "description": "\u521B\u5EFA Goal \u7684\u6295\u9012\u4E8B\u5B9E\u4E0E\u51BB\u7ED3\u7684\u52A8\u4F5C\u6743\u9650\u8303\u56F4\u3002" }, "intent": { "type": "string" }, "promptBundleVersion": { "type": "number", "const": 1 }, "memoryProtocol": { "type": "object", "properties": { "kind": { "type": "string", "const": "structured" }, "version": { "type": "number", "const": 1 } }, "required": ["kind", "version"], "additionalProperties": false }, "modelContextProtocol": { "type": "object", "properties": { "kind": { "type": "string", "const": "trajectory-layered" }, "version": { "type": "number", "const": 1 } }, "required": ["kind", "version"], "additionalProperties": false }, "contextRetrievalProtocol": { "type": "object", "properties": { "kind": { "type": "string", "const": "bm25-lite" }, "version": { "type": "number", "const": 1 } }, "required": ["kind", "version"], "additionalProperties": false }, "profile": { "$ref": "#/definitions/GoalSnapshotProfileV1" }, "executionPolicy": { "type": "object", "properties": { "maxSteps": { "type": "number" } }, "required": ["maxSteps"], "additionalProperties": false } }, "required": ["intent", "promptBundleVersion", "memoryProtocol", "modelContextProtocol", "contextRetrievalProtocol", "profile", "executionPolicy"], "additionalProperties": false, "description": "Snapshot \u4E2D\u51BB\u7ED3\u7684 Goal \u534F\u8BAE\u7EC4\u5408\u4E0E\u6267\u884C\u7B56\u7565\u3002" };
     function validate12(data, { instancePath = "", parentData, parentDataProperty, rootData = data } = {}) {
       let vErrors = null;
       let errors = 0;
@@ -292,8 +292,8 @@ var require_GoalSnapshotV1_validator = __commonJS({
             if (data0.authorization !== void 0) {
               let data9 = data0.authorization;
               if (data9 && typeof data9 == "object" && !Array.isArray(data9)) {
-                if (data9.workspaceRoot === void 0) {
-                  const err27 = { instancePath: instancePath + "/triggerContext/authorization", schemaPath: "#/properties/triggerContext/properties/authorization/required", keyword: "required", params: { missingProperty: "workspaceRoot" }, message: "must have required property 'workspaceRoot'" };
+                if (data9.workspace === void 0) {
+                  const err27 = { instancePath: instancePath + "/triggerContext/authorization", schemaPath: "#/properties/triggerContext/properties/authorization/required", keyword: "required", params: { missingProperty: "workspace" }, message: "must have required property 'workspace'" };
                   if (vErrors === null) {
                     vErrors = [err27];
                   } else {
@@ -320,7 +320,7 @@ var require_GoalSnapshotV1_validator = __commonJS({
                   errors++;
                 }
                 for (const key3 in data9) {
-                  if (!(key3 === "workspaceRoot" || key3 === "toolIds" || key3 === "sandbox")) {
+                  if (!(key3 === "workspace" || key3 === "toolIds" || key3 === "sandbox")) {
                     const err30 = { instancePath: instancePath + "/triggerContext/authorization", schemaPath: "#/properties/triggerContext/properties/authorization/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key3 }, message: "must NOT have additional properties" };
                     if (vErrors === null) {
                       vErrors = [err30];
@@ -330,66 +330,60 @@ var require_GoalSnapshotV1_validator = __commonJS({
                     errors++;
                   }
                 }
-                if (data9.workspaceRoot !== void 0) {
-                  if (typeof data9.workspaceRoot !== "string") {
-                    const err31 = { instancePath: instancePath + "/triggerContext/authorization/workspaceRoot", schemaPath: "#/properties/triggerContext/properties/authorization/properties/workspaceRoot/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                    if (vErrors === null) {
-                      vErrors = [err31];
-                    } else {
-                      vErrors.push(err31);
+                if (data9.workspace !== void 0) {
+                  let data10 = data9.workspace;
+                  if (data10 && typeof data10 == "object" && !Array.isArray(data10)) {
+                    if (data10.mode === void 0) {
+                      const err31 = { instancePath: instancePath + "/triggerContext/authorization/workspace", schemaPath: "#/properties/triggerContext/properties/authorization/properties/workspace/required", keyword: "required", params: { missingProperty: "mode" }, message: "must have required property 'mode'" };
+                      if (vErrors === null) {
+                        vErrors = [err31];
+                      } else {
+                        vErrors.push(err31);
+                      }
+                      errors++;
                     }
-                    errors++;
-                  }
-                }
-                if (data9.toolIds !== void 0) {
-                  let data11 = data9.toolIds;
-                  if (Array.isArray(data11)) {
-                    const len0 = data11.length;
-                    for (let i0 = 0; i0 < len0; i0++) {
-                      if (typeof data11[i0] !== "string") {
-                        const err32 = { instancePath: instancePath + "/triggerContext/authorization/toolIds/" + i0, schemaPath: "#/properties/triggerContext/properties/authorization/properties/toolIds/items/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    if (data10.projectRoot === void 0) {
+                      const err32 = { instancePath: instancePath + "/triggerContext/authorization/workspace", schemaPath: "#/properties/triggerContext/properties/authorization/properties/workspace/required", keyword: "required", params: { missingProperty: "projectRoot" }, message: "must have required property 'projectRoot'" };
+                      if (vErrors === null) {
+                        vErrors = [err32];
+                      } else {
+                        vErrors.push(err32);
+                      }
+                      errors++;
+                    }
+                    if (data10.executionRoot === void 0) {
+                      const err33 = { instancePath: instancePath + "/triggerContext/authorization/workspace", schemaPath: "#/properties/triggerContext/properties/authorization/properties/workspace/required", keyword: "required", params: { missingProperty: "executionRoot" }, message: "must have required property 'executionRoot'" };
+                      if (vErrors === null) {
+                        vErrors = [err33];
+                      } else {
+                        vErrors.push(err33);
+                      }
+                      errors++;
+                    }
+                    for (const key4 in data10) {
+                      if (!(key4 === "mode" || key4 === "projectRoot" || key4 === "executionRoot" || key4 === "branch" || key4 === "baseBranch" || key4 === "baseCommit")) {
+                        const err34 = { instancePath: instancePath + "/triggerContext/authorization/workspace", schemaPath: "#/properties/triggerContext/properties/authorization/properties/workspace/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key4 }, message: "must NOT have additional properties" };
                         if (vErrors === null) {
-                          vErrors = [err32];
+                          vErrors = [err34];
                         } else {
-                          vErrors.push(err32);
+                          vErrors.push(err34);
                         }
                         errors++;
                       }
                     }
-                  } else {
-                    const err33 = { instancePath: instancePath + "/triggerContext/authorization/toolIds", schemaPath: "#/properties/triggerContext/properties/authorization/properties/toolIds/type", keyword: "type", params: { type: "array" }, message: "must be array" };
-                    if (vErrors === null) {
-                      vErrors = [err33];
-                    } else {
-                      vErrors.push(err33);
-                    }
-                    errors++;
-                  }
-                }
-                if (data9.sandbox !== void 0) {
-                  let data13 = data9.sandbox;
-                  if (data13 && typeof data13 == "object" && !Array.isArray(data13)) {
-                    if (data13.extraFiles === void 0) {
-                      const err34 = { instancePath: instancePath + "/triggerContext/authorization/sandbox", schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/required", keyword: "required", params: { missingProperty: "extraFiles" }, message: "must have required property 'extraFiles'" };
-                      if (vErrors === null) {
-                        vErrors = [err34];
-                      } else {
-                        vErrors.push(err34);
+                    if (data10.mode !== void 0) {
+                      let data11 = data10.mode;
+                      if (typeof data11 !== "string") {
+                        const err35 = { instancePath: instancePath + "/triggerContext/authorization/workspace/mode", schemaPath: "#/properties/triggerContext/properties/authorization/properties/workspace/properties/mode/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                        if (vErrors === null) {
+                          vErrors = [err35];
+                        } else {
+                          vErrors.push(err35);
+                        }
+                        errors++;
                       }
-                      errors++;
-                    }
-                    if (data13.network === void 0) {
-                      const err35 = { instancePath: instancePath + "/triggerContext/authorization/sandbox", schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/required", keyword: "required", params: { missingProperty: "network" }, message: "must have required property 'network'" };
-                      if (vErrors === null) {
-                        vErrors = [err35];
-                      } else {
-                        vErrors.push(err35);
-                      }
-                      errors++;
-                    }
-                    for (const key4 in data13) {
-                      if (!(key4 === "extraFiles" || key4 === "network")) {
-                        const err36 = { instancePath: instancePath + "/triggerContext/authorization/sandbox", schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key4 }, message: "must NOT have additional properties" };
+                      if (!(data11 === "shared" || data11 === "worktree")) {
+                        const err36 = { instancePath: instancePath + "/triggerContext/authorization/workspace/mode", schemaPath: "#/properties/triggerContext/properties/authorization/properties/workspace/properties/mode/enum", keyword: "enum", params: { allowedValues: schema14.properties.triggerContext.properties.authorization.properties.workspace.properties.mode.enum }, message: "must be equal to one of the allowed values" };
                         if (vErrors === null) {
                           vErrors = [err36];
                         } else {
@@ -398,116 +392,120 @@ var require_GoalSnapshotV1_validator = __commonJS({
                         errors++;
                       }
                     }
-                    if (data13.extraFiles !== void 0) {
-                      let data14 = data13.extraFiles;
-                      if (Array.isArray(data14)) {
-                        const len1 = data14.length;
-                        for (let i1 = 0; i1 < len1; i1++) {
-                          let data15 = data14[i1];
-                          if (data15 && typeof data15 == "object" && !Array.isArray(data15)) {
-                            if (data15.canonicalPath === void 0) {
-                              const err37 = { instancePath: instancePath + "/triggerContext/authorization/sandbox/extraFiles/" + i1, schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/properties/extraFiles/items/required", keyword: "required", params: { missingProperty: "canonicalPath" }, message: "must have required property 'canonicalPath'" };
-                              if (vErrors === null) {
-                                vErrors = [err37];
-                              } else {
-                                vErrors.push(err37);
-                              }
-                              errors++;
-                            }
-                            if (data15.access === void 0) {
-                              const err38 = { instancePath: instancePath + "/triggerContext/authorization/sandbox/extraFiles/" + i1, schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/properties/extraFiles/items/required", keyword: "required", params: { missingProperty: "access" }, message: "must have required property 'access'" };
-                              if (vErrors === null) {
-                                vErrors = [err38];
-                              } else {
-                                vErrors.push(err38);
-                              }
-                              errors++;
-                            }
-                            if (data15.kind === void 0) {
-                              const err39 = { instancePath: instancePath + "/triggerContext/authorization/sandbox/extraFiles/" + i1, schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/properties/extraFiles/items/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
-                              if (vErrors === null) {
-                                vErrors = [err39];
-                              } else {
-                                vErrors.push(err39);
-                              }
-                              errors++;
-                            }
-                            for (const key5 in data15) {
-                              if (!(key5 === "canonicalPath" || key5 === "access" || key5 === "kind")) {
-                                const err40 = { instancePath: instancePath + "/triggerContext/authorization/sandbox/extraFiles/" + i1, schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/properties/extraFiles/items/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key5 }, message: "must NOT have additional properties" };
-                                if (vErrors === null) {
-                                  vErrors = [err40];
-                                } else {
-                                  vErrors.push(err40);
-                                }
-                                errors++;
-                              }
-                            }
-                            if (data15.canonicalPath !== void 0) {
-                              if (typeof data15.canonicalPath !== "string") {
-                                const err41 = { instancePath: instancePath + "/triggerContext/authorization/sandbox/extraFiles/" + i1 + "/canonicalPath", schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/properties/extraFiles/items/properties/canonicalPath/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                                if (vErrors === null) {
-                                  vErrors = [err41];
-                                } else {
-                                  vErrors.push(err41);
-                                }
-                                errors++;
-                              }
-                            }
-                            if (data15.access !== void 0) {
-                              let data17 = data15.access;
-                              if (typeof data17 !== "string") {
-                                const err42 = { instancePath: instancePath + "/triggerContext/authorization/sandbox/extraFiles/" + i1 + "/access", schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/properties/extraFiles/items/properties/access/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                                if (vErrors === null) {
-                                  vErrors = [err42];
-                                } else {
-                                  vErrors.push(err42);
-                                }
-                                errors++;
-                              }
-                              if (!(data17 === "read" || data17 === "write")) {
-                                const err43 = { instancePath: instancePath + "/triggerContext/authorization/sandbox/extraFiles/" + i1 + "/access", schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/properties/extraFiles/items/properties/access/enum", keyword: "enum", params: { allowedValues: schema14.properties.triggerContext.properties.authorization.properties.sandbox.properties.extraFiles.items.properties.access.enum }, message: "must be equal to one of the allowed values" };
-                                if (vErrors === null) {
-                                  vErrors = [err43];
-                                } else {
-                                  vErrors.push(err43);
-                                }
-                                errors++;
-                              }
-                            }
-                            if (data15.kind !== void 0) {
-                              let data18 = data15.kind;
-                              if (typeof data18 !== "string") {
-                                const err44 = { instancePath: instancePath + "/triggerContext/authorization/sandbox/extraFiles/" + i1 + "/kind", schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/properties/extraFiles/items/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                                if (vErrors === null) {
-                                  vErrors = [err44];
-                                } else {
-                                  vErrors.push(err44);
-                                }
-                                errors++;
-                              }
-                              if (!(data18 === "file" || data18 === "directory_tree")) {
-                                const err45 = { instancePath: instancePath + "/triggerContext/authorization/sandbox/extraFiles/" + i1 + "/kind", schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/properties/extraFiles/items/properties/kind/enum", keyword: "enum", params: { allowedValues: schema14.properties.triggerContext.properties.authorization.properties.sandbox.properties.extraFiles.items.properties.kind.enum }, message: "must be equal to one of the allowed values" };
-                                if (vErrors === null) {
-                                  vErrors = [err45];
-                                } else {
-                                  vErrors.push(err45);
-                                }
-                                errors++;
-                              }
-                            }
-                          } else {
-                            const err46 = { instancePath: instancePath + "/triggerContext/authorization/sandbox/extraFiles/" + i1, schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/properties/extraFiles/items/type", keyword: "type", params: { type: "object" }, message: "must be object" };
-                            if (vErrors === null) {
-                              vErrors = [err46];
-                            } else {
-                              vErrors.push(err46);
-                            }
-                            errors++;
-                          }
+                    if (data10.projectRoot !== void 0) {
+                      if (typeof data10.projectRoot !== "string") {
+                        const err37 = { instancePath: instancePath + "/triggerContext/authorization/workspace/projectRoot", schemaPath: "#/properties/triggerContext/properties/authorization/properties/workspace/properties/projectRoot/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                        if (vErrors === null) {
+                          vErrors = [err37];
+                        } else {
+                          vErrors.push(err37);
                         }
+                        errors++;
+                      }
+                    }
+                    if (data10.executionRoot !== void 0) {
+                      if (typeof data10.executionRoot !== "string") {
+                        const err38 = { instancePath: instancePath + "/triggerContext/authorization/workspace/executionRoot", schemaPath: "#/properties/triggerContext/properties/authorization/properties/workspace/properties/executionRoot/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                        if (vErrors === null) {
+                          vErrors = [err38];
+                        } else {
+                          vErrors.push(err38);
+                        }
+                        errors++;
+                      }
+                    }
+                    if (data10.branch !== void 0) {
+                      if (typeof data10.branch !== "string") {
+                        const err39 = { instancePath: instancePath + "/triggerContext/authorization/workspace/branch", schemaPath: "#/properties/triggerContext/properties/authorization/properties/workspace/properties/branch/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                        if (vErrors === null) {
+                          vErrors = [err39];
+                        } else {
+                          vErrors.push(err39);
+                        }
+                        errors++;
+                      }
+                    }
+                    if (data10.baseBranch !== void 0) {
+                      if (typeof data10.baseBranch !== "string") {
+                        const err40 = { instancePath: instancePath + "/triggerContext/authorization/workspace/baseBranch", schemaPath: "#/properties/triggerContext/properties/authorization/properties/workspace/properties/baseBranch/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                        if (vErrors === null) {
+                          vErrors = [err40];
+                        } else {
+                          vErrors.push(err40);
+                        }
+                        errors++;
+                      }
+                    }
+                    if (data10.baseCommit !== void 0) {
+                      if (typeof data10.baseCommit !== "string") {
+                        const err41 = { instancePath: instancePath + "/triggerContext/authorization/workspace/baseCommit", schemaPath: "#/properties/triggerContext/properties/authorization/properties/workspace/properties/baseCommit/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                        if (vErrors === null) {
+                          vErrors = [err41];
+                        } else {
+                          vErrors.push(err41);
+                        }
+                        errors++;
+                      }
+                    }
+                  } else {
+                    const err42 = { instancePath: instancePath + "/triggerContext/authorization/workspace", schemaPath: "#/properties/triggerContext/properties/authorization/properties/workspace/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                    if (vErrors === null) {
+                      vErrors = [err42];
+                    } else {
+                      vErrors.push(err42);
+                    }
+                    errors++;
+                  }
+                }
+                if (data9.toolIds !== void 0) {
+                  let data17 = data9.toolIds;
+                  if (Array.isArray(data17)) {
+                    const len0 = data17.length;
+                    for (let i0 = 0; i0 < len0; i0++) {
+                      if (typeof data17[i0] !== "string") {
+                        const err43 = { instancePath: instancePath + "/triggerContext/authorization/toolIds/" + i0, schemaPath: "#/properties/triggerContext/properties/authorization/properties/toolIds/items/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                        if (vErrors === null) {
+                          vErrors = [err43];
+                        } else {
+                          vErrors.push(err43);
+                        }
+                        errors++;
+                      }
+                    }
+                  } else {
+                    const err44 = { instancePath: instancePath + "/triggerContext/authorization/toolIds", schemaPath: "#/properties/triggerContext/properties/authorization/properties/toolIds/type", keyword: "type", params: { type: "array" }, message: "must be array" };
+                    if (vErrors === null) {
+                      vErrors = [err44];
+                    } else {
+                      vErrors.push(err44);
+                    }
+                    errors++;
+                  }
+                }
+                if (data9.sandbox !== void 0) {
+                  let data19 = data9.sandbox;
+                  if (data19 && typeof data19 == "object" && !Array.isArray(data19)) {
+                    if (data19.extraFiles === void 0) {
+                      const err45 = { instancePath: instancePath + "/triggerContext/authorization/sandbox", schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/required", keyword: "required", params: { missingProperty: "extraFiles" }, message: "must have required property 'extraFiles'" };
+                      if (vErrors === null) {
+                        vErrors = [err45];
                       } else {
-                        const err47 = { instancePath: instancePath + "/triggerContext/authorization/sandbox/extraFiles", schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/properties/extraFiles/type", keyword: "type", params: { type: "array" }, message: "must be array" };
+                        vErrors.push(err45);
+                      }
+                      errors++;
+                    }
+                    if (data19.network === void 0) {
+                      const err46 = { instancePath: instancePath + "/triggerContext/authorization/sandbox", schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/required", keyword: "required", params: { missingProperty: "network" }, message: "must have required property 'network'" };
+                      if (vErrors === null) {
+                        vErrors = [err46];
+                      } else {
+                        vErrors.push(err46);
+                      }
+                      errors++;
+                    }
+                    for (const key5 in data19) {
+                      if (!(key5 === "extraFiles" || key5 === "network")) {
+                        const err47 = { instancePath: instancePath + "/triggerContext/authorization/sandbox", schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key5 }, message: "must NOT have additional properties" };
                         if (vErrors === null) {
                           vErrors = [err47];
                         } else {
@@ -516,155 +514,157 @@ var require_GoalSnapshotV1_validator = __commonJS({
                         errors++;
                       }
                     }
-                    if (data13.network !== void 0) {
-                      let data19 = data13.network;
-                      if (typeof data19 !== "string") {
-                        const err48 = { instancePath: instancePath + "/triggerContext/authorization/sandbox/network", schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/properties/network/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    if (data19.extraFiles !== void 0) {
+                      let data20 = data19.extraFiles;
+                      if (Array.isArray(data20)) {
+                        const len1 = data20.length;
+                        for (let i1 = 0; i1 < len1; i1++) {
+                          let data21 = data20[i1];
+                          if (data21 && typeof data21 == "object" && !Array.isArray(data21)) {
+                            if (data21.canonicalPath === void 0) {
+                              const err48 = { instancePath: instancePath + "/triggerContext/authorization/sandbox/extraFiles/" + i1, schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/properties/extraFiles/items/required", keyword: "required", params: { missingProperty: "canonicalPath" }, message: "must have required property 'canonicalPath'" };
+                              if (vErrors === null) {
+                                vErrors = [err48];
+                              } else {
+                                vErrors.push(err48);
+                              }
+                              errors++;
+                            }
+                            if (data21.access === void 0) {
+                              const err49 = { instancePath: instancePath + "/triggerContext/authorization/sandbox/extraFiles/" + i1, schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/properties/extraFiles/items/required", keyword: "required", params: { missingProperty: "access" }, message: "must have required property 'access'" };
+                              if (vErrors === null) {
+                                vErrors = [err49];
+                              } else {
+                                vErrors.push(err49);
+                              }
+                              errors++;
+                            }
+                            if (data21.kind === void 0) {
+                              const err50 = { instancePath: instancePath + "/triggerContext/authorization/sandbox/extraFiles/" + i1, schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/properties/extraFiles/items/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
+                              if (vErrors === null) {
+                                vErrors = [err50];
+                              } else {
+                                vErrors.push(err50);
+                              }
+                              errors++;
+                            }
+                            for (const key6 in data21) {
+                              if (!(key6 === "canonicalPath" || key6 === "access" || key6 === "kind")) {
+                                const err51 = { instancePath: instancePath + "/triggerContext/authorization/sandbox/extraFiles/" + i1, schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/properties/extraFiles/items/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key6 }, message: "must NOT have additional properties" };
+                                if (vErrors === null) {
+                                  vErrors = [err51];
+                                } else {
+                                  vErrors.push(err51);
+                                }
+                                errors++;
+                              }
+                            }
+                            if (data21.canonicalPath !== void 0) {
+                              if (typeof data21.canonicalPath !== "string") {
+                                const err52 = { instancePath: instancePath + "/triggerContext/authorization/sandbox/extraFiles/" + i1 + "/canonicalPath", schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/properties/extraFiles/items/properties/canonicalPath/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                if (vErrors === null) {
+                                  vErrors = [err52];
+                                } else {
+                                  vErrors.push(err52);
+                                }
+                                errors++;
+                              }
+                            }
+                            if (data21.access !== void 0) {
+                              let data23 = data21.access;
+                              if (typeof data23 !== "string") {
+                                const err53 = { instancePath: instancePath + "/triggerContext/authorization/sandbox/extraFiles/" + i1 + "/access", schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/properties/extraFiles/items/properties/access/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                if (vErrors === null) {
+                                  vErrors = [err53];
+                                } else {
+                                  vErrors.push(err53);
+                                }
+                                errors++;
+                              }
+                              if (!(data23 === "read" || data23 === "write")) {
+                                const err54 = { instancePath: instancePath + "/triggerContext/authorization/sandbox/extraFiles/" + i1 + "/access", schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/properties/extraFiles/items/properties/access/enum", keyword: "enum", params: { allowedValues: schema14.properties.triggerContext.properties.authorization.properties.sandbox.properties.extraFiles.items.properties.access.enum }, message: "must be equal to one of the allowed values" };
+                                if (vErrors === null) {
+                                  vErrors = [err54];
+                                } else {
+                                  vErrors.push(err54);
+                                }
+                                errors++;
+                              }
+                            }
+                            if (data21.kind !== void 0) {
+                              let data24 = data21.kind;
+                              if (typeof data24 !== "string") {
+                                const err55 = { instancePath: instancePath + "/triggerContext/authorization/sandbox/extraFiles/" + i1 + "/kind", schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/properties/extraFiles/items/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                if (vErrors === null) {
+                                  vErrors = [err55];
+                                } else {
+                                  vErrors.push(err55);
+                                }
+                                errors++;
+                              }
+                              if (!(data24 === "file" || data24 === "directory_tree")) {
+                                const err56 = { instancePath: instancePath + "/triggerContext/authorization/sandbox/extraFiles/" + i1 + "/kind", schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/properties/extraFiles/items/properties/kind/enum", keyword: "enum", params: { allowedValues: schema14.properties.triggerContext.properties.authorization.properties.sandbox.properties.extraFiles.items.properties.kind.enum }, message: "must be equal to one of the allowed values" };
+                                if (vErrors === null) {
+                                  vErrors = [err56];
+                                } else {
+                                  vErrors.push(err56);
+                                }
+                                errors++;
+                              }
+                            }
+                          } else {
+                            const err57 = { instancePath: instancePath + "/triggerContext/authorization/sandbox/extraFiles/" + i1, schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/properties/extraFiles/items/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                            if (vErrors === null) {
+                              vErrors = [err57];
+                            } else {
+                              vErrors.push(err57);
+                            }
+                            errors++;
+                          }
+                        }
+                      } else {
+                        const err58 = { instancePath: instancePath + "/triggerContext/authorization/sandbox/extraFiles", schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/properties/extraFiles/type", keyword: "type", params: { type: "array" }, message: "must be array" };
                         if (vErrors === null) {
-                          vErrors = [err48];
+                          vErrors = [err58];
                         } else {
-                          vErrors.push(err48);
+                          vErrors.push(err58);
                         }
                         errors++;
                       }
-                      if (!(data19 === "none" || data19 === "all_outbound")) {
-                        const err49 = { instancePath: instancePath + "/triggerContext/authorization/sandbox/network", schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/properties/network/enum", keyword: "enum", params: { allowedValues: schema14.properties.triggerContext.properties.authorization.properties.sandbox.properties.network.enum }, message: "must be equal to one of the allowed values" };
+                    }
+                    if (data19.network !== void 0) {
+                      let data25 = data19.network;
+                      if (typeof data25 !== "string") {
+                        const err59 = { instancePath: instancePath + "/triggerContext/authorization/sandbox/network", schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/properties/network/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                         if (vErrors === null) {
-                          vErrors = [err49];
+                          vErrors = [err59];
                         } else {
-                          vErrors.push(err49);
+                          vErrors.push(err59);
+                        }
+                        errors++;
+                      }
+                      if (!(data25 === "none" || data25 === "all_outbound")) {
+                        const err60 = { instancePath: instancePath + "/triggerContext/authorization/sandbox/network", schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/properties/network/enum", keyword: "enum", params: { allowedValues: schema14.properties.triggerContext.properties.authorization.properties.sandbox.properties.network.enum }, message: "must be equal to one of the allowed values" };
+                        if (vErrors === null) {
+                          vErrors = [err60];
+                        } else {
+                          vErrors.push(err60);
                         }
                         errors++;
                       }
                     }
                   } else {
-                    const err50 = { instancePath: instancePath + "/triggerContext/authorization/sandbox", schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                    const err61 = { instancePath: instancePath + "/triggerContext/authorization/sandbox", schemaPath: "#/properties/triggerContext/properties/authorization/properties/sandbox/type", keyword: "type", params: { type: "object" }, message: "must be object" };
                     if (vErrors === null) {
-                      vErrors = [err50];
+                      vErrors = [err61];
                     } else {
-                      vErrors.push(err50);
+                      vErrors.push(err61);
                     }
                     errors++;
                   }
                 }
               } else {
-                const err51 = { instancePath: instancePath + "/triggerContext/authorization", schemaPath: "#/properties/triggerContext/properties/authorization/type", keyword: "type", params: { type: "object" }, message: "must be object" };
-                if (vErrors === null) {
-                  vErrors = [err51];
-                } else {
-                  vErrors.push(err51);
-                }
-                errors++;
-              }
-            }
-          } else {
-            const err52 = { instancePath: instancePath + "/triggerContext", schemaPath: "#/properties/triggerContext/type", keyword: "type", params: { type: "object" }, message: "must be object" };
-            if (vErrors === null) {
-              vErrors = [err52];
-            } else {
-              vErrors.push(err52);
-            }
-            errors++;
-          }
-        }
-        if (data.intent !== void 0) {
-          if (typeof data.intent !== "string") {
-            const err53 = { instancePath: instancePath + "/intent", schemaPath: "#/properties/intent/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-            if (vErrors === null) {
-              vErrors = [err53];
-            } else {
-              vErrors.push(err53);
-            }
-            errors++;
-          }
-        }
-        if (data.promptBundleVersion !== void 0) {
-          let data21 = data.promptBundleVersion;
-          if (!(typeof data21 == "number" && isFinite(data21))) {
-            const err54 = { instancePath: instancePath + "/promptBundleVersion", schemaPath: "#/properties/promptBundleVersion/type", keyword: "type", params: { type: "number" }, message: "must be number" };
-            if (vErrors === null) {
-              vErrors = [err54];
-            } else {
-              vErrors.push(err54);
-            }
-            errors++;
-          }
-          if (1 !== data21) {
-            const err55 = { instancePath: instancePath + "/promptBundleVersion", schemaPath: "#/properties/promptBundleVersion/const", keyword: "const", params: { allowedValue: 1 }, message: "must be equal to constant" };
-            if (vErrors === null) {
-              vErrors = [err55];
-            } else {
-              vErrors.push(err55);
-            }
-            errors++;
-          }
-        }
-        if (data.memoryProtocol !== void 0) {
-          let data22 = data.memoryProtocol;
-          if (data22 && typeof data22 == "object" && !Array.isArray(data22)) {
-            if (data22.kind === void 0) {
-              const err56 = { instancePath: instancePath + "/memoryProtocol", schemaPath: "#/properties/memoryProtocol/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
-              if (vErrors === null) {
-                vErrors = [err56];
-              } else {
-                vErrors.push(err56);
-              }
-              errors++;
-            }
-            if (data22.version === void 0) {
-              const err57 = { instancePath: instancePath + "/memoryProtocol", schemaPath: "#/properties/memoryProtocol/required", keyword: "required", params: { missingProperty: "version" }, message: "must have required property 'version'" };
-              if (vErrors === null) {
-                vErrors = [err57];
-              } else {
-                vErrors.push(err57);
-              }
-              errors++;
-            }
-            for (const key6 in data22) {
-              if (!(key6 === "kind" || key6 === "version")) {
-                const err58 = { instancePath: instancePath + "/memoryProtocol", schemaPath: "#/properties/memoryProtocol/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key6 }, message: "must NOT have additional properties" };
-                if (vErrors === null) {
-                  vErrors = [err58];
-                } else {
-                  vErrors.push(err58);
-                }
-                errors++;
-              }
-            }
-            if (data22.kind !== void 0) {
-              let data23 = data22.kind;
-              if (typeof data23 !== "string") {
-                const err59 = { instancePath: instancePath + "/memoryProtocol/kind", schemaPath: "#/properties/memoryProtocol/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                if (vErrors === null) {
-                  vErrors = [err59];
-                } else {
-                  vErrors.push(err59);
-                }
-                errors++;
-              }
-              if ("structured" !== data23) {
-                const err60 = { instancePath: instancePath + "/memoryProtocol/kind", schemaPath: "#/properties/memoryProtocol/properties/kind/const", keyword: "const", params: { allowedValue: "structured" }, message: "must be equal to constant" };
-                if (vErrors === null) {
-                  vErrors = [err60];
-                } else {
-                  vErrors.push(err60);
-                }
-                errors++;
-              }
-            }
-            if (data22.version !== void 0) {
-              let data24 = data22.version;
-              if (!(typeof data24 == "number" && isFinite(data24))) {
-                const err61 = { instancePath: instancePath + "/memoryProtocol/version", schemaPath: "#/properties/memoryProtocol/properties/version/type", keyword: "type", params: { type: "number" }, message: "must be number" };
-                if (vErrors === null) {
-                  vErrors = [err61];
-                } else {
-                  vErrors.push(err61);
-                }
-                errors++;
-              }
-              if (1 !== data24) {
-                const err62 = { instancePath: instancePath + "/memoryProtocol/version", schemaPath: "#/properties/memoryProtocol/properties/version/const", keyword: "const", params: { allowedValue: 1 }, message: "must be equal to constant" };
+                const err62 = { instancePath: instancePath + "/triggerContext/authorization", schemaPath: "#/properties/triggerContext/properties/authorization/type", keyword: "type", params: { type: "object" }, message: "must be object" };
                 if (vErrors === null) {
                   vErrors = [err62];
                 } else {
@@ -674,7 +674,7 @@ var require_GoalSnapshotV1_validator = __commonJS({
               }
             }
           } else {
-            const err63 = { instancePath: instancePath + "/memoryProtocol", schemaPath: "#/properties/memoryProtocol/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+            const err63 = { instancePath: instancePath + "/triggerContext", schemaPath: "#/properties/triggerContext/type", keyword: "type", params: { type: "object" }, message: "must be object" };
             if (vErrors === null) {
               vErrors = [err63];
             } else {
@@ -683,63 +683,62 @@ var require_GoalSnapshotV1_validator = __commonJS({
             errors++;
           }
         }
-        if (data.modelContextProtocol !== void 0) {
-          let data25 = data.modelContextProtocol;
-          if (data25 && typeof data25 == "object" && !Array.isArray(data25)) {
-            if (data25.kind === void 0) {
-              const err64 = { instancePath: instancePath + "/modelContextProtocol", schemaPath: "#/properties/modelContextProtocol/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
+        if (data.intent !== void 0) {
+          if (typeof data.intent !== "string") {
+            const err64 = { instancePath: instancePath + "/intent", schemaPath: "#/properties/intent/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            if (vErrors === null) {
+              vErrors = [err64];
+            } else {
+              vErrors.push(err64);
+            }
+            errors++;
+          }
+        }
+        if (data.promptBundleVersion !== void 0) {
+          let data27 = data.promptBundleVersion;
+          if (!(typeof data27 == "number" && isFinite(data27))) {
+            const err65 = { instancePath: instancePath + "/promptBundleVersion", schemaPath: "#/properties/promptBundleVersion/type", keyword: "type", params: { type: "number" }, message: "must be number" };
+            if (vErrors === null) {
+              vErrors = [err65];
+            } else {
+              vErrors.push(err65);
+            }
+            errors++;
+          }
+          if (1 !== data27) {
+            const err66 = { instancePath: instancePath + "/promptBundleVersion", schemaPath: "#/properties/promptBundleVersion/const", keyword: "const", params: { allowedValue: 1 }, message: "must be equal to constant" };
+            if (vErrors === null) {
+              vErrors = [err66];
+            } else {
+              vErrors.push(err66);
+            }
+            errors++;
+          }
+        }
+        if (data.memoryProtocol !== void 0) {
+          let data28 = data.memoryProtocol;
+          if (data28 && typeof data28 == "object" && !Array.isArray(data28)) {
+            if (data28.kind === void 0) {
+              const err67 = { instancePath: instancePath + "/memoryProtocol", schemaPath: "#/properties/memoryProtocol/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
               if (vErrors === null) {
-                vErrors = [err64];
+                vErrors = [err67];
               } else {
-                vErrors.push(err64);
+                vErrors.push(err67);
               }
               errors++;
             }
-            if (data25.version === void 0) {
-              const err65 = { instancePath: instancePath + "/modelContextProtocol", schemaPath: "#/properties/modelContextProtocol/required", keyword: "required", params: { missingProperty: "version" }, message: "must have required property 'version'" };
+            if (data28.version === void 0) {
+              const err68 = { instancePath: instancePath + "/memoryProtocol", schemaPath: "#/properties/memoryProtocol/required", keyword: "required", params: { missingProperty: "version" }, message: "must have required property 'version'" };
               if (vErrors === null) {
-                vErrors = [err65];
+                vErrors = [err68];
               } else {
-                vErrors.push(err65);
+                vErrors.push(err68);
               }
               errors++;
             }
-            for (const key7 in data25) {
+            for (const key7 in data28) {
               if (!(key7 === "kind" || key7 === "version")) {
-                const err66 = { instancePath: instancePath + "/modelContextProtocol", schemaPath: "#/properties/modelContextProtocol/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key7 }, message: "must NOT have additional properties" };
-                if (vErrors === null) {
-                  vErrors = [err66];
-                } else {
-                  vErrors.push(err66);
-                }
-                errors++;
-              }
-            }
-            if (data25.kind !== void 0) {
-              let data26 = data25.kind;
-              if (typeof data26 !== "string") {
-                const err67 = { instancePath: instancePath + "/modelContextProtocol/kind", schemaPath: "#/properties/modelContextProtocol/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                if (vErrors === null) {
-                  vErrors = [err67];
-                } else {
-                  vErrors.push(err67);
-                }
-                errors++;
-              }
-              if ("trajectory-layered" !== data26) {
-                const err68 = { instancePath: instancePath + "/modelContextProtocol/kind", schemaPath: "#/properties/modelContextProtocol/properties/kind/const", keyword: "const", params: { allowedValue: "trajectory-layered" }, message: "must be equal to constant" };
-                if (vErrors === null) {
-                  vErrors = [err68];
-                } else {
-                  vErrors.push(err68);
-                }
-                errors++;
-              }
-            }
-            if (data25.version !== void 0) {
-              let data27 = data25.version;
-              if (!(typeof data27 == "number" && isFinite(data27))) {
-                const err69 = { instancePath: instancePath + "/modelContextProtocol/version", schemaPath: "#/properties/modelContextProtocol/properties/version/type", keyword: "type", params: { type: "number" }, message: "must be number" };
+                const err69 = { instancePath: instancePath + "/memoryProtocol", schemaPath: "#/properties/memoryProtocol/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key7 }, message: "must NOT have additional properties" };
                 if (vErrors === null) {
                   vErrors = [err69];
                 } else {
@@ -747,8 +746,11 @@ var require_GoalSnapshotV1_validator = __commonJS({
                 }
                 errors++;
               }
-              if (1 !== data27) {
-                const err70 = { instancePath: instancePath + "/modelContextProtocol/version", schemaPath: "#/properties/modelContextProtocol/properties/version/const", keyword: "const", params: { allowedValue: 1 }, message: "must be equal to constant" };
+            }
+            if (data28.kind !== void 0) {
+              let data29 = data28.kind;
+              if (typeof data29 !== "string") {
+                const err70 = { instancePath: instancePath + "/memoryProtocol/kind", schemaPath: "#/properties/memoryProtocol/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                 if (vErrors === null) {
                   vErrors = [err70];
                 } else {
@@ -756,66 +758,12 @@ var require_GoalSnapshotV1_validator = __commonJS({
                 }
                 errors++;
               }
-            }
-          } else {
-            const err71 = { instancePath: instancePath + "/modelContextProtocol", schemaPath: "#/properties/modelContextProtocol/type", keyword: "type", params: { type: "object" }, message: "must be object" };
-            if (vErrors === null) {
-              vErrors = [err71];
-            } else {
-              vErrors.push(err71);
-            }
-            errors++;
-          }
-        }
-        if (data.contextRetrievalProtocol !== void 0) {
-          let data28 = data.contextRetrievalProtocol;
-          if (data28 && typeof data28 == "object" && !Array.isArray(data28)) {
-            if (data28.kind === void 0) {
-              const err72 = { instancePath: instancePath + "/contextRetrievalProtocol", schemaPath: "#/properties/contextRetrievalProtocol/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
-              if (vErrors === null) {
-                vErrors = [err72];
-              } else {
-                vErrors.push(err72);
-              }
-              errors++;
-            }
-            if (data28.version === void 0) {
-              const err73 = { instancePath: instancePath + "/contextRetrievalProtocol", schemaPath: "#/properties/contextRetrievalProtocol/required", keyword: "required", params: { missingProperty: "version" }, message: "must have required property 'version'" };
-              if (vErrors === null) {
-                vErrors = [err73];
-              } else {
-                vErrors.push(err73);
-              }
-              errors++;
-            }
-            for (const key8 in data28) {
-              if (!(key8 === "kind" || key8 === "version")) {
-                const err74 = { instancePath: instancePath + "/contextRetrievalProtocol", schemaPath: "#/properties/contextRetrievalProtocol/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key8 }, message: "must NOT have additional properties" };
+              if ("structured" !== data29) {
+                const err71 = { instancePath: instancePath + "/memoryProtocol/kind", schemaPath: "#/properties/memoryProtocol/properties/kind/const", keyword: "const", params: { allowedValue: "structured" }, message: "must be equal to constant" };
                 if (vErrors === null) {
-                  vErrors = [err74];
+                  vErrors = [err71];
                 } else {
-                  vErrors.push(err74);
-                }
-                errors++;
-              }
-            }
-            if (data28.kind !== void 0) {
-              let data29 = data28.kind;
-              if (typeof data29 !== "string") {
-                const err75 = { instancePath: instancePath + "/contextRetrievalProtocol/kind", schemaPath: "#/properties/contextRetrievalProtocol/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                if (vErrors === null) {
-                  vErrors = [err75];
-                } else {
-                  vErrors.push(err75);
-                }
-                errors++;
-              }
-              if ("bm25-lite" !== data29) {
-                const err76 = { instancePath: instancePath + "/contextRetrievalProtocol/kind", schemaPath: "#/properties/contextRetrievalProtocol/properties/kind/const", keyword: "const", params: { allowedValue: "bm25-lite" }, message: "must be equal to constant" };
-                if (vErrors === null) {
-                  vErrors = [err76];
-                } else {
-                  vErrors.push(err76);
+                  vErrors.push(err71);
                 }
                 errors++;
               }
@@ -823,7 +771,58 @@ var require_GoalSnapshotV1_validator = __commonJS({
             if (data28.version !== void 0) {
               let data30 = data28.version;
               if (!(typeof data30 == "number" && isFinite(data30))) {
-                const err77 = { instancePath: instancePath + "/contextRetrievalProtocol/version", schemaPath: "#/properties/contextRetrievalProtocol/properties/version/type", keyword: "type", params: { type: "number" }, message: "must be number" };
+                const err72 = { instancePath: instancePath + "/memoryProtocol/version", schemaPath: "#/properties/memoryProtocol/properties/version/type", keyword: "type", params: { type: "number" }, message: "must be number" };
+                if (vErrors === null) {
+                  vErrors = [err72];
+                } else {
+                  vErrors.push(err72);
+                }
+                errors++;
+              }
+              if (1 !== data30) {
+                const err73 = { instancePath: instancePath + "/memoryProtocol/version", schemaPath: "#/properties/memoryProtocol/properties/version/const", keyword: "const", params: { allowedValue: 1 }, message: "must be equal to constant" };
+                if (vErrors === null) {
+                  vErrors = [err73];
+                } else {
+                  vErrors.push(err73);
+                }
+                errors++;
+              }
+            }
+          } else {
+            const err74 = { instancePath: instancePath + "/memoryProtocol", schemaPath: "#/properties/memoryProtocol/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+            if (vErrors === null) {
+              vErrors = [err74];
+            } else {
+              vErrors.push(err74);
+            }
+            errors++;
+          }
+        }
+        if (data.modelContextProtocol !== void 0) {
+          let data31 = data.modelContextProtocol;
+          if (data31 && typeof data31 == "object" && !Array.isArray(data31)) {
+            if (data31.kind === void 0) {
+              const err75 = { instancePath: instancePath + "/modelContextProtocol", schemaPath: "#/properties/modelContextProtocol/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
+              if (vErrors === null) {
+                vErrors = [err75];
+              } else {
+                vErrors.push(err75);
+              }
+              errors++;
+            }
+            if (data31.version === void 0) {
+              const err76 = { instancePath: instancePath + "/modelContextProtocol", schemaPath: "#/properties/modelContextProtocol/required", keyword: "required", params: { missingProperty: "version" }, message: "must have required property 'version'" };
+              if (vErrors === null) {
+                vErrors = [err76];
+              } else {
+                vErrors.push(err76);
+              }
+              errors++;
+            }
+            for (const key8 in data31) {
+              if (!(key8 === "kind" || key8 === "version")) {
+                const err77 = { instancePath: instancePath + "/modelContextProtocol", schemaPath: "#/properties/modelContextProtocol/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key8 }, message: "must NOT have additional properties" };
                 if (vErrors === null) {
                   vErrors = [err77];
                 } else {
@@ -831,8 +830,11 @@ var require_GoalSnapshotV1_validator = __commonJS({
                 }
                 errors++;
               }
-              if (1 !== data30) {
-                const err78 = { instancePath: instancePath + "/contextRetrievalProtocol/version", schemaPath: "#/properties/contextRetrievalProtocol/properties/version/const", keyword: "const", params: { allowedValue: 1 }, message: "must be equal to constant" };
+            }
+            if (data31.kind !== void 0) {
+              let data32 = data31.kind;
+              if (typeof data32 !== "string") {
+                const err78 = { instancePath: instancePath + "/modelContextProtocol/kind", schemaPath: "#/properties/modelContextProtocol/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                 if (vErrors === null) {
                   vErrors = [err78];
                 } else {
@@ -840,49 +842,52 @@ var require_GoalSnapshotV1_validator = __commonJS({
                 }
                 errors++;
               }
+              if ("trajectory-layered" !== data32) {
+                const err79 = { instancePath: instancePath + "/modelContextProtocol/kind", schemaPath: "#/properties/modelContextProtocol/properties/kind/const", keyword: "const", params: { allowedValue: "trajectory-layered" }, message: "must be equal to constant" };
+                if (vErrors === null) {
+                  vErrors = [err79];
+                } else {
+                  vErrors.push(err79);
+                }
+                errors++;
+              }
+            }
+            if (data31.version !== void 0) {
+              let data33 = data31.version;
+              if (!(typeof data33 == "number" && isFinite(data33))) {
+                const err80 = { instancePath: instancePath + "/modelContextProtocol/version", schemaPath: "#/properties/modelContextProtocol/properties/version/type", keyword: "type", params: { type: "number" }, message: "must be number" };
+                if (vErrors === null) {
+                  vErrors = [err80];
+                } else {
+                  vErrors.push(err80);
+                }
+                errors++;
+              }
+              if (1 !== data33) {
+                const err81 = { instancePath: instancePath + "/modelContextProtocol/version", schemaPath: "#/properties/modelContextProtocol/properties/version/const", keyword: "const", params: { allowedValue: 1 }, message: "must be equal to constant" };
+                if (vErrors === null) {
+                  vErrors = [err81];
+                } else {
+                  vErrors.push(err81);
+                }
+                errors++;
+              }
             }
           } else {
-            const err79 = { instancePath: instancePath + "/contextRetrievalProtocol", schemaPath: "#/properties/contextRetrievalProtocol/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+            const err82 = { instancePath: instancePath + "/modelContextProtocol", schemaPath: "#/properties/modelContextProtocol/type", keyword: "type", params: { type: "object" }, message: "must be object" };
             if (vErrors === null) {
-              vErrors = [err79];
+              vErrors = [err82];
             } else {
-              vErrors.push(err79);
+              vErrors.push(err82);
             }
             errors++;
           }
         }
-        if (data.profile !== void 0) {
-          let data31 = data.profile;
-          if (data31 && typeof data31 == "object" && !Array.isArray(data31)) {
-            if (data31.id === void 0) {
-              const err80 = { instancePath: instancePath + "/profile", schemaPath: "#/definitions/GoalSnapshotProfileV1/required", keyword: "required", params: { missingProperty: "id" }, message: "must have required property 'id'" };
-              if (vErrors === null) {
-                vErrors = [err80];
-              } else {
-                vErrors.push(err80);
-              }
-              errors++;
-            }
-            if (data31.systemPrompt === void 0) {
-              const err81 = { instancePath: instancePath + "/profile", schemaPath: "#/definitions/GoalSnapshotProfileV1/required", keyword: "required", params: { missingProperty: "systemPrompt" }, message: "must have required property 'systemPrompt'" };
-              if (vErrors === null) {
-                vErrors = [err81];
-              } else {
-                vErrors.push(err81);
-              }
-              errors++;
-            }
-            if (data31.instructions === void 0) {
-              const err82 = { instancePath: instancePath + "/profile", schemaPath: "#/definitions/GoalSnapshotProfileV1/required", keyword: "required", params: { missingProperty: "instructions" }, message: "must have required property 'instructions'" };
-              if (vErrors === null) {
-                vErrors = [err82];
-              } else {
-                vErrors.push(err82);
-              }
-              errors++;
-            }
-            if (data31.toolIds === void 0) {
-              const err83 = { instancePath: instancePath + "/profile", schemaPath: "#/definitions/GoalSnapshotProfileV1/required", keyword: "required", params: { missingProperty: "toolIds" }, message: "must have required property 'toolIds'" };
+        if (data.contextRetrievalProtocol !== void 0) {
+          let data34 = data.contextRetrievalProtocol;
+          if (data34 && typeof data34 == "object" && !Array.isArray(data34)) {
+            if (data34.kind === void 0) {
+              const err83 = { instancePath: instancePath + "/contextRetrievalProtocol", schemaPath: "#/properties/contextRetrievalProtocol/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
               if (vErrors === null) {
                 vErrors = [err83];
               } else {
@@ -890,20 +895,18 @@ var require_GoalSnapshotV1_validator = __commonJS({
               }
               errors++;
             }
-            for (const key9 in data31) {
-              if (!(key9 === "id" || key9 === "name" || key9 === "description" || key9 === "systemPrompt" || key9 === "instructions" || key9 === "toolIds")) {
-                const err84 = { instancePath: instancePath + "/profile", schemaPath: "#/definitions/GoalSnapshotProfileV1/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key9 }, message: "must NOT have additional properties" };
-                if (vErrors === null) {
-                  vErrors = [err84];
-                } else {
-                  vErrors.push(err84);
-                }
-                errors++;
+            if (data34.version === void 0) {
+              const err84 = { instancePath: instancePath + "/contextRetrievalProtocol", schemaPath: "#/properties/contextRetrievalProtocol/required", keyword: "required", params: { missingProperty: "version" }, message: "must have required property 'version'" };
+              if (vErrors === null) {
+                vErrors = [err84];
+              } else {
+                vErrors.push(err84);
               }
+              errors++;
             }
-            if (data31.id !== void 0) {
-              if (typeof data31.id !== "string") {
-                const err85 = { instancePath: instancePath + "/profile/id", schemaPath: "#/definitions/GoalSnapshotProfileV1/properties/id/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            for (const key9 in data34) {
+              if (!(key9 === "kind" || key9 === "version")) {
+                const err85 = { instancePath: instancePath + "/contextRetrievalProtocol", schemaPath: "#/properties/contextRetrievalProtocol/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key9 }, message: "must NOT have additional properties" };
                 if (vErrors === null) {
                   vErrors = [err85];
                 } else {
@@ -912,9 +915,10 @@ var require_GoalSnapshotV1_validator = __commonJS({
                 errors++;
               }
             }
-            if (data31.name !== void 0) {
-              if (typeof data31.name !== "string") {
-                const err86 = { instancePath: instancePath + "/profile/name", schemaPath: "#/definitions/GoalSnapshotProfileV1/properties/name/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            if (data34.kind !== void 0) {
+              let data35 = data34.kind;
+              if (typeof data35 !== "string") {
+                const err86 = { instancePath: instancePath + "/contextRetrievalProtocol/kind", schemaPath: "#/properties/contextRetrievalProtocol/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                 if (vErrors === null) {
                   vErrors = [err86];
                 } else {
@@ -922,10 +926,8 @@ var require_GoalSnapshotV1_validator = __commonJS({
                 }
                 errors++;
               }
-            }
-            if (data31.description !== void 0) {
-              if (typeof data31.description !== "string") {
-                const err87 = { instancePath: instancePath + "/profile/description", schemaPath: "#/definitions/GoalSnapshotProfileV1/properties/description/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+              if ("bm25-lite" !== data35) {
+                const err87 = { instancePath: instancePath + "/contextRetrievalProtocol/kind", schemaPath: "#/properties/contextRetrievalProtocol/properties/kind/const", keyword: "const", params: { allowedValue: "bm25-lite" }, message: "must be equal to constant" };
                 if (vErrors === null) {
                   vErrors = [err87];
                 } else {
@@ -934,9 +936,10 @@ var require_GoalSnapshotV1_validator = __commonJS({
                 errors++;
               }
             }
-            if (data31.systemPrompt !== void 0) {
-              if (typeof data31.systemPrompt !== "string") {
-                const err88 = { instancePath: instancePath + "/profile/systemPrompt", schemaPath: "#/definitions/GoalSnapshotProfileV1/properties/systemPrompt/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            if (data34.version !== void 0) {
+              let data36 = data34.version;
+              if (!(typeof data36 == "number" && isFinite(data36))) {
+                const err88 = { instancePath: instancePath + "/contextRetrievalProtocol/version", schemaPath: "#/properties/contextRetrievalProtocol/properties/version/type", keyword: "type", params: { type: "number" }, message: "must be number" };
                 if (vErrors === null) {
                   vErrors = [err88];
                 } else {
@@ -944,72 +947,58 @@ var require_GoalSnapshotV1_validator = __commonJS({
                 }
                 errors++;
               }
-            }
-            if (data31.instructions !== void 0) {
-              let data36 = data31.instructions;
-              if (Array.isArray(data36)) {
-                const len2 = data36.length;
-                for (let i2 = 0; i2 < len2; i2++) {
-                  if (typeof data36[i2] !== "string") {
-                    const err89 = { instancePath: instancePath + "/profile/instructions/" + i2, schemaPath: "#/definitions/GoalSnapshotProfileV1/properties/instructions/items/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                    if (vErrors === null) {
-                      vErrors = [err89];
-                    } else {
-                      vErrors.push(err89);
-                    }
-                    errors++;
-                  }
-                }
-              } else {
-                const err90 = { instancePath: instancePath + "/profile/instructions", schemaPath: "#/definitions/GoalSnapshotProfileV1/properties/instructions/type", keyword: "type", params: { type: "array" }, message: "must be array" };
+              if (1 !== data36) {
+                const err89 = { instancePath: instancePath + "/contextRetrievalProtocol/version", schemaPath: "#/properties/contextRetrievalProtocol/properties/version/const", keyword: "const", params: { allowedValue: 1 }, message: "must be equal to constant" };
                 if (vErrors === null) {
-                  vErrors = [err90];
+                  vErrors = [err89];
                 } else {
-                  vErrors.push(err90);
-                }
-                errors++;
-              }
-            }
-            if (data31.toolIds !== void 0) {
-              let data38 = data31.toolIds;
-              if (Array.isArray(data38)) {
-                const len3 = data38.length;
-                for (let i3 = 0; i3 < len3; i3++) {
-                  if (typeof data38[i3] !== "string") {
-                    const err91 = { instancePath: instancePath + "/profile/toolIds/" + i3, schemaPath: "#/definitions/GoalSnapshotProfileV1/properties/toolIds/items/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                    if (vErrors === null) {
-                      vErrors = [err91];
-                    } else {
-                      vErrors.push(err91);
-                    }
-                    errors++;
-                  }
-                }
-              } else {
-                const err92 = { instancePath: instancePath + "/profile/toolIds", schemaPath: "#/definitions/GoalSnapshotProfileV1/properties/toolIds/type", keyword: "type", params: { type: "array" }, message: "must be array" };
-                if (vErrors === null) {
-                  vErrors = [err92];
-                } else {
-                  vErrors.push(err92);
+                  vErrors.push(err89);
                 }
                 errors++;
               }
             }
           } else {
-            const err93 = { instancePath: instancePath + "/profile", schemaPath: "#/definitions/GoalSnapshotProfileV1/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+            const err90 = { instancePath: instancePath + "/contextRetrievalProtocol", schemaPath: "#/properties/contextRetrievalProtocol/type", keyword: "type", params: { type: "object" }, message: "must be object" };
             if (vErrors === null) {
-              vErrors = [err93];
+              vErrors = [err90];
             } else {
-              vErrors.push(err93);
+              vErrors.push(err90);
             }
             errors++;
           }
         }
-        if (data.executionPolicy !== void 0) {
-          let data40 = data.executionPolicy;
-          if (data40 && typeof data40 == "object" && !Array.isArray(data40)) {
-            if (data40.maxSteps === void 0) {
-              const err94 = { instancePath: instancePath + "/executionPolicy", schemaPath: "#/properties/executionPolicy/required", keyword: "required", params: { missingProperty: "maxSteps" }, message: "must have required property 'maxSteps'" };
+        if (data.profile !== void 0) {
+          let data37 = data.profile;
+          if (data37 && typeof data37 == "object" && !Array.isArray(data37)) {
+            if (data37.id === void 0) {
+              const err91 = { instancePath: instancePath + "/profile", schemaPath: "#/definitions/GoalSnapshotProfileV1/required", keyword: "required", params: { missingProperty: "id" }, message: "must have required property 'id'" };
+              if (vErrors === null) {
+                vErrors = [err91];
+              } else {
+                vErrors.push(err91);
+              }
+              errors++;
+            }
+            if (data37.systemPrompt === void 0) {
+              const err92 = { instancePath: instancePath + "/profile", schemaPath: "#/definitions/GoalSnapshotProfileV1/required", keyword: "required", params: { missingProperty: "systemPrompt" }, message: "must have required property 'systemPrompt'" };
+              if (vErrors === null) {
+                vErrors = [err92];
+              } else {
+                vErrors.push(err92);
+              }
+              errors++;
+            }
+            if (data37.instructions === void 0) {
+              const err93 = { instancePath: instancePath + "/profile", schemaPath: "#/definitions/GoalSnapshotProfileV1/required", keyword: "required", params: { missingProperty: "instructions" }, message: "must have required property 'instructions'" };
+              if (vErrors === null) {
+                vErrors = [err93];
+              } else {
+                vErrors.push(err93);
+              }
+              errors++;
+            }
+            if (data37.toolIds === void 0) {
+              const err94 = { instancePath: instancePath + "/profile", schemaPath: "#/definitions/GoalSnapshotProfileV1/required", keyword: "required", params: { missingProperty: "toolIds" }, message: "must have required property 'toolIds'" };
               if (vErrors === null) {
                 vErrors = [err94];
               } else {
@@ -1017,9 +1006,9 @@ var require_GoalSnapshotV1_validator = __commonJS({
               }
               errors++;
             }
-            for (const key10 in data40) {
-              if (!(key10 === "maxSteps")) {
-                const err95 = { instancePath: instancePath + "/executionPolicy", schemaPath: "#/properties/executionPolicy/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key10 }, message: "must NOT have additional properties" };
+            for (const key10 in data37) {
+              if (!(key10 === "id" || key10 === "name" || key10 === "description" || key10 === "systemPrompt" || key10 === "instructions" || key10 === "toolIds")) {
+                const err95 = { instancePath: instancePath + "/profile", schemaPath: "#/definitions/GoalSnapshotProfileV1/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key10 }, message: "must NOT have additional properties" };
                 if (vErrors === null) {
                   vErrors = [err95];
                 } else {
@@ -1028,10 +1017,9 @@ var require_GoalSnapshotV1_validator = __commonJS({
                 errors++;
               }
             }
-            if (data40.maxSteps !== void 0) {
-              let data41 = data40.maxSteps;
-              if (!(typeof data41 == "number" && isFinite(data41))) {
-                const err96 = { instancePath: instancePath + "/executionPolicy/maxSteps", schemaPath: "#/properties/executionPolicy/properties/maxSteps/type", keyword: "type", params: { type: "number" }, message: "must be number" };
+            if (data37.id !== void 0) {
+              if (typeof data37.id !== "string") {
+                const err96 = { instancePath: instancePath + "/profile/id", schemaPath: "#/definitions/GoalSnapshotProfileV1/properties/id/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                 if (vErrors === null) {
                   vErrors = [err96];
                 } else {
@@ -1040,22 +1028,150 @@ var require_GoalSnapshotV1_validator = __commonJS({
                 errors++;
               }
             }
+            if (data37.name !== void 0) {
+              if (typeof data37.name !== "string") {
+                const err97 = { instancePath: instancePath + "/profile/name", schemaPath: "#/definitions/GoalSnapshotProfileV1/properties/name/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                if (vErrors === null) {
+                  vErrors = [err97];
+                } else {
+                  vErrors.push(err97);
+                }
+                errors++;
+              }
+            }
+            if (data37.description !== void 0) {
+              if (typeof data37.description !== "string") {
+                const err98 = { instancePath: instancePath + "/profile/description", schemaPath: "#/definitions/GoalSnapshotProfileV1/properties/description/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                if (vErrors === null) {
+                  vErrors = [err98];
+                } else {
+                  vErrors.push(err98);
+                }
+                errors++;
+              }
+            }
+            if (data37.systemPrompt !== void 0) {
+              if (typeof data37.systemPrompt !== "string") {
+                const err99 = { instancePath: instancePath + "/profile/systemPrompt", schemaPath: "#/definitions/GoalSnapshotProfileV1/properties/systemPrompt/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                if (vErrors === null) {
+                  vErrors = [err99];
+                } else {
+                  vErrors.push(err99);
+                }
+                errors++;
+              }
+            }
+            if (data37.instructions !== void 0) {
+              let data42 = data37.instructions;
+              if (Array.isArray(data42)) {
+                const len2 = data42.length;
+                for (let i2 = 0; i2 < len2; i2++) {
+                  if (typeof data42[i2] !== "string") {
+                    const err100 = { instancePath: instancePath + "/profile/instructions/" + i2, schemaPath: "#/definitions/GoalSnapshotProfileV1/properties/instructions/items/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    if (vErrors === null) {
+                      vErrors = [err100];
+                    } else {
+                      vErrors.push(err100);
+                    }
+                    errors++;
+                  }
+                }
+              } else {
+                const err101 = { instancePath: instancePath + "/profile/instructions", schemaPath: "#/definitions/GoalSnapshotProfileV1/properties/instructions/type", keyword: "type", params: { type: "array" }, message: "must be array" };
+                if (vErrors === null) {
+                  vErrors = [err101];
+                } else {
+                  vErrors.push(err101);
+                }
+                errors++;
+              }
+            }
+            if (data37.toolIds !== void 0) {
+              let data44 = data37.toolIds;
+              if (Array.isArray(data44)) {
+                const len3 = data44.length;
+                for (let i3 = 0; i3 < len3; i3++) {
+                  if (typeof data44[i3] !== "string") {
+                    const err102 = { instancePath: instancePath + "/profile/toolIds/" + i3, schemaPath: "#/definitions/GoalSnapshotProfileV1/properties/toolIds/items/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    if (vErrors === null) {
+                      vErrors = [err102];
+                    } else {
+                      vErrors.push(err102);
+                    }
+                    errors++;
+                  }
+                }
+              } else {
+                const err103 = { instancePath: instancePath + "/profile/toolIds", schemaPath: "#/definitions/GoalSnapshotProfileV1/properties/toolIds/type", keyword: "type", params: { type: "array" }, message: "must be array" };
+                if (vErrors === null) {
+                  vErrors = [err103];
+                } else {
+                  vErrors.push(err103);
+                }
+                errors++;
+              }
+            }
           } else {
-            const err97 = { instancePath: instancePath + "/executionPolicy", schemaPath: "#/properties/executionPolicy/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+            const err104 = { instancePath: instancePath + "/profile", schemaPath: "#/definitions/GoalSnapshotProfileV1/type", keyword: "type", params: { type: "object" }, message: "must be object" };
             if (vErrors === null) {
-              vErrors = [err97];
+              vErrors = [err104];
             } else {
-              vErrors.push(err97);
+              vErrors.push(err104);
+            }
+            errors++;
+          }
+        }
+        if (data.executionPolicy !== void 0) {
+          let data46 = data.executionPolicy;
+          if (data46 && typeof data46 == "object" && !Array.isArray(data46)) {
+            if (data46.maxSteps === void 0) {
+              const err105 = { instancePath: instancePath + "/executionPolicy", schemaPath: "#/properties/executionPolicy/required", keyword: "required", params: { missingProperty: "maxSteps" }, message: "must have required property 'maxSteps'" };
+              if (vErrors === null) {
+                vErrors = [err105];
+              } else {
+                vErrors.push(err105);
+              }
+              errors++;
+            }
+            for (const key11 in data46) {
+              if (!(key11 === "maxSteps")) {
+                const err106 = { instancePath: instancePath + "/executionPolicy", schemaPath: "#/properties/executionPolicy/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key11 }, message: "must NOT have additional properties" };
+                if (vErrors === null) {
+                  vErrors = [err106];
+                } else {
+                  vErrors.push(err106);
+                }
+                errors++;
+              }
+            }
+            if (data46.maxSteps !== void 0) {
+              let data47 = data46.maxSteps;
+              if (!(typeof data47 == "number" && isFinite(data47))) {
+                const err107 = { instancePath: instancePath + "/executionPolicy/maxSteps", schemaPath: "#/properties/executionPolicy/properties/maxSteps/type", keyword: "type", params: { type: "number" }, message: "must be number" };
+                if (vErrors === null) {
+                  vErrors = [err107];
+                } else {
+                  vErrors.push(err107);
+                }
+                errors++;
+              }
+            }
+          } else {
+            const err108 = { instancePath: instancePath + "/executionPolicy", schemaPath: "#/properties/executionPolicy/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+            if (vErrors === null) {
+              vErrors = [err108];
+            } else {
+              vErrors.push(err108);
             }
             errors++;
           }
         }
       } else {
-        const err98 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+        const err109 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
         if (vErrors === null) {
-          vErrors = [err98];
+          vErrors = [err109];
         } else {
-          vErrors.push(err98);
+          vErrors.push(err109);
         }
         errors++;
       }

@@ -14,9 +14,12 @@ import { admitTrigger } from "../src/runtime/trigger-admission";
 function mockAdapter(handler: LLMAdapter["generate"], structuredOutputMode: "strict" | "prompt_only" = "prompt_only"): LLMAdapter {
     return { structuredOutputMode, generate: handler };
 }
-function factory(intent: string, reserved: string | undefined) {
+function factory(intent: string, reserved: string | undefined, workspaceMode: "shared" | "worktree" = "shared") {
     return Promise.resolve({ goal: createGoal({ ...currentProtocols, id: reserved ?? `goal-${intent}`, runId: "run", intent,
-        promptBundleVersion: 1, profile: { id: "profile", systemPrompt: "", instructions: [], toolIds: [] } }), authorization: { workspaceRoot: "/workspace", toolIds: [], sandbox: { extraFiles: [], network: "none" as const } } });
+        promptBundleVersion: 1, profile: { id: "profile", systemPrompt: "", instructions: [], toolIds: [] } }), authorization: { workspace: workspaceMode === "shared"
+            ? { mode: "shared", projectRoot: "/workspace", executionRoot: "/workspace" }
+            : { mode: "worktree", projectRoot: "/workspace", executionRoot: "/workspace/.worktrees/goal", branch: "lazygoal/goal-test", baseBranch: "main", baseCommit: "a".repeat(40) },
+        toolIds: [], sandbox: { extraFiles: [], network: "none" as const } } });
 }
 const user = { role: "user", mayCreateGoal: true, goalIds: [] } as const;
 const external = { role: "external", mayCreateGoal: true, goalIds: [] } as const;
@@ -33,11 +36,17 @@ test("fast path accepts explicit user work and routes control without creating a
         assert.deepEqual(deliveries.queuedGoalIds(), ["goal-inspect"]);
         assert.deepEqual((await goals.restore("goal-inspect"))?.definition.triggerContext, {
             deliveryId: "d", trigger: input.trigger,
-            authorization: { workspaceRoot: "/workspace", toolIds: [], sandbox: { extraFiles: [], network: "none" } },
+            authorization: { workspace: { mode: "shared", projectRoot: "/workspace", executionRoot: "/workspace" }, toolIds: [], sandbox: { extraFiles: [], network: "none" } },
+        });
+        const isolated = { deliveryId: "d-worktree", trigger: { id: "t-worktree", purpose: "work", source: "user", payload: '{"intent":"change","workspaceMode":"worktree"}' } };
+        assert.equal((await admitTrigger(owner, deliveries, goals, adapter, isolated, user, factory)).kind, "settled");
+        assert.deepEqual((await goals.restore("goal-change"))?.definition.triggerContext?.authorization.workspace, {
+            mode: "worktree", projectRoot: "/workspace", executionRoot: "/workspace/.worktrees/goal",
+            branch: "lazygoal/goal-test", baseBranch: "main", baseCommit: "a".repeat(40),
         });
         const control = { deliveryId: "c", goalId: "goal-inspect", trigger: { id: "tc", purpose: "cancel", source: "user", payload: "{}" } };
         assert.deepEqual(await admitTrigger(owner, deliveries, goals, adapter, control, { ...user, goalIds: ["goal-inspect"] }, factory), { kind: "routed" });
-        assert.deepEqual(deliveries.queuedGoalIds(), ["goal-inspect"]);
+        assert.deepEqual(deliveries.queuedGoalIds(), ["goal-inspect", "goal-change"]);
         await owner.close(); deliveries.close();
     } finally { await rm(dir, { recursive: true, force: true }); }
 });
@@ -54,14 +63,14 @@ test("slow path ignores or accepts using Supervisor model and enqueues in comple
             assert.ok(request.structuredOutput);
             const body = String(request.messages[1]?.content);
             if (body.includes("slow")) await wait;
-            const decision = body.includes("ignore") ? { kind: "ignore", intent: "" } : { kind: "accept", intent: body.includes("slow") ? "slow" : "fast" };
+            const decision = body.includes("ignore") ? { kind: "ignore", intent: "" } : { kind: "accept", intent: body.includes("slow") ? "slow" : "fast", workspaceMode: "shared" };
             return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify(decision) }] };
         }, "strict");
         const event = (id: string) => ({ deliveryId: `d-${id}`, trigger: { id: `t-${id}`, purpose: "work", source: "external", payload: JSON.stringify({ kind: id }) } });
         const slow = admitTrigger(owner, deliveries, goals, adapter, event("slow"), external, factory);
         const fast = await admitTrigger(owner, deliveries, goals, adapter, event("fast"), external, factory);
         const ignored = await admitTrigger(owner, deliveries, goals, adapter, event("ignore"), external, factory);
-        assert.equal(fast.kind, "settled");
+        assert.equal(fast.kind, "settled", JSON.stringify(fast));
         assert.equal(ignored.kind, "settled");
         release();
         assert.equal((await slow).kind, "settled");
@@ -88,7 +97,7 @@ test("model failures and malformed decisions remain pending across restart and c
         const invalid = mockAdapter(async () => ({ blocks: [{ index: 0, type: "text", format: "plain", text: '{"kind":"accept","intent":""}' }] }));
         assert.deepEqual(await admitTrigger(owner, deliveries, goals, invalid, event, external, factory), { kind: "pending", reason: "invalid-model-result" });
         assert.deepEqual(deliveries.queuedGoalIds(), []);
-        const success = mockAdapter(async () => ({ blocks: [{ index: 0, type: "text", format: "plain", text: '{"kind":"accept","intent":"recover"}' }] }));
+        const success = mockAdapter(async () => ({ blocks: [{ index: 0, type: "text", format: "plain", text: '{"kind":"accept","intent":"recover","workspaceMode":"shared"}' }] }));
         assert.equal((await admitTrigger(owner, deliveries, goals, success, event, external, factory)).kind, "settled");
         assert.deepEqual(deliveries.queuedGoalIds(), ["goal-recover"]);
         await owner.close(); deliveries.close();

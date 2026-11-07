@@ -17,6 +17,7 @@ test("Supervisor 启动独立 Worker 并在同一进程中重复确认身份", a
         workerId: "worker-1",
         generation: "generation-1",
         cwd: root,
+        workspaceIdentityRoot: root,
         dataDirectory: join(root, "worker-data"),
         owner,
         deliveries,

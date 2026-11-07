@@ -197,4 +197,4 @@ Decide 返回值可以是 `decision`、`request_think`、`assistant_message` 或
 
 
 
-由 Trigger 准入创建的 Goal 在定义中携带不可变事件来源、投递身份，以及 Supervisor 冻结的 workspace、工具和沙箱能力上限；Runtime 的执行授权仍须结合宿主约束、有效授权与沙箱执行。
+由 Trigger 准入创建的 Goal 在定义中携带不可变事件来源、投递身份，以及 Supervisor 冻结的 项目根与执行工作区映射、工具和沙箱能力上限；Runtime 的执行授权仍须结合宿主约束、有效授权与沙箱执行。

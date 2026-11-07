@@ -12,7 +12,7 @@
 
 [绑定组合器](../src/model-output/bound-factory.ts) 按请求阶段、Run 模式、任务批准状态与授权工具集合组合 Provider Schema、原生工具声明和解码。业务工具输入来自工具线提供的同一绑定；模型线不维护工具字段表。未知字段在分支确定后剥离，并通过可选 `onDiagnostic` 回报契约身份与有界路径；未声明键名统一替换为 `*`。已知字段、判别值、未授权工具和领域约束错误直接拒绝，不返回部分数据。原生工具参数省略可选字段时按 `null` 占位补齐，再复用同一 wire 解码；生成数组与整数注解保留在 Provider Schema 与本地解码中。
 
-[Trigger 准入判断契约](../src/trigger-admission.ts) 定义 Supervisor 慢路径的接受或忽略结果；生成绑定用于 Provider 结构投影与模型响应校验，不执行准入或分配 Goal。
+[Trigger 准入判断契约](../src/trigger-admission.ts) 定义 Supervisor 慢路径的接受或忽略结果及 shared/worktree 策略选择；模型结果不授予动作权限，生成绑定用于 Provider 结构投影与模型响应校验。
 
 ## 对话续接
 

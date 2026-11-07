@@ -137,3 +137,5 @@ OpenCode Go 在线文本模型按实时模型元数据确认文本生成、工�
 [独立 Worker](../src/runtime/worker-process.ts) 以 OS 子进程复用执行 Runtime；Goal 快照经 generation 与持久队列绑定核验后由 Supervisor 保存，等待中的 Goal 保持 Worker 占用。
 
 [Worker 调度器](../src/runtime/worker-scheduler.ts) 按持久队列顺序认领 Goal，匹配同一授权工作区的空闲 Worker；需要时启动新进程，不为不同 Goal 设并发上限。只有 Runtime 报告终态且队列状态提交后才释放 Worker。
+
+[Goal 工作区管理器](../src/runtime/goal-workspace.ts) 根据准入选择使用共享目录或在干净 Git 项目中创建可恢复的独立 worktree。项目权限身份保持在项目根；合并前需要绑定 Goal、目标分支、head 和变更摘要的用户确认，合并后才清理 worktree。

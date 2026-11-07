@@ -267,8 +267,25 @@ function configuredModelAdapterConfig(config: LLMConfig): LLMConfig {
     };
 }
 
+/**
+ * 创建 Runtime 装配时由宿主提供的工作区与资源边界。
+ *
+ * @remarks
+ * `cwd` 是实际工具与沙箱执行目录；使用 Git worktree 时，`workspaceIdentityRoot`
+ * 仍指向其所属项目根，用于解析项目级权限及工作区数据。注入的 GoalStore 仍由宿主拥有。
+ *
+ * @example
+ * ```ts
+ * const options: RuntimeCompositionOptions = {
+ *   cwd: "/var/lib/lazygoal/worktrees/goal-1",
+ *   workspaceIdentityRoot: "/workspace/project",
+ * };
+ * ```
+ */
 export interface RuntimeCompositionOptions {
     readonly cwd?: string;
+    /** 将执行工作目录映射回拥有权限账本的项目根目录。 */
+    readonly workspaceIdentityRoot?: string;
     readonly dataDirectory?: string;
     readonly env?: NodeJS.ProcessEnv;
     readonly adapter?: LLMAdapter;
@@ -572,7 +589,8 @@ async function assembleRuntimeComposition(
     const modelCapabilities = readModelCapabilities(env, configuredEstimator);
     const modelInputEstimator = modelCapabilities?.tokenEstimator ?? configuredEstimator;
     const workspaceRoot = await resolveWorkspaceRoot(options.cwd ?? process.cwd());
-    const workspaceHomePaths = await resolveWorkspaceHomePaths(homePaths, workspaceRoot);
+    const workspaceIdentityRoot = await resolveWorkspaceRoot(options.workspaceIdentityRoot ?? workspaceRoot);
+    const workspaceHomePaths = await resolveWorkspaceHomePaths(homePaths, workspaceIdentityRoot);
     const dataDirectory = options.dataDirectory !== undefined
         ? resolve(options.dataDirectory)
         : workspaceHomePaths.workspaceDirectory;

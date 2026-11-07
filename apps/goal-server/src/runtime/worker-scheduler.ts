@@ -8,7 +8,8 @@ interface WorkerSlot {
     readonly workerId: string;
     readonly generation: string;
     readonly process: SupervisorWorkerProcess;
-    readonly workspaceRoot: string;
+    readonly projectRoot: string;
+    readonly executionRoot: string;
 }
 
 /**
@@ -138,10 +139,11 @@ export class WorkerScheduler {
             if (nextGoalId === undefined) return;
             const goal = await this.options.goals.restore(nextGoalId);
             if (goal === undefined) throw new Error("Queued Goal snapshot is missing");
-            const workspaceRoot = goal.definition.triggerContext?.authorization.workspaceRoot;
-            if (workspaceRoot === undefined || workspaceRoot.trim() === "") throw new Error("Queued Goal has no authorized workspace");
+            const workspace = goal.definition.triggerContext?.authorization.workspace;
+            if (workspace === undefined || !workspace.projectRoot.trim() || !workspace.executionRoot.trim()) throw new Error("Queued Goal has no authorized workspace");
 
-            let slot = [...this.workers.values()].find((candidate) => candidate.workspaceRoot === workspaceRoot
+            let slot = [...this.workers.values()].find((candidate) => candidate.projectRoot === workspace.projectRoot
+                && candidate.executionRoot === workspace.executionRoot
                 && candidate.process.assignedGoalId === undefined);
             if (slot === undefined) {
                 const workerId = `worker-${randomUUID()}`;
@@ -149,14 +151,15 @@ export class WorkerScheduler {
                 const process = await SupervisorWorkerProcess.start({
                     workerId,
                     generation,
-                    cwd: workspaceRoot,
+                    cwd: workspace.executionRoot,
+                    workspaceIdentityRoot: workspace.projectRoot,
                     dataDirectory: this.options.dataDirectory,
                     ...(this.options.env === undefined ? {} : { env: this.options.env }),
                     owner: this.options.owner,
                     deliveries: this.options.deliveries,
                     goals: this.options.goals,
                 });
-                slot = { workerId, generation, process, workspaceRoot };
+                slot = { workerId, generation, process, projectRoot: workspace.projectRoot, executionRoot: workspace.executionRoot };
                 this.workers.set(workerId, slot);
             }
 

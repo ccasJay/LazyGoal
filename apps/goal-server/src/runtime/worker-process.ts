@@ -47,6 +47,8 @@ export interface SupervisorWorkerProcessOptions {
     readonly workerId: string;
     readonly generation: string;
     readonly cwd: string;
+    /** 项目权限账本身份；与 Worker 的执行目录分离。 */
+    readonly workspaceIdentityRoot: string;
     readonly dataDirectory: string;
     /** Worker 构造同一模型供应商与 Home 配置所需的宿主环境快照。 */
     readonly env?: NodeJS.ProcessEnv;
@@ -129,7 +131,8 @@ export class SupervisorWorkerProcess {
         const child = fork(entry, [], {
             cwd: options.cwd,
             env: { ...(options.env ?? process.env), LAZYGOAL_WORKER_ID: options.workerId, LAZYGOAL_WORKER_GENERATION: options.generation,
-                LAZYGOAL_WORKER_DATA_DIRECTORY: options.dataDirectory },
+                LAZYGOAL_WORKER_DATA_DIRECTORY: options.dataDirectory,
+                LAZYGOAL_WORKSPACE_IDENTITY_ROOT: options.workspaceIdentityRoot },
             execArgv: process.execArgv,
             stdio: ["ignore", "inherit", "inherit", "ipc"],
         });

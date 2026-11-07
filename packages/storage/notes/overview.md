@@ -49,7 +49,7 @@ Retrieval Index Sidecar 顶层已使用生成绑定；嵌套文档、倒排索�
 
 Goal 快照统一经 `GoalSnapshotCodec`：`save` 先对 Runtime Goal 按当前 v1 生成结构与语义规则校验（拒绝多余字段、非法 StepRecord，缺失或非法的 `modelSelection`，以及非法的 Trajectory/Memory/Model Context/Retrieval 组合）再深复制 encode；`restore`/decode 只接受当前 v1。语义校验同时保证 normal Goal 没有 GoalPlan、Plan Mode 必须有 GoalPlan、Todo ID/position/status 与 `Run.todoId` 一致、历史 Run 的消息区间有序且不包含当前 Run。历史 Snapshot、未知版本、缺失 `modelSelection` 的旧开发快照和不完整的当前恢复状态统一在 Codec 边界抛出 `INVALID_GOAL_SNAPSHOT`，不会自动迁移、保存或回写。
 
-`modelSelection.executionApi` 当前只允许 `openai-completions`，且必须搭配 OpenCode Go Provider 与有效的上下文、输出容量；Codec 对执行协议、推理、视觉及工具选择能力深复制往返。Trigger 准入创建的 Goal Snapshot 保存来源事件、投递身份和由可信宿主冻结的动作范围；范围本身不等于有效授权。Snapshot 不保存 Base URL、API Key 或认证头，schemaVersion 仍为 1。
+`modelSelection.executionApi` 当前只允许 `openai-completions`，且必须搭配 OpenCode Go Provider 与有效的上下文、输出容量；Codec 对执行协议、推理、视觉及工具选择能力深复制往返。Trigger 准入创建的 Goal Snapshot 保存来源事件、投递身份和项目根与执行工作区映射及由可信宿主冻结的动作范围；范围本身不等于有效授权。Snapshot 不保存 Base URL、API Key 或认证头，schemaVersion 仍为 1。
 
 每条正式消息在 Snapshot 中保存 `messageId`、所属 `runId`、判别式来源与助手用途（`process`／`answer`／`notice`）。语义校验要求同一 Goal 内 `messageId` 与来源各自唯一；重复身份、重复来源或缺少身份字段的旧结构消息在 Codec 边界 fail-closed，不做兼容解析或迁移。
 

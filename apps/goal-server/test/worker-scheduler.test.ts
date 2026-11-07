@@ -24,7 +24,7 @@ function createWaitingGoal(id: string, intent: string, workspaceRoot: string) {
     assert.equal(waiting.ok, true);
     return {
         goal: { ...goal, state: { ...goal.state, run: waiting.state } },
-        authorization: { workspaceRoot, toolIds: [], sandbox: { extraFiles: [], network: "none" as const } },
+        authorization: { workspace: { mode: "shared", projectRoot: workspaceRoot, executionRoot: workspaceRoot }, toolIds: [], sandbox: { extraFiles: [], network: "none" as const } },
     };
 }
 

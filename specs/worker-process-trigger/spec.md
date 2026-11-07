@@ -66,7 +66,7 @@ superseded_by: null
 - [x] //TODO 2. 接入 Fast／Slow path 准入、Goal 创建和失败保留 → R1.3、R1.4；检查：运行新增准入基础测试。
 - [x] //TODO 3. 交付独立 Worker、Goal 状态所有权和可复用上下文 → R2.1、R2.3；检查：运行新增 Worker 基础进程测试。
 - [x] //TODO 4. 实现顺序派发、Worker 选择和并发执行 → R2.1；检查：运行新增调度测试。
-- [ ] //TODO 5. 实现 Supervisor 决定的工作区和 worktree 生命周期 → R2.2；检查：运行临时仓库工作区测试。
+- [x] //TODO 5. 实现 Supervisor 决定的工作区和 worktree 生命周期 → R2.2；检查：运行临时仓库工作区测试。
 - [ ] //TODO 6. 实现 Goal 状态反馈与安全取消 → R2.3；检查：运行新增状态与取消测试。
 - [ ] //TODO 7. 实现 Trigger 驱动的权限往返及跨进程授权约束 → R3.1、R3.2；检查：运行新增权限往返和失败关闭测试。
 - [ ] //TODO 8. 实现 Supervisor 离线队列、恢复扫描和 Worker 重新接管 → R4.1、R4.2；检查：运行新增重连基础测试。

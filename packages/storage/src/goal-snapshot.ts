@@ -47,7 +47,14 @@ export interface GoalSnapshotDefinitionV1 {
             readonly payload: string;
         };
         readonly authorization: {
-            readonly workspaceRoot: string;
+            readonly workspace: {
+                readonly mode: "shared" | "worktree";
+                readonly projectRoot: string;
+                readonly executionRoot: string;
+                readonly branch?: string;
+                readonly baseBranch?: string;
+                readonly baseCommit?: string;
+            };
             readonly toolIds: readonly string[];
             readonly sandbox: {
                 readonly extraFiles: readonly { readonly canonicalPath: string; readonly access: "read" | "write"; readonly kind: "file" | "directory_tree" }[];
@@ -2020,6 +2027,20 @@ export function assertGoalSnapshotSemantics(goal: GoalSnapshotV1): void {
     };
     validateSnapshotInvariants(goal, context);
     validateSnapshotFieldRefinements(goal, context);
+    const workspace = goal.definition.triggerContext?.authorization.workspace;
+    if (workspace !== undefined) {
+        const workspacePath = ["definition", "triggerContext", "authorization", "workspace"] as const;
+        if (!workspace.projectRoot.trim() || !workspace.executionRoot.trim()) {
+            context.addIssue({ message: "Goal workspace roots must not be empty", path: workspacePath });
+        }
+        if (workspace.mode === "shared" && (workspace.branch !== undefined || workspace.baseBranch !== undefined || workspace.baseCommit !== undefined)) {
+            context.addIssue({ message: "Shared Goal workspace cannot carry worktree branch metadata", path: workspacePath });
+        }
+        if (workspace.mode === "worktree" && (!workspace.branch?.trim() || !workspace.baseBranch?.trim()
+            || workspace.baseCommit === undefined || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(workspace.baseCommit))) {
+            context.addIssue({ message: "Worktree Goal workspace requires its branch and base commit", path: workspacePath });
+        }
+    }
 
     const first = issues[0];
     if (first !== undefined) {

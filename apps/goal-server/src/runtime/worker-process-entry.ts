@@ -29,6 +29,7 @@ function requiredEnvironment(name: string): string {
 const workerId = requiredEnvironment("LAZYGOAL_WORKER_ID");
 const generation = requiredEnvironment("LAZYGOAL_WORKER_GENERATION");
 const dataDirectory = requiredEnvironment("LAZYGOAL_WORKER_DATA_DIRECTORY");
+const workspaceIdentityRoot = requiredEnvironment("LAZYGOAL_WORKSPACE_IDENTITY_ROOT");
 if (process.send === undefined) throw new Error("Worker process IPC is unavailable");
 
 const pending = new Map<string, (message: ParentMessage) => void>();
@@ -82,7 +83,7 @@ async function handle(message: ParentMessage): Promise<void> {
         assignedGoalId = message.goalId;
         operationActive = true;
         try {
-            runtime ??= await createRuntimeComposition({ cwd: process.cwd(), dataDirectory, goalStore });
+            runtime ??= await createRuntimeComposition({ cwd: process.cwd(), workspaceIdentityRoot, dataDirectory, goalStore });
             const goal = await runtime.store.restore(message.goalId);
             if (goal === undefined) throw new Error("Assigned Goal is unavailable");
             const result = await runtime.commands.advance({ goalId: message.goalId, runId: goal.state.run.id });

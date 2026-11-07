@@ -513,7 +513,7 @@ export type GoalMessage = UserMessage | AssistantMessage;
  * ```ts
  * const context: GoalTriggerContext = {
  *   deliveryId: "delivery-1", trigger: { id: "event-1", purpose: "work", source: "user", payload: "{}" },
- *   authorization: { workspaceRoot: "/project", toolIds: [], sandbox: { extraFiles: [], network: "none" } },
+ *   authorization: { workspace: { mode: "shared", projectRoot: "/project", executionRoot: "/project" }, toolIds: [], sandbox: { extraFiles: [], network: "none" } },
  * };
  * ```
  */
@@ -528,7 +528,14 @@ export interface GoalTriggerContext {
         readonly payload: string;
     };
     readonly authorization: {
-        readonly workspaceRoot: string;
+        readonly workspace: {
+            readonly mode: "shared" | "worktree";
+            readonly projectRoot: string;
+            readonly executionRoot: string;
+            readonly branch?: string;
+            readonly baseBranch?: string;
+            readonly baseCommit?: string;
+        };
         readonly toolIds: readonly string[];
         readonly sandbox: EffectiveSandboxScope;
     };
