@@ -19,18 +19,20 @@ type WorkerMessage =
     | { readonly kind: "advance-result"; readonly requestId: string; readonly goalId: string; readonly result: WorkerProgress }
     | { readonly kind: "cancel-result"; readonly requestId: string; readonly goalId: string; readonly result: WorkerProgress }
     | { readonly kind: "permission-result"; readonly requestId: string; readonly goalId: string; readonly result: WorkerProgress }
+    | { readonly kind: "interaction-result"; readonly requestId: string; readonly goalId: string; readonly result: WorkerProgress }
     | { readonly kind: "replay-complete"; readonly requestId: string }
     | { readonly kind: "closed" }
-    | { readonly kind: "detached" };
+    | { readonly kind: "detached"; readonly requestId: string };
 
 type WorkerCommand =
     | { readonly kind: "probe"; readonly requestId: string }
     | { readonly kind: "advance"; readonly requestId: string; readonly goalId: string; readonly runId: string }
     | { readonly kind: "cancel"; readonly requestId: string; readonly interruptId: string; readonly goalId: string; readonly runId: string }
     | { readonly kind: "permission-response"; readonly requestId: string; readonly delivery: TriggerDeliveryFile }
+    | { readonly kind: "interaction-response"; readonly requestId: string; readonly delivery: TriggerDeliveryFile }
     | { readonly kind: "replay-offline"; readonly requestId: string }
     | { readonly kind: "worker-ack"; readonly requestId: string }
-    | { readonly kind: "detach" }
+    | { readonly kind: "detach"; readonly requestId: string }
     | { readonly kind: "store-reply"; readonly requestId: string; readonly ok: true; readonly snapshot?: GoalSnapshotV1 }
     | { readonly kind: "store-reply"; readonly requestId: string; readonly ok: false }
     | { readonly kind: "close" };
@@ -152,8 +154,7 @@ export class SupervisorWorkerProcess {
                     return;
                 }
                 if (message.kind === "closed") return;
-                if (message.kind === "detached") return;
-                if (message.kind === "advance-result" || message.kind === "permission-result" || message.kind === "cancel-result") {
+                if (message.kind === "advance-result" || message.kind === "permission-result" || message.kind === "cancel-result" || message.kind === "interaction-result") {
                     const progress = { requestId: message.requestId, goalId: message.goalId, result: message.result, kind: message.kind } satisfies WorkerOfflineProgress;
                     if (this.pending.has(message.requestId)) {
                         const key = progressKey(progress.goalId, progress.result);
@@ -224,7 +225,7 @@ export class SupervisorWorkerProcess {
      */
     static async start(options: SupervisorWorkerProcessOptions): Promise<SupervisorWorkerProcess> {
         if (!options.workerId.trim() || !options.generation.trim()) throw new Error("Worker identity is required");
-        const entry = fileURLToPath(new URL("./worker-process-entry.ts", import.meta.url));
+        const entry = fileURLToPath(new URL("../worker-process-entry.ts", import.meta.url));
         const child = fork(entry, [], {
             cwd: options.cwd,
             env: { ...(options.env ?? process.env), LAZYGOAL_WORKER_ID: options.workerId, LAZYGOAL_WORKER_GENERATION: options.generation,
@@ -323,12 +324,23 @@ export class SupervisorWorkerProcess {
         if (response.kind !== "replay-complete") throw new Error("Worker did not finish offline message replay");
     }
 
-    /** 关闭 Supervisor 通道但保持已认证 Worker 继续独立运行。 */
+    /**
+     * 关闭 Supervisor 通道并保持 Worker 进程与当前 Goal 绑定继续运行。
+     *
+     * @throws 已关闭的 Worker 或断开的进程通道无法完成确认时抛出。
+     * @example
+     * ```ts
+     * await worker.detach();
+     * ```
+     */
     async detach(): Promise<void> {
-        if (this.child !== undefined) throw new Error("A newly launched Worker cannot be detached for reattachment");
-        if (this.socket === undefined || this.socket.destroyed) return;
-        await this.writeCommand({ kind: "detach" });
-        this.socket.end();
+        if (this.closed) return;
+        if (!this.isConnected()) throw new Error("Worker process is disconnected");
+        const response = await this.request({ kind: "detach", requestId: randomUUID() });
+        if (response.kind !== "detached") throw new Error("Worker did not confirm detachment");
+        this.closed = true;
+        if (this.child?.connected === true) this.child.disconnect();
+        this.socket?.end();
     }
 
     /**
@@ -460,6 +472,39 @@ export class SupervisorWorkerProcess {
     }
 
     /**
+     * 将已认证并持久化的结构化交互 Trigger 交给当前 Worker Runtime。
+     *
+     * @remarks Worker 按当前 Goal、Run、等待身份及提交修订重新核验回应；只有恢复进度
+     * 经 Supervisor 持久化后，交互投递才会结算。
+     * @param delivery - 已通过 Supervisor 认证的 Goal 交互投递。
+     * @returns Runtime 恢复后的等待、终态或稳定拒绝。
+     * @throws Worker 已断开、目标不匹配或 IPC 失败时拒绝，持久投递保持待处理。
+     * @example
+     * ```ts
+     * const progress = await worker.respondInteraction(delivery);
+     * ```
+     */
+    async respondInteraction(delivery: TriggerDeliveryFile): Promise<WorkerProgress> {
+        const goalId = delivery.goalId;
+        if (goalId === undefined || this.closed || this.busy || this.cancelling || this.goalId !== goalId) {
+            throw new Error("Worker does not own the interaction target");
+        }
+        this.busy = true;
+        let markCommandSent!: () => void;
+        const commandSent = new Promise<void>((resolve) => { markCommandSent = resolve; });
+        this.advanceCommandSent = commandSent;
+        try {
+            const response = await this.request({ kind: "interaction-response", requestId: randomUUID(), delivery });
+            if (response.kind !== "interaction-result") throw new Error("Unexpected Worker interaction response");
+            return response.result;
+        } finally {
+            markCommandSent();
+            if (this.advanceCommandSent === commandSent) this.advanceCommandSent = undefined;
+            this.busy = false;
+        }
+    }
+
+    /**
      * 在 Supervisor 已保存对应终态报告与队列状态后释放本地 Worker 绑定。
      *
      * @param goalId - 已由该 Worker 终止并由 Supervisor 持久结算的 Goal。
@@ -570,9 +615,10 @@ function parseWorkerMessage(value: unknown): WorkerMessage | undefined {
     if (value.kind === "probe-result" && typeof value.requestId === "string" && typeof value.pid === "number" && typeof value.workerId === "string" && typeof value.generation === "string") return value as unknown as WorkerMessage;
     if ((value.kind === "store-read" || value.kind === "store-save") && typeof value.requestId === "string" && typeof value.workerId === "string" && typeof value.generation === "string" && typeof value.goalId === "string"
         && (value.kind !== "store-save" || "snapshot" in value)) return value as unknown as WorkerMessage;
-    if ((value.kind === "advance-result" || value.kind === "cancel-result" || value.kind === "permission-result")
+    if ((value.kind === "advance-result" || value.kind === "cancel-result" || value.kind === "permission-result" || value.kind === "interaction-result")
         && typeof value.requestId === "string" && typeof value.goalId === "string" && isWorkerProgress(value.result)) return value as unknown as WorkerMessage;
     if (value.kind === "replay-complete" && typeof value.requestId === "string") return value as unknown as WorkerMessage;
+    if (value.kind === "detached" && typeof value.requestId === "string") return value as unknown as WorkerMessage;
     if (value.kind === "closed") return value as unknown as WorkerMessage;
     if (value.kind === "detached") return value as unknown as WorkerMessage;
     return undefined;

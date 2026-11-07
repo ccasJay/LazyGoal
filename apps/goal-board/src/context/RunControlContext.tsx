@@ -1,6 +1,5 @@
 import { createContext, useContext } from "react";
 import type { ReactNode } from "react";
-import type { QueuedInput } from "../types";
 import type { ControlIntents } from "../hooks/useControlIntents";
 
 /**
@@ -10,10 +9,8 @@ import type { ControlIntents } from "../hooks/useControlIntents";
  * ```ts
  * const controls: RunControlContextValue = {
  *   commandBusy: false, commandError: null, draftGoalBusy: false, setCommandError: () => {},
- *   stoppingRunId: null, canSendText: true, queuedInputs: [], queuePaused: false,
- *   onContinueQueue: async () => {}, onRemoveQueuedInput: async () => {},
- *   onSubmitMessage: async () => true, onSubmitDraftMessage: async () => true,
- *   onSubmitSteer: async () => true, onInterrupt: async () => {}, onSubmitResume: async () => {},
+ *   stoppingRunId: null, onSubmitDraftMessage: async () => true,
+ *   onInterrupt: async () => {}, onSubmitResume: async () => {},
  *   onVerifyIntent: async () => {}, onRetryIntent: async () => true, onDiscardIntent: () => {}, control,
  * };
  * ```
@@ -27,21 +24,10 @@ export interface RunControlContextValue {
   readonly draftGoalBusy: boolean;
   readonly setCommandError: (error: string | null) => void;
   readonly stoppingRunId: string | null;
-  readonly canSendText: boolean;
-  readonly queuedInputs: readonly QueuedInput[];
-  readonly queuePaused: boolean;
-  readonly onContinueQueue: () => Promise<void>;
-  /** 按当前队列修订删除单条尚未应用的消息。 */
-  readonly onRemoveQueuedInput: (messageId: string) => Promise<void>;
-  readonly onSubmitMessage: (content: string) => Promise<boolean>;
   readonly onSubmitDraftMessage: (content: string) => Promise<boolean>;
-  /** 可绑定原排队消息，将其原子转为当前 Run 的 Steer。 */
-  readonly onSubmitSteer: (
-    content: string,
-    queueBinding?: { readonly messageId: string; readonly queueRevision: number },
-  ) => Promise<boolean>;
   readonly onInterrupt: () => Promise<void>;
-  readonly onSubmitResume: () => Promise<void>;
+  /** 恢复快照可能重复外部副作用时，要求调用者明确传入确认。 */
+  readonly onSubmitResume: (acknowledgeUnknownEffects?: boolean) => Promise<void>;
   /** 按原身份核验收据；不改写为新的提交。 */
   readonly onVerifyIntent: (intentId: string) => Promise<void>;
   /** 以原身份重试；不生成新身份。 */

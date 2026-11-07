@@ -12,7 +12,7 @@ var require_BrowserSessionInputCommand_validator = __commonJS({
   "BrowserSessionInputCommand-validator.cjs"(exports, module) {
     module.exports = validate10;
     module.exports.default = validate10;
-    var schema12 = { "anyOf": [{ "type": "object", "properties": { "kind": { "type": "string", "const": "message" }, "inputId": { "type": "string", "pattern": "\\S" }, "content": { "type": "string", "pattern": "\\S" } }, "required": ["kind", "inputId", "content"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "steer" }, "inputId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "content": { "type": "string", "pattern": "\\S" }, "queueBinding": { "$ref": "#/definitions/BrowserQueueBinding" } }, "required": ["kind", "inputId", "runId", "content"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "interrupt" }, "inputId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" } }, "required": ["kind", "inputId", "runId"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "respond" }, "inputId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "requestId": { "type": "string", "pattern": "\\S" }, "response": { "$ref": "#/definitions/BrowserSessionInteractionResponse" } }, "required": ["kind", "inputId", "runId", "requestId", "response"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "resume" }, "inputId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "commitRevision": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "content": { "type": "string", "pattern": "\\S" } }, "required": ["kind", "inputId", "runId", "commitRevision"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "queue_control" }, "inputId": { "type": "string", "pattern": "\\S" }, "action": { "type": "string", "enum": ["continue", "clear", "remove"] }, "queueRevision": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "messageId": { "type": "string", "pattern": "\\S" } }, "required": ["kind", "inputId", "action", "queueRevision"], "additionalProperties": false }], "description": "`POST /api/goals/:goalId/inputs` \u7684\u4E25\u683C wire \u547D\u4EE4\u3002" };
+    var schema12 = { "anyOf": [{ "type": "object", "properties": { "kind": { "type": "string", "const": "message" }, "inputId": { "type": "string", "pattern": "\\S" }, "content": { "type": "string", "pattern": "\\S" } }, "required": ["kind", "inputId", "content"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "steer" }, "inputId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "content": { "type": "string", "pattern": "\\S" }, "queueBinding": { "$ref": "#/definitions/BrowserQueueBinding" } }, "required": ["kind", "inputId", "runId", "content"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "interrupt" }, "inputId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" } }, "required": ["kind", "inputId", "runId"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "respond" }, "inputId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "requestId": { "type": "string", "pattern": "\\S" }, "response": { "$ref": "#/definitions/BrowserSessionInteractionResponse" } }, "required": ["kind", "inputId", "runId", "requestId", "response"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "resume" }, "inputId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "commitRevision": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "content": { "type": "string", "pattern": "\\S" }, "acknowledgeUnknownEffects": { "type": "boolean", "description": "\u5DF2\u786E\u8BA4 Worker \u9000\u51FA\u540E\u6062\u590D\u8FD0\u884C\u4E2D\u68C0\u67E5\u70B9\u65F6\uFF0C\u627F\u8BA4\u539F\u52A8\u4F5C\u7684\u5916\u90E8\u526F\u4F5C\u7528\u53EF\u80FD\u672A\u77E5\u3002" } }, "required": ["kind", "inputId", "runId", "commitRevision"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "queue_control" }, "inputId": { "type": "string", "pattern": "\\S" }, "action": { "type": "string", "enum": ["continue", "clear", "remove"] }, "queueRevision": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "messageId": { "type": "string", "pattern": "\\S" } }, "required": ["kind", "inputId", "action", "queueRevision"], "additionalProperties": false }], "description": "`POST /api/goals/:goalId/inputs` \u7684\u4E25\u683C wire \u547D\u4EE4\u3002" };
     var pattern0 = new RegExp("\\S", "u");
     var schema15 = { "type": "string", "enum": ["action", "goal", "workspace"], "description": "wire \u4E0A\u53EF\u7528\u7684\u6388\u6743\u671F\u9650\u3002" };
     function validate12(data, { instancePath = "", parentData, parentDataProperty, rootData = data } = {}) {
@@ -1868,7 +1868,7 @@ var require_BrowserSessionInputCommand_validator = __commonJS({
                   errors++;
                 }
                 for (const key5 in data) {
-                  if (!(key5 === "kind" || key5 === "inputId" || key5 === "runId" || key5 === "commitRevision" || key5 === "content")) {
+                  if (!(key5 === "kind" || key5 === "inputId" || key5 === "runId" || key5 === "commitRevision" || key5 === "content" || key5 === "acknowledgeUnknownEffects")) {
                     const err64 = { instancePath, schemaPath: "#/anyOf/4/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key5 }, message: "must NOT have additional properties" };
                     if (vErrors === null) {
                       vErrors = [err64];
@@ -1997,31 +1997,33 @@ var require_BrowserSessionInputCommand_validator = __commonJS({
                     errors++;
                   }
                 }
+                if (data.acknowledgeUnknownEffects !== void 0) {
+                  if (typeof data.acknowledgeUnknownEffects !== "boolean") {
+                    const err76 = { instancePath: instancePath + "/acknowledgeUnknownEffects", schemaPath: "#/anyOf/4/properties/acknowledgeUnknownEffects/type", keyword: "type", params: { type: "boolean" }, message: "must be boolean" };
+                    if (vErrors === null) {
+                      vErrors = [err76];
+                    } else {
+                      vErrors.push(err76);
+                    }
+                    errors++;
+                  }
+                }
               } else {
-                const err76 = { instancePath, schemaPath: "#/anyOf/4/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                const err77 = { instancePath, schemaPath: "#/anyOf/4/type", keyword: "type", params: { type: "object" }, message: "must be object" };
                 if (vErrors === null) {
-                  vErrors = [err76];
+                  vErrors = [err77];
                 } else {
-                  vErrors.push(err76);
+                  vErrors.push(err77);
                 }
                 errors++;
               }
               var _valid0 = _errs50 === errors;
               valid0 = valid0 || _valid0;
               if (!valid0) {
-                const _errs63 = errors;
+                const _errs65 = errors;
                 if (data && typeof data == "object" && !Array.isArray(data)) {
                   if (data.kind === void 0) {
-                    const err77 = { instancePath, schemaPath: "#/anyOf/5/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
-                    if (vErrors === null) {
-                      vErrors = [err77];
-                    } else {
-                      vErrors.push(err77);
-                    }
-                    errors++;
-                  }
-                  if (data.inputId === void 0) {
-                    const err78 = { instancePath, schemaPath: "#/anyOf/5/required", keyword: "required", params: { missingProperty: "inputId" }, message: "must have required property 'inputId'" };
+                    const err78 = { instancePath, schemaPath: "#/anyOf/5/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
                     if (vErrors === null) {
                       vErrors = [err78];
                     } else {
@@ -2029,8 +2031,8 @@ var require_BrowserSessionInputCommand_validator = __commonJS({
                     }
                     errors++;
                   }
-                  if (data.action === void 0) {
-                    const err79 = { instancePath, schemaPath: "#/anyOf/5/required", keyword: "required", params: { missingProperty: "action" }, message: "must have required property 'action'" };
+                  if (data.inputId === void 0) {
+                    const err79 = { instancePath, schemaPath: "#/anyOf/5/required", keyword: "required", params: { missingProperty: "inputId" }, message: "must have required property 'inputId'" };
                     if (vErrors === null) {
                       vErrors = [err79];
                     } else {
@@ -2038,8 +2040,8 @@ var require_BrowserSessionInputCommand_validator = __commonJS({
                     }
                     errors++;
                   }
-                  if (data.queueRevision === void 0) {
-                    const err80 = { instancePath, schemaPath: "#/anyOf/5/required", keyword: "required", params: { missingProperty: "queueRevision" }, message: "must have required property 'queueRevision'" };
+                  if (data.action === void 0) {
+                    const err80 = { instancePath, schemaPath: "#/anyOf/5/required", keyword: "required", params: { missingProperty: "action" }, message: "must have required property 'action'" };
                     if (vErrors === null) {
                       vErrors = [err80];
                     } else {
@@ -2047,21 +2049,18 @@ var require_BrowserSessionInputCommand_validator = __commonJS({
                     }
                     errors++;
                   }
+                  if (data.queueRevision === void 0) {
+                    const err81 = { instancePath, schemaPath: "#/anyOf/5/required", keyword: "required", params: { missingProperty: "queueRevision" }, message: "must have required property 'queueRevision'" };
+                    if (vErrors === null) {
+                      vErrors = [err81];
+                    } else {
+                      vErrors.push(err81);
+                    }
+                    errors++;
+                  }
                   for (const key6 in data) {
                     if (!(key6 === "kind" || key6 === "inputId" || key6 === "action" || key6 === "queueRevision" || key6 === "messageId")) {
-                      const err81 = { instancePath, schemaPath: "#/anyOf/5/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key6 }, message: "must NOT have additional properties" };
-                      if (vErrors === null) {
-                        vErrors = [err81];
-                      } else {
-                        vErrors.push(err81);
-                      }
-                      errors++;
-                    }
-                  }
-                  if (data.kind !== void 0) {
-                    let data23 = data.kind;
-                    if (typeof data23 !== "string") {
-                      const err82 = { instancePath: instancePath + "/kind", schemaPath: "#/anyOf/5/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                      const err82 = { instancePath, schemaPath: "#/anyOf/5/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key6 }, message: "must NOT have additional properties" };
                       if (vErrors === null) {
                         vErrors = [err82];
                       } else {
@@ -2069,8 +2068,11 @@ var require_BrowserSessionInputCommand_validator = __commonJS({
                       }
                       errors++;
                     }
-                    if ("queue_control" !== data23) {
-                      const err83 = { instancePath: instancePath + "/kind", schemaPath: "#/anyOf/5/properties/kind/const", keyword: "const", params: { allowedValue: "queue_control" }, message: "must be equal to constant" };
+                  }
+                  if (data.kind !== void 0) {
+                    let data24 = data.kind;
+                    if (typeof data24 !== "string") {
+                      const err83 = { instancePath: instancePath + "/kind", schemaPath: "#/anyOf/5/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                       if (vErrors === null) {
                         vErrors = [err83];
                       } else {
@@ -2078,33 +2080,30 @@ var require_BrowserSessionInputCommand_validator = __commonJS({
                       }
                       errors++;
                     }
-                  }
-                  if (data.inputId !== void 0) {
-                    let data24 = data.inputId;
-                    if (typeof data24 === "string") {
-                      if (!pattern0.test(data24)) {
-                        const err84 = { instancePath: instancePath + "/inputId", schemaPath: "#/anyOf/5/properties/inputId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
-                        if (vErrors === null) {
-                          vErrors = [err84];
-                        } else {
-                          vErrors.push(err84);
-                        }
-                        errors++;
-                      }
-                    } else {
-                      const err85 = { instancePath: instancePath + "/inputId", schemaPath: "#/anyOf/5/properties/inputId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    if ("queue_control" !== data24) {
+                      const err84 = { instancePath: instancePath + "/kind", schemaPath: "#/anyOf/5/properties/kind/const", keyword: "const", params: { allowedValue: "queue_control" }, message: "must be equal to constant" };
                       if (vErrors === null) {
-                        vErrors = [err85];
+                        vErrors = [err84];
                       } else {
-                        vErrors.push(err85);
+                        vErrors.push(err84);
                       }
                       errors++;
                     }
                   }
-                  if (data.action !== void 0) {
-                    let data25 = data.action;
-                    if (typeof data25 !== "string") {
-                      const err86 = { instancePath: instancePath + "/action", schemaPath: "#/anyOf/5/properties/action/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                  if (data.inputId !== void 0) {
+                    let data25 = data.inputId;
+                    if (typeof data25 === "string") {
+                      if (!pattern0.test(data25)) {
+                        const err85 = { instancePath: instancePath + "/inputId", schemaPath: "#/anyOf/5/properties/inputId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                        if (vErrors === null) {
+                          vErrors = [err85];
+                        } else {
+                          vErrors.push(err85);
+                        }
+                        errors++;
+                      }
+                    } else {
+                      const err86 = { instancePath: instancePath + "/inputId", schemaPath: "#/anyOf/5/properties/inputId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                       if (vErrors === null) {
                         vErrors = [err86];
                       } else {
@@ -2112,8 +2111,11 @@ var require_BrowserSessionInputCommand_validator = __commonJS({
                       }
                       errors++;
                     }
-                    if (!(data25 === "continue" || data25 === "clear" || data25 === "remove")) {
-                      const err87 = { instancePath: instancePath + "/action", schemaPath: "#/anyOf/5/properties/action/enum", keyword: "enum", params: { allowedValues: schema12.anyOf[5].properties.action.enum }, message: "must be equal to one of the allowed values" };
+                  }
+                  if (data.action !== void 0) {
+                    let data26 = data.action;
+                    if (typeof data26 !== "string") {
+                      const err87 = { instancePath: instancePath + "/action", schemaPath: "#/anyOf/5/properties/action/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                       if (vErrors === null) {
                         vErrors = [err87];
                       } else {
@@ -2121,11 +2123,8 @@ var require_BrowserSessionInputCommand_validator = __commonJS({
                       }
                       errors++;
                     }
-                  }
-                  if (data.queueRevision !== void 0) {
-                    let data26 = data.queueRevision;
-                    if (!(typeof data26 == "number" && (!(data26 % 1) && !isNaN(data26)) && isFinite(data26))) {
-                      const err88 = { instancePath: instancePath + "/queueRevision", schemaPath: "#/anyOf/5/properties/queueRevision/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
+                    if (!(data26 === "continue" || data26 === "clear" || data26 === "remove")) {
+                      const err88 = { instancePath: instancePath + "/action", schemaPath: "#/anyOf/5/properties/action/enum", keyword: "enum", params: { allowedValues: schema12.anyOf[5].properties.action.enum }, message: "must be equal to one of the allowed values" };
                       if (vErrors === null) {
                         vErrors = [err88];
                       } else {
@@ -2133,18 +2132,21 @@ var require_BrowserSessionInputCommand_validator = __commonJS({
                       }
                       errors++;
                     }
-                    if (typeof data26 == "number" && isFinite(data26)) {
-                      if (data26 > 9007199254740991 || isNaN(data26)) {
-                        const err89 = { instancePath: instancePath + "/queueRevision", schemaPath: "#/anyOf/5/properties/queueRevision/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
-                        if (vErrors === null) {
-                          vErrors = [err89];
-                        } else {
-                          vErrors.push(err89);
-                        }
-                        errors++;
+                  }
+                  if (data.queueRevision !== void 0) {
+                    let data27 = data.queueRevision;
+                    if (!(typeof data27 == "number" && (!(data27 % 1) && !isNaN(data27)) && isFinite(data27))) {
+                      const err89 = { instancePath: instancePath + "/queueRevision", schemaPath: "#/anyOf/5/properties/queueRevision/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
+                      if (vErrors === null) {
+                        vErrors = [err89];
+                      } else {
+                        vErrors.push(err89);
                       }
-                      if (data26 < 0 || isNaN(data26)) {
-                        const err90 = { instancePath: instancePath + "/queueRevision", schemaPath: "#/anyOf/5/properties/queueRevision/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
+                      errors++;
+                    }
+                    if (typeof data27 == "number" && isFinite(data27)) {
+                      if (data27 > 9007199254740991 || isNaN(data27)) {
+                        const err90 = { instancePath: instancePath + "/queueRevision", schemaPath: "#/anyOf/5/properties/queueRevision/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
                         if (vErrors === null) {
                           vErrors = [err90];
                         } else {
@@ -2152,13 +2154,8 @@ var require_BrowserSessionInputCommand_validator = __commonJS({
                         }
                         errors++;
                       }
-                    }
-                  }
-                  if (data.messageId !== void 0) {
-                    let data27 = data.messageId;
-                    if (typeof data27 === "string") {
-                      if (!pattern0.test(data27)) {
-                        const err91 = { instancePath: instancePath + "/messageId", schemaPath: "#/anyOf/5/properties/messageId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                      if (data27 < 0 || isNaN(data27)) {
+                        const err91 = { instancePath: instancePath + "/queueRevision", schemaPath: "#/anyOf/5/properties/queueRevision/minimum", keyword: "minimum", params: { comparison: ">=", limit: 0 }, message: "must be >= 0" };
                         if (vErrors === null) {
                           vErrors = [err91];
                         } else {
@@ -2166,26 +2163,40 @@ var require_BrowserSessionInputCommand_validator = __commonJS({
                         }
                         errors++;
                       }
+                    }
+                  }
+                  if (data.messageId !== void 0) {
+                    let data28 = data.messageId;
+                    if (typeof data28 === "string") {
+                      if (!pattern0.test(data28)) {
+                        const err92 = { instancePath: instancePath + "/messageId", schemaPath: "#/anyOf/5/properties/messageId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                        if (vErrors === null) {
+                          vErrors = [err92];
+                        } else {
+                          vErrors.push(err92);
+                        }
+                        errors++;
+                      }
                     } else {
-                      const err92 = { instancePath: instancePath + "/messageId", schemaPath: "#/anyOf/5/properties/messageId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                      const err93 = { instancePath: instancePath + "/messageId", schemaPath: "#/anyOf/5/properties/messageId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                       if (vErrors === null) {
-                        vErrors = [err92];
+                        vErrors = [err93];
                       } else {
-                        vErrors.push(err92);
+                        vErrors.push(err93);
                       }
                       errors++;
                     }
                   }
                 } else {
-                  const err93 = { instancePath, schemaPath: "#/anyOf/5/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                  const err94 = { instancePath, schemaPath: "#/anyOf/5/type", keyword: "type", params: { type: "object" }, message: "must be object" };
                   if (vErrors === null) {
-                    vErrors = [err93];
+                    vErrors = [err94];
                   } else {
-                    vErrors.push(err93);
+                    vErrors.push(err94);
                   }
                   errors++;
                 }
-                var _valid0 = _errs63 === errors;
+                var _valid0 = _errs65 === errors;
                 valid0 = valid0 || _valid0;
               }
             }
@@ -2193,11 +2204,11 @@ var require_BrowserSessionInputCommand_validator = __commonJS({
         }
       }
       if (!valid0) {
-        const err94 = { instancePath, schemaPath: "#/anyOf", keyword: "anyOf", params: {}, message: "must match a schema in anyOf" };
+        const err95 = { instancePath, schemaPath: "#/anyOf", keyword: "anyOf", params: {}, message: "must match a schema in anyOf" };
         if (vErrors === null) {
-          vErrors = [err94];
+          vErrors = [err95];
         } else {
-          vErrors.push(err94);
+          vErrors.push(err95);
         }
         errors++;
       } else {

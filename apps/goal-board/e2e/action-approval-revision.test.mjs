@@ -110,10 +110,10 @@ async function createGoal(socket, origin, token, intent) {
     expression: "[...document.querySelectorAll('button.primary')].find(button => button.textContent.includes('New goal')).click()",
     returnByValue: true,
   });
-  await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]') !== null", 20_000);
-  await setText(socket, "textarea[aria-label=\"Message the Goal\"]", intent);
-  await waitForExpression(socket, "document.querySelector('button[aria-label=\"Send message\"]')?.disabled === false", 20_000);
-  await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Send message\"]').click()", returnByValue: true });
+  await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Goal intent\"]') !== null", 20_000);
+  await setText(socket, "textarea[aria-label=\"Goal intent\"]", intent);
+  await waitForExpression(socket, "document.querySelector('button[aria-label=\"Start Goal\"]')?.disabled === false", 20_000);
+  await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Start Goal\"]').click()", returnByValue: true });
   const waiting = await waitForSession(origin, token, (candidate) => candidate.intent === intent && candidate.runStatus === "waiting");
   return { goalId: waiting.goalId, runId: waiting.currentRunId };
 }

@@ -2,28 +2,29 @@ import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { chmodSync, closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { createServer, type Server, type Socket } from "node:net";
-import { createRuntimeComposition } from "./composition";
-import type { GoalStore } from "../../../../packages/runtime/src/goal-store";
-import type { Goal } from "../../../../packages/runtime/src/domain";
+import { createRuntimeComposition, decodeWorkerInteractionPayload, type WorkerProgress } from "./runtime/index";
+import { projectInteractionView } from "../../../packages/runtime/src/interaction-view";
+import type { GoalStore } from "../../../packages/runtime/src/goal-store";
+import type { Goal } from "../../../packages/runtime/src/domain";
 import {
     decodeTriggerActionPermissionReply,
     goalSnapshotCodec,
     type GoalSnapshotV1,
     type TriggerDeliveryFile,
-} from "../../../../packages/storage/src/index";
-import { triggerDeliveryFileBinding } from "../../../../packages/storage/src/generated/trigger-delivery-binding";
-import type { WorkerProgress } from "./worker-process";
+} from "../../../packages/storage/src/index";
+import { triggerDeliveryFileBinding } from "../../../packages/storage/src/generated/trigger-delivery-binding";
 
 type ParentMessage =
     | { readonly kind: "probe"; readonly requestId: string }
     | { readonly kind: "advance"; readonly requestId: string; readonly goalId: string; readonly runId: string }
     | { readonly kind: "cancel"; readonly requestId: string; readonly interruptId: string; readonly goalId: string; readonly runId: string }
     | { readonly kind: "permission-response"; readonly requestId: string; readonly delivery: TriggerDeliveryFile }
+    | { readonly kind: "interaction-response"; readonly requestId: string; readonly delivery: TriggerDeliveryFile }
     | { readonly kind: "store-reply"; readonly requestId: string; readonly ok: true; readonly snapshot?: GoalSnapshotV1 }
     | { readonly kind: "store-reply"; readonly requestId: string; readonly ok: false }
     | { readonly kind: "replay-offline"; readonly requestId: string }
     | { readonly kind: "worker-ack"; readonly requestId: string }
-    | { readonly kind: "detach" }
+    | { readonly kind: "detach"; readonly requestId: string }
     | { readonly kind: "close" };
 
 type DurableChildMessage =
@@ -31,7 +32,8 @@ type DurableChildMessage =
     | { readonly kind: "store-save"; readonly requestId: string; readonly workerId: string; readonly generation: string; readonly goalId: string; readonly snapshot: unknown }
     | { readonly kind: "advance-result"; readonly requestId: string; readonly goalId: string; readonly result: WorkerProgress }
     | { readonly kind: "cancel-result"; readonly requestId: string; readonly goalId: string; readonly result: WorkerProgress }
-    | { readonly kind: "permission-result"; readonly requestId: string; readonly goalId: string; readonly result: WorkerProgress };
+    | { readonly kind: "permission-result"; readonly requestId: string; readonly goalId: string; readonly result: WorkerProgress }
+    | { readonly kind: "interaction-result"; readonly requestId: string; readonly goalId: string; readonly result: WorkerProgress };
 
 type ChildMessage =
     | { readonly kind: "ready"; readonly workerId: string; readonly generation: string; readonly pid: number; readonly proof?: string; readonly assignedGoalId?: string; readonly operationActive?: boolean }
@@ -39,11 +41,12 @@ type ChildMessage =
     | DurableChildMessage
     | { readonly kind: "replay-complete"; readonly requestId: string }
     | { readonly kind: "closed" }
-    | { readonly kind: "detached" };
+    | { readonly kind: "detached"; readonly requestId: string };
 
 interface WorkerJournal {
     readonly schemaVersion: 1;
     readonly outbox: DurableChildMessage[];
+    snapshot?: GoalSnapshotV1;
 }
 
 function requiredEnvironment(name: string): string {
@@ -61,7 +64,8 @@ const journalPath = requiredEnvironment("LAZYGOAL_WORKER_JOURNAL_PATH");
 const secret = requiredEnvironment("LAZYGOAL_WORKER_SECRET");
 if (process.send === undefined) throw new Error("Worker process IPC is unavailable");
 
-const pending = new Map<string, (message: ParentMessage) => void>();
+const pending = new Map<string, { readonly receive: (message: ParentMessage) => void; readonly disconnected: () => void }>();
+const replayWaiters = new Map<string, () => void>();
 let runtime: Awaited<ReturnType<typeof createRuntimeComposition>> | undefined;
 let runtimePromise: Promise<Awaited<ReturnType<typeof createRuntimeComposition>>> | undefined;
 let assignedGoalId: string | undefined;
@@ -87,11 +91,16 @@ function ensureRuntime(): Promise<Awaited<ReturnType<typeof createRuntimeComposi
 
 const goalStore: GoalStore = {
     async restore(goalId) {
+        const local = journal.snapshot;
+        if (local?.id === goalId) return goalSnapshotCodec.decode(local);
         const response = await requestStore({ kind: "store-read", requestId: randomUUID(), goalId });
         return response === undefined ? undefined : goalSnapshotCodec.decode(response);
     },
     async save(goal: Goal) {
-        await requestStore({ kind: "store-save", requestId: randomUUID(), goalId: goal.id, snapshot: goalSnapshotCodec.encode(goal) });
+        const snapshot = goalSnapshotCodec.encode(goal);
+        journal.snapshot = snapshot;
+        saveJournal();
+        await requestStore({ kind: "store-save", requestId: randomUUID(), goalId: goal.id, snapshot });
     },
 };
 
@@ -108,18 +117,46 @@ function send(message: ChildMessage): void {
 function requestStore(message: { readonly kind: "store-read"; readonly requestId: string; readonly goalId: string }
     | { readonly kind: "store-save"; readonly requestId: string; readonly goalId: string; readonly snapshot: GoalSnapshotV1 }): Promise<GoalSnapshotV1 | undefined> {
     return new Promise((resolve, reject) => {
-        pending.set(message.requestId, (response) => {
+        const settle = (response: ParentMessage): void => {
             if (response.kind !== "store-reply" || !response.ok) {
                 reject(new Error("Supervisor rejected Worker Goal state access"));
                 return;
             }
+            if (message.kind === "store-read" && response.snapshot !== undefined) {
+                journal.snapshot = response.snapshot;
+                saveJournal();
+            }
             resolve(response.snapshot);
-        });
-        void persistAndSend({ ...message, workerId, generation }).catch((error: Error) => {
+        };
+        const settleDisconnected = (): void => {
+            pending.delete(message.requestId);
+            if (message.kind === "store-save") {
+                resolve(message.snapshot);
+                return;
+            }
+            const local = journal.snapshot;
+            if (local?.id === message.goalId) {
+                resolve(local);
+                return;
+            }
+            resolve(undefined);
+        };
+        pending.set(message.requestId, { receive: settle, disconnected: settleDisconnected });
+        void persistAndSend({ ...message, workerId, generation }).then(() => {
+            if (!isSupervisorConnected()) pending.get(message.requestId)?.disconnected();
+        }, (error: Error) => {
             pending.delete(message.requestId);
             reject(error);
         });
     });
+}
+
+function isSupervisorConnected(): boolean {
+    return process.connected || (supervisorSocket !== undefined && !supervisorSocket.destroyed);
+}
+
+function settlePendingStoreRequestsAfterDisconnect(): void {
+    for (const request of pending.values()) request.disconnected();
 }
 
 async function persistAndSend(message: DurableChildMessage): Promise<void> {
@@ -142,26 +179,49 @@ function removeOutbox(requestId: string): void {
 
 async function handle(message: ParentMessage): Promise<void> {
     if (message.kind === "store-reply") {
-        removeOutbox(message.requestId);
-        pending.get(message.requestId)?.(message);
+        if (message.ok) removeOutbox(message.requestId);
+        pending.get(message.requestId)?.receive(message);
         pending.delete(message.requestId);
+        replayWaiters.get(message.requestId)?.();
+        replayWaiters.delete(message.requestId);
         return;
     }
     if (message.kind === "worker-ack") {
         removeOutbox(message.requestId);
+        replayWaiters.get(message.requestId)?.();
+        replayWaiters.delete(message.requestId);
         return;
     }
     if (message.kind === "replay-offline") {
-        for (const item of journal.outbox) send(item);
+        const outbox = [...journal.outbox];
+        for (const item of outbox) {
+            if (!journal.outbox.some((queued) => queued.requestId === item.requestId)) continue;
+            await new Promise<void>((resolve) => {
+                const timer = setTimeout(() => {
+                    replayWaiters.delete(item.requestId);
+                    resolve();
+                }, 5000);
+                replayWaiters.set(item.requestId, () => {
+                    clearTimeout(timer);
+                    resolve();
+                });
+                send(item);
+            });
+        }
         send({ kind: "replay-complete", requestId: message.requestId });
         return;
     }
     if (message.kind === "detach") {
         const current = supervisorSocket;
-        if (current !== undefined) {
-            send({ kind: "detached" });
-            supervisorSocket = undefined;
-            current.end();
+        if (process.connected) {
+            if (process.send !== undefined) {
+                process.send({ kind: "detached", requestId: message.requestId }, () => process.disconnect?.());
+            }
+        } else if (current !== undefined) {
+            current.write(`${JSON.stringify({ kind: "detached", requestId: message.requestId })}\n`, () => {
+                if (supervisorSocket === current) supervisorSocket = undefined;
+                current.end();
+            });
         }
         return;
     }
@@ -198,6 +258,22 @@ async function handle(message: ParentMessage): Promise<void> {
         }
         operationActive = true;
         const operation = executePermissionResponse(message);
+        activeAdvance = operation;
+        await operation;
+        if (activeAdvance === operation) activeAdvance = undefined;
+        operationActive = false;
+        return;
+    }
+    if (message.kind === "interaction-response") {
+        const goalId = message.delivery.goalId;
+        if (operationActive || assignedGoalId === undefined || assignedRunId === undefined
+            || goalId === undefined || assignedGoalId !== goalId) {
+            await persistAndSend({ kind: "interaction-result", requestId: message.requestId, goalId: goalId ?? "",
+                result: { kind: "rejected", code: "WORKER_GOAL_MISMATCH", message: "Worker does not own the interaction target" } });
+            return;
+        }
+        operationActive = true;
+        const operation = executeInteractionResponse(message);
         activeAdvance = operation;
         await operation;
         if (activeAdvance === operation) activeAdvance = undefined;
@@ -285,6 +361,45 @@ async function executePermissionResponse(message: Extract<ParentMessage, { reado
     await persistAndSend({ kind: "permission-result", requestId: message.requestId, goalId, result: progress });
 }
 
+async function executeInteractionResponse(message: Extract<ParentMessage, { readonly kind: "interaction-response" }>): Promise<void> {
+    const delivery = message.delivery;
+    const goalId = delivery.goalId ?? "";
+    let progress: WorkerProgress;
+    try {
+        const payload = decodeWorkerInteractionPayload(delivery);
+        if (assignedGoalId !== goalId || assignedRunId !== payload.runId
+            || payload.workerId !== workerId || payload.generation !== generation) {
+            throw new Error("Interaction Trigger belongs to another Worker generation");
+        }
+        const currentRuntime = await ensureRuntime();
+        const goal = await currentRuntime.store.restore(goalId);
+        const interaction = goal === undefined ? undefined : projectInteractionView(goal);
+        const localId = goal?.state.run.pendingAction?.action.actionId
+            ?? goal?.state.run.pendingInteraction?.requestId;
+        if (goal === undefined || goal.state.run.id !== payload.runId || goal.state.run.status !== "waiting"
+            || (goal.state.commitRevision ?? 0) !== payload.commitRevision
+            || interaction === undefined || interaction.interactionId !== payload.interactionId
+            || interaction.runId !== payload.runId || localId !== payload.requestId) {
+            throw new Error("Interaction Trigger is stale for the current Goal wait");
+        }
+        const result = await currentRuntime.commands.resume({
+            ref: { goalId, runId: payload.runId },
+            action: payload.action,
+        });
+        progress = !result.ok
+            ? { kind: "rejected", code: result.error.code, message: "Goal interaction was not accepted" }
+            : result.kind === "waiting"
+                ? { kind: "waiting", waitingFor: result.waitingFor }
+                : result.goal.state.run.status === "completed" || result.goal.state.run.status === "failed" || result.goal.state.run.status === "cancelled"
+                    ? { kind: "terminal", status: result.goal.state.run.status }
+                    : { kind: "rejected", code: "NONTERMINAL_RESULT", message: "Runtime returned an unsettled Goal" };
+    } catch {
+        progress = { kind: "rejected", code: "INTERACTION_REJECTED", message: "Goal interaction was rejected" };
+    }
+    latestProgress = { goalId, result: progress };
+    await persistAndSend({ kind: "interaction-result", requestId: message.requestId, goalId, result: progress });
+}
+
 async function cancelAssignedGoal(message: Extract<ParentMessage, { readonly kind: "cancel" }>): Promise<WorkerProgress> {
     if (assignedGoalId !== message.goalId || assignedRunId !== message.runId) {
         return { kind: "rejected", code: "WORKER_GOAL_MISMATCH", message: "Worker does not own the cancellation target" };
@@ -364,7 +479,10 @@ function acceptSupervisor(client: Socket): void {
                 }
                 authenticated = true;
                 supervisorSocket = client;
-                client.on("close", () => { if (supervisorSocket === client) supervisorSocket = undefined; });
+                client.on("close", () => {
+                    if (supervisorSocket === client) supervisorSocket = undefined;
+                    settlePendingStoreRequestsAfterDisconnect();
+                });
                 client.write(`${JSON.stringify({ kind: "ready", workerId, generation, pid: process.pid,
                     proof: hmac(secret, `worker:${attach.nonce}`), ...(assignedGoalId === undefined ? {} : { assignedGoalId }), operationActive })}\n`);
                 continue;
@@ -396,12 +514,18 @@ function parseParentMessage(value: unknown): ParentMessage | undefined {
         const delivery = triggerDeliveryFileBinding.read(value.delivery, "reject");
         return delivery.ok ? { kind: "permission-response", requestId: value.requestId, delivery: delivery.data } : undefined;
     }
+    if (value.kind === "interaction-response" && "requestId" in value && typeof value.requestId === "string"
+        && "delivery" in value) {
+        const delivery = triggerDeliveryFileBinding.read(value.delivery, "reject");
+        return delivery.ok ? { kind: "interaction-response", requestId: value.requestId, delivery: delivery.data } : undefined;
+    }
     if (value.kind === "store-reply" && "requestId" in value && typeof value.requestId === "string"
         && "ok" in value && typeof value.ok === "boolean"
         && (value.ok === false || "snapshot" in value)) return value as ParentMessage;
     if (value.kind === "replay-offline" && "requestId" in value && typeof value.requestId === "string") return value as ParentMessage;
     if (value.kind === "worker-ack" && "requestId" in value && typeof value.requestId === "string") return value as ParentMessage;
-    if (value.kind === "detach" || value.kind === "close") return value as ParentMessage;
+    if (value.kind === "detach" && "requestId" in value && typeof value.requestId === "string") return value as ParentMessage;
+    if (value.kind === "close") return value as ParentMessage;
     return undefined;
 }
 
@@ -432,7 +556,16 @@ function saveJournal(): void {
 function isJournal(value: unknown): value is WorkerJournal {
     if (typeof value !== "object" || value === null) return false;
     const item = value as Record<string, unknown>;
-    return item.schemaVersion === 1 && Array.isArray(item.outbox) && item.outbox.every(isDurableChildMessage);
+    if (item.schemaVersion !== 1 || !Array.isArray(item.outbox) || !item.outbox.every(isDurableChildMessage)) return false;
+    if (item.snapshot !== undefined) {
+        try {
+            const goal = goalSnapshotCodec.decode(item.snapshot);
+            if (goal.id !== (item.snapshot as Record<string, unknown>).id) return false;
+        } catch {
+            return false;
+        }
+    }
+    return true;
 }
 
 function isDurableChildMessage(value: unknown): value is DurableChildMessage {
@@ -441,7 +574,7 @@ function isDurableChildMessage(value: unknown): value is DurableChildMessage {
     if (typeof item.requestId !== "string" || typeof item.kind !== "string") return false;
     if (item.kind === "store-read") return typeof item.workerId === "string" && typeof item.generation === "string" && typeof item.goalId === "string";
     if (item.kind === "store-save") return typeof item.workerId === "string" && typeof item.generation === "string" && typeof item.goalId === "string" && "snapshot" in item;
-    if (item.kind === "advance-result" || item.kind === "cancel-result" || item.kind === "permission-result") {
+    if (item.kind === "advance-result" || item.kind === "cancel-result" || item.kind === "permission-result" || item.kind === "interaction-result") {
         return typeof item.goalId === "string" && isWorkerProgress(item.result);
     }
     return false;
@@ -483,6 +616,7 @@ function isMissing(error: unknown): boolean {
     return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
 }
 
+process.on("disconnect", settlePendingStoreRequestsAfterDisconnect);
 process.on("message", (value: unknown) => {
     const message = parseParentMessage(value);
     if (message !== undefined) void handle(message);

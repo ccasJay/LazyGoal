@@ -15,7 +15,7 @@ import type { ControlIntents } from "./useControlIntents";
 import { pendingIntentOfKind } from "../control/reducer";
 
 /**
- * 会话输入、Run 控制与结果不明核验的唯一命令入口。
+ * 首次 Goal 提交、Run 控制与结果不明核验的命令入口。
  *
  * @remarks
  * 所有命令都经由统一控制状态提交；本钩子不保存第二份 busy 或 unknown 状态。
@@ -24,7 +24,6 @@ import { pendingIntentOfKind } from "../control/reducer";
 export function useRunCommands({
   session,
   sessionState,
-  canSendText,
   draftGoalId,
   draftPlanMode,
   draftModelId,
@@ -37,7 +36,6 @@ export function useRunCommands({
 }: {
   session: BrowserGoalSessionState | null;
   sessionState?: BrowserSessionState | null;
-  canSendText: boolean;
   draftGoalId: React.MutableRefObject<string | null>;
   draftPlanMode: boolean;
   draftModelId: string | null;
@@ -144,98 +142,6 @@ export function useRunCommands({
     [control.submit]
   );
 
-  const submitMessage = useCallback(
-    async (content: string): Promise<boolean> => {
-      const dispatched = await dispatchBrowserInput(content);
-      if (dispatched.kind === "error") {
-        setCommandError(dispatched.message);
-        return false;
-      }
-      if (dispatched.kind === "model") {
-        if (
-          !session ||
-          commandBusy ||
-          !["waiting", "completed", "failed"].includes(session.runStatus) ||
-          session.pendingAction !== undefined
-        )
-          return false;
-        onOpenModelPicker({ kind: "goal", goalId: session.goalId, runId: session.currentRunId });
-        setCommandError(null);
-        return true;
-      }
-      if (dispatched.kind === "plan") {
-        if (!session || commandBusy) return false;
-        setCommandError(null);
-        const receipt = await control.submit({
-          kind: "plan_mode",
-          intentId: crypto.randomUUID(),
-          goalId: session.goalId,
-          runId: session.currentRunId,
-        });
-        if (receipt.status === "accepted" || receipt.status === "existing") {
-          await onRefreshSession();
-          return true;
-        }
-        if (receipt.status === "rejected") {
-          setCommandError("Plan Mode can only be selected before the Run starts or after it ends.");
-          if (receipt.refresh === true) await onRefreshSession();
-          return false;
-        }
-        setCommandError("The Plan Mode result is unknown. Reload before trying again.");
-        return false;
-      }
-      const trimmed = dispatched.content.trim();
-      if (!session || !trimmed || !canSendText || commandBusy) return false;
-      setCommandError(null);
-      const receipt = await submitInput(session.goalId, {
-        kind: "message",
-        inputId: crypto.randomUUID(),
-        content: trimmed,
-      });
-      if (receipt.status === "rejected") {
-        setCommandError(receipt.error);
-        await onRefreshSession();
-        return false;
-      }
-      if (receipt.status === "unknown") {
-        setCommandError("The message result is unknown. Verify it before sending it again.");
-        return false;
-      }
-      await onRefreshSession();
-      return true;
-    },
-    [session, commandBusy, canSendText, control.submit, submitInput, onOpenModelPicker, onRefreshSession, setCommandError]
-  );
-
-  const submitSteer = useCallback(
-    async (
-      content: string,
-      queueBinding?: { readonly messageId: string; readonly queueRevision: number },
-    ): Promise<boolean> => {
-      if (!session || session.runStatus !== "running" || !content.trim() || commandBusy) return false;
-      setCommandError(null);
-      const receipt = await submitInput(session.goalId, {
-        kind: "steer",
-        inputId: crypto.randomUUID(),
-        runId: session.currentRunId,
-        content: content.trim(),
-        ...(queueBinding === undefined ? {} : { queueBinding }),
-      });
-      if (receipt.status === "rejected") {
-        setCommandError(receipt.error);
-        await onRefreshSession();
-        return false;
-      }
-      if (receipt.status === "unknown") {
-        setCommandError("The Steer result is unknown. Verify it before sending it again.");
-        return false;
-      }
-      await onRefreshSession();
-      return true;
-    },
-    [session, commandBusy, submitInput, onRefreshSession, setCommandError]
-  );
-
   /**
    * 按原身份核验一条结果不明的输入。
    *
@@ -313,7 +219,7 @@ export function useRunCommands({
     await onRefreshSession();
   }, [session, stoppingRunId, submitInput, onRefreshSession, setCommandError]);
 
-  const submitResume = useCallback(async () => {
+  const submitResume = useCallback(async (acknowledgeUnknownEffects = false) => {
     if (!session || commandBusy) return;
     setCommandError(null);
     const receipt = await submitInput(session.goalId, {
@@ -321,6 +227,7 @@ export function useRunCommands({
       inputId: crypto.randomUUID(),
       runId: session.currentRunId,
       commitRevision: sessionState?.commitRevision ?? 0,
+      acknowledgeUnknownEffects,
     });
     if (receipt.status === "rejected") {
       setCommandError(receipt.error);
@@ -341,8 +248,6 @@ export function useRunCommands({
     setCommandError,
     stoppingRunId,
     submitDraftMessage,
-    submitMessage,
-    submitSteer,
     interruptCurrentRun,
     submitResume,
     onInterrupt: interruptCurrentRun,

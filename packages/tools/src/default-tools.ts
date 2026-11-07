@@ -49,11 +49,6 @@ import {
     GIT_WORKTREE_REMOVE_TOOL_ID,
 } from "./git-worktree-tools";
 import { ReadFileTool, READ_FILE_TOOL_ID } from "./read-file";
-import {
-    SpawnSubagentTool,
-    SPAWN_SUBAGENT_TOOL_ID,
-    type SubagentSpawner,
-} from "./spawn-subagent";
 import { WebFetchTool, WEB_FETCH_TOOL_ID } from "./web-fetch";
 import { WebSearchTool, WEB_SEARCH_TOOL_ID } from "./web-search";
 import { WriteFileTool, WRITE_FILE_TOOL_ID } from "./write-file";
@@ -96,17 +91,14 @@ export const DEFAULT_TOOL_IDS: readonly string[] = Object.freeze([
     GIT_WORKTREE_ADD_TOOL_ID,
     GIT_WORKTREE_REMOVE_TOOL_ID,
     EXECUTE_PROGRAM_TOOL_ID,
-    SPAWN_SUBAGENT_TOOL_ID,
 ]);
 
 /**
  * 创建默认工具集时的可选运行时依赖。
  *
- * @remarks 未提供 `subagentSpawner` 时不会注册 `spawn_subagent`。
- *
  * @example
  * ```ts
- * const registrations = createDefaultToolRegistrations("/workspace", { subagentSpawner });
+ * const registrations = createDefaultToolRegistrations("/workspace");
  * ```
  */
 export interface DefaultToolOptions {
@@ -114,8 +106,6 @@ export interface DefaultToolOptions {
     readonly processManager?: ProcessManager;
     /** 进程持久化存储。 */
     readonly processSessionStore?: ProcessSessionStore;
-    /** 子 Agent 委派创建与等待执行器。 */
-    readonly subagentSpawner?: SubagentSpawner;
 }
 
 /**
@@ -125,12 +115,12 @@ export interface DefaultToolOptions {
  * 为指定的 `workspaceRoot` 实例化所有默认工具并封装为 `ToolRegistration`。
  *
  * @param workspaceRoot - 当前工作区根目录。
- * @param options - 可选的进程管理器、进程存储与子 Agent 派发器。
+ * @param options - 可选的长进程管理器与持久化存储。
  * @returns 包含默认工具绑定的 ToolRegistration 数组。
  *
  * @example
  * ```ts
- * const registrations = createDefaultToolRegistrations("/path/to/project", { subagentSpawner });
+ * const registrations = createDefaultToolRegistrations("/path/to/project");
  * const registry = new InMemoryToolRegistry(registrations);
  * ```
  */
@@ -167,12 +157,6 @@ export function createDefaultToolRegistrations(
             createToolRegistration(new ProcessStartTool(workspaceRoot, options.processManager)),
             createToolRegistration(new ProcessReadTool(options.processManager, options.processSessionStore)),
             createToolRegistration(new ProcessStopTool(options.processManager, options.processSessionStore)),
-        );
-    }
-
-    if (options?.subagentSpawner !== undefined) {
-        registrations.push(
-            createToolRegistration(new SpawnSubagentTool(options.subagentSpawner)),
         );
     }
 

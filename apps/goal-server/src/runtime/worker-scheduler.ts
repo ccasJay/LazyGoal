@@ -18,6 +18,7 @@ import type {
     TriggerDeliveryResult,
 } from "../../../../packages/storage/src/trigger-delivery-store";
 import type { TriggerActionPermissionReply, TriggerActionPermissionRequest } from "../../../../packages/storage/src/trigger-permission";
+import { decodeWorkerInteractionPayload } from "./worker-interaction";
 import { decideWorkerActionPermission } from "./worker-permission";
 import { SupervisorWorkerProcess, type WorkerProcessExit, type WorkerProgress } from "./worker-process";
 import {
@@ -59,6 +60,19 @@ export interface WorkerActionPermissionStatus {
  * ```
  */
 export type WorkerPermissionReplyResult =
+    | { readonly kind: "handled"; readonly progress: WorkerProgress }
+    | { readonly kind: "settled"; readonly progress: WorkerProgress };
+
+/**
+ * Supervisor 接收一条 Goal 结构化交互 Trigger 后的结果。
+ *
+ * @remarks 新回应在 Worker Runtime 应用并保存后返回 `handled`；同一已结算投递重试返回 `settled`。
+ * @example
+ * ```ts
+ * const result: WorkerInteractionResult = { kind: "handled", progress: { kind: "waiting", waitingFor: "blocked" } };
+ * ```
+ */
+export type WorkerInteractionResult =
     | { readonly kind: "handled"; readonly progress: WorkerProgress }
     | { readonly kind: "settled"; readonly progress: WorkerProgress };
 
@@ -310,6 +324,72 @@ export class WorkerScheduler {
     }
 
     /**
+     * 接收并路由已认证的 Goal 结构化交互回应。
+     *
+     * @remarks 回应须绑定当前 Run、等待身份、Snapshot 修订及 Worker 代次；Worker Runtime
+     * 再次验证领域决定。若等待是 Action 权限，请求与回应仅在进度保存后原子结算。
+     * @param input - `interaction` Trigger 投递。
+     * @param principal - 已认证且可访问目标 Goal 的用户或 Supervisor 身份。
+     * @returns Worker 已应用回应后的等待、终态或拒绝进度，或既有收据。
+     * @throws 来源、Goal、等待、Run、修订或 Worker 代次不匹配及 IPC/存储故障时抛出。
+     * @example
+     * ```ts
+     * const result = await scheduler.handleInteractionTrigger(delivery, authenticatedUser);
+     * ```
+     */
+    async handleInteractionTrigger(input: unknown, principal: TriggerIngressPrincipal): Promise<WorkerInteractionResult> {
+        const parsed = triggerDeliveryFileBinding.read(input, "reject");
+        if (!parsed.ok || parsed.data.trigger.purpose !== "interaction" || parsed.data.goalId === undefined
+            || (principal.role !== "user" && principal.role !== "supervisor")
+            || parsed.data.trigger.source !== principal.role) {
+            throw new Error("Goal interaction requires an authorized user or Supervisor Trigger");
+        }
+        const delivery = parsed.data;
+        const goalId = delivery.goalId;
+        if (goalId === undefined) throw new Error("Goal interaction requires a Goal identity");
+        return this.options.owner.runExclusive(JSON.stringify(["interaction-trigger", goalId, delivery.deliveryId]), async () => {
+            const receipt = receiveAuthorizedTrigger(this.options.deliveries, delivery, principal);
+            if (receipt.status === "settled") {
+                if (receipt.result.kind !== "handled") throw new Error("Interaction Trigger has a conflicting result");
+                return { kind: "settled", progress: await this.currentProgress(goalId) };
+            }
+            const payload = decodeWorkerInteractionPayload(delivery);
+            const queue = this.options.deliveries.queueRecord(goalId);
+            const slot = queue?.workerId === undefined || queue.generation === undefined
+                ? undefined
+                : this.workers.get(queue.workerId);
+            if (queue?.status !== "waiting" || slot === undefined || slot.generation !== queue.generation
+                || slot.process.assignedGoalId !== goalId || payload.workerId !== slot.workerId
+                || payload.generation !== slot.generation) {
+                throw new Error("Interaction target has no matching waiting Worker");
+            }
+            const goal = await this.options.goals.restore(goalId);
+            const interaction = goal === undefined ? undefined : projectInteractionView(goal);
+            if (goal === undefined || interaction === undefined || goal.state.run.status !== "waiting"
+                || goal.state.run.id !== payload.runId
+                || (goal.state.commitRevision ?? 0) !== payload.commitRevision
+                || interaction.interactionId !== payload.interactionId
+                || interaction.runId !== payload.runId
+                || interactionLocalId(goal) !== payload.requestId) {
+                throw new Error("Interaction Trigger does not match the current Goal wait");
+            }
+            const actionId = goal.state.run.pendingAction?.action.actionId;
+            const permissionRequest = actionId === undefined ? undefined
+                : this.actionPermissionStatuses(goalId).find((item) => item.pending && item.request.actionId === actionId);
+            const progress = await slot.process.respondInteraction(delivery);
+            await this.recordProgress(slot, goalId, progress);
+            if (progress.kind !== "rejected") {
+                if (permissionRequest === undefined) {
+                    await this.options.deliveries.settle(delivery.deliveryId, { kind: "handled" });
+                } else {
+                    this.options.deliveries.settleActionPermissionInteraction(permissionRequest.deliveryId, delivery.deliveryId);
+                }
+            }
+            return { kind: "handled", progress };
+        });
+    }
+
+    /**
      * 处理用户明确要求从已确认退出 Worker 的最新 Goal 快照继续。
      *
      * @remarks
@@ -397,6 +477,32 @@ export class WorkerScheduler {
             await removeWorkerProcessRegistration(this.options.dataDirectory, workerId);
         }
         while (this.progressTasks.size > 0) await Promise.allSettled([...this.progressTasks]);
+    }
+
+    /**
+     * 关闭空闲 Worker 通道，并从仍持有 Goal 的 Worker 通道安全断开。
+     *
+     * @remarks 活动 Worker 的进程登记、Goal 绑定及本地 outbox 保留，供下一位
+     * Supervisor 通过挑战握手重新接管；当前 Supervisor 不再持有这些进程句柄。
+     * @throws 关闭或断开任一 Worker 失败时，继续处理其他 Worker 后聚合抛出。
+     * @example
+     * ```ts
+     * await scheduler.detachAll();
+     * ```
+     */
+    async detachAll(): Promise<void> {
+        const failures: unknown[] = [];
+        try { await this.closeIdle(); } catch (error) { failures.push(error); }
+        for (const [workerId, slot] of this.workers) {
+            try {
+                await slot.process.detach();
+            } catch (error) {
+                failures.push(error);
+            } finally {
+                this.workers.delete(workerId);
+            }
+        }
+        if (failures.length > 0) throw new AggregateError(failures, "Worker processes did not detach cleanly");
     }
 
     private async dispatchQueuedGoals(): Promise<void> {
@@ -875,4 +981,10 @@ export class WorkerScheduler {
         if (status === "completed" || status === "failed" || status === "cancelled") return { kind: "terminal", status };
         return { kind: "rejected", code: "GOAL_NOT_TERMINAL", message: "Goal has not reached a terminal state" };
     }
+}
+
+function interactionLocalId(goal: Goal): string | undefined {
+    const action = goal.state.run.pendingAction;
+    if (action !== undefined) return action.action.actionId;
+    return goal.state.run.pendingInteraction?.requestId;
 }

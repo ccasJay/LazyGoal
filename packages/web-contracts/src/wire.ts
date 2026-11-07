@@ -1052,6 +1052,8 @@ export type BrowserSessionInputCommand =
         readonly commitRevision: number;
         /** @pattern \S */
         readonly content?: string;
+        /** 已确认 Worker 退出后恢复运行中检查点时，承认原动作的外部副作用可能未知。 */
+        readonly acknowledgeUnknownEffects?: boolean;
     }
     | {
         readonly kind: "queue_control";

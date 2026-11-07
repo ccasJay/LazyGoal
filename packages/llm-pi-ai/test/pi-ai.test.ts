@@ -585,15 +585,8 @@ test("pi-ai serializes tool choice for generate and stream across provider proto
     const captured: Record<string, any>[] = [];
     const { opencodeGoProvider } = await import("@earendil-works/pi-ai/providers/opencode-go");
     const goModels = opencodeGoProvider().getModels();
-    const goCases = [
-        ["openai-responses", responsesBody],
-        ["anthropic-messages", anthropicBody],
-        ["google-generative-ai", googleBody],
-    ].map(([api, body]) => {
-        const model = goModels.find(candidate => candidate.api === api);
-        assert.ok(model, `expected an opencode-go model using ${api}`);
-        return ["opencode-go", model.id, body] as const;
-    });
+    const goModel = goModels.find(candidate => candidate.api === "openai-responses");
+    assert.ok(goModel, "expected an OpenCode Go model backed by the native Responses API");
     for (const [provider, model, body] of [
         ["openai", "gpt-4.1-mini", responsesBody],
         ["anthropic", "claude-sonnet-4-5", anthropicBody],
@@ -602,7 +595,8 @@ test("pi-ai serializes tool choice for generate and stream across provider proto
         ["opencode-go", "longcat-2.5-preview-free", completionsBody()],
         ["openrouter", "openai/gpt-4.1-mini", completionsBody()],
         ["deepseek", "deepseek-flash", completionsBody()],
-        ...goCases,
+        // OpenCode Go is routed through its current OpenAI Chat Completions compatibility endpoint.
+        ["opencode-go", goModel.id, completionsBody()],
     ] as const) {
         await withServer((req, res) => {
             let data = "";

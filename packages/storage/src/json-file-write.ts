@@ -1,13 +1,15 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
     appendFile,
+    link,
+    lstat,
     mkdir,
     open,
     readFile,
     rename,
     unlink,
 } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 
 /** 存储层写入原语可注入的 `node:fs/promises` 操作子集。 */
 export type FileWriteOperations = Pick<
@@ -155,7 +157,126 @@ const DEFAULT_FILE_OPERATIONS: FileWriteOperations = Object.freeze({
     unlink,
 });
 
+type CreationIntentOperations = Pick<
+    typeof import("node:fs/promises"),
+    "link" | "lstat" | "mkdir" | "open" | "readFile" | "unlink"
+>;
+
+const DEFAULT_CREATION_INTENT_OPERATIONS: CreationIntentOperations = Object.freeze({
+    link,
+    lstat,
+    mkdir,
+    open,
+    readFile,
+    unlink,
+});
+
+interface CreateJsonFileWithIntentOptions {
+    readonly directory: string;
+    readonly deliveryId: string;
+    readonly targetPath: string;
+    readonly value: unknown;
+    readonly operations?: Partial<CreationIntentOperations>;
+}
+
+interface ReleaseJsonFileCreationIntentOptions {
+    readonly directory: string;
+    readonly deliveryId: string;
+    readonly operations?: Partial<CreationIntentOperations>;
+}
+
 type AtomicWriteStage = "mkdir" | "open" | "write" | "sync" | "rename";
+
+/**
+ * 以持久化创建意图和不覆盖硬链接发布一个 JSON 文件。
+ *
+ * @remarks
+ * 意图与目标位于同一目录。相同投递的重试必须提供完全相同的 JSON；已存在的
+ * 意图内容冲突会抛错。目标已存在时仅当它与该意图是同一 inode 才返回成功，
+ * 避免把旧文件或其他投递误认作本次创建。目录及文件均使用私有权限。
+ *
+ * @param options - 创建目录、投递身份、目标路径、内容与可选文件系统替身。
+ * @returns 本次创建目标或确认该意图此前已发布时为 `true`；目标由其他文件占用时为 `false`。
+ * @throws 文件系统操作失败或同一投递的意图内容冲突时抛出。
+ * @example
+ * ```ts
+ * const created = await createJsonFileWithIntent({
+ *     directory: "/private/goals",
+ *     deliveryId: "delivery-1",
+ *     targetPath: "/private/goals/goal-1.json",
+ *     value: snapshot,
+ * });
+ * ```
+ */
+export async function createJsonFileWithIntent(
+    options: CreateJsonFileWithIntentOptions,
+): Promise<boolean> {
+    const operations = resolveCreationIntentOperations(options.operations);
+    const serialized = `${JSON.stringify(options.value)}\n`;
+    const intent = creationIntentPath(options.directory, options.deliveryId);
+    const temporary = `${intent}.${randomUUID()}.tmp`;
+
+    await operations.mkdir(options.directory, { recursive: true, mode: 0o700 });
+    try {
+        const handle = await operations.open(temporary, "wx", 0o600);
+        try {
+            await handle.writeFile(serialized, "utf8");
+            await handle.sync();
+        } finally {
+            await handle.close();
+        }
+
+        try {
+            await operations.link(temporary, intent);
+        } catch (error) {
+            if (readErrorCode(error) !== "EEXIST") throw error;
+        }
+
+        const intentInfo = await operations.lstat(intent);
+        if (!intentInfo.isFile() || await operations.readFile(intent, "utf8") !== serialized) {
+            throw new Error("Goal creation intent conflict");
+        }
+        await syncDirectory(operations, options.directory);
+
+        try {
+            await operations.link(intent, options.targetPath);
+        } catch (error) {
+            if (readErrorCode(error) !== "EEXIST") throw error;
+            const [intentStat, targetStat] = await Promise.all([
+                operations.lstat(intent),
+                operations.lstat(options.targetPath),
+            ]);
+            if (intentStat.dev !== targetStat.dev || intentStat.ino !== targetStat.ino) return false;
+        }
+
+        await syncDirectory(operations, options.directory);
+        return true;
+    } finally {
+        await operations.unlink(temporary).catch(() => undefined);
+    }
+}
+
+/**
+ * 释放已结算投递的 JSON 创建意图。
+ *
+ * @param options - 创建目录、稳定投递身份与可选文件系统替身。
+ * @returns 意图删除或已经不存在后 resolve。
+ * @throws 除文件不存在以外的删除错误原样传播。
+ * @example
+ * ```ts
+ * await releaseJsonFileCreationIntent({ directory: "/private/goals", deliveryId: "delivery-1" });
+ * ```
+ */
+export async function releaseJsonFileCreationIntent(
+    options: ReleaseJsonFileCreationIntentOptions,
+): Promise<void> {
+    const operations = resolveCreationIntentOperations(options.operations);
+    try {
+        await operations.unlink(creationIntentPath(options.directory, options.deliveryId));
+    } catch (error) {
+        if (readErrorCode(error) !== "ENOENT") throw error;
+    }
+}
 
 /**
  * 原子替换一个 JSON 文件。
@@ -324,6 +445,28 @@ async function appendLine(
 
     try {
         await handle.writeFile(line, "utf8");
+        await handle.sync();
+    } finally {
+        await handle.close();
+    }
+}
+
+function resolveCreationIntentOperations(
+    overrides: Partial<CreationIntentOperations> | undefined,
+): CreationIntentOperations {
+    return overrides === undefined
+        ? DEFAULT_CREATION_INTENT_OPERATIONS
+        : { ...DEFAULT_CREATION_INTENT_OPERATIONS, ...overrides };
+}
+
+function creationIntentPath(directory: string, deliveryId: string): string {
+    const digest = createHash("sha256").update(deliveryId).digest("hex");
+    return join(directory, `.trigger-create-${digest}.tmp`);
+}
+
+async function syncDirectory(operations: CreationIntentOperations, directory: string): Promise<void> {
+    const handle = await operations.open(directory, "r");
+    try {
         await handle.sync();
     } finally {
         await handle.close();

@@ -203,6 +203,25 @@ export class TriggerDeliveryStore {
     }
 
     /**
+     * 读取投递首次写入时由 SQLite 分配的稳定顺序号。
+     *
+     * @param deliveryId - 单次投递身份。
+     * @returns 数据库插入顺序；投递不存在时返回 `undefined`。
+     * @throws SQLite 读取失败时抛出。
+     * @example
+     * ```ts
+     * const sequence = store.sequence("delivery-1");
+     * ```
+     */
+    sequence(deliveryId: string): number | undefined {
+        const row = this.database.prepare("SELECT rowid AS sequence FROM trigger_deliveries WHERE id = ?")
+            .get(deliveryId) as { sequence: number } | undefined;
+        if (row === undefined) return undefined;
+        if (!Number.isSafeInteger(row.sequence) || row.sequence < 1) throw new Error("Invalid trigger delivery sequence");
+        return row.sequence;
+    }
+
+    /**
      * 按首次持久化顺序列出待处理投递身份。
      *
      * @remarks
@@ -327,6 +346,66 @@ export class TriggerDeliveryStore {
             }
             this.database.exec("COMMIT");
             return [this.read(requestDeliveryId)!, this.read(replyDeliveryId)!];
+        } catch (error) {
+            this.database.exec("ROLLBACK");
+            throw error;
+        }
+    }
+
+    /**
+     * 原子结算 Worker Action 权限请求及其结构化用户回应。
+     *
+     * @remarks
+     * 用户回应使用 `interaction` Trigger，以保留修订参数、未知结果恢复和持续授权等
+     * Runtime 决定。此方法核对两条投递关联同一 Goal 与 Worker 代次，并确认回应针对
+     * 原 Action；只有 Worker 已应用回应且进度已保存后才允许调用。
+     * @param requestDeliveryId - Worker 发出的权限请求投递身份。
+     * @param interactionDeliveryId - 用户或 Supervisor 发出的结构化回应投递身份。
+     * @returns 两条均已结算为 `handled` 的持久收据。
+     * @throws 载荷、Action、Goal、来源或投递状态不匹配时回滚并抛出。
+     * @example
+     * ```ts
+     * store.settleActionPermissionInteraction("permission-request-1", "interaction-reply-1");
+     * ```
+     */
+    settleActionPermissionInteraction(requestDeliveryId: string, interactionDeliveryId: string): readonly [TriggerDeliveryResult, TriggerDeliveryResult] {
+        this.database.exec("BEGIN IMMEDIATE");
+        try {
+            const request = this.read(requestDeliveryId);
+            const reply = this.read(interactionDeliveryId);
+            if (request === undefined || reply === undefined
+                || request.delivery.trigger.purpose !== "permission" || request.delivery.trigger.source !== "worker"
+                || reply.delivery.trigger.purpose !== "interaction"
+                || (reply.delivery.trigger.source !== "user" && reply.delivery.trigger.source !== "supervisor")
+                || request.delivery.goalId === undefined || request.delivery.goalId !== reply.delivery.goalId
+                || request.delivery.trigger.workerId === undefined || request.delivery.trigger.generation === undefined) {
+                throw new Error("Action permission interaction identity is inconsistent");
+            }
+            const actionRequest = decodeTriggerActionPermissionRequest(request.delivery.trigger.payload);
+            const payload: unknown = JSON.parse(reply.delivery.trigger.payload);
+            if (!isRecord(payload) || payload.type !== "interaction_response"
+                || payload.runId !== actionRequest.runId
+                || payload.requestId !== actionRequest.actionId
+                || payload.interactionId !== actionRequest.interactionId
+                || payload.commitRevision !== actionRequest.commitRevision
+                || payload.workerId !== request.delivery.trigger.workerId
+                || payload.generation !== request.delivery.trigger.generation
+                || !isRecord(payload.response) || payload.response.actionId !== actionRequest.actionId
+                || !["approve_action", "approve_action_revision", "reject_action"].includes(String(payload.response.kind))) {
+                throw new Error("Action permission interaction payload is inconsistent");
+            }
+            for (const current of [request, reply]) {
+                if (current.status === "settled" && current.result.kind !== "handled") {
+                    throw new Error("Action permission interaction has a conflicting result");
+                }
+            }
+            const result = canonicalJson({ kind: "handled" });
+            for (const deliveryId of [requestDeliveryId, interactionDeliveryId]) {
+                this.database.prepare("UPDATE trigger_deliveries SET result = ? WHERE id = ? AND result IS NULL").run(result, deliveryId);
+                this.database.prepare("DELETE FROM trigger_permission_failures WHERE delivery_id = ?").run(deliveryId);
+            }
+            this.database.exec("COMMIT");
+            return [this.read(requestDeliveryId)!, this.read(interactionDeliveryId)!];
         } catch (error) {
             this.database.exec("ROLLBACK");
             throw error;

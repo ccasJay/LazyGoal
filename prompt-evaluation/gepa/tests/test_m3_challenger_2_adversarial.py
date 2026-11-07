@@ -1,18 +1,15 @@
-"""Milestone 3 Challenger 2: Adversarial Destruction and Stress Test Suite.
+"""Adversarial tests for the GEPA status, storage, and command-line boundary.
 
-Empirical validations for //TODO 4:
-1. Zero Signal Monitor: Strict monitor of os.kill, os.killpg, signal.pthread_kill,
-   asserting that stop_run and CLI stop NEVER emit SIGTERM/SIGKILL or any termination signal,
-   and rely strictly on gepa/gepa.stop cooperative flag.
-2. Corruption & Anomaly Fault Tolerance: Pathological and adversarial inputs
+The suite checks:
+1. Corruption & Anomaly Fault Tolerance: Pathological and adversarial inputs
    (corrupted state.json, corrupted owner.json, corrupted run.json, nonexistent runId,
    path traversal runId, unformed directory). Assert status command catches them accurately
    (e.g., workerHealth="corrupt" or RunStoreError code="corrupted"/"unformed") and NEVER
    crashes with an unhandled Python traceback.
-3. CLI Single-Line Strict JSON Contract: Audit all CLI subcommands across success and failure
+2. CLI Single-Line Strict JSON Contract: Audit supported CLI subcommands across success and failure
    modes. Assert stdout on success is 100% strictly single-line parsable JSON without prefix/suffix/log
-   pollution; assert stdout on failure is strictly empty (zero pollution), diagnostics routed to stderr,
-   and zero raw tracebacks leaked.
+   pollution; verify disabled execution commands fail with an explicit diagnostic, no stdout, and no
+   Run state or Worker ownership side effects. Failure diagnostics remain on stderr without raw tracebacks.
 """
 
 from __future__ import annotations
@@ -527,8 +524,7 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
     # 3. CLI 单行 JSON 严格输出契约 (CLI Strict Output Contract)
     # =========================================================================
     def test_cli_subcommands_success_strict_single_line_json(self) -> None:
-        """测试所有子命令在成功时 stdout 必须是 100% 严格的单行 JSON，绝无多行或前后缀污染。"""
-        # 1. preflight
+        """可用的只读与控制子命令必须输出严格单行 JSON。"""
         stdout_buf = io.StringIO()
         stderr_buf = io.StringIO()
         with patch("sys.stdout", stdout_buf), patch("sys.stderr", stderr_buf):
@@ -541,61 +537,10 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertStrictSingleLineJson(stdout_buf.getvalue())
 
-        # 2. start with --yes
-        stdout_buf = io.StringIO()
-        stderr_buf = io.StringIO()
-        with patch("sys.stdout", stdout_buf), patch("sys.stderr", stderr_buf):
-            code = cli_main([
-                "start",
-                "--request", str(self.request_path),
-                "--yes",
-                "--workspace-root", str(self.workspace_root),
-                "--runs-dir", str(self.runs_dir),
-            ])
-        self.assertEqual(code, 0)
-        start_payload = self.assertStrictSingleLineJson(stdout_buf.getvalue())
-        run_id = start_payload["runId"]
-        self._track_pid(start_payload["workerPid"])
-
-        # 3. status
-        stdout_buf = io.StringIO()
-        stderr_buf = io.StringIO()
-        with patch("sys.stdout", stdout_buf), patch("sys.stderr", stderr_buf):
-            code = cli_main(["status", "--run", run_id, "--runs-dir", str(self.runs_dir)])
-        self.assertEqual(code, 0)
-        self.assertStrictSingleLineJson(stdout_buf.getvalue())
-
-        # 4. stop
-        stdout_buf = io.StringIO()
-        stderr_buf = io.StringIO()
-        with patch("sys.stdout", stdout_buf), patch("sys.stderr", stderr_buf):
-            code = cli_main(["stop", "--run", run_id, "--runs-dir", str(self.runs_dir)])
-        self.assertEqual(code, 0)
-        self.assertStrictSingleLineJson(stdout_buf.getvalue())
-
-        # 5. resume with --yes
-        # 移除 active worker owner
-        run_dir = self.runs_dir / run_id
-        if (run_dir / "owner.json").exists():
-            (run_dir / "owner.json").unlink()
-        (run_dir / "gepa" / "gepa_state.bin").write_bytes(b"test checkpoint")
-        stdout_buf = io.StringIO()
-        stderr_buf = io.StringIO()
-        with patch("sys.stdout", stdout_buf), patch("sys.stderr", stderr_buf), patch(
-            "gepa.core.state.GEPAState.load"
-        ):
-            code = cli_main([
-                "resume",
-                "--run", run_id,
-                "--yes",
-                "--workspace-root", str(self.workspace_root),
-                "--runs-dir", str(self.runs_dir),
-            ])
-        self.assertEqual(code, 0)
-        resumed_payload = self.assertStrictSingleLineJson(stdout_buf.getvalue())
-        self._track_pid(resumed_payload["workerPid"])
-
-        # 6. report (写入 terminal report)
+        # Execution is unavailable; exercise the supported read-only/control commands on a fixture Run.
+        run_id = "run_adv_readonly_cli_contract"
+        manifest = self._create_helper_manifest(run_id)
+        run_dir = self.store.initialize_run(manifest)
         self.store.update_state(
             run_id,
             lifecycle_status="succeeded",
@@ -604,41 +549,60 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
         )
         generate_and_save_run_report(run_dir)
 
-        stdout_buf = io.StringIO()
-        stderr_buf = io.StringIO()
-        with patch("sys.stdout", stdout_buf), patch("sys.stderr", stderr_buf):
-            code = cli_main(["report", "--run", run_id, "--runs-dir", str(self.runs_dir)])
-        self.assertEqual(code, 0)
-        self.assertStrictSingleLineJson(stdout_buf.getvalue())
+        for argv in (
+            ["status", "--run", run_id, "--runs-dir", str(self.runs_dir)],
+            ["stop", "--run", run_id, "--runs-dir", str(self.runs_dir)],
+            ["report", "--run", run_id, "--runs-dir", str(self.runs_dir)],
+            ["wait", "--run", run_id, "--runs-dir", str(self.runs_dir)],
+        ):
+            stdout_buf = io.StringIO()
+            stderr_buf = io.StringIO()
+            with patch("sys.stdout", stdout_buf), patch("sys.stderr", stderr_buf):
+                code = cli_main(argv)
+            self.assertEqual(code, 0, f"CLI command should succeed: {argv}")
+            self.assertStrictSingleLineJson(stdout_buf.getvalue())
+
+    def test_execution_cli_commands_report_unsupported_without_output(self) -> None:
+        """start、resume 与 worker 都明确拒绝，且不写入成功结果。"""
+        run_id = "run_adv_disabled_cli_contract"
+        manifest = self._create_helper_manifest(run_id)
+        run_dir = self.store.initialize_run(manifest)
+        initial_lifecycle_status = self.store.read_state(run_id).lifecycle_status
+        scenarios = (
+            ["start", "--request", str(self.request_path), "--workspace-root", str(self.workspace_root), "--runs-dir", str(self.runs_dir)],
+            ["start", "--request", str(self.request_path), "--yes", "--workspace-root", str(self.workspace_root), "--runs-dir", str(self.runs_dir)],
+            ["resume", "--run", run_id, "--workspace-root", str(self.workspace_root), "--runs-dir", str(self.runs_dir)],
+            ["resume", "--run", run_id, "--yes", "--workspace-root", str(self.workspace_root), "--runs-dir", str(self.runs_dir)],
+        )
+        for argv in scenarios:
+            stdout_buf = io.StringIO()
+            stderr_buf = io.StringIO()
+            with self.subTest(command=argv[0], confirmed="--yes" in argv), patch("sys.stdout", stdout_buf), patch("sys.stderr", stderr_buf):
+                code = cli_main(argv)
+            self.assertEqual(code, 1)
+            self.assertEqual(stdout_buf.getvalue(), "")
+            self.assertIn("Unsupported: GEPA execution is currently unavailable in the Worker/Trigger runtime.", stderr_buf.getvalue())
+            self.assertNotIn("Traceback (most recent call last):", stderr_buf.getvalue())
+        self.assertFalse((run_dir / "owner.json").exists())
+        self.assertEqual(self.store.read_state(run_id).lifecycle_status, initial_lifecycle_status)
 
     def test_cli_subcommands_failure_zero_stdout_pollution(self) -> None:
-        """测试所有子命令在失败时 stdout 严格为零（空字符串），stderr 携带精准诊断且零 Traceback。"""
-        run_id = "run_adv_failure_contract"
+        """受支持子命令的失败保持 stdout 为空，诊断写入 stderr 且不泄露裸 Traceback。"""
+        run_id = "run_adv_disabled_worker_cli"
         manifest = self._create_helper_manifest(run_id)
         run_dir = self.store.initialize_run(manifest)
         self.store.update_state(run_id, lifecycle_status="running")
 
         failure_scenarios = [
-            # 1. start 缺少 --yes
-            ("start_no_yes", ["start", "--request", str(self.request_path), "--workspace-root", str(self.workspace_root), "--runs-dir", str(self.runs_dir)], "ConfirmationRequiredError"),
-            # 2. resume 缺少 --yes
-            ("resume_no_yes", ["resume", "--run", run_id, "--workspace-root", str(self.workspace_root), "--runs-dir", str(self.runs_dir)], "ConfirmationRequiredError"),
-            # 3. preflight 请求文件不存在
+            # A disabled operation fails with the same explicit reason regardless of confirmation flags.
+            ("start_disabled", ["start", "--request", str(self.request_path), "--yes", "--workspace-root", str(self.workspace_root), "--runs-dir", str(self.runs_dir)], "Unsupported: GEPA execution"),
+            ("resume_disabled", ["resume", "--run", run_id, "--yes", "--workspace-root", str(self.workspace_root), "--runs-dir", str(self.runs_dir)], "Unsupported: GEPA execution"),
+            # Supported command failures retain their normal diagnostics.
             ("preflight_missing_req", ["preflight", "--request", "/tmp/non_existent_req_xyz.json", "--workspace-root", str(self.workspace_root), "--runs-dir", str(self.runs_dir)], "GEPARunProtocolError"),
-            # 4. stop 不存在的 run
             ("stop_missing_run", ["stop", "--run", "run_non_existent", "--runs-dir", str(self.runs_dir)], "RunStoreError"),
-            # 5. report 未就绪
             ("report_not_ready", ["report", "--run", run_id, "--runs-dir", str(self.runs_dir)], "ReportNotReadyError"),
-            # 6. resume 目标 profile 摘要漂移
-            ("resume_drift", ["resume", "--run", run_id, "--yes", "--workspace-root", str(self.workspace_root), "--runs-dir", str(self.runs_dir)], "ProfileDriftError"),
-            # 7. status 缺少必填参数
             ("status_missing_args", ["status"], "error: the following arguments are required: --run"),
         ]
-
-        # 针对场景 6，先修改 profile 产生漂移
-        mutated = dict(self.profile_data)
-        mutated["systemPrompt"] = "Changed for drift test!"
-        self.profile_path.write_text(json.dumps(mutated))
 
         for label, argv, expected_err_keyword in failure_scenarios:
             with self.subTest(failure_case=label):
@@ -648,86 +612,27 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
                     code = cli_main(argv)
 
                 self.assertNotEqual(code, 0, f"Scenario {label} must exit with non-zero code")
-                self.assertEqual(
-                    stdout_buf.getvalue(),
-                    "",
-                    f"STDOUT POLLUTION DETECTED in scenario {label}: {stdout_buf.getvalue()!r}"
-                )
+                self.assertEqual(stdout_buf.getvalue(), "", f"STDOUT POLLUTION DETECTED in scenario {label}: {stdout_buf.getvalue()!r}")
                 stderr_out = stderr_buf.getvalue()
-                self.assertIn(expected_err_keyword, stderr_out,
-                              f"Expected error keyword {expected_err_keyword!r} in stderr for {label}")
-                self.assertNotIn("Traceback (most recent call last):", stderr_out,
-                                 f"RAW TRACEBACK LEAKED in scenario {label}: {stderr_out}")
+                self.assertIn(expected_err_keyword, stderr_out, f"Expected error keyword {expected_err_keyword!r} in stderr for {label}")
+                self.assertNotIn("Traceback (most recent call last):", stderr_out, f"RAW TRACEBACK LEAKED in scenario {label}: {stderr_out}")
 
-    def test_zero_signal_cooperative_worker_shutdown_end_to_end(self) -> None:
-        """端到端验证：真实 Worker 进程在零信号红线下，仅凭 gepa.stop 标记实现优雅停止与所有权释放。"""
-        run_id = "run_adv_cooperative_worker_e2e"
+    def test_disabled_worker_subcommand_does_not_start_a_worker(self) -> None:
+        """内部 worker 入口明确不可用，不占有 Run 或创建进程。"""
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
+        run_id = "run_adv_failure_contract"
         manifest = self._create_helper_manifest(run_id)
         run_dir = self.store.initialize_run(manifest)
-
-        # 启动真实 Worker 进程
-        worker_cmd = [
-            sys.executable,
-            "-m",
-            "lazygoal_gepa.cli",
-            "worker",
-            "--run-dir",
-            str(run_dir),
-        ]
-        worker_env = os.environ.copy()
-        worker_env.update(
-            {
-                "LAZYGOAL_EXECUTABLE": str(
-                    Path(__file__).parent / "fixtures" / "fake_lazygoal.py"
-                ),
-                "LAZYGOAL_GEPA_FAKE_MODE": "score_if_improved",
-                "LAZYGOAL_GEPA_FAKE_REFLECTION_TEXT": "deterministic reflection",
-                "LAZYGOAL_GEPA_FAKE_DELAY_SECONDS": "1.0",
-            }
-        )
-        proc = subprocess.Popen(
-            worker_cmd,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-            env=worker_env,
-        )
-        self._track_proc(proc)
-
-        # 等待 worker 启动并持有 owner 锁且进入 running
-        for _ in range(50):
-            if (run_dir / "owner.json").is_file():
-                try:
-                    s = self.store.read_state(run_id)
-                    if s.lifecycle_status == "running":
-                        break
-                except Exception:
-                    pass
-            time.sleep(0.1)
-        else:
-            self.fail("Worker process did not enter running state in time")
-
-        # 在全局信号监视器下发起 stop
-        with SignalMonitor() as monitor:
-            stop_res = LifecycleController(runs_dir=self.runs_dir).stop(run_id)
-            self.assertEqual(stop_res["lifecycleStatus"], "stop_requested")
-            self.assertTrue((run_dir / "gepa" / "gepa.stop").is_file())
-
-            # 核心断言 1：零信号发送
-            monitor.assert_no_termination_signals()
-
-        # 等待 Worker 协作退出（检查 gepa.stop 并自主退出）
-        exit_code = proc.wait(timeout=5.0)
-        self.assertEqual(exit_code, 0, f"Worker process should exit cleanly with 0, got {exit_code}")
-
-        # 核心断言 2：退出后 state.json 为 stopped
-        final_state = self.store.read_state(run_id)
-        self.assertEqual(final_state.lifecycle_status, "stopped")
-        self.assertTrue(final_state.stop_requested)
-
-        # 核心断言 3：owner.json 随正常退出被 release() 清理
-        self.assertFalse((run_dir / "owner.json").is_file(), "owner.json should be cleanly released!")
+        before = self.store.read_state(run_id)
+        with patch("sys.stdout", stdout_buf), patch("sys.stderr", stderr_buf):
+            code = cli_main(["worker", "--run-dir", str(run_dir)])
+        self.assertEqual(code, 1)
+        self.assertEqual(stdout_buf.getvalue(), "")
+        self.assertIn("Unsupported: GEPA execution", stderr_buf.getvalue())
+        self.assertNotIn("Traceback (most recent call last):", stderr_buf.getvalue())
+        self.assertEqual(self.store.read_state(run_id), before)
+        self.assertFalse((run_dir / "owner.json").exists())
 
     def test_corrupted_run_json_robustness(self) -> None:
         """构造多种损坏的 run.json，断言 status 抛出分类异常并在 CLI 端零 Traceback 优雅退出。"""
@@ -790,7 +695,7 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
         self.assertEqual(p_succ.returncode, 0, f"stderr: {p_succ.stderr}")
         self.assertStrictSingleLineJson(p_succ.stdout)
 
-        # 2. 顶层 start 缺少 --yes：exit code 1, stdout 严格为空, stderr 有诊断, 零 Traceback
+        # 2. 顶层 start is unavailable: exit code 1, stdout empty, explicit stderr diagnostic.
         p_fail = subprocess.run(
             [
                 "node",
@@ -803,6 +708,7 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
                 str(self.workspace_root),
                 "--runs-dir",
                 str(self.runs_dir),
+                "--yes",
             ],
             capture_output=True,
             text=True,
@@ -810,7 +716,7 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
         )
         self.assertEqual(p_fail.returncode, 1)
         self.assertEqual(p_fail.stdout, "", f"stdout must be empty, got: {p_fail.stdout!r}")
-        self.assertIn("ConfirmationRequiredError", p_fail.stderr)
+        self.assertIn("Unsupported: GEPA execution is currently unavailable in the Worker/Trigger runtime.", p_fail.stderr)
         self.assertNotIn("Traceback (most recent call last):", p_fail.stderr)
 
     def assertStrictSingleLineJson(self, raw_stdout: str) -> dict[str, Any]:

@@ -1,14 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { createServer, type Server } from "node:http";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import type { LLMAdapter, LLMRequest, LLMResponse } from "../../../packages/llm-core/src/index";
-import { textResponse, toolCallResponse } from "../../../packages/llm-core/test/response-fixtures";
+import type { LLMAdapter } from "../../../packages/llm-core/src/index";
 import { createGoal } from "../../../packages/runtime/src/index";
 import { createBrowserSessionAccess } from "../../../packages/browser/src/index";
-import { JsonFileModelPreferenceStore } from "../../../packages/storage/src/index";
 import { runServerSession } from "../src/cli";
 import { createCompositionRoot } from "../src/composition-root";
 
@@ -18,16 +17,88 @@ function deferred<T>() {
     return { promise, resolve };
 }
 
-async function withTimeout<T>(promise: Promise<T>, message: string): Promise<T> {
+async function withTimeout<T>(promise: Promise<T>, message: string, timeoutMs = 10_000): Promise<T> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
         return await Promise.race([
             promise,
-            new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(message)), 5_000); }),
+            new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(message)), timeoutMs); }),
         ]);
     } finally {
         if (timer !== undefined) clearTimeout(timer);
     }
+}
+
+async function waitFor(predicate: () => boolean | Promise<boolean>, message: string, timeoutMs = 10_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (!await predicate()) {
+        if (Date.now() >= deadline) throw new Error(message);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+}
+
+function blockingModelServer(expectedCalls: number): {
+    readonly server: Server;
+    readonly baseURL: string;
+    readonly started: Promise<void>;
+    readonly closed: Promise<void>;
+    readonly close: () => Promise<void>;
+} {
+    const started = deferred<void>();
+    const closed = deferred<void>();
+    let calls = 0;
+    let closedResponses = 0;
+    const server = createServer((request, response) => {
+        if (request.method === "GET" && request.url === "/v1/models") {
+            response.writeHead(200, { "content-type": "application/json" });
+            response.end(JSON.stringify({ data: ["test-model"] }));
+            return;
+        }
+        if (request.method !== "POST" || request.url !== "/v1/chat/completions") {
+            response.writeHead(404);
+            response.end();
+            return;
+        }
+        request.resume();
+        request.on("end", () => {
+            calls += 1;
+            if (calls >= expectedCalls) started.resolve(undefined);
+            response.writeHead(200, { "content-type": "text/event-stream" });
+            response.flushHeaders();
+            response.on("close", () => {
+                closedResponses += 1;
+                if (closedResponses >= expectedCalls) closed.resolve(undefined);
+            });
+        });
+    });
+    return {
+        server,
+        get baseURL() {
+            const address = server.address();
+            assert.ok(address !== null && typeof address !== "string");
+            return `http://127.0.0.1:${address.port}/v1`;
+        },
+        started: started.promise,
+        closed: closed.promise,
+        close: async () => {
+            server.closeAllConnections();
+            await new Promise<void>((resolve) => server.close(() => resolve()));
+        },
+    };
+}
+
+function saveWorkerEnvironment(values: Readonly<Record<string, string>>): () => void {
+    const previous = new Map<string, string | undefined>();
+    for (const [key, value] of Object.entries(values)) {
+        previous.set(key, process.env[key]);
+        process.env[key] = value;
+    }
+    return () => {
+        for (const [key, value] of previous) {
+            if (value === undefined) delete process.env[key];
+            else process.env[key] = value;
+        }
+    };
 }
 
 function fixtureGoal(
@@ -37,7 +108,7 @@ function fixtureGoal(
 ) {
     const goal = createGoal({
         id,
-        intent: "Integration fixture",
+        intent: "Legacy data fixture",
         runId: `run-${id}`,
         profile: root.profile,
         modelSelection: root.defaultModelSelection,
@@ -66,250 +137,56 @@ function fixtureGoal(
     };
 }
 
-/** 轮询等待持久化事实满足条件；仅用于真实服务路径的确定性收敛。 */
-async function waitForGoal(
-    root: Awaited<ReturnType<typeof createCompositionRoot>>,
-    goalId: string,
-    predicate: (goal: { readonly state: { readonly run: { readonly status: string } } }) => boolean,
-): Promise<void> {
-    for (let attempt = 0; attempt < 250; attempt++) {
-        const goal = await root.workspaceGoalStore.restore(goalId);
-        if (goal !== undefined && predicate(goal as { readonly state: { readonly run: { readonly status: string } } })) return;
-        await new Promise((resolve) => setTimeout(resolve, 20));
-    }
-    throw new Error(`Goal ${goalId} did not reach the expected state`);
-}
+const inactiveAdapter: LLMAdapter = {
+    structuredOutputMode: "prompt_only",
+    async generate() { throw new Error("This test does not use Supervisor model decisions"); },
+};
 
-test("真实服务路径：断连与 SSE 关闭不取消执行，busy/旧 Run 拒绝，权限、归档删除与历史指标可用", async () => {
-    const workspace = await mkdtemp(join(tmpdir(), "lazygoal-browser-session-"));
+test("真实 Web 入口使用 Trigger 并行启动 Worker、观察状态、拒绝续聊并安全取消", { timeout: 40_000 }, async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "lazygoal-trigger-browser-"));
+    const home = join(workspace, "home");
+    const dataDirectory = join(workspace, "data");
+    await Promise.all([
+        mkdir(workspace, { recursive: true }),
+        mkdir(join(home, "agent-profiles"), { recursive: true }),
+        mkdir(dataDirectory, { recursive: true }),
+    ]);
+    const modelServer = blockingModelServer(2);
+    await new Promise<void>((resolve) => modelServer.server.listen(0, "127.0.0.1", resolve));
+    const environment = {
+        LAZYGOAL_HOME: home,
+        LLM_PROVIDER: "openai-compatible",
+        LLM_MODEL: "test-model",
+        LLM_API_KEY: "test-key",
+        LLM_BASE_URL: modelServer.baseURL,
+        LLM_CONTEXT_WINDOW_TOKENS: "16000",
+        LLM_MAX_OUTPUT_TOKENS: "4096",
+        LLM_TOKENIZER_ENCODING: "cl100k_base",
+    };
+    const restoreEnvironment = saveWorkerEnvironment(environment);
+    const profile = {
+        id: "default",
+        name: "Integration",
+        description: "Controlled Worker integration profile",
+        systemPrompt: "Follow the test instruction.",
+        instructions: ["Wait for the user to stop this Run."],
+        toolIds: [],
+    };
+    await writeFile(join(home, "agent-profiles", "default.json"), JSON.stringify({ schemaVersion: 1, ...profile }));
     const access = createBrowserSessionAccess();
-    const modelStarted = deferred<void>();
-    const releaseModel = deferred<void>();
-    let modelCallCount = 0;
     let root: Awaited<ReturnType<typeof createCompositionRoot>> | undefined;
     let serving: Promise<number> | undefined;
-
-    const adapter: LLMAdapter = {
-        structuredOutputMode: "strict",
-        async generate(_request: LLMRequest): Promise<LLMResponse> {
-            modelCallCount += 1;
-            modelStarted.resolve(undefined);
-            await releaseModel.promise;
-            return toolCallResponse({
-                callId: "fixture-wait",
-                toolId: "system_wait_for_input",
-                argumentsJson: JSON.stringify({ reason: "等待用户确认" }),
-            });
-        },
-    };
 
     try {
         root = await createCompositionRoot({
             cwd: workspace,
-            dataDirectory: join(workspace, "data"),
-            env: { LAZYGOAL_HOME: join(workspace, "home") },
-            profile: { id: "integration", systemPrompt: "Use the supplied deterministic response.", instructions: [], toolIds: [] },
-            adapter,
+            dataDirectory,
+            env: environment,
+            profile,
+            adapter: inactiveAdapter,
             httpMiddleware: access.middleware,
             exitPort: { exit() {} },
         });
-        await root.checkpointStore.save(fixtureGoal("disconnect-target", root, "running"));
-        await root.checkpointStore.save(fixtureGoal("busy-target", root, "running"));
-        await root.checkpointStore.save(fixtureGoal("archive-target", root, "completed"));
-
-        const launchReady = deferred<string>();
-        serving = runServerSession(root, access, (url) => launchReady.resolve(url));
-        const launchUrl = new URL(await withTimeout(launchReady.promise, "Web server did not start"));
-        const origin = launchUrl.origin;
-        const token = launchUrl.hash.slice(1);
-        const request = async (path: string, method: string, body?: unknown, signal?: AbortSignal) => {
-            const response = await fetch(`${origin}${path}`, {
-                method,
-                headers: {
-                    authorization: `Bearer ${token}`,
-                    origin,
-                    ...(body === undefined ? {} : { "content-type": "application/json" }),
-                },
-                ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-                ...(signal === undefined ? {} : { signal }),
-            });
-            const text = await response.text();
-            return { status: response.status, body: text.length === 0 || !text.startsWith("{") ? {} : JSON.parse(text) as Record<string, any> };
-        };
-
-        // 受理后模型阻塞：执行已进入 Runtime。
-        const accepted = await request("/api/goals/disconnect-target/inputs", "POST", {
-            kind: "resume",
-            inputId: "input-disconnect-resume",
-            runId: "run-disconnect-target",
-            commitRevision: 0,
-        });
-        assert.equal(accepted.status, 202);
-        assert.equal(accepted.body.receipt.targetRunId, "run-disconnect-target");
-        await withTimeout(modelStarted.promise, "Coordinator did not call the model");
-
-        // 另一 Goal 的冲突推进明确拒绝；同一命令的稳定身份重试返回既有受理结果。
-        const busy = await request("/api/goals/busy-target/inputs", "POST", {
-            kind: "resume",
-            inputId: "input-busy-resume",
-            runId: "run-busy-target",
-            commitRevision: 0,
-        });
-        assert.equal(busy.status, 409);
-        assert.equal(busy.body.error, "BUSY");
-        // 同一稳定身份的重试返回既有收据，不重复推进（去重先于过期状态拒绝）。
-        const retried = await request("/api/goals/disconnect-target/inputs", "POST", {
-            kind: "resume",
-            inputId: "input-disconnect-resume",
-            runId: "run-disconnect-target",
-            commitRevision: 0,
-        });
-        assert.equal(retried.status, 200);
-        assert.equal(retried.body.existing, true);
-        assert.equal(retried.body.receipt.inputId, "input-disconnect-resume");
-        // SSE 订阅成功后由客户端断开，以及普通读取请求中途断连，都不取消已受理执行。
-        const streamController = new AbortController();
-        const stream = await fetch(`${origin}/api/goals/disconnect-target/events`, {
-            headers: { authorization: `Bearer ${token}`, origin },
-            signal: streamController.signal,
-        });
-        assert.equal(stream.status, 200);
-        streamController.abort();
-        await stream.body?.cancel().catch(() => undefined);
-
-        const readController = new AbortController();
-        const abortedRead = fetch(`${origin}/api/goals/disconnect-target`, {
-            headers: { authorization: `Bearer ${token}`, origin },
-            signal: readController.signal,
-        }).catch(() => undefined);
-        readController.abort();
-        await abortedRead;
-
-        releaseModel.resolve(undefined);
-        await waitForGoal(root, "disconnect-target", (goal) => goal.state.run.status === "waiting");
-        assert.equal(modelCallCount, 1);
-
-        // 结算后旧 Run 身份明确拒绝。
-        const stale = await request("/api/goals/disconnect-target/inputs", "POST", {
-            kind: "resume",
-            inputId: "input-disconnect-stale",
-            runId: "run-other",
-            commitRevision: 0,
-        });
-        assert.equal(stale.status, 409);
-        assert.equal(stale.body.error, "RUN_NOT_FOUND");
-        // 旧的独立控制路由不再存在，避免两套受理入口。
-        const removed = await fetch(`${origin}/api/goals/disconnect-target/resume`, {
-            method: "POST",
-            headers: { authorization: `Bearer ${token}`, origin, "content-type": "application/json" },
-            body: JSON.stringify({ runId: "run-disconnect-target" }),
-        });
-        assert.equal(removed.status, 404);
-
-        // 权限模式读取与写入走真实服务路径。
-        const permissionMode = await request("/api/project/permission-mode", "GET");
-        assert.equal(permissionMode.status, 200);
-        assert.equal(permissionMode.body.mode, "default");
-        const setMode = await request("/api/project/permission-mode", "POST", { mode: "yolo", expectedRevision: 0 });
-        assert.equal(setMode.status, 200);
-        assert.equal(setMode.body.mode, "yolo");
-
-        // 授权查询与撤销路径可调用；未知授权按现有规则稳定拒绝。
-        const grants = await request("/api/goals/disconnect-target/grants?runId=run-disconnect-target", "GET");
-        assert.equal(grants.status, 200);
-        assert.equal(grants.body.ok, true);
-        const revoke = await request("/api/goals/disconnect-target/grants/unknown-grant", "DELETE", {
-            runId: "run-disconnect-target",
-            scope: "goal",
-        });
-        assert.equal(revoke.status, 500);
-        assert.equal(revoke.body.error, "grant_failed");
-
-        // 历史、轨迹与指标读取。
-        const history = await request("/api/goals", "GET");
-        assert.equal(history.status, 200);
-        assert.ok((history.body.goals as Array<Record<string, any>>).some((goal) => goal.goalId === "disconnect-target"));
-        const runs = await request("/api/goals/disconnect-target/trajectory/runs", "GET");
-        assert.equal(runs.status, 200);
-        const metrics = await request("/goals/disconnect-target/metrics", "GET");
-        assert.equal(metrics.status, 200);
-
-        // 终态归档与删除走真实服务路径。
-        const archive = await request("/api/goals/archive-target/archive", "POST", { archived: true });
-        assert.equal(archive.status, 200);
-        assert.equal(archive.body.ok, true);
-        const archivedList = await request("/api/goals", "GET");
-        const archivedItem = (archivedList.body.goals as Array<Record<string, any>>).find((goal) => goal.goalId === "archive-target");
-        assert.equal(archivedItem?.archived, true);
-        const deleted = await request("/api/goals/archive-target", "DELETE", { expectedRunId: "run-archive-target", expectedCommittedThroughSequence: 0 });
-        assert.equal(deleted.status, 200);
-        assert.equal(deleted.body.ok, true);
-        const missing = await request("/api/goals/archive-target", "GET");
-        assert.equal(missing.status, 404);
-
-        // SIGINT 释放应用资源：退出码 130 且 HTTP 不再监听。
-        process.emit("SIGINT");
-        assert.equal(await serving, 130);
-        serving = undefined;
-        await assert.rejects(fetch(`${origin}/api/goals`, {
-            headers: { authorization: `Bearer ${token}`, origin },
-        }));
-    } finally {
-        releaseModel.resolve(undefined);
-        if (serving !== undefined) {
-            process.emit("SIGINT");
-            await serving.catch(() => undefined);
-        }
-        await root?.lifecycle.close().catch(() => undefined);
-        await root?.httpService.close().catch(() => undefined);
-        await rm(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
-    }
-});
-
-test("真实 Web 服务恢复保留 Coordinator 接收者、展示活动状态并关闭写入入口", async () => {
-    const workspace = await mkdtemp(join(tmpdir(), "lazygoal-browser-session-"));
-    const access = createBrowserSessionAccess();
-    const modelStarted = deferred<void>();
-    const releaseModel = deferred<void>();
-    let root: Awaited<ReturnType<typeof createCompositionRoot>> | undefined;
-    let serving: Promise<number> | undefined;
-
-    const adapter: LLMAdapter = {
-        structuredOutputMode: "strict",
-        async generate(_request: LLMRequest): Promise<LLMResponse> {
-            modelStarted.resolve(undefined);
-            await releaseModel.promise;
-            return textResponse(JSON.stringify({
-                result: {
-                    kind: "ask_user",
-                    questions: [{
-                        header: "Source",
-                        question: "Which source should I use?",
-                        options: [
-                            { label: "First", description: null },
-                            { label: "Second", description: null },
-                        ],
-                        multiSelect: false,
-                    }],
-                    memoryPatch: null,
-                },
-            }), "json");
-        },
-    };
-
-    try {
-        root = await createCompositionRoot({
-            cwd: workspace,
-            dataDirectory: join(workspace, "data"),
-            env: { LAZYGOAL_HOME: join(workspace, "home") },
-            profile: { id: "integration", systemPrompt: "Use the supplied deterministic response.", instructions: [], toolIds: [] },
-            adapter,
-            httpMiddleware: access.middleware,
-            exitPort: { exit() {} },
-        });
-        await root.checkpointStore.save(fixtureGoal("interrupted", root, "running"));
-        await root.checkpointStore.save(fixtureGoal("archive-target", root, "completed"));
-
         const launchReady = deferred<string>();
         serving = runServerSession(root, access, (url) => launchReady.resolve(url));
         const launchUrl = new URL(await withTimeout(launchReady.promise, "Web server did not start"));
@@ -326,57 +203,211 @@ test("真实 Web 服务恢复保留 Coordinator 接收者、展示活动状态�
                 ...(body === undefined ? {} : { body: JSON.stringify(body) }),
             });
             const text = await response.text();
-            return { status: response.status, body: text.length === 0 ? {} : JSON.parse(text) as Record<string, any> };
+            return {
+                status: response.status,
+                body: text.length === 0 || !text.startsWith("{") ? {} : JSON.parse(text) as Record<string, any>,
+            };
         };
 
-        const resumed = await request("/api/goals/interrupted/inputs", "POST", {
-            kind: "resume",
-            inputId: "input-interrupted-resume",
-            runId: "run-interrupted",
-            commitRevision: 0,
+        const createAlpha = await request("/api/goals", "POST", {
+            goalId: "goal-alpha",
+            inputId: "work-alpha",
+            intent: "Wait until the user cancels this Goal.",
+            modelId: "test-model",
         });
-        assert.equal(resumed.status, 202);
-        assert.equal(resumed.body.receipt.targetRunId, "run-interrupted");
-        await withTimeout(modelStarted.promise, "Coordinator did not call the model");
+        assert.equal(createAlpha.status, 202, JSON.stringify(createAlpha.body));
+        assert.equal(createAlpha.body.goalId, "goal-alpha");
+        const createBeta = await request("/api/goals", "POST", {
+            goalId: "goal-beta",
+            inputId: "work-beta",
+            intent: "Wait independently for cancellation.",
+            modelId: "test-model",
+        });
+        assert.equal(createBeta.status, 202, JSON.stringify(createBeta.body));
+        await withTimeout(modelServer.started, "Both independent Workers did not enter the model", 15_000);
 
         const list = await request("/api/goals", "GET");
-        const listItem = (list.body.goals as Array<Record<string, any>>).find((goal) => goal.goalId === "interrupted");
-        assert.equal(listItem?.execution.state, "active");
-        const session = await request("/api/goals/interrupted", "GET");
-        assert.equal(session.body.goal.execution.state, "active");
+        assert.equal(list.status, 200);
+        const listGoals = list.body.goals as Array<Record<string, any>>;
+        for (const goalId of ["goal-alpha", "goal-beta"]) {
+            assert.equal(listGoals.find((goal) => goal.goalId === goalId)?.execution.state, "active");
+            const detail = await request(`/api/goals/${goalId}`, "GET");
+            assert.equal(detail.status, 200);
+            assert.equal(detail.body.goal.execution.state, "active");
+            assert.equal(detail.body.session.executionOwner, true);
+        }
 
-        root.checkpointStore.freeze();
-        root.abortController.abort();
-        releaseModel.resolve(undefined);
+        const stream = await fetch(`${origin}/api/goals/goal-alpha/events`, {
+            headers: { authorization: `Bearer ${token}`, origin },
+        });
+        assert.equal(stream.status, 200);
+        const reader = stream.body?.getReader();
+        assert.ok(reader);
+        const firstEvent = await withTimeout(reader.read(), "Goal event stream did not synchronize");
+        assert.equal(firstEvent.done, false);
+        assert.match(new TextDecoder().decode(firstEvent.value), /"type":"state_sync"/);
+        await reader.cancel().catch(() => undefined);
 
+        const unsupportedMessage = await request("/api/goals/goal-alpha/inputs", "POST", {
+            kind: "message",
+            inputId: "follow-up-alpha",
+            content: "Continue the Goal with another message.",
+        });
+        assert.equal(unsupportedMessage.status, 409);
+        assert.equal(unsupportedMessage.body.error, "RUN_CONTROL_UNAVAILABLE");
+        const unchangedAfterUnsupportedMessage = await request("/api/goals/goal-alpha", "GET");
+        assert.equal(unchangedAfterUnsupportedMessage.status, 200);
+        assert.equal(unchangedAfterUnsupportedMessage.body.goal.currentRunId, createAlpha.body.runId);
+        assert.deepEqual(unchangedAfterUnsupportedMessage.body.goal.pendingMessages ?? [], []);
+        assert.equal(unchangedAfterUnsupportedMessage.body.goal.messages.some((message: { content: string }) =>
+            message.content === "Continue the Goal with another message."), false);
+
+        const stopAlpha = await request("/api/goals/goal-alpha/inputs", "POST", {
+            kind: "interrupt",
+            inputId: "cancel-alpha",
+            runId: createAlpha.body.runId,
+        });
+        assert.equal(stopAlpha.status, 202, JSON.stringify(stopAlpha.body));
+        const stopBeta = await request("/api/goals/goal-beta/inputs", "POST", {
+            kind: "interrupt",
+            inputId: "cancel-beta",
+            runId: createBeta.body.runId,
+        });
+        assert.equal(stopBeta.status, 202, JSON.stringify(stopBeta.body));
+        await withTimeout(modelServer.closed, "Worker model requests did not stop", 15_000);
+        await waitFor(async () => {
+            const [alpha, beta] = await Promise.all([
+                root!.workspaceGoalStore.restore("goal-alpha"),
+                root!.workspaceGoalStore.restore("goal-beta"),
+            ]);
+            return alpha?.state.run.status === "cancelled" && beta?.state.run.status === "cancelled";
+        }, "Cancelled Goal snapshots did not persist");
+
+        const stopped = await request("/api/goals/goal-alpha", "GET");
+        assert.equal(stopped.body.goal.runStatus, "cancelled");
+        assert.equal(stopped.body.goal.execution.state, "inactive");
+        const permissionMode = await request("/api/project/permission-mode", "GET");
+        assert.equal(permissionMode.status, 200);
+        assert.equal(permissionMode.body.mode, "default");
+        const setMode = await request("/api/project/permission-mode", "POST", { mode: "yolo", expectedRevision: 0 });
+        assert.equal(setMode.status, 200);
+        const grants = await request(`/api/goals/goal-alpha/grants?runId=${String(createAlpha.body.runId)}`, "GET");
+        assert.equal(grants.status, 200);
+        const history = await request("/api/goals", "GET");
+        assert.ok((history.body.goals as Array<Record<string, any>>).some((goal) => goal.goalId === "goal-alpha"));
+        const runs = await request("/api/goals/goal-alpha/trajectory/runs", "GET");
+        assert.equal(runs.status, 200);
+        const metrics = await request("/goals/goal-alpha/metrics", "GET");
+        assert.equal(metrics.status, 200);
+
+        await root.checkpointStore.save(fixtureGoal("archive-target", root, "completed"));
         const archive = await request("/api/goals/archive-target/archive", "POST", { archived: true });
-        assert.equal(archive.status, 503);
-        assert.equal(archive.body.error, "service_shutting_down");
-        const preference = await request("/api/project/model-preference", "POST", { modelId: "model-after-shutdown" });
-        assert.equal(preference.status, 503);
-        assert.equal(preference.body.error, "service_shutting_down");
-        assert.notEqual(
-            (await root.workspaceGoalStore.listHistory!()).entries.find((goal) => goal.goalId === "archive-target")?.archived,
-            true,
-        );
-        assert.equal(await new JsonFileModelPreferenceStore(root.workspaceHomeDirectory).get(), undefined);
+        assert.equal(archive.status, 200);
+        assert.equal(archive.body.ok, true);
+        const deleted = await request("/api/goals/archive-target", "DELETE", {
+            expectedRunId: "run-archive-target",
+            expectedCommittedThroughSequence: 0,
+        });
+        assert.equal(deleted.status, 200);
+        assert.equal(deleted.body.ok, true);
 
         process.emit("SIGINT");
         assert.equal(await serving, 130);
         serving = undefined;
     } finally {
-        releaseModel.resolve(undefined);
         if (serving !== undefined) {
-            root?.checkpointStore.freeze();
-            root?.abortController.abort();
             process.emit("SIGINT");
             await serving.catch(() => undefined);
         }
-        if (root !== undefined) {
-            root.checkpointStore.freeze();
-            root.abortController.abort();
-            await root.resources.closeAll().catch(() => undefined);
+        await root?.lifecycle.close().catch(() => undefined);
+        await root?.httpService.close().catch(() => undefined);
+        await modelServer.close();
+        restoreEnvironment();
+        await rm(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    }
+});
+
+test("旧的运行中快照保留但不经旧执行链恢复", { timeout: 20_000 }, async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "lazygoal-trigger-old-data-"));
+    const home = join(workspace, "home");
+    const dataDirectory = join(workspace, "data");
+    await Promise.all([
+        mkdir(workspace, { recursive: true }),
+        mkdir(join(home, "agent-profiles"), { recursive: true }),
+        mkdir(dataDirectory, { recursive: true }),
+    ]);
+    const environment = {
+        LAZYGOAL_HOME: home,
+        LLM_PROVIDER: "openai",
+        LLM_MODEL: "gpt-4o-mini",
+        LLM_API_KEY: "test-key",
+    };
+    const access = createBrowserSessionAccess();
+    let root: Awaited<ReturnType<typeof createCompositionRoot>> | undefined;
+    let serving: Promise<number> | undefined;
+    const profile = {
+        id: "default",
+        name: "Integration",
+        description: "Legacy snapshot integration profile",
+        systemPrompt: "Test.",
+        instructions: ["Test."],
+        toolIds: [],
+    };
+    try {
+        root = await createCompositionRoot({
+            cwd: workspace,
+            dataDirectory,
+            env: environment,
+            profile,
+            adapter: inactiveAdapter,
+            httpMiddleware: access.middleware,
+            exitPort: { exit() {} },
+        });
+        await root.checkpointStore.save(fixtureGoal("legacy-running", root, "running"));
+        const launchReady = deferred<string>();
+        serving = runServerSession(root, access, (url) => launchReady.resolve(url));
+        const launchUrl = new URL(await withTimeout(launchReady.promise, "Web server did not start"));
+        const origin = launchUrl.origin;
+        const token = launchUrl.hash.slice(1);
+        const request = async (path: string, method: string, body?: unknown) => {
+            const response = await fetch(`${origin}${path}`, {
+                method,
+                headers: {
+                    authorization: `Bearer ${token}`,
+                    origin,
+                    ...(body === undefined ? {} : { "content-type": "application/json" }),
+                },
+                ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+            });
+            return { status: response.status, body: await response.json() as Record<string, any> };
+        };
+
+        const detail = await request("/api/goals/legacy-running", "GET");
+        assert.equal(detail.status, 200);
+        assert.equal(detail.body.goal.runStatus, "running");
+        assert.equal(detail.body.goal.execution.state, "inactive");
+        assert.equal(detail.body.session.needsRecovery, false);
+        const resume = await request("/api/goals/legacy-running/inputs", "POST", {
+            kind: "resume",
+            inputId: "legacy-resume",
+            runId: "run-legacy-running",
+            commitRevision: 0,
+            acknowledgeUnknownEffects: true,
+        });
+        assert.equal(resume.status, 409);
+        assert.equal(resume.body.error, "RUN_CONTROL_UNAVAILABLE");
+        assert.equal((await root.workspaceGoalStore.restore("legacy-running"))?.state.run.status, "running");
+
+        process.emit("SIGINT");
+        assert.equal(await serving, 130);
+        serving = undefined;
+    } finally {
+        if (serving !== undefined) {
+            process.emit("SIGINT");
+            await serving.catch(() => undefined);
         }
+        await root?.lifecycle.close().catch(() => undefined);
+        await root?.httpService.close().catch(() => undefined);
         await rm(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     }
 });

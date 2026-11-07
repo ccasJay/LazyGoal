@@ -78,7 +78,8 @@ test("正式服务与真实浏览器贯通交错时间线、活动组与窄屏�
     await waitForRunTerminal(ready, goalId);
     await waitForExpression(socket, "document.querySelector('.timeline-run-summary.completed') !== null", 20_000);
     await waitForExpression(socket, "document.querySelector('.message.assistant') !== null", 20_000);
-    assert.equal(await value(socket, "document.querySelector('.jump') === null"), true, "回答与终态无需点击 Jump to latest 即可显示");
+    assert.equal(await value(socket, "document.querySelector('.message.assistant') !== null && document.querySelector('.timeline-run-summary.completed') !== null"), true,
+      "the final response and terminal state are available in the Activity view");
     await value(socket, "document.querySelectorAll('.timeline-stage-heading[aria-expanded=false]').forEach(button => button.click())");
     await waitForExpression(socket, "document.querySelectorAll('.timeline-activity').length >= 1", 20_000);
 
@@ -124,7 +125,9 @@ test("正式服务与真实浏览器贯通交错时间线、活动组与窄屏�
     const narrow = await value(socket, "({ overflow: document.documentElement.scrollWidth - window.innerWidth, timeline: document.querySelector('[data-testid=\"session-timeline\"]').getBoundingClientRect().width, viewport: window.innerWidth, controls: document.querySelectorAll('.composer button, .composer textarea').length })");
     assert.ok(narrow.overflow <= 1, JSON.stringify(narrow));
     assert.ok(narrow.timeline <= narrow.viewport + 1, JSON.stringify(narrow));
-    assert.ok(narrow.controls > 0, JSON.stringify(narrow));
+    assert.equal(narrow.controls, 0, JSON.stringify(narrow));
+    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Goal intent\"]') === null"), true,
+      "an existing Goal has no ordinary follow-up input on narrow screens");
     const activityHeading = await value(socket, "(() => { const heading = document.querySelector('.timeline-activity-heading'); const counts = heading.querySelector('.timeline-activity-counts').getBoundingClientRect(); return { heading: heading.getBoundingClientRect().toJSON(), counts: counts.toJSON() }; })()");
     assert.ok(activityHeading.counts.top >= activityHeading.heading.top && activityHeading.counts.bottom <= activityHeading.heading.bottom + 1, JSON.stringify(activityHeading));
 

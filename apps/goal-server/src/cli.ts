@@ -1,11 +1,11 @@
 import { existsSync } from "node:fs";
+import { mkdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
     BrowserGoalCommandService,
     createBrowserGoalRoutes,
-    createBrowserGoalSessionPort,
     createBrowserModelInputRoutes,
     createBrowserSessionAccess,
     createBrowserStaticRoutes,
@@ -28,6 +28,9 @@ import {
     RuntimeLifecycleUnavailableError,
     type GoalModelSelection,
 } from "../../../packages/runtime/src/index";
+import { JsonFileGoalStore } from "../../../packages/storage/src/goal-store";
+import { SupervisorOwnership } from "../../../packages/storage/src/supervisor-ownership";
+import { TriggerDeliveryStore } from "../../../packages/storage/src/trigger-delivery-store";
 import { JsonFileModelPreferenceStore } from "../../../packages/storage/src/index";
 import {
     isSupportedLlmProvider,
@@ -45,6 +48,7 @@ import {
     type ProviderProfilePatch,
 } from "../../../packages/config/src/index";
 import type {
+    BrowserExecutionState,
     BrowserModelSourceRef,
     BrowserProviderProfile,
     BrowserProviderProfileInput,
@@ -55,6 +59,8 @@ import {
     type CompositionRoot,
     type CompositionRootOptions,
 } from "./composition-root";
+import { WorkerScheduler } from "./runtime/index";
+import { createTriggerBrowserSessionPort } from "./browser-session-port";
 
 /** 把目录领域描述映射为 Web 投影允许接收的非敏感字段。 */
 function toBrowserModelSources(models: readonly LlmModelDescriptor[]): readonly BrowserModelSource[] {
@@ -189,6 +195,27 @@ export async function runServerSession(
 
     process.on("SIGINT", onSigint);
     try {
+        await mkdir(root.dataDirectory, { recursive: true, mode: 0o700 });
+        const triggerOwner = new SupervisorOwnership(join(root.dataDirectory, "supervisor-owner.db"));
+        const triggerDeliveries = new TriggerDeliveryStore(join(root.dataDirectory, "trigger-deliveries.db"));
+        const supervisorGoals = new JsonFileGoalStore(root.goalsDirectory);
+        const workerScheduler = new WorkerScheduler({
+            owner: triggerOwner,
+            deliveries: triggerDeliveries,
+            goals: supervisorGoals,
+            cwd: root.workspaceRoot,
+            dataDirectory: root.dataDirectory,
+            env: process.env,
+            permissionAdapter: root.adapter,
+        });
+        root.resources.register({ close: async () => {
+            try { await workerScheduler.detachAll(); }
+            finally {
+                triggerDeliveries.close();
+                await triggerOwner.close();
+            }
+        } });
+        await workerScheduler.pump();
         const staticDirectory = process.env.LAZYGOAL_STATIC_DIR
             ? resolve(process.env.LAZYGOAL_STATIC_DIR)
             : resolve(dirname(fileURLToPath(import.meta.url)), "../../goal-board/dist");
@@ -314,6 +341,29 @@ export async function runServerSession(
                 inputEstimator: current.inputEstimator,
             };
         };
+        const hasExecutionOwner = (goalId: string): boolean => workerScheduler.assignments()
+            .some((assignment) => assignment.goalId === goalId);
+        const executionStateFor = (goalId: string): BrowserExecutionState => {
+            if (triggerDeliveries.workerRecovery(goalId)?.status === "pending") return "recoverable";
+            const queued = triggerDeliveries.queueRecord(goalId);
+            if (hasExecutionOwner(goalId) || queued?.status === "queued" || queued?.status === "claimed" || queued?.status === "waiting") return "active";
+            return "inactive";
+        };
+        const readActiveGoalId = (): string | undefined => workerScheduler.assignments()
+            .find((assignment) => assignment.goalId !== undefined)?.goalId;
+        const readTriggerGoalList = async () => {
+            const result = await listBrowserGoals(root.workspaceGoalStore);
+            return {
+                ...result,
+                goals: result.goals.map((goal) => ({
+                    ...goal,
+                    execution: {
+                        state: executionStateFor(goal.goalId),
+                        committedThroughSequence: goal.execution?.committedThroughSequence ?? 0,
+                    },
+                })),
+            };
+        };
         const commandService = new BrowserGoalCommandService({
             store: root.workspaceGoalStore,
             coordinator: root.commands,
@@ -323,24 +373,15 @@ export async function runServerSession(
                 ...(selection.profileId === undefined ? {} : { profileId: selection.profileId }),
                 modelId: selection.modelId,
             }),
-            readActiveGoalId: () => root.sessions.activeGoal,
+            readActiveGoalId,
             control: { signal: root.abortController.signal },
         });
-        /**
-         * 浏览器委派 Runtime 会话所有者的窄端口。
-         *
-         * @remarks 创建、统一输入、收据查询、状态与 Goal 事件全部委派 `root.sessions`；
-         * Browser 不持有输入账本、队列、执行名额或后台推进。
-         */
-        const browserSessionPort = createBrowserGoalSessionPort({
-            sessions: root.sessions,
-            profileId: root.profile.id,
-            isShuttingDown: () => root.abortController.signal.aborted,
-            readGoalState: (goalId) => readBrowserGoalSessionState(
-                goalId,
-                root.workspaceGoalStore,
-                root.sessions.activeGoal,
-            ),
+        const browserSessionPort = createTriggerBrowserSessionPort({
+            root,
+            owner: triggerOwner,
+            deliveries: triggerDeliveries,
+            scheduler: workerScheduler,
+            goals: supervisorGoals,
             resolveModelSelection: async (command) => {
                 if (command.modelId === undefined) {
                     try {
@@ -357,10 +398,9 @@ export async function runServerSession(
                 }
             },
         });
-        const readActiveGoalId = (): string | undefined => root.sessions.activeGoal;
         root.httpService.mount("/", createBrowserWorkspaceRoutes(root.workspaceRoot));
         root.httpService.mount("/", createBrowserGoalRoutes({
-            list: () => listBrowserGoals(root.workspaceGoalStore, readActiveGoalId()),
+            list: readTriggerGoalList,
             setArchived: async (goalId, archived) => {
                 const result = await commandService.manageTerminalGoal(goalId, async () => {
                     await root.manageGoal.setArchived(goalId, archived);
@@ -373,17 +413,30 @@ export async function runServerSession(
                 });
                 return result === "ok" ? { ok: true } : { ok: false, error: result };
             },
-            read: (goalId) => readBrowserGoalSession(
-                goalId,
-                root.workspaceGoalStore,
-                root.readWorkspaceTrajectory,
-                readActiveGoalId(),
-            ),
-            readState: (goalId) => readBrowserGoalSessionState(
-                goalId,
-                root.workspaceGoalStore,
-                readActiveGoalId(),
-            ),
+            read: async (goalId) => {
+                const goal = await readBrowserGoalSession(
+                    goalId,
+                    root.workspaceGoalStore,
+                    root.readWorkspaceTrajectory,
+                );
+                return goal === undefined ? undefined : {
+                    ...goal,
+                    execution: {
+                        state: executionStateFor(goalId),
+                        committedThroughSequence: goal.execution?.committedThroughSequence ?? 0,
+                    },
+                };
+            },
+            readState: async (goalId) => {
+                const goal = await readBrowserGoalSessionState(goalId, root.workspaceGoalStore);
+                return goal === undefined ? undefined : {
+                    ...goal,
+                    execution: {
+                        state: executionStateFor(goalId),
+                        committedThroughSequence: goal.execution?.committedThroughSequence ?? 0,
+                    },
+                };
+            },
             readActivity: (goalId, query) => readBrowserGoalActivity(
                 goalId,
                 query,

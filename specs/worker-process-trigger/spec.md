@@ -71,7 +71,7 @@ superseded_by: null
 - [x] //TODO 7. 实现 Trigger 驱动的权限往返及跨进程授权约束 → R3.1、R3.2；检查：运行新增权限往返和失败关闭测试。
 - [x] //TODO 8. 实现 Supervisor 离线队列、恢复扫描和 Worker 重新接管 → R4.1、R4.2；检查：运行新增重连基础测试。
 - [x] //TODO 9. 实现 Worker 生命周期 Hook 和异常后的显式恢复 → R4.2；检查：运行新增进程退出与恢复测试。
-- [ ] //TODO 10. 迁移用户入口、结构化交互与观察流，移除子代理并明确旧数据及评测入口行为 → R5.1；检查：运行入口基础测试和 `npm run build:web`。
+- [x] //TODO 10. 迁移用户入口、结构化交互与观察流，移除子代理并明确旧数据及评测入口行为 → R5.1；检查：运行入口基础测试和 `npm run build:web`。
 - [ ] //TODO 11. 同步受影响的契约、所属模块文档与语义表 → R1.1、R2.1、R3.1、R4.1、R5.1；检查：运行 `npm run check:docs` 和 `npm run check:dependencies`。
 
 ## 执行记录

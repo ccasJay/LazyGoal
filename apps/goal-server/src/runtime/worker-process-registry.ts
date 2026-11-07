@@ -44,7 +44,7 @@ export interface WorkerOfflineProgress {
     readonly requestId: string;
     readonly goalId: string;
     readonly result: WorkerProgress;
-    readonly kind: "advance-result" | "permission-result" | "cancel-result";
+    readonly kind: "advance-result" | "permission-result" | "cancel-result" | "interaction-result";
 }
 
 function registryDirectory(dataDirectory: string): string {

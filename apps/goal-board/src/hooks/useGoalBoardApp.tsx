@@ -16,7 +16,6 @@ import { useControlIntents } from "./useControlIntents";
 import { useGoalSession } from "./useGoalSession";
 import { useModelSelection } from "./useModelSelection";
 import { usePermissions } from "./usePermissions";
-import { useQueue } from "./useQueue";
 import { useRunCommands } from "./useRunCommands";
 import { useRunStream } from "./useRunStream";
 import { useToolGrants } from "./useToolGrants";
@@ -82,11 +81,6 @@ export function useGoalBoardApp() {
     control,
   });
 
-  // 运行中的文本发送进入持久化队列；等待交互时普通消息同样只排队（界面单独标注用途），
-  // 不会代答当前请求。
-  const canSendText = sessionManager.session !== null
-    && ["running", "waiting", "completed", "failed", "cancelled"].includes(sessionManager.session.runStatus);
-
   const modelSelectionManager = useModelSelection({
     session: sessionManager.session,
     draftGoalId: sessionManager.draftGoalId,
@@ -105,7 +99,6 @@ export function useGoalBoardApp() {
   const commandsManager = useRunCommands({
     session: sessionManager.session,
     sessionState: sessionManager.sessionState,
-    canSendText,
     draftGoalId: sessionManager.draftGoalId,
     draftPlanMode: sessionManager.draftPlanMode,
     draftModelId: sessionManager.draftModelId,
@@ -118,13 +111,6 @@ export function useGoalBoardApp() {
     onRefreshSession: sessionManager.refreshSelectedSession,
     onRefreshGoals: goalsManager.refreshGoals,
     control,
-  });
-
-  const queueManager = useQueue({
-    session: sessionManager.session,
-    control,
-    onRefreshSession: sessionManager.refreshSelectedSession,
-    onCommandError: commandsManager.setCommandError,
   });
 
   /** 按控制事件声明的范围定向读取；不触发完整会话重读。 */
@@ -281,14 +267,7 @@ export function useGoalBoardApp() {
     draftGoalBusy: commandsManager.draftGoalBusy,
     setCommandError: commandsManager.setCommandError,
     stoppingRunId: commandsManager.stoppingRunId,
-    canSendText,
-    queuedInputs: queueManager.queuedInputs,
-    queuePaused: queueManager.queuePaused,
-    onContinueQueue: queueManager.continueQueue,
-    onRemoveQueuedInput: queueManager.removeQueuedInput,
-    onSubmitMessage: commandsManager.submitMessage,
     onSubmitDraftMessage: commandsManager.submitDraftMessage,
-    onSubmitSteer: commandsManager.submitSteer,
     onInterrupt: commandsManager.interruptCurrentRun,
     onSubmitResume: commandsManager.submitResume,
     onVerifyIntent: commandsManager.verifyIntent,

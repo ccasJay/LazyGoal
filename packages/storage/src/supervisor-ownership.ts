@@ -1,5 +1,6 @@
 import { closeSync, openSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
+import { KeyedSerialQueue } from "./keyed-serial-queue";
 
 /**
  * 由内核文件锁维持的单机 Supervisor 所有权。
@@ -20,7 +21,7 @@ import { DatabaseSync } from "node:sqlite";
 export class SupervisorOwnership {
     private readonly database: DatabaseSync;
     private active = 0;
-    private readonly sequences = new Map<string, Promise<void>>();
+    private readonly sequences = new KeyedSerialQueue();
     private closing = false;
     private closePromise: Promise<void> | undefined;
     private resolveClose: (() => void) | undefined;
@@ -65,19 +66,7 @@ export class SupervisorOwnership {
      * @throws 所有权关闭或操作失败时抛出。
      */
     async runExclusive<T>(key: string, operation: () => Promise<T>): Promise<T> {
-        return this.run(async () => {
-            const previous = this.sequences.get(key);
-            let release!: () => void;
-            const current = new Promise<void>((resolve) => { release = resolve; });
-            this.sequences.set(key, current);
-            try {
-                await previous;
-                return await operation();
-            } finally {
-                if (this.sequences.get(key) === current) this.sequences.delete(key);
-                release();
-            }
-        });
+        return this.run(() => this.sequences.run(key, operation));
     }
 
     /** 拒绝新操作，等待已有操作结束并释放内核锁。 */

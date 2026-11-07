@@ -3,10 +3,9 @@ import { Button } from "./ui/button";
 import { InputGroup, InputGroupAddon, InputGroupTextarea } from "./ui/input-group";
 import { useState } from "react";
 import type { ReactNode } from "react";
-import { ArrowUp, ChevronDown, Folder, Pause, Play } from "lucide-react";
+import { ArrowUp, ChevronDown, Folder } from "lucide-react";
 import { slashCommands } from "../types";
 import { resolveComposerKey } from "../session-controls";
-import { workbenchReasonText, type WorkbenchActions } from "../workbench-actions";
 
 export function InboxIcon() {
   return (
@@ -42,96 +41,50 @@ export function CurrentModelControl({
 }
 
 /**
- * Goal 会话的单一消息输入与 Run 主操作。
+ * 新 Goal 首次提交意图的输入框。
  *
- * @remarks
- * 普通工作状态下，空输入触发暂停、带文本输入消息；Run 可恢复时，空输入恢复原 Run，
- * 带文本仍排入后续 Run；终态下仅发送新消息。
+ * @remarks 成功提交后仅清理与本次提交一致的草稿；此组件不接收已有 Goal 的消息或 Run 控制。
  */
 export function MessageComposer({
   busy,
-  running = false,
-  recoverable = false,
-  stopping = false,
   sendDisabled = false,
-  recoveryActionLabel = "Resume Run",
   placeholder,
-  textareaLabel = "Message the Goal",
+  textareaLabel = "Goal intent",
   describedBy,
   footerControls,
   onSubmit,
-  onInterrupt,
-  onResume,
   autoFocus = false,
   showHint = true,
   draftValue,
   onDraftChange,
-  primaryActions,
 }: {
   busy: boolean;
-  running?: boolean;
-  /** Run 不在当前 Runtime 进程执行时，空输入主按钮恢复同一 Run。 */
-  recoverable?: boolean;
-  stopping?: boolean;
   sendDisabled?: boolean;
-  /** 可恢复 Run 主按钮的动作名称；清理已受理的停止时显示对应文案。 */
-  recoveryActionLabel?: string;
   placeholder: string;
-  /** 文本框的可访问名称；等待交互时的队列输入使用明确的排队用途。 */
   textareaLabel?: string;
-  /** 文本框的补充说明元素 id；用于关联“不会回答当前请求”等说明。 */
   describedBy?: string;
   onSubmit: (content: string) => Promise<boolean>;
-  /** 运行中且输入框为空时，唯一主按钮将此操作作为暂停当前 Run。 */
-  onInterrupt?: () => Promise<void>;
-  /** 可恢复 Run 且输入框为空时，由唯一主按钮恢复当前 Run。 */
-  onResume?: () => Promise<void>;
-  /** 由工作台投影提供的发送、停止与恢复可用性；缺省时沿用各布尔开关。 */
-  primaryActions?: Pick<WorkbenchActions, "send_message" | "stop" | "resume">;
   footerControls?: ReactNode;
   autoFocus?: boolean;
   showHint?: boolean;
-} & ({
-  /** 由上层保留的草稿；未提供时由输入框自行管理。 */
   draftValue: string;
-  /** 更新上层持有的草稿，包括发送成功后的条件清除。 */
   onDraftChange: React.Dispatch<React.SetStateAction<string>>;
-} | { draftValue?: never; onDraftChange?: never })) {
-  const [localDraft, setLocalDraft] = useState("");
-  const draft = draftValue ?? localDraft;
-  const setDraft = draftValue === undefined ? setLocalDraft : onDraftChange;
+}) {
   const [selectedCommand, setSelectedCommand] = useState(0);
   const [commandMenuClosed, setCommandMenuClosed] = useState(false);
-  const inspection = slashCommands.inspect(draft);
-  const candidates = !running && !recoverable && inspection.kind === "candidates" && !commandMenuClosed ? inspection.candidates : [];
+  const inspection = slashCommands.inspect(draftValue);
+  const candidates = inspection.kind === "candidates" && !commandMenuClosed ? inspection.candidates : [];
   const activeCandidate = candidates[Math.min(selectedCommand, candidates.length - 1)];
-  const hasDraft = draft.trim().length > 0;
-  const primaryMode = hasDraft ? "send_message" : recoverable ? "resume" : running ? "stop" : "send_message";
-  const primaryAction = primaryActions?.[primaryMode];
-  const primaryReason = primaryAction !== undefined && !primaryAction.available
-    ? workbenchReasonText(primaryAction.reason)
-    : undefined;
+  const hasDraft = draftValue.trim().length > 0;
 
-  async function submit(content = draft) {
+  async function submit(content = draftValue) {
     if (busy || !content.trim()) return;
-    const submittedDraft = draft;
+    const submittedDraft = draftValue;
     if (await onSubmit(content)) {
-      setDraft((current) => (current === submittedDraft ? "" : current));
+      onDraftChange((current) => (current === submittedDraft ? "" : current));
       setCommandMenuClosed(false);
       setSelectedCommand(0);
     }
-  }
-
-  async function activatePrimaryAction() {
-    if (recoverable && !hasDraft) {
-      if (!busy && !stopping && onResume !== undefined) await onResume();
-      return;
-    }
-    if (running && !hasDraft) {
-      if (!busy && !stopping && onInterrupt !== undefined) await onInterrupt();
-      return;
-    }
-    await submit();
   }
 
   return (
@@ -161,8 +114,8 @@ export function MessageComposer({
       >
         <InputGroup className="composer">
           <InputGroupTextarea
-            id="message-composer-draft"
-            name="message"
+            id="goal-intent-draft"
+            name="intent"
             rows={1}
             aria-label={textareaLabel}
             aria-describedby={describedBy}
@@ -170,10 +123,10 @@ export function MessageComposer({
             title="Enter to send, Shift + Enter for a new line"
             placeholder={placeholder}
             autoFocus={autoFocus}
-            value={draft}
+            value={draftValue}
             disabled={busy}
             onChange={(event) => {
-              setDraft(event.target.value);
+              onDraftChange(event.target.value);
               setSelectedCommand(0);
               setCommandMenuClosed(false);
             }}
@@ -210,59 +163,19 @@ export function MessageComposer({
             <div className="composer-controls">{footerControls}</div>
             <div className="composer-actions">
               <Button variant="ghost" size="sm"
-                type="button"
-                className={`send${running ? " is-running" : ""}${stopping ? " is-stopping" : ""}`}
-                aria-label={
-                  stopping
-                    ? "Pausing Run"
-                    : busy
-                      ? recoverable && !hasDraft ? "Recovering Run" : "Sending message"
-                      : recoverable && !hasDraft
-                        ? recoveryActionLabel
-                        : running && !hasDraft
-                          ? "Pause Run"
-                          : "Send message"
-                }
-                title={
-                  primaryReason !== undefined
-                    ? primaryReason
-                    : stopping
-                      ? "Pausing this Run"
-                      : recoverable && !hasDraft
-                        ? recoveryActionLabel
-                        : running && !hasDraft
-                          ? "Pause this Run"
-                          : "Send message"
-                }
-                disabled={
-                  primaryAction === undefined
-                    ? busy || sendDisabled || (
-                      recoverable
-                        ? !hasDraft && (stopping || onResume === undefined)
-                        : running
-                          ? !hasDraft && (stopping || onInterrupt === undefined)
-                          : !hasDraft
-                    )
-                    : !primaryAction.available || (stopping && !hasDraft)
-                }
-                onClick={() => void activatePrimaryAction()}
+                type="submit"
+                className="send"
+                aria-label={busy ? "Submitting Goal" : "Start Goal"}
+                title={busy ? "Submitting this Goal" : "Start Goal"}
+                disabled={busy || sendDisabled || !hasDraft}
               >
-                {busy || stopping ? (
-                  <span className="loading-mark small" />
-                ) : recoverable && !hasDraft ? (
-                  <Play size={14} />
-                ) : running && !hasDraft ? (
-                  <Pause size={15} />
-                ) : (
-                  <ArrowUp size={16} />
-                )}
+                {busy ? <span className="loading-mark small" /> : <ArrowUp size={16} />}
               </Button>
             </div>
           </InputGroupAddon>
         </InputGroup>
       </form>
-      {showHint && <div className="composer-hint">Enter to send, Shift + Enter for a new line</div>}
+      {showHint && <div className="composer-hint">Enter to submit, Shift + Enter for a new line</div>}
     </>
   );
 }
-

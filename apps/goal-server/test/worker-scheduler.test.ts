@@ -1,8 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { fork } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,6 +19,21 @@ import { WorkerScheduler } from "../src/runtime/worker-scheduler";
 
 const never = { structuredOutputMode: "prompt_only" as const, async generate() { throw new Error("Waiting Goals must not call a model"); } };
 const principal = { role: "user", mayCreateGoal: true, goalIds: [] } as const;
+
+function permissionTestToolFrames(toolId: string, args: Record<string, unknown>, callId: string): string {
+    const chunk = (delta: Record<string, unknown>, finishReason: string | null = null) => ({
+        id: "worker-offline-test",
+        object: "chat.completion.chunk",
+        created: 0,
+        model: "offline-test-model",
+        choices: [{ index: 0, delta, finish_reason: finishReason }],
+    });
+    return [
+        { tool_calls: [{ index: 0, id: callId, type: "function", function: { name: toolId, arguments: JSON.stringify(args) } }] },
+        {},
+    ].map((delta, index) => `data: ${JSON.stringify(chunk(delta, index === 1 ? "tool_calls" : null))}\n\n`).join("")
+        + "data: [DONE]\n\n";
+}
 
 function createWaitingGoal(id: string, intent: string, workspaceRoot: string) {
     const goal = createGoal({ ...currentProtocols, id, intent, runId: `run-${id}`, promptBundleVersion: 1,
@@ -36,16 +53,6 @@ function acceptedGoalId(admission: Awaited<ReturnType<typeof admitTrigger>>): st
         throw new Error("Expected an accepted Trigger delivery");
     }
     return admission.receipt.result.goalId;
-}
-
-function createFailedRun(goal: Awaited<ReturnType<typeof createWaitingGoal>>["goal"]) {
-    const baseline = createGoal({ ...currentProtocols, id: goal.id, intent: goal.definition.intent, runId: goal.state.run.id,
-        promptBundleVersion: 1, profile: goal.definition.profile });
-    const started = transition(baseline.state.run, { kind: "start" });
-    assert.equal(started.ok, true);
-    const failed = transition(started.state, { kind: "decision", decision: { kind: "fail", error: "test terminal" } });
-    assert.equal(failed.ok, true);
-    return { ...goal, state: { ...goal.state, run: failed.state } };
 }
 
 async function waitFor(predicate: () => boolean, timeoutMs = 10000): Promise<void> {
@@ -119,9 +126,14 @@ test("FIFO 派发让不同 Goal 并行，等待绑定保留，终态后复用匹
         await waitFor(() => deliveries.queueRecord(thirdGoalId)?.status === "waiting");
         assert.equal(deliveries.queueRecord(thirdGoalId)?.workerId, records[0]!.workerId);
 
-        for (const goalId of [acceptedIds[1]!, thirdGoalId]) {
-            await goals.save(createFailedRun((await goals.restore(goalId))!));
-            assert.equal((await scheduler.advanceGoal(goalId)).kind, "terminal");
+        for (const [index, goalId] of [acceptedIds[1]!, thirdGoalId].entries()) {
+            const suffix = `waiting-${index}`;
+            const terminal = await scheduler.handleCancelTrigger({
+                deliveryId: `cancel-${suffix}`,
+                goalId,
+                trigger: { id: `cancel-trigger-${suffix}`, purpose: "cancel", source: "user", payload: "{}" },
+            }, { ...principal, goalIds: [goalId] });
+            assert.deepEqual(terminal, { kind: "terminal", status: "cancelled" });
         }
 
         const fourth = await admitTrigger(owner, deliveries, goals, never, event("d"), principal, factory);
@@ -187,8 +199,12 @@ test("FIFO 派发让不同 Goal 并行，等待绑定保留，终态后复用匹
         await scheduler.pump();
         await waitFor(() => deliveries.queueRecord(fifthGoalId)?.status === "waiting");
         assert.notEqual(deliveries.queueRecord(fifthGoalId)?.workerId, lostAssignment.workerId);
-        await goals.save(createFailedRun((await goals.restore(fifthGoalId))!));
-        assert.equal((await scheduler.advanceGoal(fifthGoalId)).kind, "terminal");
+        const fifthCancellation = await scheduler.handleCancelTrigger({
+            deliveryId: "cancel-fifth-delivery",
+            goalId: fifthGoalId,
+            trigger: { id: "cancel-fifth-trigger", purpose: "cancel", source: "user", payload: "{}" },
+        }, { ...principal, goalIds: [fifthGoalId] });
+        assert.deepEqual(fifthCancellation, { kind: "terminal", status: "cancelled" });
         await scheduler.closeIdle();
     } finally {
         if (cleanupGoalId !== undefined && deliveries.queueRecord(cleanupGoalId)?.status !== "terminal") {
@@ -341,6 +357,185 @@ test("Supervisor 强制退出后，新 Supervisor 通过认证通道重新接管
         if (supervisor.exitCode === null) supervisor.kill("SIGKILL");
         if (originalWorkerPid !== undefined) {
             try { process.kill(originalWorkerPid, "SIGKILL"); } catch { /* Worker already exited. */ }
+        }
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("Supervisor 断开后 Worker 用本地检查点完成已授权工具并在重连时回放", { timeout: 30000 }, async () => {
+    const root = await mkdtemp(join(tmpdir(), "lg-worker-offline-action-"));
+    const workspace = join(root, "workspace");
+    const home = join(root, "home");
+    const dataDirectory = join(root, "data");
+    await Promise.all([
+        mkdir(workspace, { recursive: true }),
+        mkdir(join(home, "agent-profiles"), { recursive: true }),
+        mkdir(dataDirectory, { recursive: true }),
+    ]);
+    await writeFile(join(home, "agent-profiles", "default.json"), JSON.stringify({
+        schemaVersion: 1,
+        id: "default",
+        name: "Test",
+        description: "Test",
+        systemPrompt: "Test",
+        instructions: ["Run the requested shell command once."],
+        toolIds: ["bash"],
+    }));
+
+    let workStage = 0;
+    let bashCallCount = 0;
+    const modelRequests: { readonly tools: readonly string[]; readonly evidenceSequences: readonly number[] }[] = [];
+    const server = createServer((request, response) => {
+        void (async () => {
+            let bodyText = "";
+            request.setEncoding("utf8");
+            for await (const chunk of request) bodyText += chunk;
+            const body = JSON.parse(bodyText) as Record<string, unknown>;
+            const toolNames = Array.isArray(body.tools)
+                ? body.tools.flatMap((tool) => typeof tool === "object" && tool !== null && "function" in tool
+                    && typeof tool.function === "object" && tool.function !== null && "name" in tool.function
+                    && typeof tool.function.name === "string" ? [tool.function.name] : [])
+                : [];
+            const messages = Array.isArray(body.messages) ? body.messages : [];
+            const requestText = JSON.stringify(messages);
+            const evidenceMatches = [...requestText.matchAll(/Valid committed evidence sequences: ([0-9, ]+)/g)];
+            const evidenceSequences = evidenceMatches.at(-1)?.[1]?.split(",").map((value) => Number(value.trim()))
+                .filter(Number.isSafeInteger) ?? [];
+            modelRequests.push({ tools: toolNames, evidenceSequences });
+            if (toolNames.includes("system_review_completion")) {
+                response.writeHead(200, { "content-type": "text/event-stream" });
+                response.end(permissionTestToolFrames("system_review_completion", { result: { kind: "accept" } }, "offline-review"));
+                return;
+            }
+            workStage += 1;
+            const scripted = workStage === 1
+                ? ["system_start_run_stage", { target: "完成离线工具执行", acceptanceCriteria: ["命令完成且只执行一次"] }]
+                : workStage === 2
+                    ? ["system_find_tools", { query: "bash" }]
+                    : workStage === 3
+                        ? ["bash", { command: "printf started > offline-started.txt; sleep 2; printf finished > offline-finished.txt" }]
+                        : workStage === 4
+                        ? ["system_complete_run_stage", { summary: "命令已完成", evidenceSequences }]
+                        : workStage >= 5
+                            ? ["system_complete_task", { summary: "命令已完成", evidenceSequences }]
+                        : undefined;
+            if (scripted === undefined) {
+                response.writeHead(500);
+                response.end("No further test model calls are expected");
+                return;
+            }
+            if (scripted[0] === "bash") bashCallCount += 1;
+            response.writeHead(200, { "content-type": "text/event-stream" });
+            response.end(permissionTestToolFrames(scripted[0] as string, scripted[1] as Record<string, unknown>, `offline-call-${workStage}`));
+        })().catch((error: unknown) => {
+            response.writeHead(500);
+            response.end(String(error));
+        });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    assert.ok(address !== null && typeof address !== "string");
+    const env = {
+        LAZYGOAL_HOME: home,
+        LLM_PROVIDER: "openai-compatible",
+        LLM_MODEL: "offline-test-model",
+        LLM_API_KEY: "test",
+        LLM_BASE_URL: `http://127.0.0.1:${address.port}/v1`,
+        LLM_CONTEXT_WINDOW_TOKENS: "16000",
+        LLM_MAX_OUTPUT_TOKENS: "4096",
+        LLM_TOKENIZER_ENCODING: "cl100k_base",
+    } as NodeJS.ProcessEnv;
+    let owner = new SupervisorOwnership(join(dataDirectory, "owner.db"));
+    let deliveries = new TriggerDeliveryStore(join(dataDirectory, "deliveries.db"));
+    const goals = new JsonFileGoalStore(join(dataDirectory, "goals"));
+    let scheduler = new WorkerScheduler({ owner, deliveries, goals, cwd: workspace, dataDirectory, env,
+        permissionAdapter: { structuredOutputMode: "strict", async generate() {
+            return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({ kind: "approve", reason: null }) }] };
+        } } });
+    let workerPid: number | undefined;
+    let oldStoresClosed = false;
+    let restartedStores: { readonly owner: SupervisorOwnership; readonly deliveries: TriggerDeliveryStore; readonly scheduler: WorkerScheduler } | undefined;
+    try {
+        const admitted = await admitTrigger(owner, deliveries, goals, never, {
+            deliveryId: "offline-action-work",
+            trigger: { id: "offline-action-trigger", purpose: "work", source: "user",
+                payload: JSON.stringify({ intent: "Execute the delayed offline command" }) },
+        }, principal, async (intent, reservedGoalId) => ({
+            goal: createGoal({ ...currentProtocols, id: reservedGoalId ?? "goal-offline-action", runId: "run-offline-action", intent,
+                promptBundleVersion: 1,
+                modelSelection: { provider: "openai-compatible", modelId: "offline-test-model", contextWindowTokens: 16000,
+                    maxOutputTokens: 4096, inputEstimator: { kind: "character-v1" } },
+                profile: { id: "default", systemPrompt: "Test", instructions: ["Run the requested shell command once."], toolIds: ["bash"] } }),
+            authorization: { workspace: { mode: "shared" as const, projectRoot: workspace, executionRoot: workspace },
+                toolIds: ["bash"], sandbox: { extraFiles: [], network: "none" as const } },
+        }));
+        const goalId = acceptedGoalId(admitted);
+        await scheduler.pump();
+        await waitFor(() => existsSync(join(workspace, "offline-started.txt")));
+        const worker = (await scheduler.processIds())[0];
+        assert.ok(worker !== undefined);
+        workerPid = worker.pid;
+
+        await scheduler.detachAll();
+        deliveries.close();
+        await owner.close();
+        oldStoresClosed = true;
+
+        const workerDigest = createHash("sha256").update(worker.workerId).digest("hex");
+        const journalPath = join(dataDirectory, "worker-processes", `${workerDigest}.journal.json`);
+        await waitFor(() => existsSync(join(workspace, "offline-finished.txt")));
+        try {
+            await waitFor(() => {
+            try {
+                const journal = JSON.parse(readFileSync(journalPath, "utf8")) as {
+                    readonly snapshot?: { readonly id?: string; readonly state?: { readonly run?: { readonly status?: string } } };
+                    readonly outbox?: readonly { readonly kind?: string; readonly goalId?: string; readonly result?: { readonly kind?: string; readonly status?: string } }[];
+                };
+                return journal.snapshot?.id === goalId && journal.snapshot.state?.run?.status === "completed"
+                    && journal.outbox?.some((item) => item.kind === "advance-result" && item.goalId === goalId
+                        && item.result?.kind === "terminal" && item.result.status === "completed") === true;
+            } catch {
+                return false;
+            }
+            });
+        } catch (error) {
+            const journal = existsSync(journalPath) ? JSON.parse(readFileSync(journalPath, "utf8")) as {
+                readonly snapshot?: { readonly id?: string; readonly state?: { readonly run?: Record<string, unknown> } };
+                readonly outbox?: readonly { readonly kind?: string; readonly goalId?: string; readonly result?: unknown }[];
+            } : undefined;
+            const outbox = journal?.outbox?.map(({ kind, goalId: itemGoalId, result }) => ({ kind, goalId: itemGoalId, result }));
+            throw new Error(`${error instanceof Error ? error.message : String(error)}; workStage=${workStage}; modelRequests=${JSON.stringify(modelRequests)}; `
+                + `snapshot=${JSON.stringify(journal?.snapshot?.state?.run).slice(0, 3500)}; outbox=${JSON.stringify(outbox)}`);
+        }
+        assert.equal(await readFile(join(workspace, "offline-finished.txt"), "utf8"), "finished");
+        assert.equal(bashCallCount, 1);
+
+        owner = new SupervisorOwnership(join(dataDirectory, "owner.db"));
+        deliveries = new TriggerDeliveryStore(join(dataDirectory, "deliveries.db"));
+        scheduler = new WorkerScheduler({ owner, deliveries, goals, cwd: workspace, dataDirectory, env,
+            permissionAdapter: never });
+        restartedStores = { owner, deliveries, scheduler };
+        await scheduler.pump();
+        await waitFor(() => deliveries.queueRecord(goalId)?.status === "terminal");
+        assert.equal((await goals.restore(goalId))?.state.run.status, "completed");
+        assert.ok(deliveries.listGoalDeliveries(goalId).some((item) => item.delivery.trigger.purpose === "progress"
+            && item.status === "settled" && item.result.kind === "handled"
+            && JSON.parse(item.delivery.trigger.payload).kind === "terminal"));
+        await scheduler.closeIdle();
+    } finally {
+        server.closeAllConnections();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+        if (workerPid !== undefined) {
+            try { process.kill(workerPid, "SIGKILL"); } catch { /* Worker already exited. */ }
+        }
+        if (restartedStores !== undefined) {
+            await restartedStores.scheduler.detachAll().catch(() => undefined);
+            restartedStores.deliveries.close();
+            await restartedStores.owner.close().catch(() => undefined);
+        } else if (!oldStoresClosed) {
+            await scheduler.detachAll().catch(() => undefined);
+            deliveries.close();
+            await owner.close().catch(() => undefined);
         }
         await rm(root, { recursive: true, force: true });
     }
