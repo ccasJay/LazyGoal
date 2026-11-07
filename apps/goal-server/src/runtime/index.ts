@@ -8,6 +8,8 @@ export type {
     RuntimeCompositionOptions,
 } from "./composition";
 export { createExecutionComponents } from "./execution-composition";
+export { SupervisorWorkerProcess } from "./worker-process";
+export type { SupervisorWorkerProcessOptions, WorkerProgress } from "./worker-process";
 export type {
     ExecutionCommands,
     ExecutionComponentDependencies,

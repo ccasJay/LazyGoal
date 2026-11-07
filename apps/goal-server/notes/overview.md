@@ -133,3 +133,5 @@ Provider 表单在线查询由 Composition Root 校验供应商和端点规则�
 OpenCode Go 在线文本模型按实时模型元数据确认文本生成、工具调用和容量后可选，并统一通过 `llm-pi-ai` 的 Chat Completions 适配路径执行。`GoalModelSelection` 与 Snapshot 保存协议、容量、推理、视觉和工具选择能力；每次恢复按保存数据构造 Adapter，并按已保存的 Profile ID 解析当前 API Key。端点由 `llm-pi-ai` 固定，API Key 与 Base URL 不写入 Goal 状态。上游可能限制部分免费模型只能在 OpenCode 内调用，外部客户端请求可能收到 403。
 
 [Trigger 准入组件](../src/runtime/trigger-admission.ts) 可按确定性规则或 Supervisor 直接模型调用判断新工作，失败原因与投递持久保存以便重试；它尚未装配至默认用户入口。
+
+[独立 Worker](../src/runtime/worker-process.ts) 以 OS 子进程复用执行 Runtime；Goal 快照经 generation 与持久队列绑定核验后由 Supervisor 保存，等待中的 Goal 保持 Worker 占用。

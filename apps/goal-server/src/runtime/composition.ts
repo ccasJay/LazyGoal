@@ -272,6 +272,8 @@ export interface RuntimeCompositionOptions {
     readonly dataDirectory?: string;
     readonly env?: NodeJS.ProcessEnv;
     readonly adapter?: LLMAdapter;
+    /** 由 Supervisor 持有的 Goal 快照 Port；注入后本实例不直接写 Goal 文件。 */
+    readonly goalStore?: GoalStore;
     readonly thinkAdapter?: LLMAdapter;
     readonly profile?: AgentProfile;
     readonly toolRegistry?: InMemoryToolRegistry;
@@ -704,7 +706,17 @@ async function assembleRuntimeComposition(
 
     // Web Composition Root 直接使用正式工作区 GoalStore 与 TrajectoryStore，不使用终端 AggregatedStore
     const primaryGoalStore = new JsonFileGoalStore(goalsDirectory);
-    const store = primaryGoalStore;
+    const store: GoalStore & GoalCatalog = options.goalStore === undefined
+        ? primaryGoalStore
+        : {
+            save: (goal) => options.goalStore!.save(goal),
+            restore: (goalId) => options.goalStore!.restore(goalId),
+            ...(options.goalStore.readRevision === undefined
+                ? {}
+                : { readRevision: (goalId: string) => options.goalStore!.readRevision!(goalId) }),
+            listResumable: () => primaryGoalStore.listResumable(),
+            listHistory: () => primaryGoalStore.listHistory(),
+        };
     const metricsStore = new JsonFileMetricsStore(metricsDirectory);
     const sessionMetricsService = new SessionMetricsService(store, metricsStore, metricsStore);
     const metricsAwareGoalStore: GoalStore = {
