@@ -48,6 +48,12 @@ export type {
     GoalSnapshotWorkflowV1,
     SnapshotJsonValue,
 } from "./goal-snapshot";
+export { TriggerDeliveryStore } from "./trigger-delivery-store";
+export type { TriggerDeliveryResult, TriggerGoalQueueRecord } from "./trigger-delivery-store";
+export { SupervisorOwnership } from "./supervisor-ownership";
+export type { TriggerDeliveryFile, TriggerDeliveryOutcome, TriggerWireRequest } from "./trigger-delivery-file";
+export { receiveAuthorizedTrigger } from "./trigger-delivery-ingress";
+export type { TriggerIngressPrincipal } from "./trigger-delivery-ingress";
 export {
     DefaultGoalSnapshotCodec,
     goalSnapshotCodec,

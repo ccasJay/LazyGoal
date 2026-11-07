@@ -19,3 +19,4 @@
 | 宿主审批预检 | 无界面宿主经同一只读预检返回绑定审阅引用的修订决定；恢复决定只由专用恢复处理器提交。 | [Goal Server](../README.md) | [运行时装配](../src/runtime/composition.ts) |
 | Trigger Admission | 将新工作交由确定性规则或 Supervisor 直接模型准入，失败保留待重试。 | [Goal Server](../README.md) | [准入实现](../src/runtime/trigger-admission.ts) |
 | SupervisorWorkerProcess | 独立 OS Worker 推进获派 Goal，经 Supervisor IPC 读取和保存 Goal 快照；等待状态保留绑定。 | [Goal Server](../README.md) | [Worker 实现](../src/runtime/worker-process.ts) |
+| WorkerScheduler | 按入队次序认领 Goal，匹配授权 workspace 并行运行；只在确认终态后复用 Worker。 | [Goal Server](../README.md) | [调度实现](../src/runtime/worker-scheduler.ts) |

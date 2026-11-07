@@ -14,6 +14,23 @@ export type TriggerDeliveryResult =
     | { readonly status: "settled"; readonly delivery: TriggerDeliveryFile; readonly result: TriggerDeliveryOutcome };
 
 /**
+ * 已接受 Goal 在持久派发队列中的当前记录。
+ *
+ * @example
+ * ```ts
+ * const item: TriggerGoalQueueRecord = { sequence: 1, goalId: "goal-1", status: "queued" };
+ * ```
+ */
+export interface TriggerGoalQueueRecord {
+    readonly sequence: number;
+    readonly goalId: string;
+    readonly deliveryId: string;
+    readonly status: "queued" | "claimed" | "waiting" | "terminal";
+    readonly workerId?: string;
+    readonly generation?: string;
+}
+
+/**
  * 使用 SQLite 事务保存 Trigger 与投递收据。
  *
  * @remarks
@@ -60,9 +77,11 @@ export class TriggerDeliveryStore {
                 goal_id TEXT NOT NULL UNIQUE,
                 worker_id TEXT,
                 generation TEXT,
+                status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'claimed', 'waiting', 'terminal')),
                 CHECK ((worker_id IS NULL AND generation IS NULL) OR (worker_id IS NOT NULL AND generation IS NOT NULL))
             ) STRICT;
-            CREATE UNIQUE INDEX IF NOT EXISTS trigger_goal_queue_worker ON trigger_goal_queue(worker_id) WHERE worker_id IS NOT NULL;
+            DROP INDEX IF EXISTS trigger_goal_queue_worker;
+            CREATE UNIQUE INDEX trigger_goal_queue_worker ON trigger_goal_queue(worker_id) WHERE worker_id IS NOT NULL AND status IN ('claimed', 'waiting');
             PRAGMA foreign_keys = ON;
         `);
     }
@@ -269,8 +288,33 @@ export class TriggerDeliveryStore {
 
     /** @returns 已准入 Goal 的身份，按收据与队列事务提交顺序排列。 */
     queuedGoalIds(): readonly string[] {
-        const rows = this.database.prepare("SELECT goal_id FROM trigger_goal_queue ORDER BY sequence").all() as { goal_id: string }[];
+        const rows = this.database.prepare("SELECT goal_id FROM trigger_goal_queue WHERE status <> 'terminal' ORDER BY sequence").all() as { goal_id: string }[];
         return rows.map(({ goal_id }) => goal_id);
+    }
+
+    /** @returns 当前队首未绑定 Goal；已认领和终态项目不会被再次派发。 */
+    nextQueuedGoal(): string | undefined {
+        const row = this.database.prepare("SELECT goal_id FROM trigger_goal_queue WHERE status = 'queued' ORDER BY sequence LIMIT 1").get() as { goal_id: string } | undefined;
+        return row?.goal_id;
+    }
+
+    /** @returns 持久队列中的指定 Goal 记录；不存在时返回 undefined。 */
+    queueRecord(goalId: string): TriggerGoalQueueRecord | undefined {
+        const row = this.database.prepare("SELECT sequence, goal_id, delivery_id, status, worker_id, generation FROM trigger_goal_queue WHERE goal_id = ?").get(goalId) as {
+            sequence: number; goal_id: string; delivery_id: string; status: TriggerGoalQueueRecord["status"]; worker_id: string | null; generation: string | null;
+        } | undefined;
+        if (row === undefined) return undefined;
+        if ((row.worker_id === null) !== (row.generation === null)
+            || (row.status === "queued" && row.worker_id !== null)
+            || (row.status !== "queued" && row.worker_id === null)) throw new Error("Invalid stored Goal queue record");
+        return {
+            sequence: row.sequence,
+            goalId: row.goal_id,
+            deliveryId: row.delivery_id,
+            status: row.status,
+            ...(row.worker_id === null ? {} : { workerId: row.worker_id }),
+            ...(row.generation === null ? {} : { generation: row.generation }),
+        };
     }
 
     /**
@@ -294,10 +338,10 @@ export class TriggerDeliveryStore {
         if (!workerId.trim() || !generation.trim()) throw new Error("Invalid Worker identity");
         this.database.exec("BEGIN IMMEDIATE");
         try {
-            const busy = this.database.prepare("SELECT goal_id FROM trigger_goal_queue WHERE worker_id = ?").get(workerId);
+            const busy = this.database.prepare("SELECT goal_id FROM trigger_goal_queue WHERE worker_id = ? AND status IN ('claimed', 'waiting')").get(workerId);
             if (busy !== undefined) throw new Error("Worker already has a Goal");
-            const row = this.database.prepare("SELECT goal_id FROM trigger_goal_queue WHERE worker_id IS NULL ORDER BY sequence LIMIT 1").get() as { goal_id: string } | undefined;
-            if (row !== undefined) this.database.prepare("UPDATE trigger_goal_queue SET worker_id = ?, generation = ? WHERE goal_id = ?").run(workerId, generation, row.goal_id);
+            const row = this.database.prepare("SELECT goal_id FROM trigger_goal_queue WHERE status = 'queued' ORDER BY sequence LIMIT 1").get() as { goal_id: string } | undefined;
+            if (row !== undefined) this.database.prepare("UPDATE trigger_goal_queue SET worker_id = ?, generation = ?, status = 'claimed' WHERE goal_id = ? AND status = 'queued'").run(workerId, generation, row.goal_id);
             this.database.exec("COMMIT");
             return row?.goal_id;
         } catch (error) {
@@ -315,9 +359,52 @@ export class TriggerDeliveryStore {
      * @throws 存在其他进程代次的绑定或存储失败时抛出。
      */
     workerClaim(workerId: string, generation: string): string | undefined {
-        const row = this.database.prepare("SELECT goal_id, generation FROM trigger_goal_queue WHERE worker_id = ?").get(workerId) as { goal_id: string; generation: string } | undefined;
+        const row = this.database.prepare("SELECT goal_id, generation FROM trigger_goal_queue WHERE worker_id = ? AND status IN ('claimed', 'waiting')").get(workerId) as { goal_id: string; generation: string } | undefined;
         if (row !== undefined && row.generation !== generation) throw new Error("Worker process generation does not match its Goal binding");
         return row?.goal_id;
+    }
+
+    /**
+     * 持久化 Worker 对 Goal 的等待或终态报告。
+     *
+     * @remarks
+     * 只有当前 generation 对应的活动绑定可更新。终态收据保留原 Worker 身份作审计，
+     * 但释放 Worker 独占约束，后续可复用同一进程。
+     *
+     * @param owner - 当前 Supervisor 所有权。
+     * @param workerId - 已登记的逻辑 Worker。
+     * @param generation - 本次 OS 进程代次。
+     * @param goalId - 当前绑定的 Goal。
+     * @param status - Runtime 已报告的等待或终态。
+     * @throws 身份、绑定或状态转换不一致时抛出。
+     * @example
+     * ```ts
+     * await store.markWorkerGoalStatus(owner, "worker-1", "generation-1", "goal-1", "waiting");
+     * ```
+     */
+    async markWorkerGoalStatus(
+        owner: SupervisorOwnership,
+        workerId: string,
+        generation: string,
+        goalId: string,
+        status: "waiting" | "terminal",
+    ): Promise<void> {
+        await owner.runExclusive(JSON.stringify(["worker-status", workerId, goalId]), async () => {
+            this.database.exec("BEGIN IMMEDIATE");
+            try {
+                const row = this.database.prepare("SELECT generation, status FROM trigger_goal_queue WHERE worker_id = ? AND goal_id = ?").get(workerId, goalId) as { generation: string; status: string } | undefined;
+                if (row === undefined || row.generation !== generation || !["claimed", "waiting"].includes(row.status)) {
+                    throw new Error("Worker Goal status binding conflict");
+                }
+                if (row.status !== "waiting" || status !== "waiting") {
+                    this.database.prepare("UPDATE trigger_goal_queue SET status = ? WHERE worker_id = ? AND goal_id = ?").run(status, workerId, goalId);
+                }
+                this.database.exec("COMMIT");
+            } catch (error) {
+                this.database.exec("ROLLBACK");
+                throw error;
+            }
+        });
     }
 
     /**

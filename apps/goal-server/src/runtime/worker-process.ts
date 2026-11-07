@@ -48,6 +48,8 @@ export interface SupervisorWorkerProcessOptions {
     readonly generation: string;
     readonly cwd: string;
     readonly dataDirectory: string;
+    /** Worker 构造同一模型供应商与 Home 配置所需的宿主环境快照。 */
+    readonly env?: NodeJS.ProcessEnv;
     readonly owner: SupervisorOwnership;
     readonly deliveries: TriggerDeliveryStore;
     readonly goals: JsonFileGoalStore;
@@ -126,7 +128,7 @@ export class SupervisorWorkerProcess {
         const entry = fileURLToPath(new URL("./worker-process-entry.ts", import.meta.url));
         const child = fork(entry, [], {
             cwd: options.cwd,
-            env: { ...process.env, LAZYGOAL_WORKER_ID: options.workerId, LAZYGOAL_WORKER_GENERATION: options.generation,
+            env: { ...(options.env ?? process.env), LAZYGOAL_WORKER_ID: options.workerId, LAZYGOAL_WORKER_GENERATION: options.generation,
                 LAZYGOAL_WORKER_DATA_DIRECTORY: options.dataDirectory },
             execArgv: process.execArgv,
             stdio: ["ignore", "inherit", "inherit", "ipc"],

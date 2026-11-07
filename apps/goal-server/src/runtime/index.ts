@@ -10,6 +10,7 @@ export type {
 export { createExecutionComponents } from "./execution-composition";
 export { SupervisorWorkerProcess } from "./worker-process";
 export type { SupervisorWorkerProcessOptions, WorkerProgress } from "./worker-process";
+export { WorkerScheduler } from "./worker-scheduler";
 export type {
     ExecutionCommands,
     ExecutionComponentDependencies,
