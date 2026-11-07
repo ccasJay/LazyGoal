@@ -134,7 +134,7 @@ OpenCode Go 在线文本模型按实时模型元数据确认文本生成、工�
 
 [Trigger 准入组件](../src/runtime/trigger-admission.ts) 可按确定性规则或 Supervisor 直接模型调用判断新工作，失败原因与投递持久保存以便重试；它尚未装配至默认用户入口。
 
-[独立 Worker](../src/runtime/worker-process.ts) 以 OS 子进程复用执行 Runtime；Goal 快照经 generation 与持久队列绑定核验后由 Supervisor 保存，等待中的 Goal 保持 Worker 占用。
+[独立 Worker](../src/runtime/worker-process.ts) 以 OS 子进程复用执行 Runtime；Goal 快照经 generation 与持久队列绑定核验后由 Supervisor 保存，等待中的 Goal 保持 Worker 占用。Worker 的等待、终态和取消确认以绑定 Worker 身份的 `progress` Trigger 持久记录；取消只在 Runtime 中断结算且 Supervisor 保存终态报告后释放进程。
 
 [Worker 调度器](../src/runtime/worker-scheduler.ts) 按持久队列顺序认领 Goal，匹配同一授权工作区的空闲 Worker；需要时启动新进程，不为不同 Goal 设并发上限。只有 Runtime 报告终态且队列状态提交后才释放 Worker。
 

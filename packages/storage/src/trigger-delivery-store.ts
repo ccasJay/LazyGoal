@@ -80,6 +80,7 @@ export class TriggerDeliveryStore {
                 status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'claimed', 'waiting', 'terminal')),
                 CHECK ((worker_id IS NULL AND generation IS NULL) OR (worker_id IS NOT NULL AND generation IS NOT NULL))
             ) STRICT;
+            CREATE INDEX IF NOT EXISTS trigger_deliveries_goal ON trigger_deliveries(json_extract(content, '$.goalId'));
             DROP INDEX IF EXISTS trigger_goal_queue_worker;
             CREATE UNIQUE INDEX trigger_goal_queue_worker ON trigger_goal_queue(worker_id) WHERE worker_id IS NOT NULL AND status IN ('claimed', 'waiting');
             PRAGMA foreign_keys = ON;
@@ -160,6 +161,27 @@ export class TriggerDeliveryStore {
     pendingIds(): readonly string[] {
         const rows = this.database.prepare("SELECT id FROM trigger_deliveries WHERE result IS NULL ORDER BY rowid").all() as { id: string }[];
         return rows.map(({ id }) => id);
+    }
+
+    /**
+     * 按接收顺序读取关联指定 Goal 的 Trigger 投递。
+     *
+     * @remarks
+     * 返回待处理与已结算记录，供宿主恢复交互、进度和结果视图；调用方仍须按
+     * `trigger.purpose` 解释载荷，不应把其内容当作可执行授权。
+     *
+     * @param goalId - Trigger 投递关联的 Goal 身份。
+     * @returns 该 Goal 的已校验投递记录；没有记录时返回空数组。
+     * @throws 持久记录损坏或数据库读取失败时抛出。
+     * @example
+     * ```ts
+     * const reports = store.listGoalDeliveries("goal-1");
+     * ```
+     */
+    listGoalDeliveries(goalId: string): readonly TriggerDeliveryResult[] {
+        if (!goalId.trim()) throw new Error("Goal identity is required");
+        const rows = this.database.prepare("SELECT id FROM trigger_deliveries WHERE json_extract(content, '$.goalId') = ? ORDER BY rowid").all(goalId) as { id: string }[];
+        return rows.map(({ id }) => this.read(id)).filter((result): result is TriggerDeliveryResult => result !== undefined);
     }
 
     /**
@@ -369,7 +391,7 @@ export class TriggerDeliveryStore {
      *
      * @remarks
      * 只有当前 generation 对应的活动绑定可更新。终态收据保留原 Worker 身份作审计，
-     * 但释放 Worker 独占约束，后续可复用同一进程。
+     * 但释放 Worker 独占约束，后续可复用同一进程；重复写入相同状态幂等，终态不能回退。
      *
      * @param owner - 当前 Supervisor 所有权。
      * @param workerId - 已登记的逻辑 Worker。
@@ -393,10 +415,12 @@ export class TriggerDeliveryStore {
             this.database.exec("BEGIN IMMEDIATE");
             try {
                 const row = this.database.prepare("SELECT generation, status FROM trigger_goal_queue WHERE worker_id = ? AND goal_id = ?").get(workerId, goalId) as { generation: string; status: string } | undefined;
-                if (row === undefined || row.generation !== generation || !["claimed", "waiting"].includes(row.status)) {
+                const isActive = row?.status === "claimed" || row?.status === "waiting";
+                const isRepeatedTerminal = row?.status === "terminal" && status === "terminal";
+                if (row === undefined || row.generation !== generation || (!isActive && !isRepeatedTerminal)) {
                     throw new Error("Worker Goal status binding conflict");
                 }
-                if (row.status !== "waiting" || status !== "waiting") {
+                if (row.status !== status) {
                     this.database.prepare("UPDATE trigger_goal_queue SET status = ? WHERE worker_id = ? AND goal_id = ?").run(status, workerId, goalId);
                 }
                 this.database.exec("COMMIT");

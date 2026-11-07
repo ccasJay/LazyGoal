@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { fork, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import type { GoalProgressResult } from "../../../../packages/runtime/src/goal-coordinator";
@@ -14,11 +14,13 @@ type WorkerMessage =
     | { readonly kind: "store-read"; readonly requestId: string; readonly workerId: string; readonly generation: string; readonly goalId: string }
     | { readonly kind: "store-save"; readonly requestId: string; readonly workerId: string; readonly generation: string; readonly goalId: string; readonly snapshot: unknown }
     | { readonly kind: "advance-result"; readonly requestId: string; readonly result: WorkerProgress }
+    | { readonly kind: "cancel-result"; readonly requestId: string; readonly result: WorkerProgress }
     | { readonly kind: "closed" };
 
 type WorkerCommand =
     | { readonly kind: "probe"; readonly requestId: string }
-    | { readonly kind: "advance"; readonly requestId: string; readonly goalId: string }
+    | { readonly kind: "advance"; readonly requestId: string; readonly goalId: string; readonly runId: string }
+    | { readonly kind: "cancel"; readonly requestId: string; readonly interruptId: string; readonly goalId: string; readonly runId: string }
     | { readonly kind: "store-reply"; readonly requestId: string; readonly ok: true; readonly snapshot?: GoalSnapshotV1 }
     | { readonly kind: "store-reply"; readonly requestId: string; readonly ok: false }
     | { readonly kind: "close" };
@@ -61,9 +63,10 @@ export interface SupervisorWorkerProcessOptions {
  * 一个可复用的独立 Worker OS 进程。
  *
  * @remarks
- * 同一代 Worker 同时只接受一个 Goal。`waiting` 保留现有 Goal 绑定；只有 Runtime
- * 报告终态后才释放该进程。Worker 无权直接写 Goal 文件，所有快照经 Supervisor
- * 校验、核对队列绑定并提交。异常退出不释放队列绑定或自动重派。
+ * 同一代 Worker 同时只接受一个 Goal。`waiting` 保留现有 Goal 绑定；Worker 返回
+ * 终态后仍由 Supervisor 校验快照、持久化进度与队列状态，再显式释放进程绑定。
+ * Worker 无权直接写 Goal 文件，所有快照经 Supervisor 校验、核对队列绑定并提交。
+ * 异常退出不释放队列绑定或自动重派。
  *
  * @example
  * ```ts
@@ -74,10 +77,13 @@ export interface SupervisorWorkerProcessOptions {
 export class SupervisorWorkerProcess {
     private readonly child: ChildProcess;
     private readonly ready: Promise<void>;
-    private readonly pending = new Map<string, (message: WorkerMessage) => void>();
+    private readonly pending = new Map<string, { readonly resolve: (message: WorkerMessage) => void; readonly reject: (error: Error) => void }>();
     private busy = false;
+    private cancelling = false;
+    private advanceCommandSent: Promise<void> | undefined;
     private goalId: string | undefined;
     private closed = false;
+    private readonly cancelRequests = new Map<string, Promise<WorkerProgress>>();
 
     private constructor(private readonly options: SupervisorWorkerProcessOptions, child: ChildProcess) {
         this.child = child;
@@ -98,18 +104,19 @@ export class SupervisorWorkerProcess {
                     return;
                 }
                 if (message.kind === "closed") return;
-                this.pending.get(message.requestId)?.(message);
+                this.pending.get(message.requestId)?.resolve(message);
                 this.pending.delete(message.requestId);
             };
+            const failPending = (error: Error): void => {
+                for (const request of this.pending.values()) request.reject(error);
+                this.pending.clear();
+            };
             child.on("message", onMessage);
-            child.once("error", reject);
+            child.on("error", (error) => { reject(error); failPending(error); });
             child.once("exit", (code, signal) => {
                 const error = new Error(`Worker process exited (${signal ?? code})`);
                 reject(error);
-                for (const finish of this.pending.values()) {
-                    finish({ kind: "advance-result", requestId: "", result: { kind: "rejected", code: "WORKER_EXITED", message: error.message } });
-                }
-                this.pending.clear();
+                failPending(error);
             });
         });
     }
@@ -172,7 +179,7 @@ export class SupervisorWorkerProcess {
      * 要求 Worker 用其 Runtime 推进已由 Supervisor 绑定的 Goal 一次。
      *
      * @param goalId - 该 Worker 当前唯一获派的 Goal。
-     * @returns 等待、终态或显式拒绝结果。
+     * @returns 等待、终态或显式拒绝结果；终态仍须由 Supervisor 持久化后释放绑定。
      * @throws 进程身份、队列绑定或 IPC 错误时拒绝；失败时保留原绑定。
      * @example
      * ```ts
@@ -180,20 +187,82 @@ export class SupervisorWorkerProcess {
      * ```
      */
     async advance(goalId: string): Promise<WorkerProgress> {
-        if (this.closed || this.busy) throw new Error("Worker is unavailable");
+        if (this.closed || this.busy || this.cancelling) throw new Error("Worker is unavailable");
         const claim = this.options.deliveries.workerClaim(this.options.workerId, this.options.generation);
         if (claim !== goalId) throw new Error("Worker Goal does not match its durable assignment");
         if (this.goalId !== undefined && this.goalId !== goalId) throw new Error("Worker still owns another Goal");
         this.goalId = goalId;
         this.busy = true;
+        let markCommandSent!: () => void;
+        const commandSent = new Promise<void>((resolve) => { markCommandSent = resolve; });
+        this.advanceCommandSent = commandSent;
         try {
-            const response = await this.request({ kind: "advance", requestId: randomUUID(), goalId });
+            const goal = await this.options.goals.restore(goalId);
+            if (goal === undefined) throw new Error("Assigned Goal snapshot is unavailable");
+            const request = this.request({ kind: "advance", requestId: randomUUID(), goalId, runId: goal.state.run.id });
+            markCommandSent();
+            const response = await request;
             if (response.kind !== "advance-result") throw new Error("Unexpected Worker response");
-            if (response.result.kind === "terminal") this.goalId = undefined;
             return response.result;
         } finally {
+            markCommandSent();
+            if (this.advanceCommandSent === commandSent) this.advanceCommandSent = undefined;
             this.busy = false;
         }
+    }
+
+    /**
+     * 请求运行时中断当前 Goal，并等待 Worker 确认快照已经进入取消终态。
+     *
+     * @remarks
+     * 中断受理本身不会释放进程绑定。Worker 等待当前推进完全结算后返回快照对应
+     * 的状态；Supervisor 仍须持久化报告和队列终态，再调用 `confirmTerminal`。
+     * 断连或拒绝会保留绑定。
+     *
+     * @param goalId - 此 Worker 当前持有的 Goal。
+     * @param requestId - 稳定中断身份；同一请求重试共享进行中的 IPC 操作。
+     * @returns Worker 观察到的最终等待、取消或拒绝结果。
+     * @throws Goal 快照读取、进程断连或 IPC 协议错误时抛出。
+     * @example
+     * ```ts
+     * const progress = await worker.cancel("goal-1", "cancel-trigger-1");
+     * ```
+     */
+    cancel(goalId: string, requestId: string): Promise<WorkerProgress> {
+        if (!requestId.trim()) return Promise.reject(new Error("Cancellation request identity is required"));
+        const key = JSON.stringify([goalId, requestId]);
+        const existing = this.cancelRequests.get(key);
+        if (existing !== undefined) return existing;
+        if (this.closed || this.goalId !== goalId) return Promise.reject(new Error("Worker does not own the cancellation target"));
+        if (this.cancelling) return Promise.reject(new Error("Worker already has a cancellation request"));
+        this.cancelling = true;
+        const operation = (async (): Promise<WorkerProgress> => {
+            await this.advanceCommandSent;
+            const goal = await this.options.goals.restore(goalId);
+            if (goal === undefined) throw new Error("Cancellation target snapshot is unavailable");
+            const response = await this.request({ kind: "cancel", requestId: randomUUID(), interruptId: requestId, goalId, runId: goal.state.run.id });
+            if (response.kind !== "cancel-result") throw new Error("Unexpected Worker cancellation response");
+            return response.result;
+        })().finally(() => { this.cancelling = false; });
+        this.cancelRequests.set(key, operation);
+        void operation.finally(() => { if (this.cancelRequests.get(key) === operation) this.cancelRequests.delete(key); }).catch(() => undefined);
+        return operation;
+    }
+
+    /**
+     * 在 Supervisor 已保存对应终态报告与队列状态后释放本地 Worker 绑定。
+     *
+     * @param goalId - 已由该 Worker 终止并由 Supervisor 持久结算的 Goal。
+     * @throws Goal 仍在推进或身份不匹配时抛出；重复确认已释放的绑定是幂等的。
+     * @example
+     * ```ts
+     * worker.confirmTerminal("goal-1");
+     * ```
+     */
+    confirmTerminal(goalId: string): void {
+        if (this.goalId === undefined) return;
+        if (this.goalId !== goalId || this.busy) throw new Error("Worker terminal report is not settled");
+        this.goalId = undefined;
     }
 
     /**
@@ -207,7 +276,7 @@ export class SupervisorWorkerProcess {
      */
     async close(): Promise<void> {
         if (this.closed) return;
-        if (this.busy || this.goalId !== undefined) throw new Error("Worker still owns an unsettled Goal");
+        if (this.busy || this.cancelling || this.goalId !== undefined) throw new Error("Worker still owns an unsettled Goal");
         this.closed = true;
         this.child.send({ kind: "close" } satisfies WorkerCommand);
         await new Promise<void>((resolve, reject) => {
@@ -220,10 +289,9 @@ export class SupervisorWorkerProcess {
     private request(command: Extract<WorkerCommand, { readonly requestId: string }>): Promise<WorkerMessage> {
         if (this.closed || !this.child.connected) return Promise.reject(new Error("Worker process is disconnected"));
         return new Promise((resolve, reject) => {
-            this.pending.set(command.requestId ?? randomUUID(), (message) => resolve(message));
+            this.pending.set(command.requestId, { resolve, reject });
             this.child.send(command, (error) => {
-                if (error !== null) {
-                    this.pending.delete(command.requestId ?? "");
+                if (error !== null && this.pending.delete(command.requestId)) {
                     reject(error);
                 }
             });
@@ -267,7 +335,7 @@ function parseWorkerMessage(value: unknown): WorkerMessage | undefined {
     if (value.kind === "probe-result" && typeof value.requestId === "string" && typeof value.pid === "number" && typeof value.workerId === "string" && typeof value.generation === "string") return value as unknown as WorkerMessage;
     if ((value.kind === "store-read" || value.kind === "store-save") && typeof value.requestId === "string" && typeof value.workerId === "string" && typeof value.generation === "string" && typeof value.goalId === "string"
         && (value.kind !== "store-save" || "snapshot" in value)) return value as unknown as WorkerMessage;
-    if (value.kind === "advance-result" && typeof value.requestId === "string" && isWorkerProgress(value.result)) return value as unknown as WorkerMessage;
+    if ((value.kind === "advance-result" || value.kind === "cancel-result") && typeof value.requestId === "string" && isWorkerProgress(value.result)) return value as unknown as WorkerMessage;
     if (value.kind === "closed") return value as unknown as WorkerMessage;
     return undefined;
 }

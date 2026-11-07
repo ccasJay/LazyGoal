@@ -17,7 +17,7 @@ Snapshot、Trajectory、Profile 和调用事实的文件 Schema 与 Store。本�
 | --- | --- | --- |
 | [写入原语](../src/json-file-write.ts) | `atomicWriteJson`、`appendJsonl` 与 `appendFileChunk` 的唯一实现：同目录临时文件、创建时文件 `0600` 与目录 `0700`、按需 `fsync`、可重试 errno 的效果核对与失败清理 | 识别 Store 类型、协议错误或路径语义；跨进程锁、目录 `fsync` |
 | [Supervisor 所有权](../src/supervisor-ownership.ts) | SQLite 内核文件锁排斥同一路径的并发所有者，关闭等待已借用操作 | 验证锁路径与工作区映射、Worker 身份或运行时装配 |
-| [Trigger 投递存储](../src/trigger-delivery-store.ts) | SQLite 事务保存事件、投递身份、准入失败原因、Goal 创建意图、收据和带 FIFO 顺序、Worker generation、等待与终态的派发队列；入口按宿主认证身份验证来源及目标；发布时以暂存文件身份恢复 | 传输身份认证、准入策略、Worker 生命周期与实际派发 |
+| [Trigger 投递存储](../src/trigger-delivery-store.ts) | SQLite 事务保存事件、投递身份、准入失败原因、Goal 创建意图、收据和带 FIFO 顺序、Worker generation、等待与终态的派发队列；按 Goal 查询已处理的进度/控制投递；入口按宿主认证身份验证来源及目标 | 传输身份认证、准入策略、Worker 生命周期与实际派发 |
 | [串行队列](../src/keyed-serial-queue.ts) | `KeyedSerialQueue` 的按键 FIFO 串行、失败隔离、簿记释放与 `drain` | 跨进程锁、事务或 exactly-once |
 | [AgentProfileFile](../src/agent-profile-file.ts) | Profile 文件 DTO（`schemaVersion: 1`）、具名 `NonEmptyString` 约束、生成绑定与 `AgentProfileConfigurationError` | 读取文件系统、构造 Runtime Profile |
 | [JsonFileAgentProfileStore](../src/json-file-agent-profile-store.ts) | 实现 Runtime `AgentProfileStore` Port，读取单个 `<profileId>.json` | 扫描其它 Profile、读取 Tool 实例、校验 Tool 注册 |
@@ -60,6 +60,8 @@ Plan Run 的 `planRoute` 仅能出现在已有 `approvedTask` 的 Plan Run 上�
 路线扩展等待保存在 `pendingInteraction.routeRevision`，包括基于的路线 revision、完整候选、修订理由和唯一批准选项。只有选择该批准项才应用修订；用户选择保留当前路线时，Snapshot 中的路线不变。路线修订事实进入 Trajectory，Snapshot 游标决定恢复时可见的修订边界。
 
 Snapshot 原样保存 Goal 级 `commitRevision`、`inputLedger` 与 `messageQueue`。账本记录只保存 `inputId`、种类、`sha256` 载荷摘要、受理序号、`admittedAtRevision` 与 pending／applied／cleared 状态及必要关联；正文只保存在队列项或 Goal 消息中。语义校验要求账本身份唯一、受理序号在账本顺序内严格递增、已应用记录指向真实 user 消息位置、队列项与一条 pending message 记录一一对应，并要求摘要为 `sha256:<64 hex>`；不一致的快照 fail-closed，不自动修正或迁移。
+
+`TriggerDeliveryStore` 按接收顺序读取指定 Goal 的全部投递。Worker `progress` Trigger 绑定逻辑 Worker、进程 generation、Run 与 Snapshot `commitRevision`；稳定摘要使重复报告幂等。Supervisor 核对当前队列绑定和 Goal 快照后才持久化等待/终态状态；取消投递只有在 Runtime 的 `interruption` 进入 `finished`、Goal 为 `cancelled` 且终态进度已保存后才结算并释放 Worker。未确认或断连时取消投递保持 pending，原队列绑定不变。
 
 
 当前 Snapshot 同时校验 `pendingProgram` 与运行中父 Action、子 `pendingAction` 的身份及调用位置；Codec 原位保存恢复指针和已用结果字节数。PTC 子事实的 `programId/callIndex` 随 Trajectory 严格解析，结果仍以 Snapshot 的提交边界为准。`program_time_reserved` 是例外：它在同一 JSONL 中单独同步到磁盘，恢复时无论 Snapshot 是否纳入该事件都要计入预算，防止崩溃重置额度。Storage 不推断工具是否已经产生外部副作用。
