@@ -5,6 +5,7 @@
 | 概念 | 简明含义 | 归属模块 | 权威说明 |
 | --- | --- | --- | --- |
 | Composition Root | 服务依赖装配边界。 | [Goal Server](../README.md) | [模块说明](./overview.md) |
+| Trigger 本地传输 | 由宿主显式启动的 loopback 投递入口，按连接凭据核验来源和目标；默认入口尚未装配。 | [Goal Server](../README.md) | [传输组件](../src/runtime/trigger-wire-server.ts) |
 | Web service | 同源浏览器接口的显式启停入口。 | [Goal Server](../README.md) | [模块说明](./overview.md) |
 | Provider profile resolution | 启动与选择期的受管档案解析、优先级与不可解析时的显式失败；档案变更后刷新解析视图。 | [Goal Server](../README.md) | [Composition Root](../src/composition-root.ts) |
 | Provider model preview | 校验表单连接并只读查询在线模型，不保存或激活档案。 | [Goal Server](../README.md) | [CLI 装配](../src/cli.ts) |

@@ -1,6 +1,8 @@
 import { encodePathSegment } from "./path-segment";
 import {
     mkdir,
+    link,
+    lstat,
     open,
     readFile,
     readdir,
@@ -10,6 +12,7 @@ import {
     writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
 
 import type {
     Goal,
@@ -28,7 +31,7 @@ import {
 } from "./json-file-write";
 import { KeyedSerialQueue } from "./keyed-serial-queue";
 
-type GoalFileOperations = Partial<Pick<typeof import("node:fs/promises"), "mkdir" | "open" | "readFile" | "rename" | "unlink">>;
+type GoalFileOperations = Partial<Pick<typeof import("node:fs/promises"), "mkdir" | "link" | "lstat" | "open" | "readFile" | "rename" | "unlink">>;
 
 interface GoalRevisionHint {
     readonly revision: number;
@@ -158,12 +161,89 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
         this.directory = directory;
         this.fileOperations = {
             mkdir,
+            link,
+            lstat,
             open,
             readFile,
             rename,
             unlink,
             ...fileOperations,
         };
+    }
+
+    /**
+     * 以可核对的创建意图创建 Goal 快照。
+     *
+     * @remarks
+     * 调用方必须先持久化投递与同一完整 Goal 创建意图。快照先作为持久化暂存文件
+     * 保存，再通过不覆盖的硬链接发布；重试以 inode 确认目标确由该意图创建。占用
+     * 身份的旧文件即使内容相同也不会被认作本次创建。成功后暂存文件保留，直至
+     * 调用方完成收据与队列事务并调用 `releaseCreationIntent`。
+     *
+     * @param deliveryId - 已持久化的稳定投递身份。
+     * @param goal - 此意图冻结的完整 Goal，重试时必须完全一致。
+     * @returns 成功创建或确认之前已创建时为 true；目标被其他文件占用时为 false。
+     * @throws 同一投递的意图内容冲突或底层存储失败时抛出。
+     */
+    async createForDelivery(deliveryId: string, goal: Goal): Promise<boolean> {
+        if (!deliveryId.trim()) throw new Error("Invalid delivery identity");
+        const snapshot = goalSnapshotCodec.encode(goal);
+        const serialized = `${JSON.stringify(snapshot)}\n`;
+        await this.fileOperations.mkdir(this.directory, { recursive: true, mode: 0o700 });
+        const intent = this.creationIntentPath(deliveryId);
+        const temporary = `${intent}.${randomUUID()}.tmp`;
+        try {
+            const handle = await this.fileOperations.open(temporary, "wx", 0o600);
+            try {
+                await handle.writeFile(serialized, "utf8");
+                await handle.sync();
+            } finally { await handle.close(); }
+            try {
+                await this.fileOperations.link(temporary, intent);
+            } catch (error) {
+                if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+            }
+            const intentInfo = await this.fileOperations.lstat(intent);
+            if (!intentInfo.isFile() || await this.fileOperations.readFile(intent, "utf8") !== serialized) {
+                throw new Error("Goal creation intent conflict");
+            }
+            const directory = await this.fileOperations.open(this.directory, "r");
+            try { await directory.sync(); } finally { await directory.close(); }
+            const target = this.filePath(snapshot.id);
+            try {
+                await this.fileOperations.link(intent, target);
+            } catch (error) {
+                if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+                const [intentStat, targetStat] = await Promise.all([
+                    this.fileOperations.lstat(intent), this.fileOperations.lstat(target),
+                ]);
+                if (intentStat.dev !== targetStat.dev || intentStat.ino !== targetStat.ino) return false;
+            }
+            const parent = await this.fileOperations.open(this.directory, "r");
+            try { await parent.sync(); } finally { await parent.close(); }
+            return true;
+        } finally {
+            await this.fileOperations.unlink(temporary).catch(() => undefined);
+        }
+    }
+
+    /**
+     * 清理已完成收据和排队事务的创建意图文件。
+     * @param deliveryId - 已结算投递的稳定身份。
+     * @throws 底层删除失败时抛出；不存在时视为已清理。
+     */
+    async releaseCreationIntent(deliveryId: string): Promise<void> {
+        if (!deliveryId.trim()) throw new Error("Invalid delivery identity");
+        try {
+            await this.fileOperations.unlink(this.creationIntentPath(deliveryId));
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
+    }
+
+    private creationIntentPath(deliveryId: string): string {
+        const digest = createHash("sha256").update(deliveryId).digest("hex");
+        return join(this.directory, `.trigger-create-${digest}.tmp`);
     }
 
     /**

@@ -4,6 +4,8 @@
 
 | 概念 | 简明含义 | 归属模块 | 权威说明 |
 | --- | --- | --- | --- |
+| Supervisor 所有权锁 | 同一路径由单个存活进程持有；已关闭所有者拒绝新操作。 | [持久化实现](../README.md) | [锁实现](../src/supervisor-ownership.ts) |
+| Trigger 投递收据 | 同一事件可有不同投递；投递重试返回原状态，Goal 创建意图、收据和队列支持中断后核对。 | [持久化实现](../README.md) | [投递存储](../src/trigger-delivery-store.ts) |
 | Snapshot | Goal 最新完整持久化状态。 | [持久化实现](../README.md) | [模块说明](./overview.md) |
 | 动态模型执行快照 | Goal 选择保存 API 协议、容量与推理/视觉/工具选择能力，不保存端点或凭据。 | [持久化实现](../README.md) | [Snapshot Schema](../src/goal-snapshot.ts) |
 | 输入账本快照 | 每条已受理输入的稳定身份、载荷摘要、受理序号与状态；不复制正文。 | [持久化实现](../README.md) | [Snapshot Schema](../src/goal-snapshot.ts) |

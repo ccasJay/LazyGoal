@@ -2,6 +2,8 @@
 
 本机 Web 服务 Composition Root，连接 Runtime、Browser、HTTP 与前端。本文描述当前实现、使用边界与限制；[公开入口](../src/index.ts)。
 
+[Trigger 传输组件](../src/runtime/trigger-wire-server.ts)可显式启动 loopback 进程入口，使用宿主发放的连接凭据验证来源与 Goal 目标后保存投递；它尚未接入默认 Composition Root，也不执行准入或派发。
+
 ## 职责与使用
 
 通过本模块的公开入口使用上述能力；[公开入口](../src/index.ts)。状态或副作用由调用方在所属边界控制。

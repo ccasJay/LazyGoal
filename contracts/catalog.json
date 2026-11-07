@@ -9571,6 +9571,193 @@
                 "detail": "生成的 Schema 与 Ajv standalone 校验器；contract-binding 在 JSON 边界读取。"
             },
             "role": "boundary-root"
+        },
+        {
+            "key": "storage/src/trigger-delivery-file#TriggerDeliveryFile",
+            "declaration": "TriggerDeliveryFile",
+            "source": {
+                "path": "packages/storage/src/trigger-delivery-file.ts",
+                "line": 16
+            },
+            "owner": "storage",
+            "module": "storage",
+            "boundary": "durable",
+            "section": "Storage 文件 DTO",
+            "definition": "原生 TS 类型别名",
+            "definitionKind": "native-ts",
+            "relations": [],
+            "consumers": [
+                "packages/storage/src/trigger-delivery-store.ts"
+            ],
+            "protocol": {
+                "identity": {
+                    "state": "declared",
+                    "value": "storage.trigger-delivery"
+                },
+                "version": {
+                    "state": "declared",
+                    "value": 1,
+                    "detail": "version: 1"
+                }
+            },
+            "generation": {
+                "state": "enabled",
+                "detail": "Trigger 投递边界的结构 Schema、校验器与绑定。",
+                "strategy": "typescript-binding",
+                "rootType": "TriggerDeliveryFile",
+                "declaredTypes": [
+                    "TriggerDeliveryFile"
+                ],
+                "outputDirectory": "packages/storage/src/generated",
+                "artifacts": {
+                    "schemaModule": "trigger-delivery-schema.ts",
+                    "validator": "trigger-delivery-validator.mjs",
+                    "validatorTypes": "trigger-delivery-validator.d.mts",
+                    "manifest": "trigger-delivery-manifest.json",
+                    "binding": "trigger-delivery-binding.ts"
+                },
+                "binding": {
+                    "module": "../../../contract-binding/src/index",
+                    "dataType": "TriggerDeliveryFile",
+                    "dataTypeModule": "../trigger-delivery-file",
+                    "exportName": "triggerDeliveryFileBinding",
+                    "names": {
+                        "schema": "triggerDeliveryFileSchema",
+                        "metadata": "triggerDeliveryFileMetadata",
+                        "validator": "validateTriggerDeliveryFile"
+                    }
+                }
+            },
+            "validation": {
+                "state": "generated-reader",
+                "detail": "生成绑定校验结构与封闭对象；文件级语义约束由 Store 执行。"
+            },
+            "role": "boundary-root"
+        },
+        {
+            "key": "storage/src/trigger-wire-request#TriggerWireRequest",
+            "declaration": "TriggerWireRequest",
+            "source": {
+                "path": "packages/storage/src/trigger-delivery-file.ts",
+                "line": 42
+            },
+            "owner": "storage",
+            "module": "storage",
+            "boundary": "ipc",
+            "section": "Trigger 进程边界",
+            "definition": "原生 TS 类型别名",
+            "definitionKind": "native-ts",
+            "relations": [],
+            "consumers": [
+                "apps/goal-server/src/runtime/trigger-wire-server.ts"
+            ],
+            "protocol": {
+                "identity": {
+                    "state": "declared",
+                    "value": "ipc.trigger-request"
+                },
+                "version": {
+                    "state": "declared",
+                    "value": 1,
+                    "detail": "version: 1"
+                }
+            },
+            "generation": {
+                "state": "enabled",
+                "detail": "Trigger 投递边界的结构 Schema、校验器与绑定。",
+                "strategy": "typescript-binding",
+                "rootType": "TriggerWireRequest",
+                "declaredTypes": [
+                    "TriggerWireRequest",
+                    "TriggerDeliveryFile"
+                ],
+                "outputDirectory": "packages/storage/src/generated",
+                "artifacts": {
+                    "schemaModule": "trigger-wire-request-schema.ts",
+                    "validator": "trigger-wire-request-validator.mjs",
+                    "validatorTypes": "trigger-wire-request-validator.d.mts",
+                    "manifest": "trigger-wire-request-manifest.json",
+                    "binding": "trigger-wire-request-binding.ts"
+                },
+                "binding": {
+                    "module": "../../../contract-binding/src/index",
+                    "dataType": "TriggerWireRequest",
+                    "dataTypeModule": "../trigger-delivery-file",
+                    "exportName": "triggerWireRequestBinding",
+                    "names": {
+                        "schema": "triggerWireRequestSchema",
+                        "metadata": "triggerWireRequestMetadata",
+                        "validator": "validateTriggerWireRequest"
+                    }
+                }
+            },
+            "validation": {
+                "state": "generated-reader",
+                "detail": "生成绑定校验结构与封闭对象；文件级语义约束由 Store 执行。"
+            },
+            "role": "boundary-root"
+        },
+        {
+            "key": "storage/src/trigger-delivery-file#TriggerDeliveryOutcome",
+            "declaration": "TriggerDeliveryOutcome",
+            "source": {
+                "path": "packages/storage/src/trigger-delivery-file.ts",
+                "line": 60
+            },
+            "owner": "storage",
+            "module": "storage",
+            "boundary": "durable",
+            "section": "Storage 文件 DTO",
+            "definition": "原生 TS 类型别名",
+            "definitionKind": "native-ts",
+            "relations": [],
+            "consumers": [
+                "packages/storage/src/trigger-delivery-store.ts"
+            ],
+            "protocol": {
+                "identity": {
+                    "state": "declared",
+                    "value": "storage.trigger-delivery-outcome"
+                },
+                "version": {
+                    "state": "declared",
+                    "value": 1,
+                    "detail": "version: 1"
+                }
+            },
+            "generation": {
+                "state": "enabled",
+                "detail": "Trigger 投递边界的结构 Schema、校验器与绑定。",
+                "strategy": "typescript-binding",
+                "rootType": "TriggerDeliveryOutcome",
+                "declaredTypes": [
+                    "TriggerDeliveryOutcome"
+                ],
+                "outputDirectory": "packages/storage/src/generated",
+                "artifacts": {
+                    "schemaModule": "trigger-delivery-outcome-schema.ts",
+                    "validator": "trigger-delivery-outcome-validator.mjs",
+                    "validatorTypes": "trigger-delivery-outcome-validator.d.mts",
+                    "manifest": "trigger-delivery-outcome-manifest.json",
+                    "binding": "trigger-delivery-outcome-binding.ts"
+                },
+                "binding": {
+                    "module": "../../../contract-binding/src/index",
+                    "dataType": "TriggerDeliveryOutcome",
+                    "dataTypeModule": "../trigger-delivery-file",
+                    "exportName": "triggerDeliveryOutcomeBinding",
+                    "names": {
+                        "schema": "triggerDeliveryOutcomeSchema",
+                        "metadata": "triggerDeliveryOutcomeMetadata",
+                        "validator": "validateTriggerDeliveryOutcome"
+                    }
+                }
+            },
+            "validation": {
+                "state": "generated-reader",
+                "detail": "生成绑定校验结构与封闭对象；文件级语义约束由 Store 执行。"
+            },
+            "role": "boundary-root"
         }
     ]
 }
