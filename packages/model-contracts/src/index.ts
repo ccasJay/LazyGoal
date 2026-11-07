@@ -53,6 +53,7 @@ export type { ModelOutputBundle } from "./model-output/bundle";
 export type { ModelContractDecodeOptions } from "./model-output/decode-options";
 
 export {
+    normalizeProjectionSchema,
     createBoundBusinessToolDeclaration,
     createBoundCheckpointToolDeclarations,
     createBoundCompletionReviewDeclaration,

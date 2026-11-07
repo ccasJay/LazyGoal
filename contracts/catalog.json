@@ -9758,6 +9758,68 @@
                 "detail": "生成绑定校验结构与封闭对象；文件级语义约束由 Store 执行。"
             },
             "role": "boundary-root"
+        },
+        {
+            "key": "model-contracts/src/trigger-admission#TriggerAdmissionDecision",
+            "declaration": "TriggerAdmissionDecision",
+            "source": {
+                "path": "packages/model-contracts/src/trigger-admission.ts",
+                "line": 13
+            },
+            "owner": "model-contracts",
+            "module": "model-contracts",
+            "boundary": "model-output",
+            "section": "Supervisor 准入模型输出",
+            "definition": "原生 TS 类型别名",
+            "definitionKind": "native-ts",
+            "relations": [],
+            "consumers": [
+                "apps/goal-server/src/runtime/trigger-admission.ts"
+            ],
+            "protocol": {
+                "identity": {
+                    "state": "declared",
+                    "value": "model.supervisor-trigger-admission"
+                },
+                "version": {
+                    "state": "declared",
+                    "value": 1,
+                    "detail": "version: 1"
+                }
+            },
+            "generation": {
+                "state": "enabled",
+                "detail": "Trigger 投递边界的结构 Schema、校验器与绑定。",
+                "strategy": "typescript-binding",
+                "rootType": "TriggerAdmissionDecision",
+                "declaredTypes": [
+                    "TriggerAdmissionDecision"
+                ],
+                "outputDirectory": "packages/model-contracts/src/generated",
+                "artifacts": {
+                    "schemaModule": "trigger-admission-schema.ts",
+                    "validator": "trigger-admission-validator.mjs",
+                    "validatorTypes": "trigger-admission-validator.d.mts",
+                    "manifest": "trigger-admission-manifest.json",
+                    "binding": "trigger-admission-binding.ts"
+                },
+                "binding": {
+                    "module": "../../../contract-binding/src/index",
+                    "dataType": "TriggerAdmissionDecision",
+                    "dataTypeModule": "../trigger-admission",
+                    "exportName": "triggerAdmissionBinding",
+                    "names": {
+                        "schema": "triggerAdmissionSchema",
+                        "metadata": "triggerAdmissionMetadata",
+                        "validator": "validateTriggerAdmission"
+                    }
+                }
+            },
+            "validation": {
+                "state": "generated-reader",
+                "detail": "生成绑定校验结构与封闭对象；文件级语义约束由 Store 执行。"
+            },
+            "role": "boundary-root"
         }
     ]
 }

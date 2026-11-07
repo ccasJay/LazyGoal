@@ -1,0 +1,23 @@
+{
+  "contractId": "model.supervisor-trigger-admission",
+  "version": 1,
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "source": {
+    "path": "packages/model-contracts/src/trigger-admission.ts#TriggerAdmissionDecision",
+    "sha256": "2f4f050425fc3431acd05d1842ceb9a18abd3cbd7986fe8c56dde3779d817041"
+  },
+  "generator": {
+    "name": "ts-json-schema-generator",
+    "version": "2.9.0",
+    "typescriptVersion": "5.9.3"
+  },
+  "validator": {
+    "name": "Ajv standalone",
+    "version": "8.20.0"
+  },
+  "bundler": {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "format": "esm"
+  }
+}

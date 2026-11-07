@@ -35,6 +35,26 @@ export interface GoalSnapshotProfileV1 {
 
 /** Snapshot 中冻结的 Goal 协议组合与执行策略。 */
 export interface GoalSnapshotDefinitionV1 {
+    /** 创建 Goal 的投递事实与冻结的动作权限范围。 */
+    readonly triggerContext?: {
+        readonly deliveryId: string;
+        readonly trigger: {
+            readonly id: string;
+            readonly purpose: "work" | "permission" | "interaction" | "cancel" | "progress" | "lifecycle";
+            readonly source: "user" | "worker" | "external" | "supervisor";
+            readonly workerId?: string;
+            readonly generation?: string;
+            readonly payload: string;
+        };
+        readonly authorization: {
+            readonly workspaceRoot: string;
+            readonly toolIds: readonly string[];
+            readonly sandbox: {
+                readonly extraFiles: readonly { readonly canonicalPath: string; readonly access: "read" | "write"; readonly kind: "file" | "directory_tree" }[];
+                readonly network: "none" | "all_outbound";
+            };
+        };
+    };
     readonly intent: string;
     readonly promptBundleVersion: 1;
     readonly memoryProtocol: { readonly kind: "structured"; readonly version: 1 };

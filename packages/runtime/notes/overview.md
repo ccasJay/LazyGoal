@@ -195,3 +195,6 @@ Decide 返回值可以是 `decision`、`request_think`、`assistant_message` 或
 - **状态同步与取消**：通过 SessionManager 及其事件流监听子 Goal 的持久化终态（`completed` / `failed` / `cancelled`）。父 Run 触发取消时，先向子会话发送 `interrupt`，并在子 Run 到达终态后才返回；结算时移除 AbortSignal 监听并关闭事件流与 Session 句柄。
 - **运行时递归防护**：通过 `createChildProfileRegistry` 包装子会话的 AgentProfileRegistry，从子 Agent Profile 的 `toolIds` 中剔除 `spawn_subagent`，从运行时执行器与授权规则层面杜绝递归派发。
 
+
+
+由 Trigger 准入创建的 Goal 在定义中携带不可变事件来源、投递身份，以及 Supervisor 冻结的 workspace、工具和沙箱能力上限；Runtime 的执行授权仍须结合宿主约束、有效授权与沙箱执行。

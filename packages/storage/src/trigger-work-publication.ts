@@ -37,7 +37,7 @@ export async function publishAuthorizedWork(
 ): Promise<TriggerDeliveryResult> {
     const parsed = triggerDeliveryFileBinding.read(input, "reject");
     if (!parsed.ok) throw new Error("Invalid trigger delivery");
-    return owner.runExclusive(parsed.data.deliveryId, async () => {
+    return owner.runExclusive(JSON.stringify(["publication", parsed.data.deliveryId]), async () => {
         const receipt = receiveAuthorizedTrigger(deliveries, input, principal);
         if (receipt.delivery.trigger.purpose !== "work" || receipt.delivery.goalId !== undefined) {
             throw new Error("Goal creation requires a new-work delivery");

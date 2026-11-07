@@ -502,7 +502,41 @@ export type GoalMessage = UserMessage | AssistantMessage;
  * };
  * ```
  */
+/**
+ * 由可信 Supervisor 冻结的 Goal 来源与动作权限范围。
+ *
+ * @remarks
+ * 范围是当前 Goal 的上限，不能替代宿主上限、有效授权或沙箱强制执行。
+ * Trigger 是不可变事实；投递身份用于恢复该次准入。
+ *
+ * @example
+ * ```ts
+ * const context: GoalTriggerContext = {
+ *   deliveryId: "delivery-1", trigger: { id: "event-1", purpose: "work", source: "user", payload: "{}" },
+ *   authorization: { workspaceRoot: "/project", toolIds: [], sandbox: { extraFiles: [], network: "none" } },
+ * };
+ * ```
+ */
+export interface GoalTriggerContext {
+    readonly deliveryId: string;
+    readonly trigger: {
+        readonly id: string;
+        readonly purpose: "work" | "permission" | "interaction" | "cancel" | "progress" | "lifecycle";
+        readonly source: "user" | "worker" | "external" | "supervisor";
+        readonly workerId?: string;
+        readonly generation?: string;
+        readonly payload: string;
+    };
+    readonly authorization: {
+        readonly workspaceRoot: string;
+        readonly toolIds: readonly string[];
+        readonly sandbox: EffectiveSandboxScope;
+    };
+}
+
 export interface GoalDefinition {
+    /** Trigger 创建的 Goal 所冻结的来源与权限上限。 */
+    readonly triggerContext?: GoalTriggerContext;
     readonly intent: string;
     /** 恢复时必须继续使用的当前 Prompt Bundle 版本。 */
     readonly promptBundleVersion: 1;

@@ -17,11 +17,11 @@ Snapshot、Trajectory、Profile 和调用事实的文件 Schema 与 Store。本�
 | --- | --- | --- |
 | [写入原语](../src/json-file-write.ts) | `atomicWriteJson`、`appendJsonl` 与 `appendFileChunk` 的唯一实现：同目录临时文件、创建时文件 `0600` 与目录 `0700`、按需 `fsync`、可重试 errno 的效果核对与失败清理 | 识别 Store 类型、协议错误或路径语义；跨进程锁、目录 `fsync` |
 | [Supervisor 所有权](../src/supervisor-ownership.ts) | SQLite 内核文件锁排斥同一路径的并发所有者，关闭等待已借用操作 | 验证锁路径与工作区映射、Worker 身份或运行时装配 |
-| [Trigger 投递存储](../src/trigger-delivery-store.ts) | SQLite 事务保存事件、投递身份、Goal 创建意图及收据与队列；入口按宿主认证身份验证来源及目标；发布时以暂存文件身份恢复 | 传输身份认证、准入策略、执行所有权及派发 |
+| [Trigger 投递存储](../src/trigger-delivery-store.ts) | SQLite 事务保存事件、投递身份、准入失败原因、Goal 创建意图及收据与队列；入口按宿主认证身份验证来源及目标；发布时以暂存文件身份恢复 | 传输身份认证、准入策略、执行所有权及派发 |
 | [串行队列](../src/keyed-serial-queue.ts) | `KeyedSerialQueue` 的按键 FIFO 串行、失败隔离、簿记释放与 `drain` | 跨进程锁、事务或 exactly-once |
 | [AgentProfileFile](../src/agent-profile-file.ts) | Profile 文件 DTO（`schemaVersion: 1`）、具名 `NonEmptyString` 约束、生成绑定与 `AgentProfileConfigurationError` | 读取文件系统、构造 Runtime Profile |
 | [JsonFileAgentProfileStore](../src/json-file-agent-profile-store.ts) | 实现 Runtime `AgentProfileStore` Port，读取单个 `<profileId>.json` | 扫描其它 Profile、读取 Tool 实例、校验 Tool 注册 |
-| [GoalSnapshotV1 协议](../src/goal-snapshot.ts) | 当前唯一 Snapshot DTO、生成结构绑定与字段级/跨字段语义校验；模型选择可保存动态执行 API、容量和能力；并保存当前 Prompt/Memory/Model Context/Retrieval 组合、完整消息、`mode`、GoalPlan、`completedRuns`、Run/todo 关系、Run 的唯一 `exposedToolIds`、Context Epoch、内部阶段（`currentStage`）、获批 Plan Run 路线（`planRoute`）、待执行 Action 的授权引用、Goal 提交修订（`commitRevision`）、输入账本（`inputLedger`）与消息队列（`messageQueue`） | 文件系统 I/O、构造 Runtime Goal、迁移历史 Snapshot |
+| [GoalSnapshotV1 协议](../src/goal-snapshot.ts) | 当前唯一 Snapshot DTO、生成结构绑定与字段级/跨字段语义校验；Trigger 来源事件、投递身份与冻结权限范围随 Goal 保存；模型选择可保存动态执行 API、容量和能力；并保存当前 Prompt/Memory/Model Context/Retrieval 组合、完整消息、`mode`、GoalPlan、`completedRuns`、Run/todo 关系、Run 的唯一 `exposedToolIds`、Context Epoch、内部阶段（`currentStage`）、获批 Plan Run 路线（`planRoute`）、待执行 Action 的授权引用、Goal 提交修订（`commitRevision`）、输入账本（`inputLedger`）与消息队列（`messageQueue`） | 文件系统 I/O、构造 Runtime Goal、迁移历史 Snapshot |
 | [GoalSnapshotCodec](../src/goal-snapshot-codec.ts) | Runtime Goal↔v1 Snapshot 的 encode/decode 转换；隔离由 `binding.read` 的副本提供，不再叠加外层 `structuredClone`；只接受当前 v1，不迁移或回写历史版本 | 文件系统 I/O、读写 Store |
 | [InMemoryGoalStore](../src/goal-store.ts) | 实现 Runtime `GoalStore` Port：save 经 Codec encode、restore 经 decode | 跨实例或跨进程恢复 |
 | [JsonFileGoalStore](../src/goal-store.ts) | 实现 `GoalStore` 与 `GoalCatalog`：base64url 文件名、经共享原语以 compact JSON + trailing newline 原子替换快照、可核对的无覆盖创建、目录扫描摘要 | 跨进程锁、乐观锁、租约或版本冲突检测 |
@@ -49,7 +49,7 @@ Retrieval Index Sidecar 顶层已使用生成绑定；嵌套文档、倒排索�
 
 Goal 快照统一经 `GoalSnapshotCodec`：`save` 先对 Runtime Goal 按当前 v1 生成结构与语义规则校验（拒绝多余字段、非法 StepRecord，缺失或非法的 `modelSelection`，以及非法的 Trajectory/Memory/Model Context/Retrieval 组合）再深复制 encode；`restore`/decode 只接受当前 v1。语义校验同时保证 normal Goal 没有 GoalPlan、Plan Mode 必须有 GoalPlan、Todo ID/position/status 与 `Run.todoId` 一致、历史 Run 的消息区间有序且不包含当前 Run。历史 Snapshot、未知版本、缺失 `modelSelection` 的旧开发快照和不完整的当前恢复状态统一在 Codec 边界抛出 `INVALID_GOAL_SNAPSHOT`，不会自动迁移、保存或回写。
 
-`modelSelection.executionApi` 当前只允许 `openai-completions`，且必须搭配 OpenCode Go Provider 与有效的上下文、输出容量；Codec 对执行协议、推理、视觉及工具选择能力深复制往返。Snapshot 不保存 Base URL、API Key 或认证头，schemaVersion 仍为 1。
+`modelSelection.executionApi` 当前只允许 `openai-completions`，且必须搭配 OpenCode Go Provider 与有效的上下文、输出容量；Codec 对执行协议、推理、视觉及工具选择能力深复制往返。Trigger 准入创建的 Goal Snapshot 保存来源事件、投递身份和由可信宿主冻结的动作范围；范围本身不等于有效授权。Snapshot 不保存 Base URL、API Key 或认证头，schemaVersion 仍为 1。
 
 每条正式消息在 Snapshot 中保存 `messageId`、所属 `runId`、判别式来源与助手用途（`process`／`answer`／`notice`）。语义校验要求同一 Goal 内 `messageId` 与来源各自唯一；重复身份、重复来源或缺少身份字段的旧结构消息在 Codec 边界 fail-closed，不做兼容解析或迁移。
 

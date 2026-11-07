@@ -441,7 +441,14 @@ function isRequestThink(value: unknown): value is RequestThink {
     return isRecord(value) && value.kind === "request_think";
 }
 
-function normalizeProjectionSchema(
+/**
+ * 将生成绑定投影为供应商共用的模型输出 Schema。
+ * @param binding - 对应模型输出的生成绑定。
+ * @param path - 契约诊断使用的路径。
+ * @returns 通过可移植约束验证的 Schema。
+ * @throws 投影不符合支持的供应商 Schema 子集时抛出。
+ */
+export function normalizeProjectionSchema(
     binding: ContractBinding<unknown>,
     path: readonly (string | number)[],
 ): JsonSchema202012 {

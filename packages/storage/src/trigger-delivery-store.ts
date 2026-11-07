@@ -10,7 +10,7 @@ import { SupervisorOwnership } from "./supervisor-ownership";
 
 /** 单次投递的持久化处理结果。 */
 export type TriggerDeliveryResult =
-    | { readonly status: "pending"; readonly delivery: TriggerDeliveryFile }
+    | { readonly status: "pending"; readonly delivery: TriggerDeliveryFile; readonly reason?: "model-failed" | "invalid-model-result" | "invalid-work" }
     | { readonly status: "settled"; readonly delivery: TriggerDeliveryFile; readonly result: TriggerDeliveryOutcome };
 
 /**
@@ -46,7 +46,8 @@ export class TriggerDeliveryStore {
                 id TEXT PRIMARY KEY,
                 trigger_id TEXT NOT NULL REFERENCES trigger_events(id),
                 content TEXT NOT NULL,
-                result TEXT
+                result TEXT,
+                pending_reason TEXT CHECK (pending_reason IS NULL OR pending_reason IN ('model-failed', 'invalid-model-result', 'invalid-work'))
             ) STRICT;
             CREATE TABLE IF NOT EXISTS trigger_goal_reservations (
                 delivery_id TEXT PRIMARY KEY REFERENCES trigger_deliveries(id),
@@ -100,13 +101,13 @@ export class TriggerDeliveryStore {
 
     /** @returns 投递状态；不存在时返回 undefined，损坏时抛出。 */
     read(deliveryId: string): TriggerDeliveryResult | undefined {
-        const row = this.database.prepare(`SELECT d.content, d.result, t.content AS event_content
-            FROM trigger_deliveries d LEFT JOIN trigger_events t ON t.id = d.trigger_id WHERE d.id = ?`).get(deliveryId) as { content: string; result: string | null; event_content: string | null } | undefined;
+        const row = this.database.prepare(`SELECT d.content, d.result, d.pending_reason, t.content AS event_content
+            FROM trigger_deliveries d LEFT JOIN trigger_events t ON t.id = d.trigger_id WHERE d.id = ?`).get(deliveryId) as { content: string; result: string | null; pending_reason: "model-failed" | "invalid-model-result" | "invalid-work" | null; event_content: string | null } | undefined;
         if (row === undefined) return undefined;
         const delivery = normalizeDelivery(JSON.parse(row.content) as unknown);
         if (delivery.deliveryId !== deliveryId || canonicalJson(delivery.trigger) !== row.event_content
             || canonicalJson(delivery) !== row.content) throw new Error("Invalid stored trigger delivery");
-        if (row.result === null) return { status: "pending", delivery };
+        if (row.result === null) return { status: "pending", delivery, ...(row.pending_reason === null ? {} : { reason: row.pending_reason }) };
         const parsedResult = triggerDeliveryOutcomeBinding.read(JSON.parse(row.result) as unknown, "reject");
         if (!parsedResult.ok || canonicalJson(parsedResult.data) !== row.result
             || ((parsedResult.data.kind === "accepted" || parsedResult.data.kind === "rejected") && !parsedResult.data.goalId.trim())) {
@@ -140,6 +141,25 @@ export class TriggerDeliveryStore {
     pendingIds(): readonly string[] {
         const rows = this.database.prepare("SELECT id FROM trigger_deliveries WHERE result IS NULL ORDER BY rowid").all() as { id: string }[];
         return rows.map(({ id }) => id);
+    }
+
+    /**
+     * 保存可重试的准入失败原因，不结算投递。
+     * @param deliveryId - 待处理投递身份。
+     * @param reason - 不包含模型正文或凭据的稳定失败分类。
+     * @throws 投递不存在、已结算或存储失败时抛出。
+     */
+    recordAdmissionFailure(deliveryId: string, reason: "model-failed" | "invalid-model-result" | "invalid-work"): void {
+        this.database.exec("BEGIN IMMEDIATE");
+        try {
+            const current = this.read(deliveryId);
+            if (current === undefined || current.status !== "pending") throw new Error("Pending trigger delivery does not exist");
+            this.database.prepare("UPDATE trigger_deliveries SET pending_reason = ? WHERE id = ?").run(reason, deliveryId);
+            this.database.exec("COMMIT");
+        } catch (error) {
+            this.database.exec("ROLLBACK");
+            throw error;
+        }
     }
 
     /**

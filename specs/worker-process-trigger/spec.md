@@ -63,7 +63,7 @@ superseded_by: null
 ## 任务
 
 - [x] //TODO 1. 交付统一 Trigger 和传递身份的跨进程持久化与去重 → R1.1、R1.2；检查：运行新增 Trigger 契约与传递测试。
-- [ ] //TODO 2. 接入 Fast／Slow path 准入、Goal 创建和失败保留 → R1.3、R1.4；检查：运行新增准入基础测试。
+- [x] //TODO 2. 接入 Fast／Slow path 准入、Goal 创建和失败保留 → R1.3、R1.4；检查：运行新增准入基础测试。
 - [ ] //TODO 3. 交付独立 Worker、Goal 状态所有权和可复用上下文 → R2.1、R2.3；检查：运行新增 Worker 基础进程测试。
 - [ ] //TODO 4. 实现顺序派发、Worker 选择和并发执行 → R2.1；检查：运行新增调度测试。
 - [ ] //TODO 5. 实现 Supervisor 决定的工作区和 worktree 生命周期 → R2.2；检查：运行临时仓库工作区测试。
