@@ -1,9 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { fork } from "node:child_process";
 import { createServer } from "node:http";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createGoal } from "../../../packages/runtime/src/domain";
 import { transition } from "../../../packages/runtime/src/transition";
 import { currentProtocols } from "../../../packages/runtime/test/current-fixtures";
@@ -225,6 +227,75 @@ test("活动模型调用收到取消后等待 Runtime 结算，再持久化终�
         await scheduler.closeIdle().catch(() => undefined);
         deliveries.close();
         await owner.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("Supervisor 强制退出后，新 Supervisor 通过认证通道重新接管仍存活 Worker", { timeout: 20000 }, async () => {
+    const root = await mkdtemp(join(tmpdir(), "lg-worker-supervisor-reconnect-"));
+    const workspace = join(root, "workspace");
+    const home = join(root, "home");
+    const dataDirectory = join(root, "data");
+    await Promise.all([mkdir(workspace, { recursive: true }), mkdir(join(home, "agent-profiles"), { recursive: true }), mkdir(dataDirectory, { recursive: true })]);
+    await writeFile(join(home, "agent-profiles", "default.json"), JSON.stringify({ schemaVersion: 1, id: "default", name: "Test", description: "Test", systemPrompt: "Test", instructions: ["Test"], toolIds: [] }));
+    const originalOwner = new SupervisorOwnership(join(dataDirectory, "owner.db"));
+    const originalDeliveries = new TriggerDeliveryStore(join(dataDirectory, "deliveries.db"));
+    const goals = new JsonFileGoalStore(join(dataDirectory, "goals"));
+    const factory = async (intent: string, reserved: string | undefined) => createWaitingGoal(reserved ?? `goal-${intent}`, intent, workspace);
+    const admitted = await admitTrigger(originalOwner, originalDeliveries, goals, never, {
+        deliveryId: "reconnect-delivery",
+        trigger: { id: "reconnect-trigger", purpose: "work", source: "user", payload: JSON.stringify({ intent: "reconnect" }) },
+    }, principal, factory);
+    const goalId = acceptedGoalId(admitted);
+    originalDeliveries.close();
+    await originalOwner.close();
+
+    const supervisor = fork(fileURLToPath(new URL("./worker-scheduler-supervisor-fixture.ts", import.meta.url)), [], {
+        cwd: workspace,
+        env: { ...process.env, LG_TEST_DATA_DIRECTORY: dataDirectory, LG_TEST_WORKSPACE: workspace, LG_TEST_HOME: home },
+        execArgv: process.execArgv,
+        stdio: ["ignore", "inherit", "inherit", "ipc"],
+    });
+    let originalWorkerPid: number | undefined;
+    let originalWorkerId: string | undefined;
+    try {
+        const ready = await withTimeout(new Promise<{ readonly workers: readonly { readonly workerId: string; readonly pid: number }[] }>((resolve, reject) => {
+            supervisor.on("message", (message: unknown) => {
+                if (typeof message === "object" && message !== null && "kind" in message && message.kind === "ready"
+                    && "workers" in message && Array.isArray(message.workers)) resolve(message as { readonly workers: readonly { readonly workerId: string; readonly pid: number }[] });
+            });
+            supervisor.once("error", reject);
+            supervisor.once("exit", (code) => reject(new Error(`Supervisor fixture exited before ready (${code})`)));
+        }), 10000, "Supervisor fixture did not start");
+        assert.equal(ready.workers.length, 1);
+        originalWorkerId = ready.workers[0]?.workerId;
+        originalWorkerPid = ready.workers[0]?.pid;
+        assert.ok(originalWorkerId !== undefined && originalWorkerPid !== undefined);
+        const beforeExitStore = new TriggerDeliveryStore(join(dataDirectory, "deliveries.db"));
+        try { await waitFor(() => beforeExitStore.queueRecord(goalId)?.status === "waiting"); }
+        finally { beforeExitStore.close(); }
+
+        supervisor.kill("SIGKILL");
+        await new Promise<void>((resolve) => supervisor.once("exit", () => resolve()));
+        const owner = new SupervisorOwnership(join(dataDirectory, "owner.db"));
+        const deliveries = new TriggerDeliveryStore(join(dataDirectory, "deliveries.db"));
+        const scheduler = new WorkerScheduler({ owner, deliveries, goals, cwd: workspace, dataDirectory,
+            env: { LAZYGOAL_HOME: home, LLM_PROVIDER: "openai", LLM_MODEL: "gpt-4o-mini", LLM_API_KEY: "test" }, permissionAdapter: never });
+        try {
+            await scheduler.pump();
+            assert.deepEqual(scheduler.assignments(), [{ workerId: originalWorkerId, goalId }]);
+            assert.deepEqual(await scheduler.processIds(), [{ workerId: originalWorkerId, pid: originalWorkerPid }]);
+            assert.equal(deliveries.queueRecord(goalId)?.status, "waiting");
+        } finally {
+            await scheduler.closeIdle().catch(() => undefined);
+            deliveries.close();
+            await owner.close();
+        }
+    } finally {
+        if (supervisor.exitCode === null) supervisor.kill("SIGKILL");
+        if (originalWorkerPid !== undefined) {
+            try { process.kill(originalWorkerPid, "SIGKILL"); } catch { /* Worker already exited. */ }
+        }
         await rm(root, { recursive: true, force: true });
     }
 });

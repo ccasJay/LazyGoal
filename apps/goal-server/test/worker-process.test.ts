@@ -7,18 +7,22 @@ import { JsonFileGoalStore } from "../../../packages/storage/src/goal-store";
 import { TriggerDeliveryStore } from "../../../packages/storage/src/trigger-delivery-store";
 import { SupervisorOwnership } from "../../../packages/storage/src/supervisor-ownership";
 import { SupervisorWorkerProcess } from "../src/runtime/worker-process";
+import { createWorkerProcessRegistration } from "../src/runtime/worker-process-registry";
 
 test("Supervisor 启动独立 Worker 并在同一进程中重复确认身份", async () => {
     const root = await mkdtemp(join(tmpdir(), "lg-worker-process-"));
     const owner = new SupervisorOwnership(join(root, "owner.db"));
     const deliveries = new TriggerDeliveryStore(join(root, "deliveries.db"));
     const goals = new JsonFileGoalStore(join(root, "goals"));
+    const dataDirectory = join(root, "worker-data");
+    const registration = await createWorkerProcessRegistration(dataDirectory, "worker-1", "generation-1", { projectRoot: root, executionRoot: root });
     const worker = await SupervisorWorkerProcess.start({
         workerId: "worker-1",
         generation: "generation-1",
         cwd: root,
         workspaceIdentityRoot: root,
-        dataDirectory: join(root, "worker-data"),
+        dataDirectory,
+        registration,
         owner,
         deliveries,
         goals,

@@ -1,5 +1,6 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { fork, type ChildProcess } from "node:child_process";
+import { connect, Socket } from "node:net";
 import { fileURLToPath } from "node:url";
 import type { GoalProgressResult } from "../../../../packages/runtime/src/goal-coordinator";
 import { isRecord } from "../../../../packages/contracts/src/index";
@@ -8,22 +9,28 @@ import { JsonFileGoalStore } from "../../../../packages/storage/src/goal-store";
 import { TriggerDeliveryStore } from "../../../../packages/storage/src/trigger-delivery-store";
 import { SupervisorOwnership } from "../../../../packages/storage/src/supervisor-ownership";
 import type { TriggerDeliveryFile } from "../../../../packages/storage/src/trigger-delivery-file";
+import type { WorkerOfflineProgress, WorkerProcessRegistration } from "./worker-process-registry";
 
 type WorkerMessage =
-    | { readonly kind: "ready"; readonly workerId: string; readonly generation: string; readonly pid: number }
+    | { readonly kind: "ready"; readonly workerId: string; readonly generation: string; readonly pid: number; readonly proof?: string; readonly assignedGoalId?: string; readonly operationActive?: boolean }
     | { readonly kind: "probe-result"; readonly requestId: string; readonly pid: number; readonly workerId: string; readonly generation: string }
     | { readonly kind: "store-read"; readonly requestId: string; readonly workerId: string; readonly generation: string; readonly goalId: string }
     | { readonly kind: "store-save"; readonly requestId: string; readonly workerId: string; readonly generation: string; readonly goalId: string; readonly snapshot: unknown }
-    | { readonly kind: "advance-result"; readonly requestId: string; readonly result: WorkerProgress }
-    | { readonly kind: "cancel-result"; readonly requestId: string; readonly result: WorkerProgress }
-    | { readonly kind: "permission-result"; readonly requestId: string; readonly result: WorkerProgress }
-    | { readonly kind: "closed" };
+    | { readonly kind: "advance-result"; readonly requestId: string; readonly goalId: string; readonly result: WorkerProgress }
+    | { readonly kind: "cancel-result"; readonly requestId: string; readonly goalId: string; readonly result: WorkerProgress }
+    | { readonly kind: "permission-result"; readonly requestId: string; readonly goalId: string; readonly result: WorkerProgress }
+    | { readonly kind: "replay-complete"; readonly requestId: string }
+    | { readonly kind: "closed" }
+    | { readonly kind: "detached" };
 
 type WorkerCommand =
     | { readonly kind: "probe"; readonly requestId: string }
     | { readonly kind: "advance"; readonly requestId: string; readonly goalId: string; readonly runId: string }
     | { readonly kind: "cancel"; readonly requestId: string; readonly interruptId: string; readonly goalId: string; readonly runId: string }
     | { readonly kind: "permission-response"; readonly requestId: string; readonly delivery: TriggerDeliveryFile }
+    | { readonly kind: "replay-offline"; readonly requestId: string }
+    | { readonly kind: "worker-ack"; readonly requestId: string }
+    | { readonly kind: "detach" }
     | { readonly kind: "store-reply"; readonly requestId: string; readonly ok: true; readonly snapshot?: GoalSnapshotV1 }
     | { readonly kind: "store-reply"; readonly requestId: string; readonly ok: false }
     | { readonly kind: "close" };
@@ -39,13 +46,12 @@ export type WorkerProgress =
  *
  * @remarks
  * 子进程使用相同 workspace 和数据目录装配执行器；Goal 快照读写通过 Supervisor
- * IPC Port 完成，并按已持久化的 Worker ID、generation 与 Goal 绑定授权。
+ * 通道完成，并按已持久化的 Worker ID、generation 与 Goal 绑定授权。注册信息为
+ * Worker 提供断开后的本地认证通道和耐久消息日志，PID 不作为重新接管凭证。
  *
  * @example
  * ```ts
- * const worker = await SupervisorWorkerProcess.start({
- *   workerId: "worker-1", generation: "generation-1", cwd, dataDirectory, owner, deliveries, goals,
- * });
+ * const worker = await SupervisorWorkerProcess.start(options);
  * ```
  */
 export interface SupervisorWorkerProcessOptions {
@@ -55,6 +61,7 @@ export interface SupervisorWorkerProcessOptions {
     /** 项目权限账本身份；与 Worker 的执行目录分离。 */
     readonly workspaceIdentityRoot: string;
     readonly dataDirectory: string;
+    readonly registration: WorkerProcessRegistration;
     /** Worker 构造同一模型供应商与 Home 配置所需的宿主环境快照。 */
     readonly env?: NodeJS.ProcessEnv;
     readonly owner: SupervisorOwnership;
@@ -78,25 +85,41 @@ export interface SupervisorWorkerProcessOptions {
  * ```
  */
 export class SupervisorWorkerProcess {
-    private readonly child: ChildProcess;
+    private readonly child: ChildProcess | undefined;
+    private readonly socket: Socket | undefined;
+    private workerPid: number | undefined;
     private readonly ready: Promise<void>;
     private readonly pending = new Map<string, { readonly resolve: (message: WorkerMessage) => void; readonly reject: (error: Error) => void }>();
+    private readonly offlineProgress: WorkerOfflineProgress[] = [];
+    private readonly progressReceipts = new Map<string, string[]>();
+    private offlineProgressHandler: ((event: WorkerOfflineProgress) => void) | undefined;
     private busy = false;
     private cancelling = false;
+    private remoteActive: boolean | undefined;
     private advanceCommandSent: Promise<void> | undefined;
     private goalId: string | undefined;
     private closed = false;
     private readonly cancelRequests = new Map<string, Promise<WorkerProgress>>();
 
-    private constructor(private readonly options: SupervisorWorkerProcessOptions, child: ChildProcess) {
-        this.child = child;
+    private constructor(private readonly options: SupervisorWorkerProcessOptions, transport: ChildProcess | Socket, private readonly reconnecting: boolean, private readonly attachNonce = "") {
+        this.child = transport instanceof Socket ? undefined : transport;
+        this.socket = transport instanceof Socket ? transport : undefined;
+        this.workerPid = this.child?.pid ?? undefined;
         this.ready = new Promise<void>((resolve, reject) => {
+            let socketBuffer = "";
             const onMessage = (value: unknown): void => {
                 const message = parseWorkerMessage(value);
                 if (message?.kind === "ready") {
-                    if (message.workerId !== options.workerId || message.generation !== options.generation || message.pid !== child.pid) {
+                    const validIdentity = message.workerId === options.workerId && message.generation === options.generation
+                        && (this.child === undefined || message.pid === this.child.pid);
+                    const validProof = !reconnecting || (typeof message.proof === "string"
+                        && hasValidProof(message.proof, attachProof(options.registration.secret, attachNonce, "worker")));
+                    if (!validIdentity || !validProof) {
                         reject(new Error("Worker identity handshake mismatch"));
                     } else {
+                        this.workerPid = message.pid;
+                        this.goalId = message.assignedGoalId;
+                        this.remoteActive = message.operationActive;
                         resolve();
                     }
                     return;
@@ -107,6 +130,24 @@ export class SupervisorWorkerProcess {
                     return;
                 }
                 if (message.kind === "closed") return;
+                if (message.kind === "detached") return;
+                if (message.kind === "advance-result" || message.kind === "permission-result" || message.kind === "cancel-result") {
+                    const progress = { requestId: message.requestId, goalId: message.goalId, result: message.result, kind: message.kind } satisfies WorkerOfflineProgress;
+                    if (this.pending.has(message.requestId)) {
+                        const key = progressKey(progress.goalId, progress.result);
+                        const receipts = this.progressReceipts.get(key) ?? [];
+                        receipts.push(progress.requestId);
+                        this.progressReceipts.set(key, receipts);
+                    } else {
+                        const key = progressKey(progress.goalId, progress.result);
+                        const receipts = this.progressReceipts.get(key) ?? [];
+                        receipts.push(progress.requestId);
+                        this.progressReceipts.set(key, receipts);
+                        if (this.offlineProgressHandler === undefined) this.offlineProgress.push(progress);
+                        else this.offlineProgressHandler(progress);
+                    }
+                }
+                if (!("requestId" in message)) return;
                 this.pending.get(message.requestId)?.resolve(message);
                 this.pending.delete(message.requestId);
             };
@@ -114,14 +155,34 @@ export class SupervisorWorkerProcess {
                 for (const request of this.pending.values()) request.reject(error);
                 this.pending.clear();
             };
-            child.on("message", onMessage);
-            child.on("error", (error) => { reject(error); failPending(error); });
-            child.once("exit", (code, signal) => {
-                const error = new Error(`Worker process exited (${signal ?? code})`);
-                reject(error);
-                failPending(error);
-            });
+            if (this.child !== undefined) {
+                this.child.on("message", onMessage);
+                this.child.on("error", (error) => { reject(error); failPending(error); });
+                this.child.once("exit", (code, signal) => {
+                    const error = new Error(`Worker process exited (${signal ?? code})`);
+                    reject(error);
+                    failPending(error);
+                });
+            } else if (this.socket !== undefined) {
+                this.socket.on("data", (chunk: Buffer) => {
+                    socketBuffer += chunk.toString("utf8");
+                    for (;;) {
+                        const newline = socketBuffer.indexOf("\n");
+                        if (newline < 0) break;
+                        const line = socketBuffer.slice(0, newline);
+                        socketBuffer = socketBuffer.slice(newline + 1);
+                        try { onMessage(JSON.parse(line) as unknown); } catch { /* Invalid wire frames are ignored. */ }
+                    }
+                });
+                this.socket.on("error", (error) => { reject(error); failPending(error); });
+                this.socket.on("close", () => {
+                    const error = new Error("Worker control channel closed");
+                    reject(error);
+                    failPending(error);
+                });
+            }
         });
+        void this.ready.catch(() => undefined);
     }
 
     /**
@@ -142,11 +203,14 @@ export class SupervisorWorkerProcess {
             cwd: options.cwd,
             env: { ...(options.env ?? process.env), LAZYGOAL_WORKER_ID: options.workerId, LAZYGOAL_WORKER_GENERATION: options.generation,
                 LAZYGOAL_WORKER_DATA_DIRECTORY: options.dataDirectory,
-                LAZYGOAL_WORKSPACE_IDENTITY_ROOT: options.workspaceIdentityRoot },
+                LAZYGOAL_WORKSPACE_IDENTITY_ROOT: options.workspaceIdentityRoot,
+                LAZYGOAL_WORKER_SOCKET_PATH: options.registration.socketPath,
+                LAZYGOAL_WORKER_JOURNAL_PATH: options.registration.journalPath,
+                LAZYGOAL_WORKER_SECRET: options.registration.secret },
             execArgv: process.execArgv,
             stdio: ["ignore", "inherit", "inherit", "ipc"],
         });
-        const worker = new SupervisorWorkerProcess(options, child);
+        const worker = new SupervisorWorkerProcess(options, child, false);
         try {
             await worker.ready;
         } catch (error) {
@@ -156,8 +220,75 @@ export class SupervisorWorkerProcess {
         return worker;
     }
 
+    /**
+     * 通过持久注册的本机认证通道重新接管仍存活的 Worker。
+     *
+     * @param options - 注册信息及当前 Supervisor 的 Goal 与 Trigger 存储。
+     * @returns 已通过随机挑战认证的 Worker；其当前 Goal 绑定从进程握手恢复。
+     * @throws 通道不可用、认证失败或 Worker 身份与注册记录不符时抛出。
+     * @example
+     * ```ts
+     * const worker = await SupervisorWorkerProcess.attach(options);
+     * ```
+     */
+    static async attach(options: SupervisorWorkerProcessOptions): Promise<SupervisorWorkerProcess> {
+        const nonce = randomUUID();
+        const socket = connect(options.registration.socketPath);
+        const worker = new SupervisorWorkerProcess(options, socket, true, nonce);
+        try {
+            await new Promise<void>((resolve, reject) => {
+                const onError = (error: Error): void => { socket.off("connect", onConnect); reject(error); };
+                const onConnect = (): void => { socket.off("error", onError); resolve(); };
+                socket.once("error", onError);
+                socket.once("connect", onConnect);
+            });
+            await worker.writeSocket({ kind: "attach", workerId: options.workerId, generation: options.generation, nonce,
+                proof: attachProof(options.registration.secret, nonce, "supervisor") });
+            await worker.ready;
+            return worker;
+        } catch (error) {
+            socket.destroy();
+            throw error;
+        }
+    }
+
     /** @returns Worker 当前是否保留一个未结算 Goal。 */
     get assignedGoalId(): string | undefined { return this.goalId; }
+
+    /** @returns Worker 握手报告其仍在执行操作；状态不明时返回 `undefined`。 */
+    get remoteOperationActive(): boolean | undefined { return this.remoteActive; }
+
+    /** @returns 重新接管后收到但尚未持久处理的离线进度消息。 */
+    drainOfflineProgress(): readonly WorkerOfflineProgress[] { return this.offlineProgress.splice(0); }
+
+    /** 接收此进程之后重放或完成的 Worker 进度通知。 */
+    setOfflineProgressHandler(handler: (event: WorkerOfflineProgress) => void): void {
+        this.offlineProgressHandler = handler;
+        for (const event of this.offlineProgress.splice(0)) handler(event);
+    }
+
+    /** 在进度和 Goal 队列均已持久化后确认对应 Worker 离线消息。 */
+    acknowledgeProgress(goalId: string, progress: WorkerProgress): void {
+        const key = progressKey(goalId, progress);
+        const requestId = this.progressReceipts.get(key)?.shift();
+        if (requestId === undefined) return;
+        if (this.progressReceipts.get(key)?.length === 0) this.progressReceipts.delete(key);
+        void this.writeCommand({ kind: "worker-ack", requestId }).catch(() => undefined);
+    }
+
+    /** 请求 Worker 重放断连期间持久保存的请求与进度。 */
+    async replayOfflineMessages(): Promise<void> {
+        const response = await this.request({ kind: "replay-offline", requestId: randomUUID() });
+        if (response.kind !== "replay-complete") throw new Error("Worker did not finish offline message replay");
+    }
+
+    /** 关闭 Supervisor 通道但保持已认证 Worker 继续独立运行。 */
+    async detach(): Promise<void> {
+        if (this.child !== undefined) throw new Error("A newly launched Worker cannot be detached for reattachment");
+        if (this.socket === undefined || this.socket.destroyed) return;
+        await this.writeCommand({ kind: "detach" });
+        this.socket.end();
+    }
 
     /**
      * 查询 OS 进程身份，核实 Worker 仍是当前登记的子进程。
@@ -172,7 +303,7 @@ export class SupervisorWorkerProcess {
     async probe(): Promise<number> {
         const message = await this.request({ kind: "probe", requestId: randomUUID() });
         if (message.kind !== "probe-result" || message.workerId !== this.options.workerId
-            || message.generation !== this.options.generation || message.pid !== this.child.pid) {
+            || message.generation !== this.options.generation || message.pid !== this.workerPid) {
             throw new Error("Worker process identity changed");
         }
         return message.pid;
@@ -316,28 +447,32 @@ export class SupervisorWorkerProcess {
         if (this.closed) return;
         if (this.busy || this.cancelling || this.goalId !== undefined) throw new Error("Worker still owns an unsettled Goal");
         this.closed = true;
-        this.child.send({ kind: "close" } satisfies WorkerCommand);
-        await new Promise<void>((resolve, reject) => {
+        const closed = new Promise<void>((resolve, reject) => {
             const timeout = setTimeout(() => reject(new Error("Worker close was not confirmed")), 5000);
-            this.child.once("exit", () => { clearTimeout(timeout); resolve(); });
-            this.child.once("error", (error) => { clearTimeout(timeout); reject(error); });
+            if (this.child !== undefined) {
+                this.child.once("exit", () => { clearTimeout(timeout); resolve(); });
+                this.child.once("error", (error) => { clearTimeout(timeout); reject(error); });
+            } else if (this.socket !== undefined) {
+                this.socket.once("close", () => { clearTimeout(timeout); resolve(); });
+                this.socket.once("error", (error) => { clearTimeout(timeout); reject(error); });
+            }
         });
+        await this.writeCommand({ kind: "close" });
+        await closed;
     }
 
     private request(command: Extract<WorkerCommand, { readonly requestId: string }>): Promise<WorkerMessage> {
-        if (this.closed || !this.child.connected) return Promise.reject(new Error("Worker process is disconnected"));
+        if (this.closed || !this.isConnected()) return Promise.reject(new Error("Worker process is disconnected"));
         return new Promise((resolve, reject) => {
             this.pending.set(command.requestId, { resolve, reject });
-            this.child.send(command, (error) => {
-                if (error !== null && this.pending.delete(command.requestId)) {
-                    reject(error);
-                }
+            void this.writeCommand(command).catch((error: Error) => {
+                if (this.pending.delete(command.requestId)) reject(error);
             });
         });
     }
 
     private async handleStoreRequest(message: Extract<WorkerMessage, { readonly kind: "store-read" | "store-save" }>): Promise<void> {
-        const sendReply = (reply: WorkerCommand): void => { if (this.child.connected) this.child.send(reply); };
+        const sendReply = (reply: WorkerCommand): void => { void this.writeCommand(reply).catch(() => undefined); };
         if (message.workerId !== this.options.workerId || message.generation !== this.options.generation
             || message.goalId !== this.goalId
             || this.options.deliveries.workerClaim(this.options.workerId, this.options.generation) !== message.goalId) {
@@ -352,6 +487,23 @@ export class SupervisorWorkerProcess {
         } catch {
             sendReply({ kind: "store-reply", requestId: message.requestId, ok: false });
         }
+    }
+
+    private isConnected(): boolean {
+        return this.child?.connected ?? (this.socket !== undefined && !this.socket.destroyed);
+    }
+
+    private writeCommand(command: WorkerCommand): Promise<void> {
+        if (this.child !== undefined) {
+            if (!this.child.connected) return Promise.reject(new Error("Worker process is disconnected"));
+            return new Promise((resolve, reject) => this.child!.send(command, (error) => error === null ? resolve() : reject(error)));
+        }
+        return this.writeSocket(command);
+    }
+
+    private writeSocket(message: unknown): Promise<void> {
+        if (this.socket === undefined || this.socket.destroyed) return Promise.reject(new Error("Worker control channel is disconnected"));
+        return new Promise((resolve, reject) => this.socket!.write(`${JSON.stringify(message)}\n`, (error) => error == null ? resolve() : reject(error)));
     }
 
     private async saveWorkerSnapshot(goalId: string, input: unknown): Promise<GoalSnapshotV1> {
@@ -369,13 +521,32 @@ export class SupervisorWorkerProcess {
 
 function parseWorkerMessage(value: unknown): WorkerMessage | undefined {
     if (!isRecord(value) || typeof value.kind !== "string") return undefined;
-    if (value.kind === "ready" && typeof value.workerId === "string" && typeof value.generation === "string" && typeof value.pid === "number") return value as unknown as WorkerMessage;
+    if (value.kind === "ready" && typeof value.workerId === "string" && typeof value.generation === "string" && typeof value.pid === "number"
+        && (value.proof === undefined || typeof value.proof === "string")
+        && (value.assignedGoalId === undefined || typeof value.assignedGoalId === "string")
+        && (value.operationActive === undefined || typeof value.operationActive === "boolean")) return value as unknown as WorkerMessage;
     if (value.kind === "probe-result" && typeof value.requestId === "string" && typeof value.pid === "number" && typeof value.workerId === "string" && typeof value.generation === "string") return value as unknown as WorkerMessage;
     if ((value.kind === "store-read" || value.kind === "store-save") && typeof value.requestId === "string" && typeof value.workerId === "string" && typeof value.generation === "string" && typeof value.goalId === "string"
         && (value.kind !== "store-save" || "snapshot" in value)) return value as unknown as WorkerMessage;
-    if ((value.kind === "advance-result" || value.kind === "cancel-result" || value.kind === "permission-result") && typeof value.requestId === "string" && isWorkerProgress(value.result)) return value as unknown as WorkerMessage;
+    if ((value.kind === "advance-result" || value.kind === "cancel-result" || value.kind === "permission-result")
+        && typeof value.requestId === "string" && typeof value.goalId === "string" && isWorkerProgress(value.result)) return value as unknown as WorkerMessage;
+    if (value.kind === "replay-complete" && typeof value.requestId === "string") return value as unknown as WorkerMessage;
     if (value.kind === "closed") return value as unknown as WorkerMessage;
+    if (value.kind === "detached") return value as unknown as WorkerMessage;
     return undefined;
+}
+
+function attachProof(secret: string, nonce: string, role: "supervisor" | "worker"): string {
+    return createHmac("sha256", secret).update(`${role}:${nonce}`).digest("hex");
+}
+
+function hasValidProof(actual: string, expected: string): boolean {
+    if (!/^[a-f0-9]{64}$/.test(actual)) return false;
+    return timingSafeEqual(Buffer.from(actual, "hex"), Buffer.from(expected, "hex"));
+}
+
+function progressKey(goalId: string, result: WorkerProgress): string {
+    return JSON.stringify([goalId, result]);
 }
 
 function isWorkerProgress(value: unknown): value is WorkerProgress {

@@ -20,6 +20,13 @@ import type {
 import type { TriggerActionPermissionReply, TriggerActionPermissionRequest } from "../../../../packages/storage/src/trigger-permission";
 import { decideWorkerActionPermission } from "./worker-permission";
 import { SupervisorWorkerProcess, type WorkerProgress } from "./worker-process";
+import {
+    createWorkerProcessRegistration,
+    listWorkerProcessRegistrations,
+    removeWorkerProcessRegistration,
+    type WorkerOfflineProgress,
+    type WorkerProcessRegistration,
+} from "./worker-process-registry";
 
 /**
  * 一条 Worker Action 权限请求及其持久处理状态。
@@ -112,6 +119,7 @@ export class WorkerScheduler {
         this.activePump = (async () => {
             do {
                 this.pumpRequested = false;
+                await this.recoverWorkers();
                 await this.dispatchQueuedGoals();
             } while (this.pumpRequested);
         })().finally(() => { this.activePump = undefined; });
@@ -298,6 +306,7 @@ export class WorkerScheduler {
             if (slot.process.assignedGoalId !== undefined) continue;
             await slot.process.close();
             this.workers.delete(workerId);
+            await removeWorkerProcessRegistration(this.options.dataDirectory, workerId);
         }
     }
 
@@ -316,17 +325,14 @@ export class WorkerScheduler {
             if (slot === undefined) {
                 const workerId = `worker-${randomUUID()}`;
                 const generation = randomUUID();
-                const process = await SupervisorWorkerProcess.start({
-                    workerId,
-                    generation,
-                    cwd: workspace.executionRoot,
-                    workspaceIdentityRoot: workspace.projectRoot,
-                    dataDirectory: this.options.dataDirectory,
-                    ...(this.options.env === undefined ? {} : { env: this.options.env }),
-                    owner: this.options.owner,
-                    deliveries: this.options.deliveries,
-                    goals: this.options.goals,
-                });
+                const registration = await createWorkerProcessRegistration(this.options.dataDirectory, workerId, generation, workspace);
+                let process: SupervisorWorkerProcess;
+                try {
+                    process = await SupervisorWorkerProcess.start(this.workerOptions(registration));
+                } catch (error) {
+                    await removeWorkerProcessRegistration(this.options.dataDirectory, workerId);
+                    throw error;
+                }
                 slot = { workerId, generation, process, projectRoot: workspace.projectRoot, executionRoot: workspace.executionRoot };
                 this.workers.set(workerId, slot);
             }
@@ -336,6 +342,90 @@ export class WorkerScheduler {
             void slot.process.advance(nextGoalId)
                 .then((progress) => this.reportProgress(slot, nextGoalId, progress))
                 .catch(() => undefined);
+        }
+    }
+
+    private workerOptions(registration: WorkerProcessRegistration) {
+        return {
+            workerId: registration.workerId,
+            generation: registration.generation,
+            cwd: registration.cwd,
+            workspaceIdentityRoot: registration.workspaceIdentityRoot,
+            dataDirectory: this.options.dataDirectory,
+            registration,
+            ...(this.options.env === undefined ? {} : { env: this.options.env }),
+            owner: this.options.owner,
+            deliveries: this.options.deliveries,
+            goals: this.options.goals,
+        };
+    }
+
+    private async recoverWorkers(): Promise<void> {
+        for (const registration of await listWorkerProcessRegistrations(this.options.dataDirectory)) {
+            if (this.workers.has(registration.workerId)) continue;
+            let process: SupervisorWorkerProcess;
+            try {
+                process = await SupervisorWorkerProcess.attach(this.workerOptions(registration));
+            } catch {
+                // An absent or unauthenticated Worker provides no evidence that its work is safe to replay.
+                continue;
+            }
+            const assignedGoalId = process.assignedGoalId;
+            let claimedGoalId: string | undefined;
+            try { claimedGoalId = this.options.deliveries.workerClaim(registration.workerId, registration.generation); } catch { /* Keep the assignment unresolved. */ }
+            if (assignedGoalId !== claimedGoalId || (assignedGoalId !== undefined && this.options.deliveries.queueRecord(assignedGoalId)?.status === "terminal")) {
+                await process.detach().catch(() => undefined);
+                continue;
+            }
+            const slot: WorkerSlot = {
+                workerId: registration.workerId,
+                generation: registration.generation,
+                process,
+                projectRoot: registration.projectRoot,
+                executionRoot: registration.executionRoot,
+            };
+            this.workers.set(slot.workerId, slot);
+            process.setOfflineProgressHandler((event) => {
+                let task!: Promise<void>;
+                task = this.recoverProgress(slot, event).catch(() => undefined).finally(() => this.progressTasks.delete(task));
+                this.progressTasks.add(task);
+            });
+            try {
+                await process.replayOfflineMessages();
+            } catch {
+                continue;
+            }
+            await Promise.allSettled([...this.progressTasks]);
+            if (assignedGoalId !== undefined && process.assignedGoalId === assignedGoalId) {
+                await this.reconcileAttachedWorker(slot, assignedGoalId).catch(() => undefined);
+            }
+        }
+    }
+
+    private async recoverProgress(slot: WorkerSlot, event: WorkerOfflineProgress): Promise<void> {
+        if (this.options.deliveries.workerClaim(slot.workerId, slot.generation) !== event.goalId) return;
+        await this.recordProgress(slot, event.goalId, event.result);
+    }
+
+    private async reconcileAttachedWorker(slot: WorkerSlot, goalId: string): Promise<void> {
+        if (slot.process.remoteOperationActive === true) return;
+        const goal = await this.options.goals.restore(goalId);
+        if (goal === undefined) return;
+        if (goal.state.run.status === "created") {
+            const progress = await slot.process.advance(goalId);
+            await this.recordProgress(slot, goalId, progress);
+            return;
+        }
+        if (goal.state.run.status === "waiting") {
+            const waitingFor = goal.state.run.pendingInteraction?.kind === "ask_user" ? "ask_user"
+                : goal.state.run.pendingInteraction?.kind === "task_approval" ? "task_approval"
+                    : goal.state.run.pendingAction?.status === "awaiting_approval" ? "action_approval"
+                        : goal.state.run.pendingAction?.status === "outcome_unknown" ? "action_recovery" : "blocked";
+            await this.recordProgress(slot, goalId, { kind: "waiting", waitingFor });
+            return;
+        }
+        if (goal.state.run.status === "completed" || goal.state.run.status === "failed" || goal.state.run.status === "cancelled") {
+            await this.recordProgress(slot, goalId, { kind: "terminal", status: goal.state.run.status });
         }
     }
 
@@ -360,6 +450,7 @@ export class WorkerScheduler {
                 this.options.deliveries.settleActionPermissionExchange(exchange.requestDeliveryId, exchange.replyDeliveryId);
                 exchange = undefined;
             }
+            slot.process.acknowledgeProgress(goalId, progress);
             if (progress.kind !== "waiting" || progress.waitingFor !== "action_approval") return;
             const next = await this.autoHandleActionPermission(slot, goalId);
             if (next === undefined) return;
@@ -407,7 +498,7 @@ export class WorkerScheduler {
         if (progress.kind === "terminal") {
             await this.options.deliveries.markWorkerGoalStatus(this.options.owner, slot.workerId, slot.generation, goalId, "terminal");
             slot.process.confirmTerminal(goalId);
-            await this.pump();
+            void this.pump();
         }
     }
 
