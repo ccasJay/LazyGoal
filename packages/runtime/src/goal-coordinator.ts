@@ -58,7 +58,12 @@ import {
     type SandboxAccessRequest,
 } from "../../sandbox/src/index";
 import { evaluateSandboxAuthorization } from "../../permission/src/index";
-import type { SessionInputDigest, SessionInputRecord, SessionMessageQueue } from "./session-input";
+import {
+    applyPendingSessionInputs,
+    dequeueQueuedMessage,
+    type SessionInputDigest,
+    type SessionMessageQueue,
+} from "./session-input";
 import {
     type DiagnosticTraceSink,
     type TrajectoryEventDraft,
@@ -882,7 +887,6 @@ export class GoalCoordinator {
                     let queueState:
                         | {
                             readonly inputId: string;
-                            readonly ledger: readonly SessionInputRecord[];
                             readonly queue: SessionMessageQueue;
                         }
                         | undefined;
@@ -918,17 +922,21 @@ export class GoalCoordinator {
                                 ),
                             };
                         }
+                        const dequeued = dequeueQueuedMessage(queue, head.inputId);
+                        if (dequeued === undefined) {
+                            return {
+                                progress: {
+                                    ok: false,
+                                    error: {
+                                        code: "QUEUE_REVISION_MISMATCH",
+                                        message: `queued head does not match input "${queueBinding.inputId}"`,
+                                    },
+                                },
+                            };
+                        }
                         queueState = {
-                            inputId: head.inputId,
-                            ledger: (goal.state.inputLedger ?? []).map((record) =>
-                                record.inputId === head.inputId && record.status === "pending"
-                                    ? { ...record, status: "applied" as const }
-                                    : record),
-                            queue: {
-                                revision: queue.revision + 1,
-                                items: queue.items.slice(1),
-                                ...(queue.pause === undefined ? {} : { pause: queue.pause }),
-                            },
+                            inputId: dequeued.item.inputId,
+                            queue: dequeued.queue,
                         };
                     }
 
@@ -996,9 +1004,11 @@ export class GoalCoordinator {
                             ...(queueState === undefined
                                 ? {}
                                 : {
-                                    inputLedger: queueState.ledger.map((record) => record.inputId === queueState.inputId
-                                        ? { ...record, appliedRunId: runId, messageIndex }
-                                        : record),
+                                    inputLedger: applyPendingSessionInputs(goal.state.inputLedger ?? [], [{
+                                        inputId: queueState.inputId,
+                                        appliedRunId: runId,
+                                        messageIndex,
+                                    }]) ?? [],
                                     messageQueue: queueState.queue,
                                 }),
                         },

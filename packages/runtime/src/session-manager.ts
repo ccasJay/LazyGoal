@@ -51,9 +51,9 @@ import {
     computeSessionInputDigest,
     findSessionInputRecord,
     nextSessionInputSequence,
+    pauseQueuedMessagesForTerminalRun,
     toSessionInputReceipt,
     validateSessionInputShape,
-    withQueuePause,
     type SessionInputDigest,
     type SessionInputReceipt,
     type SessionInputRecord,
@@ -1927,7 +1927,7 @@ export class SessionManager implements SessionHandlePort {
         return true;
     }
 
-    /** 在失败或取消的终态上持久化队列暂停，保留尚未应用的消息。 */
+    /** 为缺少暂停标记的失败或取消终态快照幂等补齐队列暂停。 */
     private async pauseQueueAfterTerminalRun(goalId: string): Promise<void> {
         try {
             await withGoalMutationGate(this.store, goalId, async () => {
@@ -1935,16 +1935,16 @@ export class SessionManager implements SessionHandlePort {
                 if (latest === undefined) return;
                 const status = latest.state.run.status;
                 if (status !== "failed" && status !== "cancelled") return;
-                if (latest.state.messageQueue?.pause !== undefined) return;
-                const reason = latest.state.run.interruption !== undefined ? "user_interrupt" : "run_failed";
+                const messageQueue = pauseQueuedMessagesForTerminalRun(
+                    latest.state.messageQueue,
+                    latest.state.run,
+                );
+                if (messageQueue === latest.state.messageQueue) return;
                 const paused: Goal = {
                     ...latest,
                     state: {
                         ...latest.state,
-                        messageQueue: withQueuePause(latest.state.messageQueue, {
-                            reason,
-                            runId: latest.state.run.id,
-                        }),
+                        ...(messageQueue === undefined ? {} : { messageQueue }),
                     },
                 };
                 await this.committer.commit(paused, { sessionState: "caller" });

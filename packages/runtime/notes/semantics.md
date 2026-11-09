@@ -19,7 +19,7 @@
 | 后台执行任务 | 受理返回后由被追踪的后台 Promise 推进 Run；异常被观察并保留真实恢复状态。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
 | 输入账本 | Goal 内按受理序号保存的输入身份、种类、载荷摘要与 pending／applied／cleared 状态。 | [Goal Runtime](../README.md) | [输入契约](../src/session-input.ts) |
 | 消息队列 | 尚未应用的普通消息 FIFO、队列修订与暂停原因；追加、单条删除、清空和队列消息转 Steer 都在对应持久化边界推进修订。 | [Goal Runtime](../README.md) | [输入契约](../src/session-input.ts) |
-| 队列暂停 | Run 失败或用户 Interrupt 后保留待处理消息；有积压时须显式继续，Run 已结束且队列为空时新消息解除暂停并启动后继 Run。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
+| 队列暂停 | 失败终态与暂停在同一 Snapshot 提交，即使队列为空也保留暂停事实；用户 Interrupt 在受理 Snapshot 立即暂停；有积压时须显式继续，空队列上的新消息可解除暂停。 | [Goal Runtime](../README.md) | [终态队列提交](../src/runner.ts)、[会话调度与幂等补齐](../src/session-manager.ts) |
 | 会话 Steer 受理 | 目标 running Run 的补充输入与 Run 内待应用记录、账本收据在同一提交生效；可通过队列修订绑定原子消费一条待处理消息，过期或错配时拒绝且不写收据。 | [Goal Runtime](../README.md) | [输入受理边界](../src/session-admission.ts)、[Runner](../src/runner.ts) |
 | 交互回答受理 | 匹配当前等待身份的回答通过既有 Coordinator 规则推进对应等待并写入收据；旧请求与错身份不解除等待。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
 | 交互视图 | 由当前已提交等待派生的类型化请求：种类、Goal／Run 与请求身份、可用决定；不复制可变请求正文。 | [Goal Runtime](../README.md) | [交互视图](../src/interaction-view.ts) |
