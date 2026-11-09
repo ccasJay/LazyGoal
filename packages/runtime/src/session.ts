@@ -1,8 +1,10 @@
+import { resolveWaitingFor } from "./domain";
 import type {
     Goal,
     GoalMessagePosition,
     RunMode,
     RunStatus,
+    RunWaitingFor,
 } from "./domain";
 import type {
     SessionInput,
@@ -148,18 +150,13 @@ export interface GoalSessionState {
     /** 尚未应用的 Steer 数量。 */
     readonly pendingSteerCount: number;
     /**
-     * 当前等待的交互类型；运行中或终态时省略。
+     * 当前 Run 的等待原因；运行中或终态时省略。
      *
      * @remarks
-     * 只描述等待点自己的请求；用户中断受理后旧交互引用失效，随后结算为取消。
+     * `blocked` 表示 Agent 主动等待且没有待处理交互或 Action。用户中断受理后旧交互
+     * 引用失效，随后结算为取消。
      */
-    readonly waitingFor?:
-        | "ask_user"
-        | "task_approval"
-        | "action_approval"
-        | "action_recovery"
-        | "blocked"
-        | undefined;
+    readonly waitingFor?: RunWaitingFor | undefined;
     /**
      * 当前等待交互的规范引用；没有等待时省略。
      *
@@ -558,7 +555,7 @@ export function projectGoalSessionState(input: GoalSessionStateInput): GoalSessi
         ...(queue?.pause === undefined ? {} : { queuePauseReason: queue.pause.reason }),
         pendingMessageCount: queue?.items.length ?? 0,
         pendingSteerCount: pendingSteers,
-        ...(run.status === "waiting" ? { waitingFor: resolveWaitingFor(goal) } : {}),
+        ...(run.status === "waiting" ? { waitingFor: resolveWaitingFor(run) } : {}),
         ...(interaction === undefined
             ? {}
             : {
@@ -644,14 +641,6 @@ function projectMessageSourceId(source: GoalMessageSource): string {
     }
 }
 
-function resolveWaitingFor(goal: Goal): GoalSessionState["waitingFor"] {
-    const run = goal.state.run;
-    if (run.pendingInteraction?.kind === "ask_user") return "ask_user";
-    if (run.pendingInteraction?.kind === "task_approval") return "task_approval";
-    if (run.pendingAction?.status === "awaiting_approval") return "action_approval";
-    if (run.pendingAction?.status === "outcome_unknown") return "action_recovery";
-    return "blocked";
-}
 
 /** 会话受理结果的稳定拒绝分类；`BUSY` 表示实例活动名额由其他 Goal 占用。 */
 export type SessionManagerErrorCode =

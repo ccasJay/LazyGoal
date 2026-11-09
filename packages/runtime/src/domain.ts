@@ -905,6 +905,53 @@ export interface RunState {
 }
 
 /**
+ * waiting Run 对调用方公开的等待原因。
+ *
+ * @remarks
+ * `blocked` 表示没有待处理交互或 Action 的 Agent 主动等待；该分类只投影 Run 状态，
+ * 不写入 Snapshot。
+ *
+ * @example
+ * ```ts
+ * const waitingFor: RunWaitingFor = "action_approval";
+ * ```
+ */
+export type RunWaitingFor =
+    | "ask_user"
+    | "task_approval"
+    | "action_approval"
+    | "action_recovery"
+    | "blocked";
+
+/**
+ * 从 waiting Run 派生稳定的等待原因。
+ *
+ * @remarks
+ * 调用方须先确认 Run 状态为 `waiting`。持久化 Snapshot 校验负责确保交互与 Action
+ * 互斥，并确保没有 pending 项的 waiting Run 对应已提交的 `wait` 决策。
+ *
+ * @param run - 当前已验证的 Run 状态。
+ * @returns 当前等待原因；Agent 主动等待且没有 pending 项时返回 `blocked`。
+ * @example
+ * ```ts
+ * const waitingFor = resolveWaitingFor(run);
+ * ```
+ */
+export function resolveWaitingFor(run: RunState): RunWaitingFor {
+    if (run.pendingInteraction !== undefined) return run.pendingInteraction.kind;
+
+    switch (run.pendingAction?.status) {
+        case "awaiting_approval":
+            return "action_approval";
+        case "outcome_unknown":
+            return "action_recovery";
+        case "approved":
+        case undefined:
+            return "blocked";
+    }
+}
+
+/**
  * 当前 Run 的持久化 Steer 受理记录。
  *
  * @remarks

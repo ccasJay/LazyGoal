@@ -10,10 +10,11 @@ import type {
     PendingInteractionAskUser,
     RunRef,
     RunState,
+    RunWaitingFor,
     AskUserAnswer,
     AskUserQuestion,
 } from "./domain";
-import { createRun } from "./domain";
+import { createRun, resolveWaitingFor } from "./domain";
 import type { GoalStore } from "./goal-store";
 import type {
     ExecutionStreamEventDraft,
@@ -329,12 +330,7 @@ export type GoalProgressResult =
         readonly ok: true;
         readonly kind: "waiting";
         readonly phase: "executing";
-        readonly waitingFor:
-            | "ask_user"
-            | "task_approval"
-            | "action_approval"
-            | "action_recovery"
-            | "blocked";
+        readonly waitingFor: RunWaitingFor;
         readonly goal: Goal;
     }
     | {
@@ -2696,25 +2692,11 @@ export class GoalCoordinator {
     }
 
     private executingWaitingResult(goal: Goal): GoalProgressResult {
-        const pendingInteraction = goal.state.run.pendingInteraction;
-        const pendingAction = goal.state.run.pendingAction;
-
-        let waitingFor: "ask_user" | "task_approval" | "action_approval" | "action_recovery" | "blocked";
-        if (pendingInteraction !== undefined) {
-            waitingFor = pendingInteraction.kind === "ask_user" ? "ask_user" : "task_approval";
-        } else if (pendingAction?.status === "awaiting_approval") {
-            waitingFor = "action_approval";
-        } else if (pendingAction?.status === "outcome_unknown") {
-            waitingFor = "action_recovery";
-        } else {
-            waitingFor = "blocked";
-        }
-
         return {
             ok: true,
             kind: "waiting",
             phase: "executing",
-            waitingFor,
+            waitingFor: resolveWaitingFor(goal.state.run),
             goal,
         };
     }

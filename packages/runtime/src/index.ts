@@ -152,6 +152,7 @@ export type {
     RunRef,
     RunState,
     RunSteerInput,
+    RunWaitingFor,
     RunInterruption,
     RunStopReason,
     RunStatus,
