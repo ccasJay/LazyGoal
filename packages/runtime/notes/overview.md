@@ -43,7 +43,7 @@ Runtime 是控制平面：拥有 Goal/Run/Step 状态、Run 模式与 GoalPlan�
 
 正式消息保存稳定身份、来源、所属 Run 和 Run 内位置。位置锚定消息原始提交边界中最后一条已提交事实；首条事实前为 0，同一锚点按 Snapshot 顺序编号。恢复与会话摘要复用已保存位置，不从到达时间、Step 或未提交 Trajectory tail 推断。Goal 创建时只存在首个 Run，因此创建路径把初始消息集统一归属该 Run，并按初始次序分配 `afterSequence: 0` 的连续 `order`；调用方不能在创建时指定消息的 Run 归属或位置。恢复输入按最近一次恢复事实锚定，不会回退到更早的恢复事实。
 
-Goal workflow 只有 `phase: "executing"`。Goal 是可持续恢复的会话聚合，保存完整 messages、独立 GoalPlan、可选的一次性 `nextRunMode` 和 `completedRuns`；Run 是一次执行边界，保存自己的 `mode`、可选 `approvedTask`、Plan Run 可选的 `planRoute`、`status`、`stepCount`、最新 Step、等待点、Context Epoch、Trajectory 提交边界和 Working Memory revision。`planRoute` 只在获批 Plan Run 上保存完整有序阶段、状态和恢复游标；普通 Run 与待审批 Run 不包含该状态。GoalPlan Todo 不绑定 Run；同一 Run 可依次更新多个 Todo，结束时未完成项保留原状态。
+Goal workflow 只有 `phase: "executing"`。Goal 是可持续恢复的会话聚合，保存完整 messages、独立 GoalPlan、可选的一次性 `nextRunMode` 和 `completedRuns`；Run 是一次执行边界，保存自己的 `mode`、可选 `approvedTask`、Plan Run 可选的 `planRoute`、`status`、`stepCount`、最新 Step、等待点、Context Epoch、Trajectory 提交边界和 Working Memory revision。Run 结束态与共用判定由[领域契约](../src/domain.ts)集中定义；`waiting` 仍可恢复，不属于结束态。`planRoute` 只在获批 Plan Run 上保存完整有序阶段、状态和恢复游标；普通 Run 与待审批 Run 不包含该状态。GoalPlan Todo 不绑定 Run；同一 Run 可依次更新多个 Todo，结束时未完成项保留原状态。
 
 每条正式消息都带稳定 `messageId`、所属 `runId` 与判别式 `source`；助手消息另有 `purpose` 区分 `process`（模型公开过程正文）、`answer`（被审查接受的最终答复）与 `notice`（等待、失败等 Runtime 通知）。[GoalMessage](../src/goal-message.ts) 拥有身份分配、来源比较键与同源幂等追加：同一来源重试返回已提交的原消息身份，同一来源正文不一致时明确失败且不覆盖已提交正文；正文相同但来源不同的消息保持为两条独立记录。来源同时是后续按模型调用与内容块判定原生历史去重的依据；没有模型调用身份的执行方只使用真实执行来源，不虚构模型调用或 Provider 块身份。
 

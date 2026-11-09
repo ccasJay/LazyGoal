@@ -6,6 +6,8 @@ import {
     createRun,
     DEFAULT_GOAL_MODEL_SELECTION,
     isContextRetrievalProtocol,
+    isRunEnded,
+    RUN_END_STATUSES,
 } from "../src/index";
 import type { AgentProfile, GoalMessage, RunState } from "../src/index";
 import { resolveWaitingFor } from "../src/domain";
@@ -29,6 +31,16 @@ const currentProtocols = {
     modelContextProtocol: { kind: "trajectory-layered" as const, version: 1 as const },
     contextRetrievalProtocol: { kind: "bm25-lite" as const, version: 1 as const },
 };
+
+test("Run end states identify only lifecycle-complete statuses", () => {
+    assert.deepEqual(RUN_END_STATUSES, ["completed", "failed", "cancelled"]);
+    assert.equal(isRunEnded("completed"), true);
+    assert.equal(isRunEnded("failed"), true);
+    assert.equal(isRunEnded("cancelled"), true);
+    assert.equal(isRunEnded("created"), false);
+    assert.equal(isRunEnded("running"), false);
+    assert.equal(isRunEnded("waiting"), false);
+});
 
 test("createGoal creates an initial executing snapshot with independent IDs", () => {
     const goal = createGoal({

@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 
 import type { AgentProfileRegistry } from "./agent-profile";
-import type { GoalModelSelection, Goal, JsonValue, RunMode } from "./domain";
+import { isRunEnded } from "./domain";
+import type { GoalModelSelection, Goal, JsonValue, RunEndStatus, RunMode } from "./domain";
 import type { GoalStore } from "./goal-store";
 import type { GoalCoordinator } from "./goal-coordinator";
 import type { GoalProtocolValidator } from "./domain";
@@ -282,7 +283,7 @@ export type SessionQueryResult =
         readonly session: Session;
         readonly receipt: SessionInputReceipt;
         readonly runId: string;
-        readonly outcome: "completed" | "failed" | "cancelled" | "waiting";
+        readonly outcome: RunEndStatus | "waiting";
         readonly state: GoalSessionState;
     }
     | {
@@ -1012,8 +1013,7 @@ export class SessionManager implements SessionHandlePort {
                 message: "The Goal message queue is paused; continue it explicitly with queue_control",
             };
         }
-        if (status !== "created" && status !== "running" && status !== "completed"
-            && status !== "failed" && status !== "cancelled") {
+        if (status !== "created" && status !== "running" && !isRunEnded(status)) {
             return {
                 ok: false,
                 code: "RUN_NOT_RESUMABLE",
@@ -1511,8 +1511,7 @@ export class SessionManager implements SessionHandlePort {
             session: created.session,
             receipt: created.receipt,
             runId,
-            outcome: state.runStatus === "completed" || state.runStatus === "failed"
-                || state.runStatus === "cancelled" || state.runStatus === "waiting"
+            outcome: isRunEnded(state.runStatus) || state.runStatus === "waiting"
                 ? state.runStatus
                 : "waiting",
             state,
@@ -1577,8 +1576,7 @@ export class SessionManager implements SessionHandlePort {
                     return;
                 }
                 if (state.runId === runId) {
-                    if (state.runStatus === "waiting" || state.runStatus === "completed"
-                        || state.runStatus === "failed" || state.runStatus === "cancelled") {
+                    if (state.runStatus === "waiting" || isRunEnded(state.runStatus)) {
                         finish(state);
                     }
                     return;
@@ -1837,7 +1835,7 @@ export class SessionManager implements SessionHandlePort {
         const queue = goal.state.messageQueue;
         if (queue?.pause !== undefined && !explicitContinuation) return;
         if ((queue?.items.length ?? 0) === 0) return;
-        if (status !== "completed" && status !== "failed" && status !== "cancelled") return;
+        if (!isRunEnded(status)) return;
         if (this.executions.has(goalId)) return;
         if (this.activeGoalId !== undefined && this.activeGoalId !== goalId) return;
         // 终态上的新受理消息或显式继续已通过持久化暂停门禁，允许创建后继 Run。

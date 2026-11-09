@@ -14,7 +14,7 @@ import type {
     AskUserAnswer,
     AskUserQuestion,
 } from "./domain";
-import { createRun, resolveWaitingFor } from "./domain";
+import { createRun, isRunEnded, resolveWaitingFor } from "./domain";
 import type { GoalStore } from "./goal-store";
 import type {
     ExecutionStreamEventDraft,
@@ -807,11 +807,7 @@ export class GoalCoordinator {
             return this.executingWaitingResult(goal);
         }
 
-        if (
-            goal.state.run.status === "completed"
-            || goal.state.run.status === "failed"
-            || goal.state.run.status === "cancelled"
-        ) {
+        if (isRunEnded(goal.state.run.status)) {
             return {
                 ok: true,
                 kind: "terminal",
@@ -879,8 +875,7 @@ export class GoalCoordinator {
                     if (goal === undefined) return { progress: this.runNotFound(ref) };
                     this.validateGoalProtocol(goal);
 
-                    if (goal.state.run.status !== "completed" && goal.state.run.status !== "failed"
-                        && goal.state.run.status !== "cancelled") {
+                    if (!isRunEnded(goal.state.run.status)) {
                         return { progress: this.goalNotCompleted(ref) };
                     }
 
@@ -2669,11 +2664,7 @@ export class GoalCoordinator {
             return this.executingWaitingResult(latestGoal);
         }
 
-        if (
-            latestGoal.state.run.status === "completed"
-            || latestGoal.state.run.status === "failed"
-            || latestGoal.state.run.status === "cancelled"
-        ) {
+        if (isRunEnded(latestGoal.state.run.status)) {
             return {
                 ok: true,
                 kind: "terminal",

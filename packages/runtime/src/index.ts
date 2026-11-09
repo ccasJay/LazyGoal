@@ -4,6 +4,8 @@ export {
     DEFAULT_GOAL_MODEL_SELECTION,
     GOAL_PROTOCOL_ERROR_CODE,
     GoalProtocolError,
+    RUN_END_STATUSES,
+    isRunEnded,
     isModelContextProtocol,
     isContextRetrievalProtocol,
 } from "./domain";
@@ -155,6 +157,7 @@ export type {
     RunWaitingFor,
     RunInterruption,
     RunStopReason,
+    RunEndStatus,
     RunStatus,
     Observation,
     PendingAction,

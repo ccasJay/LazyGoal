@@ -2,7 +2,8 @@ import { randomUUID } from "node:crypto";
 import type { ExecutionControl } from "../../execution-control/src/index";
 import type { ToolExecutionContext } from "../../tool-core/src/index";
 import type { AgentProfile, AgentProfileRegistry } from "./agent-profile";
-import type { GoalModelSelection, RunStatus } from "./domain";
+import { isRunEnded } from "./domain";
+import type { GoalModelSelection, RunEndStatus } from "./domain";
 import type { GoalStore } from "./goal-store";
 import type { Session } from "./session";
 import { SessionManager, type SessionCreateRequest, type SessionManagerDependencies } from "./session-manager";
@@ -58,7 +59,7 @@ export interface SpawnSubagentOutput {
     /**
      * 子 Agent 任务达到的终态（仅限 completed, failed, cancelled）。
      */
-    readonly status: "completed" | "failed" | "cancelled";
+    readonly status: RunEndStatus;
 
     /**
      * 当状态为 completed 时子任务的最终回答。
@@ -243,13 +244,10 @@ export class RuntimeSubagentSpawner implements SubagentSpawner {
                 reject(err);
             };
 
-            const isTerminal = (status: RunStatus): status is Extract<RunStatus, "completed" | "failed" | "cancelled"> =>
-                status === "completed" || status === "failed" || status === "cancelled";
-
             const checkTerminal = async (): Promise<boolean> => {
                 try {
                     const state = await session.read();
-                    if (!state || !isTerminal(state.runStatus)) return false;
+                    if (!state || !isRunEnded(state.runStatus)) return false;
 
                     let answer: string | undefined;
                     let reason: string | undefined;
@@ -290,7 +288,7 @@ export class RuntimeSubagentSpawner implements SubagentSpawner {
                 const request = (async () => {
                     const currentState = await session.read();
                     if (!currentState) throw new Error(`Child goal ${childGoalId} disappeared while being cancelled`);
-                    if (isTerminal(currentState.runStatus)) {
+                    if (isRunEnded(currentState.runStatus)) {
                         await checkTerminal();
                         return;
                     }
@@ -307,7 +305,7 @@ export class RuntimeSubagentSpawner implements SubagentSpawner {
                     }
 
                     const latestState = await session.read();
-                    if (latestState && isTerminal(latestState.runStatus)) {
+                    if (latestState && isRunEnded(latestState.runStatus)) {
                         await checkTerminal();
                         return;
                     }

@@ -1,3 +1,4 @@
+import { isRunEnded } from "./domain";
 import type { Goal } from "./domain";
 import type { GoalStore } from "./goal-store";
 import { withGoalMutationGate } from "./goal-mutation-gate";
@@ -214,8 +215,7 @@ export class SessionInputAdmission {
                 if (quota !== undefined) return { planned: false, result: quota };
                 const queue = goal.state.messageQueue;
                 const status = goal.state.run.status;
-                const startsFreshRun = (status === "completed" || status === "failed" || status === "cancelled")
-                    && (queue?.items.length ?? 0) === 0;
+                const startsFreshRun = isRunEnded(status) && (queue?.items.length ?? 0) === 0;
                 const nextGoal: Goal = {
                     ...goal,
                     state: {
