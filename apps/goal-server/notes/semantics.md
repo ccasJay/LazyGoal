@@ -7,7 +7,7 @@
 | Composition Root | 服务依赖装配边界。 | [Goal Server](../README.md) | [模块说明](./overview.md) |
 | Trigger Browser Session Port | Web 创建与控制命令接入 Supervisor 的准入、投递和 Worker 调度；只支持新 Goal、结构化交互、取消与明确恢复。 | [Goal Server](../README.md) | [Trigger 浏览器端口](../src/browser-session-port.ts) |
 | Web service | 同源浏览器接口的显式启停入口；会话读取按 Goal 投影并通过 Trigger 路径接受支持的控制。 | [Goal Server](../README.md) | [CLI 装配](../src/cli.ts) |
-| Trigger 本地传输 | loopback 凭据映射到可信 Worker generation、externalId 或 Supervisor Actor；严格校验来源与 Goal 目标后由 Supervisor 接收和路由 Worker target 消息。 | [Goal Server](../README.md) | [传输组件](../src/runtime/trigger-wire-server.ts)、[认证与接收](../../../packages/storage/src/trigger-delivery-ingress.ts) |
+| Trigger 本地传输 | loopback 凭据映射到可信 Worker generation、externalId 或 Supervisor Actor；Supervisor 严格校验来源与 Goal 目标，Worker-target 控制消息经 WorkerScheduler 路由，Worker 间没有直接连接。 | [Goal Server](../README.md) | [传输组件](../src/runtime/trigger-wire-server.ts)、[认证与接收](../../../packages/storage/src/trigger-delivery-ingress.ts) |
 | Provider profile resolution | 启动与选择期的受管档案解析、优先级与不可解析时的显式失败；档案变更后刷新解析视图。 | [Goal Server](../README.md) | [Composition Root](../src/composition-root.ts) |
 | Provider model preview | 校验表单连接并只读查询在线模型，不保存或激活档案。 | [Goal Server](../README.md) | [CLI 装配](../src/cli.ts) |
 | 动态模型选择与恢复 | 服务端按在线可选目录解析协议，Goal 保存执行契约并按当前 Profile 凭据恢复 Adapter。 | [Goal Server](../README.md) | [运行时装配](../src/runtime/composition.ts) |

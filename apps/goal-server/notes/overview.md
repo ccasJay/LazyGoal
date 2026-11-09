@@ -2,7 +2,7 @@
 
 本机 Web Composition Root，连接 Browser、HTTP、Supervisor、Trigger 持久化与独立 Worker。本文描述当前实现、使用边界与限制；[公开入口](../src/index.ts)。
 
-默认 `lazygoal web` 入口把 Goal Board 的创建与控制命令交给 [Trigger Browser Session Port](../src/browser-session-port.ts)。浏览器 Bearer 能力映射为认证 `externalId`；Supervisor 在持久化前校验 Trigger.source 与连接 Actor，并由 Supervisor 路由逻辑 Worker 目标消息，Worker 之间不建立直接连接。Supervisor 持有唯一 Goal Store 写入权、Trigger 收据和派发队列；准入成功后才保存 Goal 并排队，独立 Worker 进程推进获派 Goal。Worker 的检查点、进度、交互、取消和生命周期报告经 Trigger 与 Supervisor 协调。列表、会话状态及实时流都按 Goal 查询，不把单个活动 Goal 当作全局状态。
+默认 `lazygoal web` 入口把 Goal Board 的创建与控制命令交给 [Trigger Browser Session Port](../src/browser-session-port.ts)。浏览器 Bearer 能力映射为认证 `externalId`；Supervisor 在持久化前校验 Trigger.source 与连接 Actor。所有 Worker-target 消息先经 Supervisor；当前支持的取消、交互与权限决定由 WorkerScheduler 按 Goal 路由，Worker 之间没有直接连接。`collaboration.requested/result` 仅保留动作标签；payload 与处理行为未定义，Supervisor 不解释额外内容。Supervisor 持有唯一 Goal Store 写入权、Trigger 收据和派发队列；准入成功后才保存 Goal 并排队，独立 Worker 进程推进获派 Goal。Worker 的检查点、进度、交互、取消和生命周期报告经 Trigger 与 Supervisor 协调。列表、会话状态及实时流都按 Goal 查询，不把单个活动 Goal 当作全局状态。
 
 浏览器入口支持创建 Goal、结构化交互、停止运行和对明确待恢复记录的恢复。普通后续消息、Steer 与消息队列控制返回不支持；已有运行快照保留原样，不自动接回旧 Runtime 会话，也不因缺少 Worker 恢复记录而重新执行。恢复运行中检查点要求用户明确承认最后动作可能产生了未知外部效果。
 
