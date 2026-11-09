@@ -264,23 +264,6 @@ export class TriggerDeliveryStore {
         return rows.map(({ id }) => this.read(id)).filter((result): result is TriggerDeliveryResult => result !== undefined);
     }
 
-    /**
-     * 按接收顺序列出指定 Worker 代次的生命周期 Trigger。
-     *
-     * @param workerId - Worker 的稳定逻辑身份。
-     * @param generation - 待审计的 OS 进程代次。
-     * @returns 该进程代次的生命周期收据；没有事件时返回空数组。
-     * @throws 持久记录损坏或数据库读取失败时抛出。
-     */
-    listWorkerLifecycle(workerId: string, generation: string): readonly TriggerDeliveryResult[] {
-        if (!workerId.trim() || !generation.trim()) throw new Error("Worker identity is required");
-        const rows = this.database.prepare(`SELECT id FROM trigger_deliveries
-            WHERE json_extract(content, '$.trigger.type') = 'lifecycle'
-                AND json_extract(content, '$.trigger.source.workerId') = ?
-                AND json_extract(content, '$.trigger.source.generation') = ?
-            ORDER BY rowid`).all(workerId, generation) as { id: string }[];
-        return rows.map(({ id }) => this.read(id)).filter((result): result is TriggerDeliveryResult => result !== undefined);
-    }
 
     /**
      * 保存 Action 权限 Trigger 当前需要人工处理的失败关闭原因。
@@ -293,7 +276,8 @@ export class TriggerDeliveryStore {
     recordActionPermissionFailure(deliveryId: string, reason: TriggerActionPermissionFailureReason): void {
         const current = this.read(deliveryId);
         if (current?.status !== "pending" || current.delivery.trigger.type !== "permission" || current.delivery.trigger.payload.action !== "requested"
-            || current.delivery.trigger.source.role !== "worker" || !("goalId" in current.delivery.trigger)
+            || current.delivery.trigger.target !== "supervisor" || current.delivery.trigger.source.role !== "worker"
+            || !("goalId" in current.delivery.trigger)
             || current.delivery.trigger.source.workerId.trim() === "" || current.delivery.trigger.source.generation.trim() === "") {
             throw new Error("Action permission failure requires a pending permission delivery");
         }
@@ -324,8 +308,10 @@ export class TriggerDeliveryStore {
             const request = this.read(requestDeliveryId);
             const reply = this.read(replyDeliveryId);
             if (request === undefined || reply === undefined
-                || request.delivery.trigger.type !== "permission" || request.delivery.trigger.payload.action !== "requested" || request.delivery.trigger.source.role !== "worker"
+                || request.delivery.trigger.type !== "permission" || request.delivery.trigger.payload.action !== "requested"
+                || request.delivery.trigger.target !== "supervisor" || request.delivery.trigger.source.role !== "worker"
                 || reply.delivery.trigger.type !== "permission" || reply.delivery.trigger.payload.action !== "decided"
+                || reply.delivery.trigger.target !== "worker"
                 || (reply.delivery.trigger.source.role !== "external" && reply.delivery.trigger.source.role !== "supervisor")
                 || !("goalId" in request.delivery.trigger) || request.delivery.trigger.goalId !== reply.delivery.trigger.goalId) {
                 throw new Error("Action permission exchange identity is inconsistent");
@@ -381,8 +367,10 @@ export class TriggerDeliveryStore {
             const request = this.read(requestDeliveryId);
             const reply = this.read(interactionDeliveryId);
             if (request === undefined || reply === undefined
-                || request.delivery.trigger.type !== "permission" || request.delivery.trigger.payload.action !== "requested" || request.delivery.trigger.source.role !== "worker"
+                || request.delivery.trigger.type !== "permission" || request.delivery.trigger.payload.action !== "requested"
+                || request.delivery.trigger.target !== "supervisor" || request.delivery.trigger.source.role !== "worker"
                 || reply.delivery.trigger.type !== "interaction" || reply.delivery.trigger.payload.action !== "answered"
+                || reply.delivery.trigger.target !== "worker"
                 || (reply.delivery.trigger.source.role !== "external" && reply.delivery.trigger.source.role !== "supervisor")
                 || !("goalId" in request.delivery.trigger) || request.delivery.trigger.goalId !== reply.delivery.trigger.goalId
                 || request.delivery.trigger.source.workerId === undefined || request.delivery.trigger.source.generation === undefined) {
@@ -451,7 +439,8 @@ export class TriggerDeliveryStore {
         this.database.exec("BEGIN IMMEDIATE");
         try {
             const delivery = this.read(deliveryId);
-            if (delivery === undefined || delivery.status !== "pending" || !isWorkTrigger(delivery.delivery.trigger) || "goalId" in delivery.delivery.trigger) {
+            if (delivery === undefined || delivery.status !== "pending" || !isWorkTrigger(delivery.delivery.trigger)
+                || delivery.delivery.trigger.target !== "supervisor") {
                 throw new Error("Goal reservation requires a pending work delivery");
             }
             const current = this.database.prepare("SELECT goal_id FROM trigger_goal_reservations WHERE delivery_id = ?").get(deliveryId) as { goal_id: string } | undefined;
@@ -622,8 +611,8 @@ export class TriggerDeliveryStore {
      * 记录由当前 Supervisor 的子进程退出事件确证的未决 Worker Goal。
      *
      * @remarks
-     * 仅接受已结算的同代 Worker `worker_exited` 生命周期 Trigger 和仍绑定该 Worker
-     * 的活动 Goal。此记录保留原队列归属，不能通过 PID、超时或断连推断退出。
+     * 仅接受已结算的 Supervisor `lifecycle.exited` unexpected 观察及仍绑定该 Worker
+     * 的活动 Goal。Worker 身份来自内部队列绑定，不能由 Trigger payload 或 PID 推断。
      *
      * @param owner - 当前工作区的 Supervisor 所有权。
      * @param input - 已观察到退出的 Worker 与 Goal 身份。
@@ -644,10 +633,10 @@ export class TriggerDeliveryStore {
                 }
                 const lifecycle = this.read(input.lifecycleDeliveryId);
                 if (lifecycle?.status !== "settled" || lifecycle.result.kind !== "handled"
-                    || lifecycle.delivery.trigger.type !== "lifecycle" || lifecycle.delivery.trigger.source.role !== "worker"
-                    || lifecycle.delivery.trigger.source.workerId !== input.workerId || lifecycle.delivery.trigger.source.generation !== input.generation
+                    || lifecycle.delivery.trigger.type !== "lifecycle" || lifecycle.delivery.trigger.source.role !== "supervisor"
+                    || lifecycle.delivery.trigger.target !== "supervisor"
                     || lifecycle.delivery.trigger.payload.action !== "exited" || lifecycle.delivery.trigger.payload.outcome !== "unexpected") {
-                    throw new Error("Worker recovery requires a settled unexpected-exit Trigger from the same generation");
+                    throw new Error("Worker recovery requires a settled Supervisor unexpected-exit observation");
                 }
                 const existing = this.workerRecovery(input.goalId);
                 if (existing !== undefined) {

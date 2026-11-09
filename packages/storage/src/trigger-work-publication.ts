@@ -39,8 +39,8 @@ export async function publishAuthorizedWork(
     if (delivery === undefined) throw new Error("Invalid trigger delivery");
     return owner.runExclusive(JSON.stringify(["publication", delivery.deliveryId]), async () => {
         const receipt = receiveAuthorizedTrigger(deliveries, delivery, principal);
-        if (receipt.delivery.trigger.type !== "work") {
-            throw new Error("Goal creation requires a new-work delivery");
+        if (receipt.delivery.trigger.type !== "work" || receipt.delivery.trigger.target !== "supervisor") {
+            throw new Error("Goal creation requires a Supervisor-targeted work Trigger");
         }
         if (receipt.status === "settled") return receipt;
         const deliveryId = receipt.delivery.deliveryId;

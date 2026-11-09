@@ -30,8 +30,9 @@ export interface WorkerInteractionPayload {
  */
 export function decodeWorkerInteractionPayload(delivery: TriggerDeliveryFile): WorkerInteractionPayload {
     const trigger = delivery.trigger;
-    if (trigger.type !== "interaction" || trigger.payload.action !== "answered" || !("goalId" in trigger)
-        || trigger.source.role !== "external" && trigger.source.role !== "supervisor" || !trigger.replyTo.trim()) {
+    if (trigger.type !== "interaction" || trigger.payload.action !== "answered" || trigger.target !== "worker"
+        || !("goalId" in trigger) || trigger.source.role !== "external" && trigger.source.role !== "supervisor"
+        || !trigger.replyTo.trim()) {
         throw new Error("Invalid interaction Trigger");
     }
     const answer = trigger.payload.answer;

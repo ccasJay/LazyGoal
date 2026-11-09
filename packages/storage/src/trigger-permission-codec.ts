@@ -13,8 +13,8 @@ import type { TriggerActionPermissionReply, TriggerActionPermissionRequest } fro
  * ```
  */
 export function decodeTriggerActionPermissionRequest(trigger: Trigger): TriggerActionPermissionRequest {
-    if (trigger.type !== "permission" || trigger.payload.action !== "requested" || trigger.source.role !== "worker"
-        || !("goalId" in trigger) || !trigger.id.trim() || !trigger.payload.runId.trim() || !trigger.payload.actionId.trim()
+    if (trigger.type !== "permission" || trigger.payload.action !== "requested" || trigger.target !== "supervisor"
+        || trigger.source.role !== "worker" || !("goalId" in trigger) || !trigger.id.trim() || !trigger.payload.runId.trim() || !trigger.payload.actionId.trim()
         || !trigger.payload.interactionId.trim() || !Number.isSafeInteger(trigger.payload.commitRevision) || trigger.payload.commitRevision < 0) {
         throw new Error("Invalid Action permission request Trigger");
     }
@@ -47,8 +47,8 @@ export function decodeTriggerActionPermissionReply(
     requestDeliveryId: string,
 ): TriggerActionPermissionReply {
     const requestPayload = decodeTriggerActionPermissionRequest(request);
-    if (trigger.type !== "permission" || trigger.payload.action !== "decided" || trigger.source.role !== "external" && trigger.source.role !== "supervisor"
-        || !("goalId" in trigger) || !("replyTo" in trigger) || !("goalId" in request) || trigger.goalId !== request.goalId
+    if (trigger.type !== "permission" || trigger.payload.action !== "decided" || trigger.target !== "worker"
+        || trigger.source.role !== "external" && trigger.source.role !== "supervisor" || !("goalId" in trigger) || !("replyTo" in trigger) || !("goalId" in request) || trigger.goalId !== request.goalId
         || trigger.replyTo !== request.id || !requestDeliveryId.trim() || !trigger.id.trim()) {
         throw new Error("Invalid Action permission reply Trigger");
     }

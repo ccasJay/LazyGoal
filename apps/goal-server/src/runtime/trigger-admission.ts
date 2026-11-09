@@ -66,6 +66,7 @@ export async function admitTrigger(
         if (receipt.status === "settled") return { kind: "settled", receipt };
         const delivery = receipt.delivery;
         if (delivery.trigger.type !== "work") return { kind: "routed" };
+        if (delivery.trigger.target !== "supervisor") throw new Error("Work Trigger must target the Supervisor");
         let intent: string | undefined;
         let workspaceMode: "shared" | "worktree" = "shared";
         const material = delivery.trigger.payload.material.text;

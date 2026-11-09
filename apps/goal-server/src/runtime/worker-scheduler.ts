@@ -224,13 +224,13 @@ export class WorkerScheduler {
      * @throws 载荷、授权或持久存储错误时抛出；未结算的取消投递仍可重试。
      * @example
      * ```ts
-     * const progress = await scheduler.handleCancelTrigger(delivery, authenticatedUser);
+     * const progress = await scheduler.handleCancelTrigger(delivery, authenticatedExternalActor);
      * ```
      */
     async handleCancelTrigger(input: unknown, principal: TriggerIngressPrincipal): Promise<WorkerProgress> {
         const delivery = readTriggerDeliveryFile(input);
         if (delivery === undefined || delivery.trigger.type !== "instruction" || delivery.trigger.payload.action !== "cancel"
-            || !("goalId" in delivery.trigger)) {
+            || delivery.trigger.target !== "worker" || !("goalId" in delivery.trigger)) {
             throw new Error("Cancellation requires a Goal-bound cancel Trigger");
         }
         const goalId = delivery.trigger.goalId;
@@ -299,16 +299,16 @@ export class WorkerScheduler {
      * @throws 来源、请求、Goal、Action、Run 或 generation 不匹配及 Worker/存储失败时抛出。
      * @example
      * ```ts
-     * const result = await scheduler.handleActionPermissionReply(delivery, authenticatedUser);
+     * const result = await scheduler.handleActionPermissionReply(delivery, authenticatedExternalActor);
      * ```
      */
     async handleActionPermissionReply(input: unknown, principal: TriggerIngressPrincipal): Promise<WorkerPermissionReplyResult> {
         const delivery = readTriggerDeliveryFile(input);
         if (delivery === undefined || delivery.trigger.type !== "permission" || delivery.trigger.payload.action !== "decided"
-            || !("goalId" in delivery.trigger) || !("replyTo" in delivery.trigger)
-            || (principal.role !== "user" && principal.role !== "supervisor")
+            || delivery.trigger.target !== "worker" || !("goalId" in delivery.trigger) || !("replyTo" in delivery.trigger)
+            || (principal.role !== "user" && principal.role !== "external" && principal.role !== "supervisor")
             || !triggerActorMatchesPrincipal(delivery.trigger.source, principal.role)) {
-            throw new Error("Action permission reply requires an authorized Goal-bound user or Supervisor Trigger");
+            throw new Error("Action permission reply requires an authorized Goal-bound external or Supervisor Trigger");
         }
         const replyTrigger = delivery.trigger;
         const requestReceipt = this.options.deliveries.listGoalDeliveries(replyTrigger.goalId)
@@ -337,15 +337,15 @@ export class WorkerScheduler {
      * @throws 来源、Goal、等待、Run、修订或 Worker 代次不匹配及 IPC/存储故障时抛出。
      * @example
      * ```ts
-     * const result = await scheduler.handleInteractionTrigger(delivery, authenticatedUser);
+     * const result = await scheduler.handleInteractionTrigger(delivery, authenticatedExternalActor);
      * ```
      */
     async handleInteractionTrigger(input: unknown, principal: TriggerIngressPrincipal): Promise<WorkerInteractionResult> {
         const delivery = readTriggerDeliveryFile(input);
         if (delivery === undefined || delivery.trigger.type !== "interaction" || delivery.trigger.payload.action !== "answered"
-            || !("goalId" in delivery.trigger) || (principal.role !== "user" && principal.role !== "supervisor")
+            || delivery.trigger.target !== "worker" || !("goalId" in delivery.trigger) || (principal.role !== "user" && principal.role !== "external" && principal.role !== "supervisor")
             || !triggerActorMatchesPrincipal(delivery.trigger.source, principal.role)) {
-            throw new Error("Goal interaction requires an authorized user or Supervisor Trigger");
+            throw new Error("Goal interaction requires an authorized external or Supervisor Trigger");
         }
         const goalId = delivery.trigger.goalId;
         return this.options.owner.runExclusive(JSON.stringify(["interaction-trigger", goalId, delivery.deliveryId]), async () => {
@@ -409,8 +409,8 @@ export class WorkerScheduler {
     async handleWorkerRecoveryTrigger(input: unknown, principal: TriggerIngressPrincipal): Promise<WorkerRecoveryResult> {
         const delivery = readTriggerDeliveryFile(input);
         if (delivery === undefined || delivery.trigger.type !== "instruction" || delivery.trigger.payload.action !== "resume"
-            || !("goalId" in delivery.trigger) || !("replyTo" in delivery.trigger)
-            || (principal.role !== "user" && principal.role !== "supervisor")
+            || delivery.trigger.target !== "supervisor" || !("goalId" in delivery.trigger) || !("replyTo" in delivery.trigger)
+            || (principal.role !== "user" && principal.role !== "external" && principal.role !== "supervisor")
             || !triggerActorMatchesPrincipal(delivery.trigger.source, principal.role)) {
             throw new Error("Worker recovery requires an authorized Goal-bound resume Trigger");
         }
@@ -571,7 +571,7 @@ export class WorkerScheduler {
                     id: `worker-lifecycle-${digest}`,
                     name: "Worker exited",
                     type: "lifecycle",
-                    source: { role: "worker", workerId, generation },
+                    source: { role: "supervisor" },
                     target: "supervisor",
                     payload: { action: "exited", outcome: event.normal ? "normal" : "unexpected" },
                     sentAt,
@@ -580,13 +580,13 @@ export class WorkerScheduler {
                     id: `worker-lifecycle-${digest}`,
                     name: "Worker started",
                     type: "lifecycle",
-                    source: { role: "worker", workerId, generation },
+                    source: { role: "supervisor" },
                     target: "supervisor",
                     payload: { action: "started" },
                     sentAt,
                 };
             const receipt = receiveAuthorizedTrigger(this.options.deliveries, { deliveryId, trigger },
-                { role: "worker", workerId, generation, mayCreateGoal: false });
+                { role: "supervisor", mayCreateGoal: false, goalIds: [] });
             if (receipt.status === "pending") this.options.deliveries.settle(receipt.delivery.deliveryId, { kind: "handled" });
             return receipt.delivery.deliveryId;
         });
@@ -764,11 +764,10 @@ export class WorkerScheduler {
         if (existingReply !== undefined) {
             const replyTrigger = existingReply.delivery.trigger;
             const reply = decodeTriggerActionPermissionReply(replyTrigger, requestTrigger, requestReceipt.delivery.deliveryId);
-            const route = await this.dispatchPermissionReply(existingReply.delivery, {
-                role: replyTrigger.source.role === "external" ? "user" : "supervisor",
-                mayCreateGoal: false,
-                goalIds: [goalId],
-            }, reply);
+            const replyPrincipal: TriggerIngressPrincipal = replyTrigger.source.role === "external"
+                ? { role: "external", externalId: replyTrigger.source.externalId, mayCreateGoal: false, goalIds: [goalId] }
+                : { role: "supervisor", mayCreateGoal: false, goalIds: [goalId] };
+            const route = await this.dispatchPermissionReply(existingReply.delivery, replyPrincipal, reply);
             return route.kind === "settled" ? undefined : {
                 progress: route.progress,
                 exchange: { requestDeliveryId: requestReceipt.delivery.deliveryId, replyDeliveryId: existingReply.delivery.deliveryId },
@@ -871,7 +870,7 @@ export class WorkerScheduler {
     > {
         const trigger = delivery.trigger;
         const goalId = "goalId" in trigger ? trigger.goalId : undefined;
-        if (goalId === undefined || (principal.role !== "user" && principal.role !== "supervisor")
+        if (goalId === undefined || (principal.role !== "user" && principal.role !== "external" && principal.role !== "supervisor")
             || !principal.goalIds.includes(goalId) || !triggerActorMatchesPrincipal(trigger.source, principal.role)) {
             throw new Error("Permission reply source or Goal authorization is invalid");
         }

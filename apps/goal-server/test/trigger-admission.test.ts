@@ -22,8 +22,8 @@ function factory(intent: string, reserved: string | undefined, workspaceMode: "s
             : { mode: "worktree", projectRoot: "/workspace", executionRoot: "/workspace/.worktrees/goal", branch: "lazygoal/goal-test", baseBranch: "main", baseCommit: "a".repeat(40) },
         toolIds: [], sandbox: { extraFiles: [], network: "none" as const } } });
 }
-const user = { role: "user", mayCreateGoal: true, goalIds: [] } as const;
-const external = { role: "external", mayCreateGoal: true, goalIds: [] } as const;
+const user = { role: "user", externalId: "test-actor", mayCreateGoal: true, goalIds: [] } as const;
+const external = { role: "external", externalId: "test-actor", mayCreateGoal: true, goalIds: [] } as const;
 
 test("fast path accepts explicit user work and routes control without creating a Goal", async () => {
     const dir = await mkdtemp(join(tmpdir(), "trigger-admission-"));
@@ -88,7 +88,7 @@ test("model failures and malformed decisions remain pending across restart and c
         const path = join(dir, "db");
         let deliveries = new TriggerDeliveryStore(path);
         const goals = new JsonFileGoalStore(dir);
-        const event = { deliveryId: "d", trigger: workTrigger("t", "recover", { role: "external", externalId: "external-test" }) };
+        const event = { deliveryId: "d", trigger: workTrigger("t", "recover", { role: "external", externalId: "test-actor" }) };
         const fail = mockAdapter(async () => { throw new Error("private provider detail"); });
         assert.deepEqual(await admitTrigger(owner, deliveries, goals, fail, event, external, factory), { kind: "pending", reason: "model-failed" });
         deliveries.close();

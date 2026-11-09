@@ -377,6 +377,7 @@ export async function runServerSession(
             control: { signal: root.abortController.signal },
         });
         const browserSessionPort = createTriggerBrowserSessionPort({
+            externalId: access.externalId,
             root,
             owner: triggerOwner,
             deliveries: triggerDeliveries,

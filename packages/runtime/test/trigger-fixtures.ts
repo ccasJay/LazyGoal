@@ -47,12 +47,12 @@ export function interactionAnswerTrigger(id: string, goalId: string, replyTo: st
         payload: { action: "answered", answer }, sentAt };
 }
 
-export function lifecycleStartedTrigger(id: string, workerId: string, generation: string): Trigger {
-    return { id, name: "Worker started", type: "lifecycle", source: { role: "worker", workerId, generation },
+export function lifecycleStartedTrigger(id: string): Trigger {
+    return { id, name: "Worker started", type: "lifecycle", source: supervisorTestActor,
         target: "supervisor", payload: { action: "started" }, sentAt };
 }
 
-export function lifecycleExitedTrigger(id: string, workerId: string, generation: string, outcome: "normal" | "unexpected"): Trigger {
-    return { id, name: "Worker exited", type: "lifecycle", source: { role: "worker", workerId, generation },
+export function lifecycleExitedTrigger(id: string, outcome: "normal" | "unexpected"): Trigger {
+    return { id, name: "Worker exited", type: "lifecycle", source: supervisorTestActor,
         target: "supervisor", payload: { action: "exited", outcome }, sentAt };
 }

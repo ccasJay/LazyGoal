@@ -39,8 +39,6 @@ import { JsonFileGoalStore } from "../../../packages/storage/src/goal-store";
 import { TriggerDeliveryStore, type TriggerDeliveryResult } from "../../../packages/storage/src/trigger-delivery-store";
 import { SupervisorOwnership } from "../../../packages/storage/src/supervisor-ownership";
 
-const USER_PRINCIPAL = { role: "user", mayCreateGoal: true, goalIds: [] } as const;
-const USER_ACTOR = { role: "external", externalId: "goal-board" } as const;
 const EVENT_POLL_INTERVAL_MS = 250;
 
 /**
@@ -49,15 +47,17 @@ const EVENT_POLL_INTERVAL_MS = 250;
  * @remarks 新 Goal 的创建、取消、结构化回答及已确认 Worker 退出后的恢复均以
  * Trigger 持久化；普通消息、Steer、续聊与队列控制明确返回不支持。读取从 Supervisor
  * 持有的 Goal 快照与已提交消息构造，事件流跨进程轮询提交修订并在重连后重新同步。
- * @param dependencies - 当前宿主的模型选择器、Goal Store、Trigger Store、所有权与调度器。
+ * @param dependencies - 当前宿主的认证外部 Actor ID、模型选择器、Goal Store、Trigger Store、所有权与调度器。
  * @returns 可交给浏览器路由的 Trigger 驱动端口。
  * @example
  * ```ts
- * const session = createTriggerBrowserSessionPort({ root, owner, deliveries, scheduler, goals, resolveModelSelection });
+ * const session = createTriggerBrowserSessionPort({ externalId: access.externalId, root, owner, deliveries, scheduler, goals, resolveModelSelection });
  * ```
  */
 export function createTriggerBrowserSessionPort(dependencies: TriggerBrowserSessionPortDependencies): BrowserGoalSessionPort {
     const { root, owner, deliveries, scheduler, goals } = dependencies;
+    const browserActor = { role: "external" as const, externalId: dependencies.externalId };
+    const browserPrincipal = { role: "user" as const, externalId: dependencies.externalId, mayCreateGoal: true, goalIds: [] as readonly string[] };
     const isShuttingDown = (): boolean => root.abortController.signal.aborted;
     const executionOwner = (goalId: string): boolean => scheduler.assignments().some((assignment) => assignment.goalId === goalId);
     const executionState = (goalId: string): BrowserExecutionState => {
@@ -156,14 +156,14 @@ export function createTriggerBrowserSessionPort(dependencies: TriggerBrowserSess
                 id: input.inputId,
                 name: "Cancel Goal run",
                 type: "instruction",
-                source: USER_ACTOR,
+                source: browserActor,
                 target: "worker",
                 goalId,
                 payload: { action: "cancel", runId: input.runId },
                 sentAt: deliverySentAt(deliveries, input.inputId),
             };
             const delivery = { deliveryId: input.inputId, trigger };
-            const principal = { ...USER_PRINCIPAL, goalIds: [goalId] } as const;
+            const principal = { ...browserPrincipal, goalIds: [goalId] } as const;
             const queued = deliveries.read(input.inputId);
             try {
                 await scheduler.handleCancelTrigger(delivery, principal);
@@ -198,7 +198,7 @@ export function createTriggerBrowserSessionPort(dependencies: TriggerBrowserSess
                 id: input.inputId,
                 name: "Answer Goal interaction",
                 type: "interaction",
-                source: USER_ACTOR,
+                source: browserActor,
                 target: "worker",
                 goalId,
                 replyTo,
@@ -208,7 +208,7 @@ export function createTriggerBrowserSessionPort(dependencies: TriggerBrowserSess
             const delivery = { deliveryId: input.inputId, trigger };
             const prior = deliveries.read(input.inputId);
             try {
-                await scheduler.handleInteractionTrigger(delivery, { ...USER_PRINCIPAL, goalIds: [goalId] });
+                await scheduler.handleInteractionTrigger(delivery, { ...browserPrincipal, goalIds: [goalId] });
             } catch {
                 return { ok: false, error: isShuttingDown() ? "session_unavailable" : "INTERACTION_MISMATCH" };
             }
@@ -234,7 +234,7 @@ export function createTriggerBrowserSessionPort(dependencies: TriggerBrowserSess
                 id: input.inputId,
                 name: "Resume Goal checkpoint",
                 type: "instruction",
-                source: USER_ACTOR,
+                source: browserActor,
                 target: "supervisor",
                 goalId,
                 replyTo: lifecycle.delivery.trigger.id,
@@ -244,7 +244,7 @@ export function createTriggerBrowserSessionPort(dependencies: TriggerBrowserSess
             const delivery = { deliveryId: input.inputId, trigger };
             const prior = deliveries.read(input.inputId);
             try {
-                await scheduler.handleWorkerRecoveryTrigger(delivery, { ...USER_PRINCIPAL, goalIds: [goalId] });
+                await scheduler.handleWorkerRecoveryTrigger(delivery, { ...browserPrincipal, goalIds: [goalId] });
                 await scheduler.pump();
             } catch {
                 return { ok: false, error: isShuttingDown() ? "session_unavailable" : "RUN_CONTROL_UNAVAILABLE" };
@@ -268,7 +268,7 @@ export function createTriggerBrowserSessionPort(dependencies: TriggerBrowserSess
                 id: command.inputId,
                 name: "Submit work",
                 type: "work",
-                source: USER_ACTOR,
+                source: browserActor,
                 target: "supervisor",
                 payload: { action: "submitted", material: { kind: "text", text: command.intent } },
                 sentAt: deliverySentAt(deliveries, command.inputId),
@@ -277,7 +277,7 @@ export function createTriggerBrowserSessionPort(dependencies: TriggerBrowserSess
             const prior = deliveries.read(command.inputId);
             let admission;
             try {
-                admission = await admitTrigger(owner, deliveries, goals, root.adapter, delivery, USER_PRINCIPAL, async (intent, reservedGoalId, workspaceMode) => {
+                admission = await admitTrigger(owner, deliveries, goals, root.adapter, delivery, browserPrincipal, async (intent, reservedGoalId, workspaceMode) => {
                     const id = reservedGoalId ?? command.goalId;
                     const workspace = await allocateGoalWorkspace(root.workspaceRoot, root.dataDirectory, id, workspaceMode);
                     const goal = createGoal({
@@ -383,6 +383,7 @@ function requiredDeliverySequence(deliveries: TriggerDeliveryStore, deliveryId: 
 }
 
 interface TriggerBrowserSessionPortDependencies {
+    readonly externalId: string;
     readonly root: RuntimeComposition;
     readonly owner: SupervisorOwnership;
     readonly deliveries: TriggerDeliveryStore;

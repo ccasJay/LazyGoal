@@ -17,7 +17,7 @@ test("authorized work is persisted and duplicate deliveries return the original 
         const owner = new SupervisorOwnership(join(dir, "owner.db"));
         const receipts = new TriggerDeliveryStore(join(dir, "receipts.db"));
         const goals = new JsonFileGoalStore(dir);
-        const principal = { role: "user", mayCreateGoal: true, goalIds: [] } as const;
+        const principal = { role: "user", externalId: "test-actor", mayCreateGoal: true, goalIds: [] } as const;
         const trigger = workTrigger("t");
         const goal = createGoal({ ...currentProtocols, id: "g", runId: "r", intent: "work", promptBundleVersion: 1,
             profile: { id: "profile", systemPrompt: "", instructions: [], toolIds: [] } });
@@ -44,7 +44,7 @@ test("a retry reuses the Goal ID reserved before interruption", async () => {
         const owner = new SupervisorOwnership(join(dir, "owner.db"));
         const receipts = new TriggerDeliveryStore(join(dir, "receipts.db"));
         const goals = new JsonFileGoalStore(dir);
-        const principal = { role: "user", mayCreateGoal: true, goalIds: [] } as const;
+        const principal = { role: "user", externalId: "test-actor", mayCreateGoal: true, goalIds: [] } as const;
         const delivery = { deliveryId: "d", trigger: workTrigger("t") };
         receipts.receive(delivery);
         receipts.reserveGoal("d", "reserved-g");

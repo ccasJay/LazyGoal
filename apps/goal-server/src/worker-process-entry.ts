@@ -317,8 +317,8 @@ async function executePermissionResponse(message: Extract<ParentMessage, { reado
     const goalId = "goalId" in trigger ? trigger.goalId : "";
     let progress: WorkerProgress;
     try {
-        if (trigger.type !== "permission" || trigger.payload.action !== "decided" || goalId !== assignedGoalId
-            || (trigger.source.role !== "external" && trigger.source.role !== "supervisor")) {
+        if (trigger.type !== "permission" || trigger.payload.action !== "decided" || trigger.target !== "worker"
+            || goalId !== assignedGoalId || (trigger.source.role !== "external" && trigger.source.role !== "supervisor")) {
             throw new Error("Permission Trigger target is invalid");
         }
         const currentRuntime = await ensureRuntime();
@@ -355,7 +355,7 @@ async function executeInteractionResponse(message: Extract<ParentMessage, { read
     let progress: WorkerProgress;
     try {
         const payload = decodeWorkerInteractionPayload(delivery);
-        if (trigger.type !== "interaction" || trigger.payload.action !== "answered" || assignedGoalId !== goalId) {
+        if (trigger.type !== "interaction" || trigger.payload.action !== "answered" || trigger.target !== "worker" || assignedGoalId !== goalId) {
             throw new Error("Interaction Trigger belongs to another Goal");
         }
         const currentRuntime = await ensureRuntime();

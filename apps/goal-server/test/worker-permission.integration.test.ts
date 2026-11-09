@@ -117,7 +117,7 @@ test("Worker 的一次性 Action 权限经 Trigger 由 Supervisor 决定并在�
         },
     };
     const scheduler = new WorkerScheduler({ owner, deliveries, goals, cwd: workspace, dataDirectory, env, permissionAdapter });
-    const principal = { role: "user", mayCreateGoal: true, goalIds: [] } as const;
+    const principal = { role: "user", externalId: "test-actor", mayCreateGoal: true, goalIds: [] } as const;
     try {
         const admitGoal = async (suffix: string, intent: string): Promise<string> => {
             const event = { deliveryId: `worker-permission-work-${suffix}`, trigger: workTrigger(`worker-permission-event-${suffix}`, intent) };
@@ -169,7 +169,7 @@ test("Worker 的一次性 Action 权限经 Trigger 由 Supervisor 决定并在�
         assert.equal(reviewerCalls, 2);
 
         const queue = deliveries.queueRecord(manualGoalId)!;
-        const manualPrincipal = { role: "user", mayCreateGoal: false, goalIds: [manualGoalId] } as const;
+        const manualPrincipal = { role: "user", externalId: "test-actor", mayCreateGoal: false, goalIds: [manualGoalId] } as const;
         const staleReply = {
             deliveryId: "old-worker-permission-reply",
             trigger: permissionDecisionTrigger("old-worker-permission-event", manualGoalId, "retired-request", "approve", undefined, externalTestActor),

@@ -1,4 +1,4 @@
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { extname, isAbsolute, relative, resolve } from "node:path";
 import { Hono, type Context } from "hono";
@@ -20,16 +20,20 @@ const PUBLIC_ASSET_PATHS = new Set(["/", "/favicon.ico"]);
  * @remarks
  * 能力令牌只在此进程内存中保存，并通过启动 URL 的 fragment 交给页面；
  * fragment 不会随 HTTP 请求发送。页面资源可公开读取，但其他路由必须通过
- * 同源检查和 Bearer 校验。绑定真实监听 Origin 后才能创建入口 URL。
+ * 同源检查和 Bearer 校验。`externalId` 是由同一能力令牌派生的非秘密 Actor 身份；
+ * 它用于服务端 Trigger 来源核对，不会替代 Bearer 校验。绑定真实监听 Origin 后才能创建入口 URL。
  *
  * @example
  * ```ts
  * const access = createBrowserSessionAccess();
  * access.bindOrigin("http://127.0.0.1:43127");
  * const launchUrl = access.createLaunchUrl("http://127.0.0.1:43127");
+ * const externalId = access.externalId;
  * ```
  */
 export interface BrowserSessionAccess {
+    /** 本能力认证成功后代表浏览器参与者的稳定、不含凭据 Actor ID。 */
+    readonly externalId: string;
     /** 在所有 HTTP 路由前执行的访问控制与安全响应头中间件。 */
     readonly middleware: HttpServiceMiddleware;
     /**
@@ -52,7 +56,7 @@ export interface BrowserSessionAccess {
 /**
  * 创建仅供本机浏览器会话使用的临时访问能力。
  *
- * @returns 页面资源中间件、Origin 绑定和授权入口 URL 工厂。
+ * @returns 页面资源中间件、认证 Actor ID、Origin 绑定和授权入口 URL 工厂。
  * @example
  * ```ts
  * const access = createBrowserSessionAccess();
@@ -60,6 +64,7 @@ export interface BrowserSessionAccess {
  */
 export function createBrowserSessionAccess(): BrowserSessionAccess {
     const token = randomBytes(32).toString("base64url");
+    const externalId = createHash("sha256").update(token).digest("hex");
     let boundOrigin: string | undefined;
 
     const middleware: HttpServiceMiddleware = async (context, next) => {
@@ -106,6 +111,7 @@ export function createBrowserSessionAccess(): BrowserSessionAccess {
     };
 
     return {
+        externalId,
         middleware,
         bindOrigin(origin) {
             const parsed = new URL(origin);

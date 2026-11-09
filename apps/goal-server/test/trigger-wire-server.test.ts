@@ -48,9 +48,21 @@ test("process ingress authenticates generation, target and revocation", async ()
         assert.deepEqual(store.pendingIds(), []);
         assert.equal((await send(trigger)).ok, true);
         assert.equal((await send(trigger)).ok, true);
+        const workerToWorker = {
+            id: "worker-relay",
+            name: "Worker relay",
+            type: "collaboration" as const,
+            source: { role: "worker" as const, workerId: "worker", generation: "generation-2" },
+            target: "worker" as const,
+            goalId: "g",
+            payload: { action: "requested" as const },
+            sentAt: trigger.sentAt,
+        };
+        assert.equal((await send(workerToWorker)).ok, true);
+        assert.equal(store.read(workerToWorker.id)?.delivery.trigger.target, "worker");
         credentials.revoke(secret);
         assert.equal((await send(trigger)).ok, false);
-        assert.deepEqual(store.pendingIds(), ["t"]);
+        assert.deepEqual(store.pendingIds(), ["t", "worker-relay"]);
     } finally {
         if (server?.listening) await new Promise<void>((resolve, reject) => server!.close((error) => error ? reject(error) : resolve()));
         await owner?.close();
@@ -69,7 +81,7 @@ test("real process work Trigger is created, queued and claimed only once", async
         owner = new SupervisorOwnership(join(dir, "owner.db"));
         store = new TriggerDeliveryStore(join(dir, "receipts.db"));
         const goals = new JsonFileGoalStore(dir);
-        const principal = { role: "user", mayCreateGoal: true, goalIds: [] } as const;
+        const principal = { role: "user", externalId: "test-actor", mayCreateGoal: true, goalIds: [] } as const;
         const credentials = new TriggerCredentials();
         const secret = credentials.issue(principal);
         server = await startTriggerWireServer(owner, store, credentials);
