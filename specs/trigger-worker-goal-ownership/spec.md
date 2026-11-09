@@ -62,7 +62,7 @@ superseded_by: null
 
 ## 任务
 
-- [ ] //TODO 1. 建立严格类型化的 Trigger 消息与 payload 边界，并接入生成绑定 → R1.1；检查：运行契约生成漂移检查与 Trigger payload 定向测试。
+- [x] //TODO 1. 建立严格类型化的 Trigger 消息与 payload 边界，并接入生成绑定 → R1.1；检查：运行契约生成漂移检查与 Trigger payload 定向测试。
 - [ ] //TODO 2. 接入 Actor 身份认证、Supervisor 路由和 Worker 间中转 → R1.2；检查：运行认证与路由定向测试。
 - [ ] //TODO 3. 让持久队列直接保存 Trigger，并实现唯一 ID 冲突拒绝和重启续路由 → R1.3、R1.4；检查：运行存储、重复 ID 与 Supervisor 重启测试。
 - [ ] //TODO 4. 将 work Trigger 的 Goal 构造放入 Worker Runtime，并在持久提交后回复 `goal_created` → R2.1；检查：运行跨进程 Goal 创建测试。

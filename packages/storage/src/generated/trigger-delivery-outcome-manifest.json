@@ -4,7 +4,7 @@
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
     "path": "packages/storage/src/trigger-delivery-file.ts#TriggerDeliveryOutcome",
-    "sha256": "d5a389900412c35bea42acc4dd6fa4f2011dd3310cd66e45cf61cfc715b5dc5a"
+    "sha256": "a63f8f41d20e5c7f77380a32885e456d40168753a0c17a1fd71c47b554943329"
   },
   "generator": {
     "name": "ts-json-schema-generator",

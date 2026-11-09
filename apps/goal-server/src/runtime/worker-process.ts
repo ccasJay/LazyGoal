@@ -439,8 +439,8 @@ export class SupervisorWorkerProcess {
     /**
      * 将已认证并持久化的权限回复交给当前 Worker Runtime。
      *
-     * @remarks Worker 再按当前 Goal、Run、Action 与 Snapshot 修订核对回复；只有 Runtime
-     * 结算结果返回后，Supervisor 才能结算对应权限 Trigger。
+     * @remarks Supervisor 已按关联请求核对 Goal、Run、Action 与 Snapshot 修订；Worker
+     * 再按当前 Goal、Run 和待审批 Action 核验决定。只有 Runtime 结算结果返回后，Supervisor 才能结算权限 Trigger。
      * @param delivery - 已通过 Supervisor 认证的权限回复投递。
      * @returns Runtime 恢复后的等待、终态或稳定拒绝。
      * @throws Worker 已断开、目标不匹配或 IPC 失败时拒绝，持久投递保持待处理。
@@ -450,8 +450,9 @@ export class SupervisorWorkerProcess {
      * ```
      */
     async respondActionPermission(delivery: TriggerDeliveryFile): Promise<WorkerProgress> {
-        const goalId = delivery.goalId;
-        if (goalId === undefined || this.closed || this.busy || this.cancelling || this.goalId !== goalId) {
+        const goalId = "goalId" in delivery.trigger ? delivery.trigger.goalId : undefined;
+        if (delivery.trigger.type !== "permission" || delivery.trigger.payload.action !== "decided"
+            || goalId === undefined || this.closed || this.busy || this.cancelling || this.goalId !== goalId) {
             throw new Error("Worker does not own the permission target");
         }
         this.busy = true;
@@ -474,8 +475,8 @@ export class SupervisorWorkerProcess {
     /**
      * 将已认证并持久化的结构化交互 Trigger 交给当前 Worker Runtime。
      *
-     * @remarks Worker 按当前 Goal、Run、等待身份及提交修订重新核验回应；只有恢复进度
-     * 经 Supervisor 持久化后，交互投递才会结算。
+     * @remarks Worker 按当前 Goal、Run 和等待核验回应；若 `GoalUserAction` 携带请求或 Action 身份，
+     * Worker 会与当前等待核对。只有恢复进度经 Supervisor 持久化后，交互投递才会结算。
      * @param delivery - 已通过 Supervisor 认证的 Goal 交互投递。
      * @returns Runtime 恢复后的等待、终态或稳定拒绝。
      * @throws Worker 已断开、目标不匹配或 IPC 失败时拒绝，持久投递保持待处理。
@@ -485,8 +486,9 @@ export class SupervisorWorkerProcess {
      * ```
      */
     async respondInteraction(delivery: TriggerDeliveryFile): Promise<WorkerProgress> {
-        const goalId = delivery.goalId;
-        if (goalId === undefined || this.closed || this.busy || this.cancelling || this.goalId !== goalId) {
+        const goalId = "goalId" in delivery.trigger ? delivery.trigger.goalId : undefined;
+        if (delivery.trigger.type !== "interaction" || delivery.trigger.payload.action !== "answered"
+            || goalId === undefined || this.closed || this.busy || this.cancelling || this.goalId !== goalId) {
             throw new Error("Worker does not own the interaction target");
         }
         this.busy = true;

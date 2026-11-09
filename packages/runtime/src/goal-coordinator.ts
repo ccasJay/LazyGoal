@@ -14,6 +14,8 @@ import type {
     AskUserQuestion,
 } from "./domain";
 import { createRun } from "./domain";
+import type { GoalUserAction } from "./trigger";
+export type { GoalUserAction } from "./trigger";
 import type { GoalStore } from "./goal-store";
 import type {
     ExecutionStreamEventDraft,
@@ -195,96 +197,6 @@ export interface ContinuationQueueBinding {
     readonly queueRevision: number;
 }
 
-/**
- * 用户对 Goal 当前交互等待点提交的操作。
- *
- * @remarks
- * 统一执行生命周期支持以下用户操作：
- * - `message`: 向普通 wait/blocked 等待追加用户消息；
- * - `approve_task`: 携带当前提案的 `requestId` 批准任务并推进执行；
- * - `feedback_task`: 携带当前提案的 `requestId` 提供反馈，使旧提案失效并重新规划；
- * - `answer_ask_user`: 回答 Agent 发起的 `ask_user` 结构化问卷；
- * - `reply_to_question`: 以非空整体回复替代整份问卷，原文作为真实用户消息继续当前 Run；
- * - `skip_question`: 提交“未回答并要求继续”的控制语义并继续当前 Run，不等同于取消 Run；
- * - `approve_action`: 批准首次待审批的工具调用（附带一次性授权）；
- * - `approve_action_revision`: 批准同一工具的修订参数版本，提交绑定审阅引用的最终参数；
- * - `reject_action`: 拒绝首次待审批的工具调用并记录原因；
- * - `retry_unknown_action`/`decline_unknown_action_retry`: 明确允许或拒绝结果未知的操作按获批版本再次执行；
- * 兼容分支 `approve` 与 `approve_task` 行为一致，且同样必须携带当前提案的 `requestId`。
- *
- * @example
- * ```ts
- * const action: GoalUserAction = {
- *   kind: "approve_task",
- *   requestId: "proposal-1",
- * };
- * ```
- */
-export type GoalUserAction =
-    | { readonly kind: "message"; readonly content: string; readonly inputId?: string | undefined }
-    | { readonly kind: "approve_task"; readonly requestId: string }
-    | { readonly kind: "feedback_task"; readonly requestId: string; readonly feedback: string }
-    | {
-        readonly kind: "answer_ask_user";
-        readonly requestId: string;
-        readonly answers: readonly AskUserAnswer[];
-    }
-    | { readonly kind: "reply_to_question"; readonly requestId: string; readonly content: string }
-    | { readonly kind: "skip_question"; readonly requestId: string }
-    | {
-        readonly kind: "approve_action";
-        readonly actionId: string;
-        readonly scope?: "action" | ToolGrantScope;
-        /**
-         * 批准决定的稳定身份。
-         *
-         * @remarks 会话入口使用会话输入身份；省略时由 Coordinator 按批准内容派生，
-         * 保证同一决定重试复用同一条暂存授权。
-         */
-        readonly approvalInputId?: string;
-    }
-    | {
-        /**
-         * 批准同一工具的修订参数版本。
-         *
-         * @remarks 提交绑定审阅引用的最终参数与期限；提交阶段会重新计算并比对，
-         * 与审阅内容不一致时明确拒绝并要求重新审阅。
-         */
-        readonly kind: "approve_action_revision";
-        readonly actionId: string;
-        readonly input: JsonValue;
-        readonly scope?: "action" | ToolGrantScope;
-        readonly reviewRef: string;
-        /** 批准决定的稳定身份；省略时由 Coordinator 按批准内容派生。 */
-        readonly approvalInputId?: string;
-    }
-    | {
-        /**
-         * 明确允许结果未知的操作按获批版本再次执行。
-         *
-         * @remarks 绑定本次未知结果等待身份；不携带新参数或持续授权期限。
-         */
-        readonly kind: "retry_unknown_action";
-        readonly actionId: string;
-        readonly recoveryRef: string;
-    }
-    | {
-        /**
-         * 拒绝结果未知的操作再次执行。
-         *
-         * @remarks 保留此前效果未知的事实，不把原操作记作未执行、已回滚或成功。
-         */
-        readonly kind: "decline_unknown_action_retry";
-        readonly actionId: string;
-        readonly recoveryRef: string;
-        readonly reason: string;
-    }
-    | {
-        readonly kind: "reject_action";
-        readonly actionId: string;
-        readonly reason: string;
-    }
-    | { readonly kind: "approve"; readonly requestId: string };
 
 /**
  * 恢复等待中 Goal 所需的稳定关联键与用户操作。

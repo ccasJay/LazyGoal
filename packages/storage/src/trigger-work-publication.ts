@@ -1,5 +1,5 @@
 import type { Goal } from "../../runtime/src/domain";
-import { triggerDeliveryFileBinding } from "./generated/trigger-delivery-binding";
+import { readTriggerDeliveryFile } from "./trigger-delivery-file";
 import { JsonFileGoalStore } from "./goal-store";
 import { SupervisorOwnership } from "./supervisor-ownership";
 import { receiveAuthorizedTrigger, type TriggerIngressPrincipal } from "./trigger-delivery-ingress";
@@ -35,11 +35,11 @@ export async function publishAuthorizedWork(
     principal: TriggerIngressPrincipal,
     createGoal: (reservedGoalId: string | undefined) => Promise<Goal>,
 ): Promise<TriggerDeliveryResult> {
-    const parsed = triggerDeliveryFileBinding.read(input, "reject");
-    if (!parsed.ok) throw new Error("Invalid trigger delivery");
-    return owner.runExclusive(JSON.stringify(["publication", parsed.data.deliveryId]), async () => {
-        const receipt = receiveAuthorizedTrigger(deliveries, input, principal);
-        if (receipt.delivery.trigger.purpose !== "work" || receipt.delivery.goalId !== undefined) {
+    const delivery = readTriggerDeliveryFile(input);
+    if (delivery === undefined) throw new Error("Invalid trigger delivery");
+    return owner.runExclusive(JSON.stringify(["publication", delivery.deliveryId]), async () => {
+        const receipt = receiveAuthorizedTrigger(deliveries, delivery, principal);
+        if (receipt.delivery.trigger.type !== "work") {
             throw new Error("Goal creation requires a new-work delivery");
         }
         if (receipt.status === "settled") return receipt;

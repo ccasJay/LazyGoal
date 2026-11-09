@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { createGoal } from "../../../packages/runtime/src/domain";
 import { transition } from "../../../packages/runtime/src/transition";
 import { currentProtocols } from "../../../packages/runtime/test/current-fixtures";
+import { cancelTrigger, resumeTrigger, workTrigger } from "../../../packages/runtime/test/trigger-fixtures";
 import { JsonFileGoalStore } from "../../../packages/storage/src/goal-store";
 import { SupervisorOwnership } from "../../../packages/storage/src/supervisor-ownership";
 import { TriggerDeliveryStore } from "../../../packages/storage/src/trigger-delivery-store";
@@ -19,6 +20,10 @@ import { WorkerScheduler } from "../src/runtime/worker-scheduler";
 
 const never = { structuredOutputMode: "prompt_only" as const, async generate() { throw new Error("Waiting Goals must not call a model"); } };
 const principal = { role: "user", mayCreateGoal: true, goalIds: [] } as const;
+
+function cancelDelivery(deliveryId: string, triggerId: string, goalId: string) {
+    return { deliveryId, trigger: cancelTrigger(triggerId, goalId, `run-${goalId}`) };
+}
 
 function permissionTestToolFrames(toolId: string, args: Record<string, unknown>, callId: string): string {
     const chunk = (delta: Record<string, unknown>, finishReason: string | null = null) => ({
@@ -86,7 +91,7 @@ test("FIFO 派发让不同 Goal 并行，等待绑定保留，终态后复用匹
     const deliveries = new TriggerDeliveryStore(join(dataDirectory, "deliveries.db"));
     const goals = new JsonFileGoalStore(join(dataDirectory, "goals"));
     const factory = async (intent: string, reserved: string | undefined) => createWaitingGoal(reserved ?? `goal-${intent}`, intent, workspace);
-    const event = (suffix: string) => ({ deliveryId: `delivery-${suffix}`, trigger: { id: `trigger-${suffix}`, purpose: "work", source: "user", payload: JSON.stringify({ intent: `goal-${suffix}` }) } });
+    const event = (suffix: string) => ({ deliveryId: `delivery-${suffix}`, trigger: workTrigger(`trigger-${suffix}`, `goal-${suffix}`) });
     const acceptedIds: string[] = [];
     let cleanupGoalId: string | undefined;
     const scheduler = new WorkerScheduler({ owner, deliveries, goals, cwd: workspace, dataDirectory, env, permissionAdapter: never });
@@ -105,19 +110,17 @@ test("FIFO 派发让不同 Goal 并行，等待绑定保留，终态后复用匹
         assert.equal(new Set(pids.map((item) => item.pid)).size, 2);
         assert.deepEqual(scheduler.assignments().map((item) => item.goalId).sort(), [...acceptedIds].sort());
 
-        const cancelDelivery = {
-            deliveryId: "cancel-delivery-a",
-            goalId: acceptedIds[0]!,
-            trigger: { id: "cancel-trigger-a", purpose: "cancel", source: "user", payload: "{}" },
-        };
-        const firstTerminal = await scheduler.handleCancelTrigger(cancelDelivery, { ...principal, goalIds: [acceptedIds[0]!] });
+        const firstCancel = cancelDelivery("cancel-delivery-a", "cancel-trigger-a", acceptedIds[0]!);
+        const firstTerminal = await scheduler.handleCancelTrigger(firstCancel, { ...principal, goalIds: [acceptedIds[0]!] });
         assert.deepEqual(firstTerminal, { kind: "terminal", status: "cancelled" });
         assert.equal(deliveries.queueRecord(acceptedIds[0]!)?.status, "terminal");
-        assert.equal(deliveries.read(cancelDelivery.deliveryId)?.status, "settled");
+        assert.equal(deliveries.read(firstCancel.deliveryId)?.status, "settled");
         assert.equal((await goals.restore(acceptedIds[0]!))?.state.run.interruption?.status, "finished");
-        const firstReports = deliveries.listGoalDeliveries(acceptedIds[0]!).filter((item) => item.delivery.trigger.purpose === "progress");
+        const firstReports = deliveries.listGoalDeliveries(acceptedIds[0]!).filter((item) => item.delivery.trigger.type === "response"
+            && item.delivery.trigger.payload.action === "progress");
         assert.ok(firstReports.some((item) => item.status === "settled" && item.result.kind === "handled"
-            && JSON.parse(item.delivery.trigger.payload).kind === "terminal"));
+            && item.delivery.trigger.type === "response" && item.delivery.trigger.payload.action === "progress"
+            && item.delivery.trigger.payload.status === "waiting"));
         assert.equal(scheduler.assignments().some((item) => item.goalId === acceptedIds[0]), false);
 
         const third = await admitTrigger(owner, deliveries, goals, never, event("c"), principal, factory);
@@ -128,11 +131,8 @@ test("FIFO 派发让不同 Goal 并行，等待绑定保留，终态后复用匹
 
         for (const [index, goalId] of [acceptedIds[1]!, thirdGoalId].entries()) {
             const suffix = `waiting-${index}`;
-            const terminal = await scheduler.handleCancelTrigger({
-                deliveryId: `cancel-${suffix}`,
-                goalId,
-                trigger: { id: `cancel-trigger-${suffix}`, purpose: "cancel", source: "user", payload: "{}" },
-            }, { ...principal, goalIds: [goalId] });
+            const terminal = await scheduler.handleCancelTrigger(cancelDelivery(`cancel-${suffix}`, `cancel-trigger-${suffix}`, goalId),
+                { ...principal, goalIds: [goalId] });
             assert.deepEqual(terminal, { kind: "terminal", status: "cancelled" });
         }
 
@@ -144,11 +144,8 @@ test("FIFO 派发让不同 Goal 并行，等待绑定保留，终态后复用匹
         const lostAssignment = deliveries.queueRecord(fourthGoalId)!;
         const lostWorkerPid = (await scheduler.processIds()).find((item) => item.workerId === lostAssignment.workerId)?.pid;
         assert.ok(lostWorkerPid !== undefined);
-        const unconfirmedCancel = scheduler.handleCancelTrigger({
-            deliveryId: "cancel-delivery-d",
-            goalId: fourthGoalId,
-            trigger: { id: "cancel-trigger-d", purpose: "cancel", source: "user", payload: "{}" },
-        }, { ...principal, goalIds: [fourthGoalId] });
+        const unconfirmedCancel = scheduler.handleCancelTrigger(cancelDelivery("cancel-delivery-d", "cancel-trigger-d", fourthGoalId),
+            { ...principal, goalIds: [fourthGoalId] });
         process.kill(lostWorkerPid, "SIGKILL");
         await assert.rejects(unconfirmedCancel);
         assert.equal(deliveries.queueRecord(fourthGoalId)?.status, "waiting");
@@ -156,9 +153,10 @@ test("FIFO 派发让不同 Goal 并行，等待绑定保留，终态后复用匹
         assert.equal(scheduler.assignments().find((item) => item.workerId === lostAssignment.workerId)?.goalId, fourthGoalId);
         await waitFor(() => deliveries.workerRecovery(fourthGoalId)?.status === "pending");
         const exitEvidence = deliveries.listWorkerLifecycle(lostAssignment.workerId!, lostAssignment.generation!)
-            .find((item) => item.delivery.trigger.purpose === "lifecycle"
-                && JSON.parse(item.delivery.trigger.payload).type === "worker_exited");
+            .find((item) => item.delivery.trigger.type === "lifecycle" && item.delivery.trigger.payload.action === "exited");
         assert.ok(exitEvidence?.status === "settled" && exitEvidence.result.kind === "handled");
+        const exitTriggerId = exitEvidence?.delivery.trigger.id;
+        assert.ok(exitTriggerId !== undefined);
         const waitingCheckpoint = (await goals.restore(fourthGoalId))!;
         const runningBaseline = createGoal({ ...currentProtocols, id: fourthGoalId, intent: waitingCheckpoint.definition.intent,
             runId: waitingCheckpoint.state.run.id, promptBundleVersion: 1, profile: waitingCheckpoint.definition.profile });
@@ -167,31 +165,21 @@ test("FIFO 派发让不同 Goal 并行，等待绑定保留，终态后复用匹
         await goals.save({ ...waitingCheckpoint, state: { ...waitingCheckpoint.state, run: runningTransition.state } });
         await assert.rejects(scheduler.handleWorkerRecoveryTrigger({
             deliveryId: "resume-uncertain-fourth-delivery",
-            goalId: fourthGoalId,
-            trigger: { id: "resume-uncertain-fourth-trigger", purpose: "lifecycle", source: "user", payload: JSON.stringify({
-                type: "worker_recovery_decision", decision: "resume_checkpoint", workerId: lostAssignment.workerId,
-                generation: lostAssignment.generation, acknowledgeUnknownEffects: false,
-            }) },
+            trigger: resumeTrigger("resume-uncertain-fourth-trigger", fourthGoalId, waitingCheckpoint.state.run.id, exitTriggerId, false),
         }, { role: "user", mayCreateGoal: false, goalIds: [fourthGoalId] }));
         await goals.save(waitingCheckpoint);
         const resumed = await scheduler.handleWorkerRecoveryTrigger({
             deliveryId: "resume-fourth-delivery",
-            goalId: fourthGoalId,
-            trigger: { id: "resume-fourth-trigger", purpose: "lifecycle", source: "user", payload: JSON.stringify({
-                type: "worker_recovery_decision", decision: "resume_checkpoint", workerId: lostAssignment.workerId,
-                generation: lostAssignment.generation, acknowledgeUnknownEffects: false,
-            }) },
+            trigger: resumeTrigger("resume-fourth-trigger", fourthGoalId, waitingCheckpoint.state.run.id, exitTriggerId, false),
         }, { role: "user", mayCreateGoal: false, goalIds: [fourthGoalId] });
         assert.deepEqual(resumed, { kind: "resumed", goalId: fourthGoalId });
         assert.equal(deliveries.workerRecovery(fourthGoalId)?.status, "resumed");
         await scheduler.pump();
         await waitFor(() => deliveries.queueRecord(fourthGoalId)?.status === "waiting");
         assert.notEqual(deliveries.queueRecord(fourthGoalId)?.workerId, lostAssignment.workerId);
-        const recoveredCancellation = await scheduler.handleCancelTrigger({
-            deliveryId: "cancel-recovered-fourth-delivery",
-            goalId: fourthGoalId,
-            trigger: { id: "cancel-recovered-fourth-trigger", purpose: "cancel", source: "user", payload: "{}" },
-        }, { role: "user", mayCreateGoal: false, goalIds: [fourthGoalId] });
+        const recoveredCancellation = await scheduler.handleCancelTrigger(
+            cancelDelivery("cancel-recovered-fourth-delivery", "cancel-recovered-fourth-trigger", fourthGoalId),
+            { role: "user", mayCreateGoal: false, goalIds: [fourthGoalId] });
         assert.deepEqual(recoveredCancellation, { kind: "terminal", status: "cancelled" });
 
         const fifth = await admitTrigger(owner, deliveries, goals, never, event("e"), principal, factory);
@@ -199,18 +187,14 @@ test("FIFO 派发让不同 Goal 并行，等待绑定保留，终态后复用匹
         await scheduler.pump();
         await waitFor(() => deliveries.queueRecord(fifthGoalId)?.status === "waiting");
         assert.notEqual(deliveries.queueRecord(fifthGoalId)?.workerId, lostAssignment.workerId);
-        const fifthCancellation = await scheduler.handleCancelTrigger({
-            deliveryId: "cancel-fifth-delivery",
-            goalId: fifthGoalId,
-            trigger: { id: "cancel-fifth-trigger", purpose: "cancel", source: "user", payload: "{}" },
-        }, { ...principal, goalIds: [fifthGoalId] });
+        const fifthCancellation = await scheduler.handleCancelTrigger(cancelDelivery("cancel-fifth-delivery", "cancel-fifth-trigger", fifthGoalId),
+            { ...principal, goalIds: [fifthGoalId] });
         assert.deepEqual(fifthCancellation, { kind: "terminal", status: "cancelled" });
         await scheduler.closeIdle();
     } finally {
         if (cleanupGoalId !== undefined && deliveries.queueRecord(cleanupGoalId)?.status !== "terminal") {
-            await scheduler.handleCancelTrigger({ deliveryId: "cleanup-recovery-cancel", goalId: cleanupGoalId,
-                trigger: { id: "cleanup-recovery-cancel-trigger", purpose: "cancel", source: "user", payload: "{}" } },
-            { role: "user", mayCreateGoal: false, goalIds: [cleanupGoalId] }).catch(() => undefined);
+            await scheduler.handleCancelTrigger(cancelDelivery("cleanup-recovery-cancel", "cleanup-recovery-cancel-trigger", cleanupGoalId),
+                { role: "user", mayCreateGoal: false, goalIds: [cleanupGoalId] }).catch(() => undefined);
         }
         await scheduler.closeIdle().catch(() => undefined);
         deliveries.close();
@@ -262,7 +246,7 @@ test("活动模型调用收到取消后等待 Runtime 结算，再持久化终�
             profile: { id: "default", systemPrompt: "Test", instructions: ["Test"], toolIds: [] } });
         return { goal, authorization: { workspace: { mode: "shared" as const, projectRoot: workspace, executionRoot: workspace }, toolIds: [], sandbox: { extraFiles: [], network: "none" as const } } };
     };
-    const input = { deliveryId: "active-cancel-work", trigger: { id: "active-cancel-work-trigger", purpose: "work", source: "user", payload: '{"intent":"wait for cancellation"}' } };
+    const input = { deliveryId: "active-cancel-work", trigger: workTrigger("active-cancel-work-trigger", "wait for cancellation") };
     try {
         const accepted = await admitTrigger(owner, deliveries, goals, never, input, principal, factory);
         const goalId = acceptedGoalId(accepted);
@@ -270,16 +254,16 @@ test("活动模型调用收到取消后等待 Runtime 结算，再持久化终�
         await withTimeout(modelRequest, 5000, `Model request was not received; queue=${JSON.stringify(deliveries.queueRecord(goalId))}`);
         assert.equal((await goals.restore(goalId))?.state.run.status, "running");
 
-        const cancel = scheduler.handleCancelTrigger({ deliveryId: "active-cancel", goalId,
-            trigger: { id: "active-cancel-trigger", purpose: "cancel", source: "user", payload: "{}" } }, { ...principal, goalIds: [goalId] });
+        const cancel = scheduler.handleCancelTrigger(cancelDelivery("active-cancel", "active-cancel-trigger", goalId),
+            { ...principal, goalIds: [goalId] });
         const cancelResult = await withTimeout(cancel, 5000, "Cancellation did not settle");
         assert.deepEqual(cancelResult, { kind: "terminal", status: "cancelled" });
         await withTimeout(responseClosed, 5000, "Worker did not abort the active model request");
         assert.equal((await goals.restore(goalId))?.state.run.interruption?.status, "finished");
         assert.equal(deliveries.queueRecord(goalId)?.status, "terminal");
         assert.equal(deliveries.read("active-cancel")?.status, "settled");
-        assert.ok(deliveries.listGoalDeliveries(goalId).some((item) => item.status === "settled"
-            && item.delivery.trigger.purpose === "progress" && JSON.parse(item.delivery.trigger.payload).status === "cancelled"));
+        assert.equal(deliveries.listGoalDeliveries(goalId).some((item) => item.delivery.trigger.type === "response"
+            && item.delivery.trigger.payload.action === "progress" && item.delivery.trigger.payload.status === "cancelled"), false);
         await scheduler.closeIdle();
     } finally {
         server.closeAllConnections();
@@ -306,7 +290,7 @@ test("Supervisor 强制退出后，新 Supervisor 通过认证通道重新接管
     const factory = async (intent: string, reserved: string | undefined) => createWaitingGoal(reserved ?? `goal-${intent}`, intent, workspace);
     const admitted = await admitTrigger(originalOwner, originalDeliveries, goals, never, {
         deliveryId: "reconnect-delivery",
-        trigger: { id: "reconnect-trigger", purpose: "work", source: "user", payload: JSON.stringify({ intent: "reconnect" }) },
+        trigger: workTrigger("reconnect-trigger", "reconnect"),
     }, principal, factory);
     const goalId = acceptedGoalId(admitted);
     originalDeliveries.close();
@@ -458,8 +442,7 @@ test("Supervisor 断开后 Worker 用本地检查点完成已授权工具并在�
     try {
         const admitted = await admitTrigger(owner, deliveries, goals, never, {
             deliveryId: "offline-action-work",
-            trigger: { id: "offline-action-trigger", purpose: "work", source: "user",
-                payload: JSON.stringify({ intent: "Execute the delayed offline command" }) },
+            trigger: workTrigger("offline-action-trigger", "Execute the delayed offline command"),
         }, principal, async (intent, reservedGoalId) => ({
             goal: createGoal({ ...currentProtocols, id: reservedGoalId ?? "goal-offline-action", runId: "run-offline-action", intent,
                 promptBundleVersion: 1,
@@ -518,9 +501,8 @@ test("Supervisor 断开后 Worker 用本地检查点完成已授权工具并在�
         await scheduler.pump();
         await waitFor(() => deliveries.queueRecord(goalId)?.status === "terminal");
         assert.equal((await goals.restore(goalId))?.state.run.status, "completed");
-        assert.ok(deliveries.listGoalDeliveries(goalId).some((item) => item.delivery.trigger.purpose === "progress"
-            && item.status === "settled" && item.result.kind === "handled"
-            && JSON.parse(item.delivery.trigger.payload).kind === "terminal"));
+        assert.equal(deliveries.listGoalDeliveries(goalId).some((item) => item.delivery.trigger.type === "response"
+            && item.delivery.trigger.payload.action === "progress" && item.delivery.trigger.payload.status === "completed"), false);
         await scheduler.closeIdle();
     } finally {
         server.closeAllConnections();

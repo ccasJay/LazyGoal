@@ -7,6 +7,7 @@ export {
     isModelContextProtocol,
     isContextRetrievalProtocol,
 } from "./domain";
+export type { Trigger, TriggerActor, TriggerTarget } from "./trigger";
 export {
     createInitialRunStage,
     reviseRunStage,

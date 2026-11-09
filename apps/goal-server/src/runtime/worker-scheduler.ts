@@ -1,13 +1,14 @@
 import { createHash, randomUUID } from "node:crypto";
-import { canonicalJson, isRecord } from "../../../../packages/contracts/src/index";
+import { canonicalJson } from "../../../../packages/contracts/src/index";
 import type { LLMAdapter } from "../../../../packages/llm-core/src/index";
 import type { Goal } from "../../../../packages/runtime/src/domain";
+import type { Trigger } from "../../../../packages/runtime/src/trigger";
 import { projectInteractionView } from "../../../../packages/runtime/src/interaction-view";
 import { JsonFileGoalStore } from "../../../../packages/storage/src/goal-store";
 import { TriggerDeliveryStore } from "../../../../packages/storage/src/trigger-delivery-store";
 import { SupervisorOwnership } from "../../../../packages/storage/src/supervisor-ownership";
 import { receiveAuthorizedTrigger, type TriggerIngressPrincipal } from "../../../../packages/storage/src/trigger-delivery-ingress";
-import { triggerDeliveryFileBinding } from "../../../../packages/storage/src/generated/trigger-delivery-binding";
+import { readTriggerDeliveryFile } from "../../../../packages/storage/src/trigger-delivery-file";
 import {
     decodeTriggerActionPermissionReply,
     decodeTriggerActionPermissionRequest,
@@ -227,13 +228,12 @@ export class WorkerScheduler {
      * ```
      */
     async handleCancelTrigger(input: unknown, principal: TriggerIngressPrincipal): Promise<WorkerProgress> {
-        const parsed = triggerDeliveryFileBinding.read(input, "reject");
-        if (!parsed.ok) throw new Error("Cancellation requires a Goal-bound cancel Trigger");
-        const goalId = parsed.data.goalId;
-        if (parsed.data.trigger.purpose !== "cancel" || goalId === undefined) {
+        const delivery = readTriggerDeliveryFile(input);
+        if (delivery === undefined || delivery.trigger.type !== "instruction" || delivery.trigger.payload.action !== "cancel"
+            || !("goalId" in delivery.trigger)) {
             throw new Error("Cancellation requires a Goal-bound cancel Trigger");
         }
-        const delivery: TriggerDeliveryFile = parsed.data;
+        const goalId = delivery.trigger.goalId;
         const receipt = receiveAuthorizedTrigger(this.options.deliveries, delivery, principal);
         if (receipt.status === "settled") {
             if (receipt.result.kind !== "handled") throw new Error("Cancellation delivery has a conflicting result");
@@ -275,10 +275,9 @@ export class WorkerScheduler {
     actionPermissionStatuses(goalId: string): readonly WorkerActionPermissionStatus[] {
         return this.options.deliveries.listGoalDeliveries(goalId).flatMap((receipt) => {
             const delivery = receipt.delivery;
-            if (delivery.trigger.purpose !== "permission" || delivery.trigger.source !== "worker") return [];
-            const request = decodeTriggerActionPermissionRequest(delivery.trigger.payload);
-            if (request.type !== "action_approval_request" || delivery.trigger.workerId === undefined
-                || request.requestId !== delivery.trigger.id) throw new Error("Invalid stored Action permission request");
+            if (delivery.trigger.type !== "permission" || delivery.trigger.payload.action !== "requested"
+                || delivery.trigger.source.role !== "worker") return [];
+            const request = decodeTriggerActionPermissionRequest(delivery.trigger);
             const failure = this.options.deliveries.actionPermissionFailure(delivery.deliveryId);
             return [{
                 deliveryId: delivery.deliveryId,
@@ -292,7 +291,7 @@ export class WorkerScheduler {
     /**
      * 接收并路由已认证的 Action 权限回复。
      *
-     * @remarks 回复必须精确匹配仍待处理的请求、Goal Snapshot、Worker ID 与 generation；
+     * @remarks 回复通过 `replyTo` 查找权限请求，并按其 Goal 与当前 Worker 等待路由；
      * Worker Runtime 再次核验当前 Action 等待。只有保存恢复进度后才会原子结算请求与回复。
      * @param input - `permission` Trigger 投递。
      * @param principal - 已认证且可访问目标 Goal 的用户或 Supervisor 身份。
@@ -304,14 +303,18 @@ export class WorkerScheduler {
      * ```
      */
     async handleActionPermissionReply(input: unknown, principal: TriggerIngressPrincipal): Promise<WorkerPermissionReplyResult> {
-        const parsed = triggerDeliveryFileBinding.read(input, "reject");
-        if (!parsed.ok || parsed.data.trigger.purpose !== "permission" || parsed.data.goalId === undefined
-            || (principal.role !== "user" && principal.role !== "supervisor")) {
+        const delivery = readTriggerDeliveryFile(input);
+        if (delivery === undefined || delivery.trigger.type !== "permission" || delivery.trigger.payload.action !== "decided"
+            || !("goalId" in delivery.trigger) || !("replyTo" in delivery.trigger)
+            || (principal.role !== "user" && principal.role !== "supervisor")
+            || !triggerActorMatchesPrincipal(delivery.trigger.source, principal.role)) {
             throw new Error("Action permission reply requires an authorized Goal-bound user or Supervisor Trigger");
         }
-        const delivery = parsed.data;
-        if (delivery.trigger.source !== principal.role) throw new Error("Permission reply source is not authenticated");
-        const reply = decodeTriggerActionPermissionReply(delivery.trigger.payload);
+        const replyTrigger = delivery.trigger;
+        const requestReceipt = this.options.deliveries.listGoalDeliveries(replyTrigger.goalId)
+            .find((receipt) => receipt.delivery.trigger.id === replyTrigger.replyTo);
+        if (requestReceipt === undefined) throw new Error("Permission reply does not reference a stored request Trigger");
+        const reply = decodeTriggerActionPermissionReply(replyTrigger, requestReceipt.delivery.trigger, requestReceipt.delivery.deliveryId);
         return this.options.owner.runExclusive(JSON.stringify(["permission-reply", reply.requestDeliveryId]), async () => {
             const route = await this.dispatchPermissionReply(delivery, principal, reply);
             if (route.kind === "settled") return route;
@@ -326,8 +329,8 @@ export class WorkerScheduler {
     /**
      * 接收并路由已认证的 Goal 结构化交互回应。
      *
-     * @remarks 回应须绑定当前 Run、等待身份、Snapshot 修订及 Worker 代次；Worker Runtime
-     * 再次验证领域决定。若等待是 Action 权限，请求与回应仅在进度保存后原子结算。
+     * @remarks 回复以 Goal 身份和 `replyTo` 匹配当前等待，并由当前持有该 Goal 的 Worker
+     * Runtime 再次验证领域决定。若等待是 Action 权限，请求与回应仅在进度保存后原子结算。
      * @param input - `interaction` Trigger 投递。
      * @param principal - 已认证且可访问目标 Goal 的用户或 Supervisor 身份。
      * @returns Worker 已应用回应后的等待、终态或拒绝进度，或既有收据。
@@ -338,15 +341,13 @@ export class WorkerScheduler {
      * ```
      */
     async handleInteractionTrigger(input: unknown, principal: TriggerIngressPrincipal): Promise<WorkerInteractionResult> {
-        const parsed = triggerDeliveryFileBinding.read(input, "reject");
-        if (!parsed.ok || parsed.data.trigger.purpose !== "interaction" || parsed.data.goalId === undefined
-            || (principal.role !== "user" && principal.role !== "supervisor")
-            || parsed.data.trigger.source !== principal.role) {
+        const delivery = readTriggerDeliveryFile(input);
+        if (delivery === undefined || delivery.trigger.type !== "interaction" || delivery.trigger.payload.action !== "answered"
+            || !("goalId" in delivery.trigger) || (principal.role !== "user" && principal.role !== "supervisor")
+            || !triggerActorMatchesPrincipal(delivery.trigger.source, principal.role)) {
             throw new Error("Goal interaction requires an authorized user or Supervisor Trigger");
         }
-        const delivery = parsed.data;
-        const goalId = delivery.goalId;
-        if (goalId === undefined) throw new Error("Goal interaction requires a Goal identity");
+        const goalId = delivery.trigger.goalId;
         return this.options.owner.runExclusive(JSON.stringify(["interaction-trigger", goalId, delivery.deliveryId]), async () => {
             const receipt = receiveAuthorizedTrigger(this.options.deliveries, delivery, principal);
             if (receipt.status === "settled") {
@@ -359,23 +360,22 @@ export class WorkerScheduler {
                 ? undefined
                 : this.workers.get(queue.workerId);
             if (queue?.status !== "waiting" || slot === undefined || slot.generation !== queue.generation
-                || slot.process.assignedGoalId !== goalId || payload.workerId !== slot.workerId
-                || payload.generation !== slot.generation) {
+                || slot.process.assignedGoalId !== goalId) {
                 throw new Error("Interaction target has no matching waiting Worker");
             }
             const goal = await this.options.goals.restore(goalId);
             const interaction = goal === undefined ? undefined : projectInteractionView(goal);
-            if (goal === undefined || interaction === undefined || goal.state.run.status !== "waiting"
-                || goal.state.run.id !== payload.runId
-                || (goal.state.commitRevision ?? 0) !== payload.commitRevision
-                || interaction.interactionId !== payload.interactionId
-                || interaction.runId !== payload.runId
-                || interactionLocalId(goal) !== payload.requestId) {
+            if (goal === undefined || interaction === undefined || goal.state.run.status !== "waiting") {
                 throw new Error("Interaction Trigger does not match the current Goal wait");
             }
             const actionId = goal.state.run.pendingAction?.action.actionId;
             const permissionRequest = actionId === undefined ? undefined
                 : this.actionPermissionStatuses(goalId).find((item) => item.pending && item.request.actionId === actionId);
+            const expectedReplyTo = permissionRequest?.request.requestId ?? goal.definition.triggerContext?.triggerId;
+            if (expectedReplyTo === undefined || payload.replyTo !== expectedReplyTo
+                || (payload.interactionRequestId !== undefined && interactionLocalId(goal) !== payload.interactionRequestId)) {
+                throw new Error("Interaction Trigger does not match the current Goal wait");
+            }
             const progress = await slot.process.respondInteraction(delivery);
             await this.recordProgress(slot, goalId, progress);
             if (progress.kind !== "rejected") {
@@ -397,34 +397,27 @@ export class WorkerScheduler {
      * 已产生外部副作用，只有 Trigger 明确携带 `acknowledgeUnknownEffects: true` 时
      * 才会重新排队；进程断连、PID 不可达或超时本身不能满足此操作。
      *
-     * @param input - `lifecycle` Trigger，载荷为 `{ type: "worker_recovery_decision",
-     *   decision: "resume_checkpoint", workerId, generation, acknowledgeUnknownEffects }`。
+     * @param input - `instruction.resume` Trigger；`replyTo` 必须指向当前 Goal 的退出事件。
      * @param principal - 已认证且有权访问目标 Goal 的用户或 Supervisor。
      * @returns 首次恢复为 `resumed`；已处理的同一投递返回 `settled`。
-     * @throws Worker 退出证据、Goal 授权、恢复代次或明确确认不匹配时抛出。
+     * @throws Worker 退出证据、Goal 授权、回复关联或明确确认不匹配时抛出。
      * @example
      * ```ts
      * await scheduler.handleWorkerRecoveryTrigger(delivery, userPrincipal);
      * ```
      */
     async handleWorkerRecoveryTrigger(input: unknown, principal: TriggerIngressPrincipal): Promise<WorkerRecoveryResult> {
-        const parsed = triggerDeliveryFileBinding.read(input, "reject");
-        if (!parsed.ok || parsed.data.trigger.purpose !== "lifecycle" || parsed.data.goalId === undefined
+        const delivery = readTriggerDeliveryFile(input);
+        if (delivery === undefined || delivery.trigger.type !== "instruction" || delivery.trigger.payload.action !== "resume"
+            || !("goalId" in delivery.trigger) || !("replyTo" in delivery.trigger)
             || (principal.role !== "user" && principal.role !== "supervisor")
-            || parsed.data.trigger.source !== principal.role) {
-            throw new Error("Worker recovery requires an authorized Goal-bound lifecycle Trigger");
+            || !triggerActorMatchesPrincipal(delivery.trigger.source, principal.role)) {
+            throw new Error("Worker recovery requires an authorized Goal-bound resume Trigger");
         }
-        let payload: unknown;
-        try { payload = JSON.parse(parsed.data.trigger.payload) as unknown; }
-        catch { throw new Error("Worker recovery decision payload is invalid"); }
-        if (!isRecord(payload) || payload.type !== "worker_recovery_decision" || payload.decision !== "resume_checkpoint"
-            || typeof payload.workerId !== "string" || typeof payload.generation !== "string"
-            || typeof payload.acknowledgeUnknownEffects !== "boolean") {
-            throw new Error("Worker recovery decision payload is invalid");
-        }
-        const delivery = parsed.data;
-        if (delivery.goalId === undefined) throw new Error("Worker recovery requires an authorized Goal identity");
-        const goalId = delivery.goalId;
+        const resumeTrigger = delivery.trigger;
+        const payload = resumeTrigger.payload;
+        const goalId = resumeTrigger.goalId;
+        const replyTo = resumeTrigger.replyTo;
         return this.options.owner.runExclusive(JSON.stringify(["worker-recovery-trigger", goalId, delivery.deliveryId]), async () => {
             const receipt = receiveAuthorizedTrigger(this.options.deliveries, delivery, principal);
             if (receipt.status === "settled") {
@@ -432,8 +425,9 @@ export class WorkerScheduler {
                 return { kind: "settled", goalId };
             }
             const recovery = this.options.deliveries.workerRecovery(goalId);
-            if (recovery === undefined || recovery.status !== "pending" || recovery.workerId !== payload.workerId
-                || recovery.generation !== payload.generation) {
+            const exit = recovery === undefined ? undefined : this.options.deliveries.read(recovery.lifecycleDeliveryId);
+            if (recovery === undefined || recovery.status !== "pending" || exit === undefined
+                || exit.delivery.trigger.id !== replyTo) {
                 throw new Error("Goal has no matching confirmed Worker exit to recover");
             }
             const slot = this.workers.get(recovery.workerId);
@@ -443,8 +437,9 @@ export class WorkerScheduler {
                 if (responsive) throw new Error("Worker is still responding and cannot be recovered as exited");
             }
             const goal = await this.options.goals.restore(goalId);
-            if (goal === undefined || ["completed", "failed", "cancelled"].includes(goal.state.run.status)) {
-                throw new Error("Terminal or missing Goal cannot be resumed");
+            if (goal === undefined || goal.state.run.id !== payload.runId
+                || ["completed", "failed", "cancelled"].includes(goal.state.run.status)) {
+                throw new Error("Terminal, missing, or stale Goal cannot be resumed");
             }
             if (goal.state.run.status === "running" && payload.acknowledgeUnknownEffects !== true) {
                 throw new Error("Resuming a running Goal requires explicit acknowledgement of possible external effects");
@@ -568,19 +563,30 @@ export class WorkerScheduler {
         event: WorkerLifecycleEvent,
     ): Promise<string> {
         return this.options.owner.runExclusive(JSON.stringify(["worker-lifecycle", workerId, generation, event]), async () => {
-            const payload = canonicalJson(event);
-            const digest = createHash("sha256").update(canonicalJson({ workerId, generation, payload })).digest("hex");
-            const receipt = receiveAuthorizedTrigger(this.options.deliveries, {
-                deliveryId: `worker-lifecycle-delivery-${digest}`,
-                trigger: {
+            const digest = createHash("sha256").update(canonicalJson({ workerId, generation, event })).digest("hex");
+            const deliveryId = `worker-lifecycle-delivery-${digest}`;
+            const sentAt = deliverySentAt(this.options.deliveries, deliveryId);
+            const trigger: Trigger = event.type === "worker_exited"
+                ? {
                     id: `worker-lifecycle-${digest}`,
-                    purpose: "lifecycle",
-                    source: "worker",
-                    workerId,
-                    generation,
-                    payload,
-                },
-            }, { role: "worker", workerId, generation, mayCreateGoal: false });
+                    name: "Worker exited",
+                    type: "lifecycle",
+                    source: { role: "worker", workerId, generation },
+                    target: "supervisor",
+                    payload: { action: "exited", outcome: event.normal ? "normal" : "unexpected" },
+                    sentAt,
+                }
+                : {
+                    id: `worker-lifecycle-${digest}`,
+                    name: "Worker started",
+                    type: "lifecycle",
+                    source: { role: "worker", workerId, generation },
+                    target: "supervisor",
+                    payload: { action: "started" },
+                    sentAt,
+                };
+            const receipt = receiveAuthorizedTrigger(this.options.deliveries, { deliveryId, trigger },
+                { role: "worker", workerId, generation, mayCreateGoal: false });
             if (receipt.status === "pending") this.options.deliveries.settle(receipt.delivery.deliveryId, { kind: "handled" });
             return receipt.delivery.deliveryId;
         });
@@ -712,29 +718,27 @@ export class WorkerScheduler {
         if (progress.kind === "waiting" && goal.state.run.status !== "waiting") throw new Error("Worker waiting report does not match the Goal snapshot");
         if (progress.kind === "terminal" && goal.state.run.status !== progress.status) throw new Error("Worker terminal report does not match the Goal snapshot");
 
-        const report = progress.kind === "waiting"
-            ? { kind: "waiting", waitingFor: progress.waitingFor, commitRevision: goal.state.commitRevision ?? 0, runId: goal.state.run.id }
-            : progress.kind === "terminal"
-                ? { kind: "terminal", status: progress.status, commitRevision: goal.state.commitRevision ?? 0, runId: goal.state.run.id }
-                : { kind: "rejected", code: progress.code, commitRevision: goal.state.commitRevision ?? 0, runId: goal.state.run.id };
-        const canonicalReport = canonicalJson(report);
-        const digest = createHash("sha256").update(canonicalJson({ workerId: slot.workerId, generation: slot.generation, goalId, report })).digest("hex");
-        const triggerId = `worker-progress-${digest}`;
-        const receipt = receiveAuthorizedTrigger(this.options.deliveries, {
-            deliveryId: `worker-progress-delivery-${digest}`,
-            goalId,
-            trigger: {
-                id: triggerId,
-                purpose: "progress",
-                source: "worker",
-                workerId: slot.workerId,
-                generation: slot.generation,
-                payload: canonicalReport,
-            },
-        }, { role: "worker", workerId: slot.workerId, generation: slot.generation, goalId, mayCreateGoal: false });
-        if (receipt.status === "pending") await this.options.deliveries.settle(receipt.delivery.deliveryId, { kind: "handled" });
-
         if (progress.kind === "waiting") {
+            const replyTo = goal.definition.triggerContext?.triggerId;
+            if (replyTo === undefined) throw new Error("Worker progress has no source Trigger association");
+            const report = { workerId: slot.workerId, generation: slot.generation, goalId, runId: goal.state.run.id, waitingFor: progress.waitingFor };
+            const digest = createHash("sha256").update(canonicalJson(report)).digest("hex");
+            const deliveryId = `worker-progress-delivery-${digest}`;
+            const trigger: Trigger = {
+                id: `worker-progress-${digest}`,
+                name: "Goal is waiting",
+                type: "response",
+                source: { role: "worker", workerId: slot.workerId, generation: slot.generation },
+                target: "supervisor",
+                goalId,
+                replyTo,
+                payload: { action: "progress", runId: goal.state.run.id, status: "waiting", waitingFor: progress.waitingFor },
+                sentAt: deliverySentAt(this.options.deliveries, deliveryId),
+            };
+            const receipt = receiveAuthorizedTrigger(this.options.deliveries, { deliveryId, trigger }, {
+                role: "worker", workerId: slot.workerId, generation: slot.generation, goalId, mayCreateGoal: false,
+            });
+            if (receipt.status === "pending") await this.options.deliveries.settle(receipt.delivery.deliveryId, { kind: "handled" });
             await this.options.deliveries.markWorkerGoalStatus(this.options.owner, slot.workerId, slot.generation, goalId, "waiting");
             return;
         }
@@ -753,12 +757,15 @@ export class WorkerScheduler {
         if (goal === undefined) throw new Error("Action permission target Goal snapshot is missing");
         const requestReceipt = this.ensureActionPermissionRequest(slot, goal);
         if (requestReceipt.status !== "pending") return undefined;
+        const requestTrigger = requestReceipt.delivery.trigger;
+        const request = decodeTriggerActionPermissionRequest(requestTrigger);
 
         const existingReply = this.findPendingPermissionReply(goalId, requestReceipt.delivery.deliveryId);
         if (existingReply !== undefined) {
-            const reply = decodeTriggerActionPermissionReply(existingReply.delivery.trigger.payload);
+            const replyTrigger = existingReply.delivery.trigger;
+            const reply = decodeTriggerActionPermissionReply(replyTrigger, requestTrigger, requestReceipt.delivery.deliveryId);
             const route = await this.dispatchPermissionReply(existingReply.delivery, {
-                role: existingReply.delivery.trigger.source as "user" | "supervisor",
+                role: replyTrigger.source.role === "external" ? "user" : "supervisor",
                 mayCreateGoal: false,
                 goalIds: [goalId],
             }, reply);
@@ -773,36 +780,27 @@ export class WorkerScheduler {
             this.options.deliveries.recordActionPermissionFailure(requestReceipt.delivery.deliveryId, advice.reason);
             return undefined;
         }
-        const request = decodeTriggerActionPermissionRequest(requestReceipt.delivery.trigger.payload);
-        const actionId = goal.state.run.pendingAction?.action.actionId;
-        if (actionId === undefined) throw new Error("Permission wait lost its pending Action identity");
-        const replyPayload: TriggerActionPermissionReply = {
-            type: "action_approval_reply",
-            requestDeliveryId: requestReceipt.delivery.deliveryId,
-            requestId: request.requestId,
-            runId: request.runId,
-            actionId: request.actionId,
-            interactionId: request.interactionId,
-            commitRevision: request.commitRevision,
-            workerId: slot.workerId,
-            generation: slot.generation,
-            decision: advice.decision.kind,
-            ...(advice.decision.kind === "approve" ? { scope: "action" } : { reason: advice.decision.reason }),
-        };
-        const payload = canonicalJson(replyPayload);
-        const digest = createHash("sha256").update(canonicalJson({ requestDeliveryId: requestReceipt.delivery.deliveryId, payload })).digest("hex");
-        const replyDelivery: TriggerDeliveryFile = {
-            deliveryId: `worker-permission-reply-delivery-${digest}`,
+        const decision = advice.decision;
+        const replyIdentity = { requestDeliveryId: requestReceipt.delivery.deliveryId, decision };
+        const digest = createHash("sha256").update(canonicalJson(replyIdentity)).digest("hex");
+        const replyDeliveryId = `worker-permission-reply-delivery-${digest}`;
+        const base = {
+            id: `worker-permission-reply-${digest}`,
+            name: decision.kind === "approve" ? "Approve Action" : "Reject Action",
+            type: "permission" as const,
+            source: { role: "supervisor" as const },
+            target: "worker" as const,
             goalId,
-            trigger: {
-                id: `worker-permission-reply-${digest}`,
-                purpose: "permission",
-                source: "supervisor",
-                payload,
-            },
+            replyTo: requestTrigger.id,
+            sentAt: deliverySentAt(this.options.deliveries, replyDeliveryId),
         };
+        const replyTrigger: Trigger = decision.kind === "approve"
+            ? { ...base, payload: { action: "decided", decision: "approve", scope: "action" } }
+            : { ...base, payload: { action: "decided", decision: "reject", scope: "action", reason: decision.reason } };
+        const replyDelivery: TriggerDeliveryFile = { deliveryId: replyDeliveryId, trigger: replyTrigger };
+        const reply = decodeTriggerActionPermissionReply(replyTrigger, requestTrigger, requestReceipt.delivery.deliveryId);
         const principal: TriggerIngressPrincipal = { role: "supervisor", mayCreateGoal: false, goalIds: [goalId] };
-        const route = await this.dispatchPermissionReply(replyDelivery, principal, replyPayload);
+        const route = await this.dispatchPermissionReply(replyDelivery, principal, reply);
         return route.kind === "settled" ? undefined : {
             progress: route.progress,
             exchange: { requestDeliveryId: requestReceipt.delivery.deliveryId, replyDeliveryId: replyDelivery.deliveryId },
@@ -826,27 +824,24 @@ export class WorkerScheduler {
         };
         const digest = createHash("sha256").update(canonicalJson(identity)).digest("hex");
         const requestId = `worker-permission-request-${digest}`;
-        const request: TriggerActionPermissionRequest = {
-            type: "action_approval_request",
-            requestId,
-            runId: view.runId,
-            actionId: view.actionId,
-            interactionId: view.interactionId,
-            commitRevision,
-        };
-        const delivery: TriggerDeliveryFile = {
-            deliveryId: `worker-permission-request-delivery-${digest}`,
+        const deliveryId = `worker-permission-request-delivery-${digest}`;
+        const trigger: Trigger = {
+            id: requestId,
+            name: "Action approval requested",
+            type: "permission",
+            source: { role: "worker", workerId: slot.workerId, generation: slot.generation },
+            target: "supervisor",
             goalId: goal.id,
-            trigger: {
-                id: requestId,
-                purpose: "permission",
-                source: "worker",
-                workerId: slot.workerId,
-                generation: slot.generation,
-                payload: canonicalJson(request),
+            payload: {
+                action: "requested",
+                runId: view.runId,
+                actionId: view.actionId,
+                interactionId: view.interactionId,
+                commitRevision,
             },
+            sentAt: deliverySentAt(this.options.deliveries, deliveryId),
         };
-        return receiveAuthorizedTrigger(this.options.deliveries, delivery, {
+        return receiveAuthorizedTrigger(this.options.deliveries, { deliveryId, trigger }, {
             role: "worker",
             workerId: slot.workerId,
             generation: slot.generation,
@@ -856,11 +851,12 @@ export class WorkerScheduler {
     }
 
     private findPendingPermissionReply(goalId: string, requestDeliveryId: string): Extract<TriggerDeliveryResult, { readonly status: "pending" }> | undefined {
+        const request = this.options.deliveries.read(requestDeliveryId);
+        if (request === undefined) return undefined;
         for (const receipt of this.options.deliveries.listGoalDeliveries(goalId)) {
-            if (receipt.status !== "pending" || receipt.delivery.trigger.purpose !== "permission"
-                || (receipt.delivery.trigger.source !== "user" && receipt.delivery.trigger.source !== "supervisor")) continue;
-            const reply = decodeTriggerActionPermissionReply(receipt.delivery.trigger.payload);
-            if (reply.requestDeliveryId === requestDeliveryId) return receipt;
+            const trigger = receipt.delivery.trigger;
+            if (receipt.status === "pending" && trigger.type === "permission" && trigger.payload.action === "decided"
+                && "replyTo" in trigger && trigger.replyTo === request.delivery.trigger.id) return receipt;
         }
         return undefined;
     }
@@ -873,22 +869,25 @@ export class WorkerScheduler {
         | { readonly kind: "settled"; readonly progress: WorkerProgress }
         | { readonly kind: "routed"; readonly slot: WorkerSlot; readonly goalId: string; readonly progress: WorkerProgress }
     > {
-        const goalId = delivery.goalId;
+        const trigger = delivery.trigger;
+        const goalId = "goalId" in trigger ? trigger.goalId : undefined;
         if (goalId === undefined || (principal.role !== "user" && principal.role !== "supervisor")
-            || !principal.goalIds.includes(goalId) || delivery.trigger.source !== principal.role) {
+            || !principal.goalIds.includes(goalId) || !triggerActorMatchesPrincipal(trigger.source, principal.role)) {
             throw new Error("Permission reply source or Goal authorization is invalid");
         }
         const requestReceipt = this.options.deliveries.read(reply.requestDeliveryId);
-        if (requestReceipt === undefined || requestReceipt.delivery.goalId !== goalId
-            || requestReceipt.delivery.trigger.purpose !== "permission" || requestReceipt.delivery.trigger.source !== "worker") {
+        if (requestReceipt === undefined || !("goalId" in requestReceipt.delivery.trigger)
+            || requestReceipt.delivery.trigger.goalId !== goalId
+            || requestReceipt.delivery.trigger.type !== "permission" || requestReceipt.delivery.trigger.payload.action !== "requested"
+            || requestReceipt.delivery.trigger.source.role !== "worker") {
             throw new Error("Permission reply does not reference a stored Worker request");
         }
-        const request = decodeTriggerActionPermissionRequest(requestReceipt.delivery.trigger.payload);
-        if (requestReceipt.delivery.trigger.id !== request.requestId
+        const requestTrigger = requestReceipt.delivery.trigger;
+        const request = decodeTriggerActionPermissionRequest(requestTrigger);
+        const verifiedReply = decodeTriggerActionPermissionReply(trigger, requestTrigger, requestReceipt.delivery.deliveryId);
+        if (canonicalJson(verifiedReply) !== canonicalJson(reply)
             || reply.requestId !== request.requestId || reply.runId !== request.runId || reply.actionId !== request.actionId
-            || reply.interactionId !== request.interactionId || reply.commitRevision !== request.commitRevision
-            || reply.workerId !== requestReceipt.delivery.trigger.workerId
-            || reply.generation !== requestReceipt.delivery.trigger.generation) {
+            || reply.interactionId !== request.interactionId || reply.commitRevision !== request.commitRevision) {
             throw new Error("Permission reply identity does not match its Worker request");
         }
 
@@ -920,9 +919,10 @@ export class WorkerScheduler {
             throw new Error("Permission reply is stale for the current Goal wait");
         }
         const competingReply = this.options.deliveries.listGoalDeliveries(goalId).find((candidate) => {
-            if (candidate.delivery.deliveryId === delivery.deliveryId || candidate.delivery.trigger.purpose !== "permission"
-                || (candidate.delivery.trigger.source !== "user" && candidate.delivery.trigger.source !== "supervisor")) return false;
-            return decodeTriggerActionPermissionReply(candidate.delivery.trigger.payload).requestDeliveryId === reply.requestDeliveryId;
+            const candidateTrigger = candidate.delivery.trigger;
+            return candidate.delivery.deliveryId !== delivery.deliveryId && candidate.status === "pending"
+                && candidateTrigger.type === "permission" && candidateTrigger.payload.action === "decided"
+                && "replyTo" in candidateTrigger && candidateTrigger.replyTo === requestTrigger.id;
         });
         if (competingReply !== undefined) throw new Error("Another permission reply already owns this request");
 
@@ -987,4 +987,12 @@ function interactionLocalId(goal: Goal): string | undefined {
     const action = goal.state.run.pendingAction;
     if (action !== undefined) return action.action.actionId;
     return goal.state.run.pendingInteraction?.requestId;
+}
+
+function deliverySentAt(deliveries: TriggerDeliveryStore, deliveryId: string): string {
+    return deliveries.read(deliveryId)?.delivery.trigger.sentAt ?? new Date().toISOString();
+}
+
+function triggerActorMatchesPrincipal(source: Trigger["source"], role: TriggerIngressPrincipal["role"]): boolean {
+    return source.role === (role === "user" ? "external" : role);
 }

@@ -35,17 +35,9 @@ export interface GoalSnapshotProfileV1 {
 
 /** Snapshot 中冻结的 Goal 协议组合与执行策略。 */
 export interface GoalSnapshotDefinitionV1 {
-    /** 创建 Goal 的投递事实与冻结的动作权限范围。 */
+    /** Snapshot 中创建 Goal 的 Trigger 关联与冻结动作权限范围。 */
     readonly triggerContext?: {
-        readonly deliveryId: string;
-        readonly trigger: {
-            readonly id: string;
-            readonly purpose: "work" | "permission" | "interaction" | "cancel" | "progress" | "lifecycle";
-            readonly source: "user" | "worker" | "external" | "supervisor";
-            readonly workerId?: string;
-            readonly generation?: string;
-            readonly payload: string;
-        };
+        readonly triggerId: string;
         readonly authorization: {
             readonly workspace: {
                 readonly mode: "shared" | "worktree";

@@ -10,6 +10,7 @@ import { JsonFileGoalStore } from "../../../packages/storage/src/goal-store";
 import { SupervisorOwnership } from "../../../packages/storage/src/supervisor-ownership";
 import { TriggerDeliveryStore } from "../../../packages/storage/src/trigger-delivery-store";
 import { admitTrigger } from "../src/runtime/trigger-admission";
+import { cancelTrigger, workTrigger } from "../../../packages/runtime/test/trigger-fixtures";
 
 function mockAdapter(handler: LLMAdapter["generate"], structuredOutputMode: "strict" | "prompt_only" = "prompt_only"): LLMAdapter {
     return { structuredOutputMode, generate: handler };
@@ -31,20 +32,21 @@ test("fast path accepts explicit user work and routes control without creating a
         const deliveries = new TriggerDeliveryStore(join(dir, "db"));
         const goals = new JsonFileGoalStore(dir);
         const adapter = mockAdapter(async () => { throw new Error("unexpected model call"); });
-        const input = { deliveryId: "d", trigger: { id: "t", purpose: "work", source: "user", payload: '{"intent":"inspect"}' } };
+        const input = { deliveryId: "d", trigger: workTrigger("t", "inspect") };
         assert.equal((await admitTrigger(owner, deliveries, goals, adapter, input, user, factory)).kind, "settled");
         assert.deepEqual(deliveries.queuedGoalIds(), ["goal-inspect"]);
         assert.deepEqual((await goals.restore("goal-inspect"))?.definition.triggerContext, {
-            deliveryId: "d", trigger: input.trigger,
+            triggerId: "t",
             authorization: { workspace: { mode: "shared", projectRoot: "/workspace", executionRoot: "/workspace" }, toolIds: [], sandbox: { extraFiles: [], network: "none" } },
         });
-        const isolated = { deliveryId: "d-worktree", trigger: { id: "t-worktree", purpose: "work", source: "user", payload: '{"intent":"change","workspaceMode":"worktree"}' } };
-        assert.equal((await admitTrigger(owner, deliveries, goals, adapter, isolated, user, factory)).kind, "settled");
+        const isolated = { deliveryId: "d-worktree", trigger: workTrigger("t-worktree", "change") };
+        const worktreeAdapter = mockAdapter(async () => ({ blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({ kind: "accept", intent: "change", workspaceMode: "worktree" }) }] }), "strict");
+        assert.equal((await admitTrigger(owner, deliveries, goals, worktreeAdapter, isolated, external, factory)).kind, "settled");
         assert.deepEqual((await goals.restore("goal-change"))?.definition.triggerContext?.authorization.workspace, {
             mode: "worktree", projectRoot: "/workspace", executionRoot: "/workspace/.worktrees/goal",
             branch: "lazygoal/goal-test", baseBranch: "main", baseCommit: "a".repeat(40),
         });
-        const control = { deliveryId: "c", goalId: "goal-inspect", trigger: { id: "tc", purpose: "cancel", source: "user", payload: "{}" } };
+        const control = { deliveryId: "c", trigger: cancelTrigger("tc", "goal-inspect", "run-goal-inspect") };
         assert.deepEqual(await admitTrigger(owner, deliveries, goals, adapter, control, { ...user, goalIds: ["goal-inspect"] }, factory), { kind: "routed" });
         assert.deepEqual(deliveries.queuedGoalIds(), ["goal-inspect", "goal-change"]);
         await owner.close(); deliveries.close();
@@ -66,7 +68,7 @@ test("slow path ignores or accepts using Supervisor model and enqueues in comple
             const decision = body.includes("ignore") ? { kind: "ignore", intent: "" } : { kind: "accept", intent: body.includes("slow") ? "slow" : "fast", workspaceMode: "shared" };
             return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify(decision) }] };
         }, "strict");
-        const event = (id: string) => ({ deliveryId: `d-${id}`, trigger: { id: `t-${id}`, purpose: "work", source: "external", payload: JSON.stringify({ kind: id }) } });
+        const event = (id: string) => ({ deliveryId: `d-${id}`, trigger: workTrigger(`t-${id}`, id) });
         const slow = admitTrigger(owner, deliveries, goals, adapter, event("slow"), external, factory);
         const fast = await admitTrigger(owner, deliveries, goals, adapter, event("fast"), external, factory);
         const ignored = await admitTrigger(owner, deliveries, goals, adapter, event("ignore"), external, factory);
@@ -86,7 +88,7 @@ test("model failures and malformed decisions remain pending across restart and c
         const path = join(dir, "db");
         let deliveries = new TriggerDeliveryStore(path);
         const goals = new JsonFileGoalStore(dir);
-        const event = { deliveryId: "d", trigger: { id: "t", purpose: "work", source: "external", payload: "{}" } };
+        const event = { deliveryId: "d", trigger: workTrigger("t", "recover", { role: "external", externalId: "external-test" }) };
         const fail = mockAdapter(async () => { throw new Error("private provider detail"); });
         assert.deepEqual(await admitTrigger(owner, deliveries, goals, fail, event, external, factory), { kind: "pending", reason: "model-failed" });
         deliveries.close();

@@ -1,48 +1,75 @@
-import { triggerActionPermissionReplyBinding } from "./generated/trigger-action-permission-reply-binding";
-import { triggerActionPermissionRequestBinding } from "./generated/trigger-action-permission-request-binding";
+import type { Trigger } from "../../runtime/src/trigger";
 import type { TriggerActionPermissionReply, TriggerActionPermissionRequest } from "./trigger-permission";
 
 /**
- * 解码并校验持久化 Action 权限请求。
+ * 从严格的 `permission.requested` Trigger 投影现有权限处理器使用的内部请求视图。
  *
- * @param payload - Trigger 中 JSON 编码的请求载荷。
- * @returns 已通过结构与必填身份校验的请求。
- * @throws JSON、结构或空身份无效时抛出。
+ * @param trigger - 已由 Trigger 生成绑定校验的权限请求。
+ * @returns 以 Trigger `id` 作为请求身份的内部权限请求。
+ * @throws Trigger 类型、来源或必填身份不符合 Action 权限请求时抛出。
  * @example
  * ```ts
- * const request = decodeTriggerActionPermissionRequest(payload);
+ * const request = decodeTriggerActionPermissionRequest(trigger);
  * ```
  */
-export function decodeTriggerActionPermissionRequest(payload: string): TriggerActionPermissionRequest {
-    const parsed = triggerActionPermissionRequestBinding.read(JSON.parse(payload) as unknown, "reject");
-    if (!parsed.ok || !parsed.data.requestId.trim() || !parsed.data.runId.trim() || !parsed.data.actionId.trim()
-        || !parsed.data.interactionId.trim() || !Number.isSafeInteger(parsed.data.commitRevision) || parsed.data.commitRevision < 0) {
-        throw new Error("Invalid Action permission request payload");
+export function decodeTriggerActionPermissionRequest(trigger: Trigger): TriggerActionPermissionRequest {
+    if (trigger.type !== "permission" || trigger.payload.action !== "requested" || trigger.source.role !== "worker"
+        || !("goalId" in trigger) || !trigger.id.trim() || !trigger.payload.runId.trim() || !trigger.payload.actionId.trim()
+        || !trigger.payload.interactionId.trim() || !Number.isSafeInteger(trigger.payload.commitRevision) || trigger.payload.commitRevision < 0) {
+        throw new Error("Invalid Action permission request Trigger");
     }
-    return parsed.data;
+    return {
+        type: "action_approval_request",
+        requestId: trigger.id,
+        runId: trigger.payload.runId,
+        actionId: trigger.payload.actionId,
+        interactionId: trigger.payload.interactionId,
+        commitRevision: trigger.payload.commitRevision,
+    };
 }
 
 /**
- * 解码并校验持久化 Action 权限回复。
+ * 从严格的 `permission.decided` Trigger 与其已持久化请求生成内部路由视图。
  *
- * @param payload - Trigger 中 JSON 编码的回复载荷。
- * @returns 已通过结构、互斥字段与身份校验的回复。
- * @throws JSON、结构或业务字段组合无效时抛出。
+ * @param trigger - 已由 Trigger 生成绑定校验的决定事件。
+ * @param request - `replyTo` 指向的原 Worker 权限请求。
+ * @param requestDeliveryId - 内部账本中保存原请求的投递标识。
+ * @returns 保留既有 Worker 路由所需字段的内部回复视图；回复本身不重复携带这些字段。
+ * @throws 回复、请求、Goal 或关联身份不一致时抛出。
  * @example
  * ```ts
- * const reply = decodeTriggerActionPermissionReply(payload);
+ * const reply = decodeTriggerActionPermissionReply(replyTrigger, requestTrigger, requestDeliveryId);
  * ```
  */
-export function decodeTriggerActionPermissionReply(payload: string): TriggerActionPermissionReply {
-    const parsed = triggerActionPermissionReplyBinding.read(JSON.parse(payload) as unknown, "reject");
-    if (!parsed.ok) throw new Error("Invalid Action permission reply payload");
-    const reply = parsed.data;
-    if (!reply.requestDeliveryId.trim() || !reply.requestId.trim() || !reply.runId.trim() || !reply.actionId.trim()
-        || !reply.interactionId.trim() || !Number.isSafeInteger(reply.commitRevision) || reply.commitRevision < 0
-        || !reply.workerId.trim() || !reply.generation.trim()
-        || (reply.decision === "approve" && (reply.scope !== "action" || reply.reason !== undefined))
-        || (reply.decision === "reject" && (reply.scope !== undefined || !reply.reason?.trim()))) {
-        throw new Error("Invalid Action permission reply payload");
+export function decodeTriggerActionPermissionReply(
+    trigger: Trigger,
+    request: Trigger,
+    requestDeliveryId: string,
+): TriggerActionPermissionReply {
+    const requestPayload = decodeTriggerActionPermissionRequest(request);
+    if (trigger.type !== "permission" || trigger.payload.action !== "decided" || trigger.source.role !== "external" && trigger.source.role !== "supervisor"
+        || !("goalId" in trigger) || !("replyTo" in trigger) || !("goalId" in request) || trigger.goalId !== request.goalId
+        || trigger.replyTo !== request.id || !requestDeliveryId.trim() || !trigger.id.trim()) {
+        throw new Error("Invalid Action permission reply Trigger");
     }
-    return reply;
+    if (request.source.role !== "worker") throw new Error("Action permission request does not identify a Worker");
+    if (trigger.payload.decision === "approve" && trigger.payload.scope !== "action") {
+        throw new Error("Action permission approval scope is invalid");
+    }
+    if (trigger.payload.decision === "reject" && !trigger.payload.reason.trim()) {
+        throw new Error("Action permission rejection reason is invalid");
+    }
+    return {
+        type: "action_approval_reply",
+        requestDeliveryId,
+        requestId: requestPayload.requestId,
+        runId: requestPayload.runId,
+        actionId: requestPayload.actionId,
+        interactionId: requestPayload.interactionId,
+        commitRevision: requestPayload.commitRevision,
+        workerId: request.source.workerId,
+        generation: request.source.generation,
+        decision: trigger.payload.decision,
+        ...(trigger.payload.decision === "approve" ? { scope: "action" } : { reason: trigger.payload.reason }),
+    };
 }

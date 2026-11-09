@@ -1,4 +1,4 @@
-import { canonicalJson, isRecord, type JsonValue } from "../../../packages/contracts/src/index";
+import type { JsonValue } from "../../../packages/contracts/src/index";
 import {
     projectGoalSessionState,
     queryGoalMessages,
@@ -12,6 +12,7 @@ import {
 } from "../../../packages/runtime/src/index";
 import { WorkerScheduler, allocateGoalWorkspace, admitTrigger, type RuntimeComposition } from "./runtime/index";
 import type { GoalTriggerContext } from "../../../packages/runtime/src/domain";
+import type { Trigger } from "../../../packages/runtime/src/trigger";
 import {
     projectSessionState,
     type BrowserGoalLiveFeed,
@@ -39,6 +40,7 @@ import { TriggerDeliveryStore, type TriggerDeliveryResult } from "../../../packa
 import { SupervisorOwnership } from "../../../packages/storage/src/supervisor-ownership";
 
 const USER_PRINCIPAL = { role: "user", mayCreateGoal: true, goalIds: [] } as const;
+const USER_ACTOR = { role: "external", externalId: "goal-board" } as const;
 const EVENT_POLL_INTERVAL_MS = 250;
 
 /**
@@ -130,7 +132,7 @@ export function createTriggerBrowserSessionPort(dependencies: TriggerBrowserSess
     ): Promise<BrowserSessionInputReceipt | undefined> {
         const delivery = deliveries.read(deliveryId);
         if (delivery === undefined) return undefined;
-        const reservedGoalId = delivery.delivery.goalId ?? deliveries.reservedGoal(deliveryId);
+        const reservedGoalId = triggerGoalId(delivery) ?? deliveries.reservedGoal(deliveryId);
         if (reservedGoalId !== goalId) return undefined;
         const goal = await goals.restore(goalId);
         const appliedRunId = goal?.state.run.id;
@@ -150,16 +152,21 @@ export function createTriggerBrowserSessionPort(dependencies: TriggerBrowserSess
         }
 
         if (input.kind === "interrupt") {
-            const trigger = {
-                deliveryId: input.inputId,
+            const trigger: Trigger = {
+                id: input.inputId,
+                name: "Cancel Goal run",
+                type: "instruction",
+                source: USER_ACTOR,
+                target: "worker",
                 goalId,
-                trigger: { id: input.inputId, purpose: "cancel" as const, source: "user" as const,
-                    payload: canonicalJson({ type: "cancel_goal", runId: input.runId }) },
+                payload: { action: "cancel", runId: input.runId },
+                sentAt: deliverySentAt(deliveries, input.inputId),
             };
+            const delivery = { deliveryId: input.inputId, trigger };
             const principal = { ...USER_PRINCIPAL, goalIds: [goalId] } as const;
             const queued = deliveries.read(input.inputId);
             try {
-                await scheduler.handleCancelTrigger(trigger, principal);
+                await scheduler.handleCancelTrigger(delivery, principal);
                 await scheduler.pump();
             } catch {
                 return { ok: false, error: isShuttingDown() ? "session_unavailable" : "RUN_CONTROL_UNAVAILABLE" };
@@ -182,30 +189,26 @@ export function createTriggerBrowserSessionPort(dependencies: TriggerBrowserSess
                 return { ok: false, error: "INTERACTION_MISMATCH" };
             }
             const commitRevision = goal.state.commitRevision ?? 0;
-            const trigger = {
-                deliveryId: input.inputId,
+            const pendingActionId = goal.state.run.pendingAction?.action.actionId;
+            const permissionRequest = pendingActionId === undefined ? undefined
+                : scheduler.actionPermissionStatuses(goalId).find((item) => item.pending && item.request.actionId === pendingActionId);
+            const replyTo = permissionRequest?.request.requestId ?? goal.definition.triggerContext?.triggerId;
+            if (replyTo === undefined) return { ok: false, error: "INTERACTION_MISMATCH" };
+            const trigger: Trigger = {
+                id: input.inputId,
+                name: "Answer Goal interaction",
+                type: "interaction",
+                source: USER_ACTOR,
+                target: "worker",
                 goalId,
-                trigger: {
-                    id: input.inputId,
-                    purpose: "interaction" as const,
-                    source: "user" as const,
-                    workerId: queue.workerId,
-                    generation: queue.generation,
-                    payload: canonicalJson({
-                        type: "interaction_response",
-                        runId: input.runId,
-                        requestId: input.requestId,
-                        interactionId: interaction.interactionId,
-                        commitRevision,
-                        workerId: queue.workerId,
-                        generation: queue.generation,
-                        action: toGoalUserAction(input.response, input.requestId, input.inputId),
-                    }),
-                },
+                replyTo,
+                payload: { action: "answered", answer: toGoalUserAction(input.response, input.requestId, input.inputId) },
+                sentAt: deliverySentAt(deliveries, input.inputId),
             };
+            const delivery = { deliveryId: input.inputId, trigger };
             const prior = deliveries.read(input.inputId);
             try {
-                await scheduler.handleInteractionTrigger(trigger, { ...USER_PRINCIPAL, goalIds: [goalId] });
+                await scheduler.handleInteractionTrigger(delivery, { ...USER_PRINCIPAL, goalIds: [goalId] });
             } catch {
                 return { ok: false, error: isShuttingDown() ? "session_unavailable" : "INTERACTION_MISMATCH" };
             }
@@ -225,26 +228,23 @@ export function createTriggerBrowserSessionPort(dependencies: TriggerBrowserSess
                 || (goal.state.commitRevision ?? 0) !== input.commitRevision) {
                 return { ok: false, error: "RUN_CONTROL_UNAVAILABLE" };
             }
-            const trigger = {
-                deliveryId: input.inputId,
+            const lifecycle = deliveries.read(recovery.lifecycleDeliveryId);
+            if (lifecycle === undefined) return { ok: false, error: "RUN_CONTROL_UNAVAILABLE" };
+            const trigger: Trigger = {
+                id: input.inputId,
+                name: "Resume Goal checkpoint",
+                type: "instruction",
+                source: USER_ACTOR,
+                target: "supervisor",
                 goalId,
-                trigger: {
-                    id: input.inputId,
-                    purpose: "lifecycle" as const,
-                    source: "user" as const,
-                    payload: canonicalJson({
-                        type: "worker_recovery_decision",
-                        decision: "resume_checkpoint",
-                        workerId: recovery.workerId,
-                        generation: recovery.generation,
-                        acknowledgeUnknownEffects: input.acknowledgeUnknownEffects === true,
-                        commitRevision: goal.state.commitRevision ?? 0,
-                    }),
-                },
+                replyTo: lifecycle.delivery.trigger.id,
+                payload: { action: "resume", runId: input.runId, acknowledgeUnknownEffects: input.acknowledgeUnknownEffects === true },
+                sentAt: deliverySentAt(deliveries, input.inputId),
             };
+            const delivery = { deliveryId: input.inputId, trigger };
             const prior = deliveries.read(input.inputId);
             try {
-                await scheduler.handleWorkerRecoveryTrigger(trigger, { ...USER_PRINCIPAL, goalIds: [goalId] });
+                await scheduler.handleWorkerRecoveryTrigger(delivery, { ...USER_PRINCIPAL, goalIds: [goalId] });
                 await scheduler.pump();
             } catch {
                 return { ok: false, error: isShuttingDown() ? "session_unavailable" : "RUN_CONTROL_UNAVAILABLE" };
@@ -264,20 +264,16 @@ export function createTriggerBrowserSessionPort(dependencies: TriggerBrowserSess
             if (isShuttingDown()) return { ok: false, error: "service_shutting_down" };
             const resolved = await dependencies.resolveModelSelection(command);
             if (!resolved.ok) return { ok: false, error: resolved.error };
-            const delivery = {
-                deliveryId: command.inputId,
-                trigger: {
-                    id: command.inputId,
-                    purpose: "work" as const,
-                    source: "user" as const,
-                    payload: canonicalJson({
-                        intent: command.intent,
-                        workspaceMode: "shared",
-                        requestedGoalId: command.goalId,
-                        ...(command.mode === undefined ? {} : { mode: command.mode }),
-                    }),
-                },
+            const trigger: Trigger = {
+                id: command.inputId,
+                name: "Submit work",
+                type: "work",
+                source: USER_ACTOR,
+                target: "supervisor",
+                payload: { action: "submitted", material: { kind: "text", text: command.intent } },
+                sentAt: deliverySentAt(deliveries, command.inputId),
             };
+            const delivery = { deliveryId: command.inputId, trigger };
             const prior = deliveries.read(command.inputId);
             let admission;
             try {
@@ -323,7 +319,7 @@ export function createTriggerBrowserSessionPort(dependencies: TriggerBrowserSess
         readInput: async (goalId: string, inputId: string): Promise<BrowserSessionInputQueryResult> => {
             const delivery = deliveries.read(inputId);
             if (delivery === undefined) return { ok: true, found: false };
-            const ownedGoalId = delivery.delivery.goalId ?? deliveries.reservedGoal(inputId) ?? triggerRequestedGoal(delivery);
+            const ownedGoalId = triggerGoalId(delivery) ?? deliveries.reservedGoal(inputId);
             if (ownedGoalId !== goalId) return { ok: true, found: false };
             const goal = await goals.restore(goalId);
             const kind = browserInputKind(delivery);
@@ -486,38 +482,33 @@ function sameInteractionTarget(goal: Goal, requestId: string): boolean {
     return actionId === requestId || interactionRequestId === requestId;
 }
 
-function triggerRequestedGoal(delivery: TriggerDeliveryResult): string | undefined {
-    try {
-        const payload: unknown = JSON.parse(delivery.delivery.trigger.payload);
-        return isRecord(payload) && typeof payload.requestedGoalId === "string" ? payload.requestedGoalId : undefined;
-    } catch {
-        return undefined;
+function triggerGoalId(delivery: TriggerDeliveryResult): string | undefined {
+    if ("goalId" in delivery.delivery.trigger) return delivery.delivery.trigger.goalId;
+    if (delivery.status === "settled" && (delivery.result.kind === "accepted" || delivery.result.kind === "rejected")) {
+        return delivery.result.goalId;
     }
+    return undefined;
 }
 
-function triggerCommitRevision(delivery: TriggerDeliveryResult): number {
-    try {
-        const payload: unknown = JSON.parse(delivery.delivery.trigger.payload);
-        return isRecord(payload) && Number.isSafeInteger(payload.commitRevision) ? payload.commitRevision as number : 0;
-    } catch {
-        return 0;
-    }
+function triggerCommitRevision(_delivery: TriggerDeliveryResult): number {
+    return 0;
 }
 
 function triggerRunId(delivery: TriggerDeliveryResult): string | undefined {
-    try {
-        const payload: unknown = JSON.parse(delivery.delivery.trigger.payload);
-        return isRecord(payload) && typeof payload.runId === "string" ? payload.runId : undefined;
-    } catch {
-        return undefined;
-    }
+    const trigger = delivery.delivery.trigger;
+    if (trigger.type === "instruction") return trigger.payload.runId;
+    if (trigger.type === "response" && trigger.payload.action !== "goal_created") return trigger.payload.runId;
+    return undefined;
 }
 
 function browserInputKind(delivery: TriggerDeliveryResult): BrowserSessionInputReceipt["kind"] {
-    switch (delivery.delivery.trigger.purpose) {
-        case "cancel": return "interrupt";
-        case "interaction": return "respond";
-        case "lifecycle": return "resume";
-        default: return "message";
-    }
+    const trigger = delivery.delivery.trigger;
+    if (trigger.type === "instruction" && trigger.payload.action === "cancel") return "interrupt";
+    if (trigger.type === "interaction" && trigger.payload.action === "answered") return "respond";
+    if (trigger.type === "instruction" && trigger.payload.action === "resume") return "resume";
+    return "message";
+}
+
+function deliverySentAt(deliveries: TriggerDeliveryStore, deliveryId: string): string {
+    return deliveries.read(deliveryId)?.delivery.trigger.sentAt ?? new Date().toISOString();
 }

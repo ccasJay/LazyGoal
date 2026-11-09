@@ -14,6 +14,7 @@ import { publishAuthorizedWork } from "../../../packages/storage/src/trigger-wor
 import { JsonFileGoalStore } from "../../../packages/storage/src/goal-store";
 import { createGoal } from "../../../packages/runtime/src/domain";
 import { currentProtocols } from "../../../packages/runtime/test/current-fixtures";
+import { waitingTrigger, workTrigger } from "../../../packages/runtime/test/trigger-fixtures";
 
 test("process ingress authenticates generation, target and revocation", async () => {
     const dir = await mkdtemp(join(tmpdir(), "trigger-wire-"));
@@ -32,24 +33,24 @@ test("process ingress authenticates generation, target and revocation", async ()
         const port = address.port;
         const child = fileURLToPath(new URL("./fixtures/trigger-wire-client.ts", import.meta.url));
         const run = promisify(execFile);
-        const trigger = { id: "t", purpose: "progress", source: "worker", workerId: "worker", generation: "generation-2", payload: "{}" };
-        async function send(delivery: unknown, password = secret) {
+        const trigger = waitingTrigger("t", "g", "work-1", "run-1", "worker", "generation-2");
+        async function send(value: unknown, password = secret) {
             const { stdout } = await run(process.execPath, ["--import", "tsx", child, String(port)], {
-                env: { ...process.env, TRIGGER_TEST_REQUEST: JSON.stringify({ secret: password, delivery }) },
+                env: { ...process.env, TRIGGER_TEST_REQUEST: JSON.stringify({ secret: password, trigger: value }) },
             });
             return JSON.parse(stdout) as { ok: boolean };
         }
-        assert.equal((await send({ deliveryId: "stale", trigger: { ...trigger, generation: "generation-1" }, goalId: "g" })).ok, false);
-        assert.equal((await send({ deliveryId: "other", trigger, goalId: "other-goal" })).ok, false);
-        assert.equal((await send({ deliveryId: "fake", trigger, goalId: "g" }, "forged-secret")).ok, false);
-        assert.equal((await send({ deliveryId: "extra", trigger, goalId: "g", unauthorized: true })).ok, false);
+        assert.equal((await send({ ...trigger, source: { role: "worker", workerId: "worker", generation: "generation-1" } })).ok, false);
+        assert.equal((await send({ ...trigger, goalId: "other-goal" })).ok, false);
+        assert.equal((await send(trigger, "forged-secret")).ok, false);
+        assert.equal((await send({ ...trigger, payload: { ...trigger.payload, extra: true } })).ok, false);
+        assert.equal((await send({ ...trigger, extra: true })).ok, false);
         assert.deepEqual(store.pendingIds(), []);
-        const delivery = { deliveryId: "valid", trigger, goalId: "g" };
-        assert.equal((await send(delivery)).ok, true);
-        assert.equal((await send(delivery)).ok, true);
+        assert.equal((await send(trigger)).ok, true);
+        assert.equal((await send(trigger)).ok, true);
         credentials.revoke(secret);
-        assert.equal((await send({ ...delivery, deliveryId: "revoked" })).ok, false);
-        assert.deepEqual(store.pendingIds(), ["valid"]);
+        assert.equal((await send(trigger)).ok, false);
+        assert.deepEqual(store.pendingIds(), ["t"]);
     } finally {
         if (server?.listening) await new Promise<void>((resolve, reject) => server!.close((error) => error ? reject(error) : resolve()));
         await owner?.close();
@@ -59,7 +60,7 @@ test("process ingress authenticates generation, target and revocation", async ()
 });
 
 
-test("real process work delivery is created, queued and claimed only once", async () => {
+test("real process work Trigger is created, queued and claimed only once", async () => {
     const dir = await mkdtemp(join(tmpdir(), "trigger-wire-work-"));
     let server: Server | undefined;
     let owner: SupervisorOwnership | undefined;
@@ -74,10 +75,11 @@ test("real process work delivery is created, queued and claimed only once", asyn
         server = await startTriggerWireServer(owner, store, credentials);
         const address = server.address();
         if (address === null || typeof address === "string") throw new Error("Expected TCP listener");
-        const delivery = { deliveryId: "d", trigger: { id: "t", purpose: "work", source: "user", payload: "{}" } };
+        const trigger = workTrigger("t", "work");
+        const delivery = { deliveryId: trigger.id, trigger };
         const child = fileURLToPath(new URL("./fixtures/trigger-wire-client.ts", import.meta.url));
         const { stdout } = await promisify(execFile)(process.execPath, ["--import", "tsx", child, String(address.port)], {
-            env: { ...process.env, TRIGGER_TEST_REQUEST: JSON.stringify({ secret, delivery }) },
+            env: { ...process.env, TRIGGER_TEST_REQUEST: JSON.stringify({ secret, trigger }) },
         });
         assert.equal((JSON.parse(stdout) as { ok: boolean }).ok, true);
         const makeGoal = async () => createGoal({ ...currentProtocols, id: "g", runId: "r", intent: "work", promptBundleVersion: 1,

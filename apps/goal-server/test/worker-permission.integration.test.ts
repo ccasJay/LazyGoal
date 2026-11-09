@@ -7,6 +7,7 @@ import { join } from "node:path";
 import type { LLMAdapter, LLMRequest } from "../../../packages/llm-core/src/index";
 import { createGoal } from "../../../packages/runtime/src/domain";
 import { currentProtocols } from "../../../packages/runtime/test/current-fixtures";
+import { externalTestActor, permissionDecisionTrigger, workTrigger } from "../../../packages/runtime/test/trigger-fixtures";
 import { JsonFileGoalStore } from "../../../packages/storage/src/goal-store";
 import { SupervisorOwnership } from "../../../packages/storage/src/supervisor-ownership";
 import { TriggerDeliveryStore } from "../../../packages/storage/src/trigger-delivery-store";
@@ -119,8 +120,7 @@ test("Worker 的一次性 Action 权限经 Trigger 由 Supervisor 决定并在�
     const principal = { role: "user", mayCreateGoal: true, goalIds: [] } as const;
     try {
         const admitGoal = async (suffix: string, intent: string): Promise<string> => {
-            const event = { deliveryId: `worker-permission-work-${suffix}`, trigger: { id: `worker-permission-event-${suffix}`,
-                purpose: "work", source: "user", payload: JSON.stringify({ intent }) } };
+            const event = { deliveryId: `worker-permission-work-${suffix}`, trigger: workTrigger(`worker-permission-event-${suffix}`, intent) };
             const admitted = await admitTrigger(owner, deliveries, goals, permissionAdapter, event, principal, async (goalIntent, reservedGoalId) => ({
                 goal: createGoal({ ...currentProtocols, id: reservedGoalId ?? `permission-goal-${suffix}`, runId: `permission-run-${suffix}`, intent: goalIntent,
                     promptBundleVersion: 1,
@@ -149,12 +149,14 @@ test("Worker 的一次性 Action 权限经 Trigger 由 Supervisor 决定并在�
         assert.equal(statuses[0]?.pending, false);
         assert.equal(reviewerCalls, 1);
         assert.equal(await readFile(join(workspace, "automatic-permission-result.txt"), "utf8"), "automatic authorized once");
-        const replies = deliveries.listGoalDeliveries(goalId).filter((item) => item.delivery.trigger.purpose === "permission"
-            && item.delivery.trigger.source === "supervisor");
+        const replies = deliveries.listGoalDeliveries(goalId).filter((item) => item.delivery.trigger.type === "permission"
+            && item.delivery.trigger.payload.action === "decided" && item.delivery.trigger.source.role === "supervisor");
         assert.equal(replies.length, 1);
         assert.ok(replies[0]?.status === "settled" && replies[0].result.kind === "handled");
-        const payload = JSON.parse(replies[0]!.delivery.trigger.payload) as { decision: string; scope?: string };
-        assert.deepEqual({ decision: payload.decision, scope: payload.scope }, { decision: "approve", scope: "action" });
+        const replyTrigger = replies[0]!.delivery.trigger;
+        assert.ok(replyTrigger.type === "permission" && replyTrigger.payload.action === "decided");
+        if (replyTrigger.type !== "permission" || replyTrigger.payload.action !== "decided") throw new Error("Expected a permission decision Trigger");
+        assert.deepEqual({ decision: replyTrigger.payload.decision, scope: replyTrigger.payload.scope }, { decision: "approve", scope: "action" });
         assert.equal(requests.length >= 3, true);
 
         const manualGoalId = await admitGoal("manual", "人工授权动作");
@@ -167,27 +169,19 @@ test("Worker 的一次性 Action 权限经 Trigger 由 Supervisor 决定并在�
         assert.equal(reviewerCalls, 2);
 
         const queue = deliveries.queueRecord(manualGoalId)!;
-        const manualReplyPayload = {
-            type: "action_approval_reply",
-            requestDeliveryId: manualRequest.deliveryId,
-            requestId: manualRequest.request.requestId,
-            runId: manualRequest.request.runId,
-            actionId: manualRequest.request.actionId,
-            interactionId: manualRequest.request.interactionId,
-            commitRevision: manualRequest.request.commitRevision,
-            workerId: queue.workerId!,
-            generation: queue.generation!,
-            decision: "approve",
-            scope: "action",
-        };
         const manualPrincipal = { role: "user", mayCreateGoal: false, goalIds: [manualGoalId] } as const;
-        await assert.rejects(scheduler.handleActionPermissionReply({ deliveryId: "old-worker-permission-reply", goalId: manualGoalId,
-            trigger: { id: "old-worker-permission-event", purpose: "permission", source: "user",
-                payload: JSON.stringify({ ...manualReplyPayload, generation: "retired-generation" }) } }, manualPrincipal), /identity does not match/);
+        const staleReply = {
+            deliveryId: "old-worker-permission-reply",
+            trigger: permissionDecisionTrigger("old-worker-permission-event", manualGoalId, "retired-request", "approve", undefined, externalTestActor),
+        };
+        await assert.rejects(scheduler.handleActionPermissionReply(staleReply, manualPrincipal), /stored request Trigger/);
         assert.equal(await readFile(join(workspace, "manual-permission-result.txt")).then(() => true, () => false), false);
 
-        await scheduler.handleActionPermissionReply({ deliveryId: "manual-worker-permission-reply", goalId: manualGoalId,
-            trigger: { id: "manual-worker-permission-event", purpose: "permission", source: "user", payload: JSON.stringify(manualReplyPayload) } }, manualPrincipal);
+        const validReply = {
+            deliveryId: "manual-worker-permission-reply",
+            trigger: permissionDecisionTrigger("manual-worker-permission-event", manualGoalId, manualRequest.request.requestId, "approve", undefined, externalTestActor),
+        };
+        await scheduler.handleActionPermissionReply(validReply, manualPrincipal);
         await waitFor(() => scheduler.actionPermissionStatuses(manualGoalId).some((status) => !status.pending));
         await waitFor(() => deliveries.queueRecord(manualGoalId)?.status === "terminal");
         assert.equal(await readFile(join(workspace, "manual-permission-result.txt"), "utf8"), "manual authorized once");

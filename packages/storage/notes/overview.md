@@ -7,7 +7,7 @@ Snapshot、Trajectory、Profile 和调用事实的文件 Schema 与 Store。本�
 
 ## 摘要
 
-`@lazygoal/storage` 拥有持久化文件表示与实现：Profile 文件 DTO、当前 Goal Snapshot v1 DTO 与严格结构绑定、Runtime↔Snapshot 双向 Codec、Trajectory/Diagnostic JSONL Store、Tool/Sandbox Grant 授权账本，以及实现 Runtime/Agent Port 的内存/JSON 文件 Store。Supervisor 所有权锁与 Trigger 投递账本使用 SQLite；投递、准入结果、Worker 绑定、权限往返和恢复记录由事务边界保存。Snapshot、Agent Profile、Grant 账本、模型偏好、权限模式、调用指标、进程会话、模型输入清单和 Action 权限 Trigger 请求/回复的结构 Schema 由 Catalog 从 TS 文件 DTO 生成，并由生成绑定校验；生成能力归 [`@lazygoal/contract-binding`](../../contract-binding/src/index.ts) 与 `scripts/generate-contracts.mjs`。它依赖 Runtime 的 Port 与领域契约；Runtime 不反向加载本模块。文件写入经共享写入原语；同一进程内的文件写入顺序由按键串行队列保证。
+`@lazygoal/storage` 拥有持久化文件表示与实现：Profile 文件 DTO、当前 Goal Snapshot v1 DTO 与严格结构绑定、Runtime↔Snapshot 双向 Codec、Trajectory/Diagnostic JSONL Store、Tool/Sandbox Grant 授权账本，以及实现 Runtime/Agent Port 的内存/JSON 文件 Store。Supervisor 所有权锁与 Trigger 投递账本使用 SQLite；投递、准入结果、Worker 绑定、权限往返和恢复记录由事务边界保存。Snapshot、Agent Profile、Grant 账本、模型偏好、权限模式、调用指标、进程会话、模型输入清单和 Trigger 消息的结构 Schema 由 Catalog 从 TS 声明生成，并由生成绑定校验；生成能力归 [`@lazygoal/contract-binding`](../../contract-binding/src/index.ts) 与 `scripts/generate-contracts.mjs`。它依赖 Runtime 的 Port 与领域契约；Runtime 不反向加载本模块。文件写入经共享写入原语；同一进程内的文件写入顺序由按键串行队列保证。
 
 所有 Store 的路径段编码统一由内部 [`encodePathSegment`](../src/path-segment.ts) 完成（UTF-8 base64url），该模块不从公共入口导出；各 Store 只保留身份校验与目录布局，编码结果保持不变。
 
@@ -21,7 +21,7 @@ Snapshot、Trajectory、Profile 和调用事实的文件 Schema 与 Store。本�
 | [串行队列](../src/keyed-serial-queue.ts) | `KeyedSerialQueue` 的按键 FIFO 串行、失败隔离、簿记释放与 `drain` | 跨进程锁、事务或 exactly-once |
 | [AgentProfileFile](../src/agent-profile-file.ts) | Profile 文件 DTO（`schemaVersion: 1`）、具名 `NonEmptyString` 约束、生成绑定与 `AgentProfileConfigurationError` | 读取文件系统、构造 Runtime Profile |
 | [JsonFileAgentProfileStore](../src/json-file-agent-profile-store.ts) | 实现 Runtime `AgentProfileStore` Port，读取单个 `<profileId>.json` | 扫描其它 Profile、读取 Tool 实例、校验 Tool 注册 |
-| [GoalSnapshotV1 协议](../src/goal-snapshot.ts) | 当前唯一 Snapshot DTO、生成结构绑定与字段级/跨字段语义校验；Trigger 来源事件、投递身份与冻结权限范围随 Goal 保存；模型选择可保存动态执行 API、容量和能力；并保存当前 Prompt/Memory/Model Context/Retrieval 组合、完整消息、`mode`、GoalPlan、`completedRuns`、Run/todo 关系、Run 的唯一 `exposedToolIds`、Context Epoch、内部阶段（`currentStage`）、获批 Plan Run 路线（`planRoute`）、待执行 Action 的授权引用、Goal 提交修订（`commitRevision`）、输入账本（`inputLedger`）与消息队列（`messageQueue`） | 文件系统 I/O、构造 Runtime Goal、迁移历史 Snapshot |
+| [GoalSnapshotV1 协议](../src/goal-snapshot.ts) | 当前唯一 Snapshot DTO、生成结构绑定与字段级/跨字段语义校验；创建 Goal 的 Trigger ID 与冻结权限范围随 Goal 保存；模型选择可保存动态执行 API、容量和能力；并保存当前 Prompt/Memory/Model Context/Retrieval 组合、完整消息、`mode`、GoalPlan、`completedRuns`、Run/todo 关系、Run 的唯一 `exposedToolIds`、Context Epoch、内部阶段（`currentStage`）、获批 Plan Run 路线（`planRoute`）、待执行 Action 的授权引用、Goal 提交修订（`commitRevision`）、输入账本（`inputLedger`）与消息队列（`messageQueue`） | 文件系统 I/O、构造 Runtime Goal、迁移历史 Snapshot |
 | [GoalSnapshotCodec](../src/goal-snapshot-codec.ts) | Runtime Goal↔v1 Snapshot 的 encode/decode 转换；隔离由 `binding.read` 的副本提供，不再叠加外层 `structuredClone`；只接受当前 v1，不迁移或回写历史版本 | 文件系统 I/O、读写 Store |
 | [InMemoryGoalStore](../src/goal-store.ts) | 实现 Runtime `GoalStore` Port：save 经 Codec encode、restore 经 decode | 跨实例或跨进程恢复 |
 | [JsonFileGoalStore](../src/goal-store.ts) | 实现 `GoalStore` 与 `GoalCatalog`：base64url 文件名、经共享原语以 compact JSON + trailing newline 原子替换快照、可核对的无覆盖创建、目录扫描摘要 | 跨进程锁、乐观锁、租约或版本冲突检测 |
@@ -35,7 +35,7 @@ Snapshot、Trajectory、Profile 和调用事实的文件 Schema 与 Store。本�
 
 ## 生成绑定与迁移边界
 
-Catalog 启用项从 TS 文件 DTO 生成 JSON Schema、Ajv 校验器、Manifest 和 `@lazygoal/contract-binding` 绑定；生成文件位于 [`src/generated`](../src/generated)，由 `npm run contracts:generate -- --check` 检查漂移。真实读取路径消费生成绑定：Snapshot Codec 使用 `goalSnapshotFileBinding` 后再执行字段级与跨字段语义校验；Agent Profile、Grant 账本、模型偏好、权限模式、调用指标、进程会话和模型输入 Store 均先以 `reject` 策略读取生成绑定，再执行各自的身份、摘要、版本或冲突不变量。
+Catalog 启用项从 TS 文件 DTO 生成 JSON Schema、Ajv 校验器、Manifest 和 `@lazygoal/contract-binding` 绑定；生成文件位于 [`src/generated`](../src/generated)，由 `npm run contracts:generate -- --check` 检查漂移。真实边界消费生成绑定：Snapshot Codec 使用 `goalSnapshotFileBinding` 后再执行字段级与跨字段语义校验；Agent Profile、Grant 账本、模型偏好、权限模式、调用指标、进程会话和模型输入 Store 均先以 `reject` 策略读取生成绑定，再执行各自的身份、摘要、版本或冲突不变量。Trigger 持久化与本地进程/传输入口通过 `readTriggerDeliveryFile` 和 `readTriggerWireRequest` 对封闭信封解析，并使用生成的 `triggerBinding` 校验嵌套 Trigger。
 
 结构 Schema 覆盖字段类型、封闭对象、版本常量与可由 JSDoc 表达的非空和数组约束；其余字段级规则、摘要格式、跨字段不变量、身份绑定、版本校验和错误映射仍在 Store 或 Codec。读取失败不迁移、不回退旧 Schema、不写回。
 
@@ -49,9 +49,9 @@ Retrieval Index Sidecar 顶层已使用生成绑定；嵌套文档、倒排索�
 
 Goal 快照统一经 `GoalSnapshotCodec`：`save` 先对 Runtime Goal 按当前 v1 生成结构与语义规则校验（拒绝多余字段、非法 StepRecord，缺失或非法的 `modelSelection`，以及非法的 Trajectory/Memory/Model Context/Retrieval 组合）再深复制 encode；`restore`/decode 只接受当前 v1。语义校验同时保证 normal Goal 没有 GoalPlan、Plan Mode 必须有 GoalPlan、Todo ID/position/status 与 `Run.todoId` 一致、历史 Run 的消息区间有序且不包含当前 Run。历史 Snapshot、未知版本、缺失 `modelSelection` 的旧开发快照和不完整的当前恢复状态统一在 Codec 边界抛出 `INVALID_GOAL_SNAPSHOT`，不会自动迁移、保存或回写。
 
-`modelSelection.executionApi` 当前只允许 `openai-completions`，且必须搭配 OpenCode Go Provider 与有效的上下文、输出容量；Codec 对执行协议、推理、视觉及工具选择能力深复制往返。Trigger 准入创建的 Goal Snapshot 保存来源事件、投递身份和项目根与执行工作区映射及由可信宿主冻结的动作范围；范围本身不等于有效授权。Snapshot 不保存 Base URL、API Key 或认证头，schemaVersion 仍为 1。
+`modelSelection.executionApi` 当前只允许 `openai-completions`，且必须搭配 OpenCode Go Provider 与有效的上下文、输出容量；Codec 对执行协议、推理、视觉及工具选择能力深复制往返。Trigger 准入创建的 Goal Snapshot 保存来源 Trigger ID、项目根与执行工作区映射及由可信宿主冻结的动作范围；范围本身不等于有效授权。Snapshot 不保存 Base URL、API Key 或认证头，schemaVersion 仍为 1。
 
-`TriggerDeliveryStore` 以独立投递身份保存权限请求与回复。Worker 请求载荷绑定 Goal、Run、Action、交互、提交修订和 Worker generation；回复必须复核这些身份，并且仅在 Worker Runtime 已应用后，以单个 SQLite 事务将请求和回复都标记为 `handled`。模型或 Worker 故障分类留在待处理请求上，Storage 不认证来源或作出授权决定。
+`TriggerDeliveryStore` 以独立投递身份保存权限请求与回复。`permission.requested` 在 Trigger payload 中携带 Run、Action、交互和提交修订；Worker 身份位于 Trigger source。`permission.decided` 只携带决定、scope 和 reason，通过顶层 `goalId` 与 `replyTo` 关联请求；处理器从已保存请求投影其内部路由视图。只有 Worker Runtime 已应用回复后，SQLite 才以单个事务将请求和回复都标记为 `handled`。模型或 Worker 故障分类留在待处理请求上，Storage 不认证来源或作出授权决定。
 
 每条正式消息在 Snapshot 中保存 `messageId`、所属 `runId`、判别式来源与助手用途（`process`／`answer`／`notice`）。语义校验要求同一 Goal 内 `messageId` 与来源各自唯一；重复身份、重复来源或缺少身份字段的旧结构消息在 Codec 边界 fail-closed，不做兼容解析或迁移。
 
@@ -63,7 +63,7 @@ Plan Run 的 `planRoute` 仅能出现在已有 `approvedTask` 的 Plan Run 上�
 
 Snapshot 原样保存 Goal 级 `commitRevision`、`inputLedger` 与 `messageQueue`。账本记录只保存 `inputId`、种类、`sha256` 载荷摘要、受理序号、`admittedAtRevision` 与 pending／applied／cleared 状态及必要关联；正文只保存在队列项或 Goal 消息中。语义校验要求账本身份唯一、受理序号在账本顺序内严格递增、已应用记录指向真实 user 消息位置、队列项与一条 pending message 记录一一对应，并要求摘要为 `sha256:<64 hex>`；不一致的快照 fail-closed，不自动修正或迁移。
 
-`TriggerDeliveryStore` 按接收顺序读取指定 Goal 的全部投递。Worker `progress` Trigger 绑定逻辑 Worker、进程 generation、Run 与 Snapshot `commitRevision`；稳定摘要使重复报告幂等。Supervisor 核对当前队列绑定和 Goal 快照后才持久化等待/终态状态；取消投递只有在 Runtime 的 `interruption` 进入 `finished`、Goal 为 `cancelled` 且终态进度已保存后才结算并释放 Worker。未确认或断连时取消投递保持 pending，原队列绑定不变。
+`TriggerDeliveryStore` 按接收顺序读取指定 Goal 的全部投递。Worker 等待态 `response.progress` Trigger 通过 source 保存逻辑 Worker 与进程 generation，使用顶层 `goalId` 和 `replyTo` 关联请求，并在 payload 中携带 Run 与等待类型。Supervisor 核对当前队列绑定和 Goal 快照后才持久化等待/终态状态；终态以 Goal Snapshot 与队列记录为准。取消投递只有在 Runtime 的 `interruption` 进入 `finished`、Goal 为 `cancelled` 且终态快照与队列状态已保存后才结算并释放 Worker。未确认或断连时取消投递保持 pending，原队列绑定不变。
 
 
 当前 Snapshot 同时校验 `pendingProgram` 与运行中父 Action、子 `pendingAction` 的身份及调用位置；Codec 原位保存恢复指针和已用结果字节数。PTC 子事实的 `programId/callIndex` 随 Trajectory 严格解析，结果仍以 Snapshot 的提交边界为准。`program_time_reserved` 是例外：它在同一 JSONL 中单独同步到磁盘，恢复时无论 Snapshot 是否纳入该事件都要计入预算，防止崩溃重置额度。Storage 不推断工具是否已经产生外部副作用。

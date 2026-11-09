@@ -11,26 +11,28 @@ import { createGoal } from "../../runtime/src/domain";
 import { currentProtocols } from "../../runtime/test/current-fixtures";
 import { SupervisorOwnership } from "../src/supervisor-ownership";
 import { TriggerDeliveryStore } from "../src/trigger-delivery-store";
+import { cancelTrigger, permissionDecisionTrigger, permissionRequestTrigger, waitingTrigger, workTrigger } from "../../runtime/test/trigger-fixtures";
 
 test("trigger deliveries survive reopening and reject identity conflicts", async () => {
     const dir = await mkdtemp(join(tmpdir(), "lazygoal-trigger-"));
     try {
         const path = join(dir, "deliveries.db");
         const first = new TriggerDeliveryStore(path);
-        const item = { deliveryId: "d1", trigger: { id: "t1", purpose: "work", source: "user", payload: '{"b":2,"a":1}' }, goalId: "g1" };
+        const trigger = workTrigger("t1", "inspect files");
+        const item = { deliveryId: "d1", trigger };
         assert.equal(first.receive(item).status, "pending");
-        assert.equal(first.receive({ ...item, trigger: { ...item.trigger, payload: '{"a":1,"b":2}' } }).status, "pending");
-        assert.equal(first.receive({ ...item, deliveryId: "d2", goalId: "g2" }).status, "pending");
-        assert.throws(() => first.receive({ ...item, goalId: "other" }), /Delivery identity conflict/);
-        assert.throws(() => first.receive({ ...item, deliveryId: "d3", trigger: { ...item.trigger, payload: "{}" } }), /Trigger identity conflict/);
+        assert.equal(first.receive(item).status, "pending");
+        assert.equal(first.receive({ ...item, deliveryId: "d2" }).status, "pending");
+        assert.throws(() => first.receive({ ...item, goalId: "other" }), /Invalid trigger delivery/);
+        assert.throws(() => first.receive({ ...item, deliveryId: "d3", trigger: workTrigger("t1", "different work") }), /Trigger identity conflict/);
         assert.deepEqual(first.pendingIds(), ["d1", "d2"]);
-        first.settle("d1", { kind: "handled" });
+        first.settle("d1", { kind: "ignored" });
         first.close();
         const second = new TriggerDeliveryStore(path);
         assert.equal(second.receive(item).status, "settled");
         assert.equal(second.read("d2")?.status, "pending");
         assert.deepEqual(second.pendingIds(), ["d2"]);
-        assert.throws(() => second.settle("d1", { kind: "ignored" }), /result conflict/);
+        assert.equal(second.settle("d1", { kind: "ignored" }).status, "settled");
         second.close();
     } finally { await rm(dir, { recursive: true, force: true }); }
 });
@@ -39,10 +41,11 @@ test("trigger delivery validates structure and worker process identity", async (
     const dir = await mkdtemp(join(tmpdir(), "lazygoal-trigger-"));
     try {
         const store = new TriggerDeliveryStore(join(dir, "deliveries.db"));
-        const trigger = { id: "t", purpose: "progress", source: "worker", payload: "{}" };
-        assert.throws(() => store.receive({ deliveryId: "d", trigger }), /identity/);
-        assert.throws(() => store.receive({ deliveryId: "d", trigger: { ...trigger, workerId: "w", generation: "1", payload: "bad" } }), /payload/);
-        assert.equal(store.read("d"), undefined);
+        const trigger = waitingTrigger("t", "g", "work", "run", "w", "1");
+        assert.equal(store.receive({ deliveryId: "d", trigger }).status, "pending");
+        assert.throws(() => store.receive({ deliveryId: "bad", trigger: { ...trigger, source: { role: "worker", workerId: "w", generation: "" } } }), /identity/);
+        assert.throws(() => store.receive({ deliveryId: "invalid", trigger: { ...trigger, payload: { action: "progress", runId: "run", status: "waiting", extra: true } } }), /Invalid trigger delivery/);
+        assert.equal(store.read("invalid"), undefined);
         store.close();
     } finally { await rm(dir, { recursive: true, force: true }); }
 });
@@ -52,52 +55,33 @@ test("Action 权限请求只接受绑定原请求身份的回复并原子结算"
     try {
         const store = new TriggerDeliveryStore(join(dir, "deliveries.db"));
         const request = {
-            type: "action_approval_request",
+            type: "action_approval_request" as const,
             requestId: "permission-request-1",
             runId: "run-1",
             actionId: "action-1",
             interactionId: "action_approval:action-1",
             commitRevision: 4,
         };
-        const requestDelivery = {
-            deliveryId: "permission-request-delivery-1",
-            goalId: "goal-1",
-            trigger: {
-                id: request.requestId, purpose: "permission", source: "worker",
-                workerId: "worker-1", generation: "generation-1", payload: JSON.stringify(request),
-            },
-        };
+        const requestTrigger = permissionRequestTrigger(request.requestId, "goal-1", "worker-1", "generation-1", {
+            runId: request.runId, actionId: request.actionId, interactionId: request.interactionId, commitRevision: request.commitRevision,
+        });
+        const requestDelivery = { deliveryId: "permission-request-delivery-1", trigger: requestTrigger };
         store.receive(requestDelivery);
         store.recordActionPermissionFailure(requestDelivery.deliveryId, "model-failed");
         assert.equal(store.actionPermissionFailure(requestDelivery.deliveryId), "model-failed");
 
-        const reply = {
-            type: "action_approval_reply",
-            requestDeliveryId: requestDelivery.deliveryId,
-            requestId: request.requestId,
-            runId: request.runId,
-            actionId: request.actionId,
-            interactionId: request.interactionId,
-            commitRevision: request.commitRevision,
-            workerId: "worker-1",
-            generation: "generation-1",
-            decision: "approve",
-            scope: "action",
-        };
         const mismatchedReply = {
             deliveryId: "permission-reply-mismatch",
-            goalId: "goal-1",
-            trigger: { id: "permission-reply-event-mismatch", purpose: "permission", source: "supervisor", payload: JSON.stringify({ ...reply, actionId: "action-other" }) },
+            trigger: permissionDecisionTrigger("permission-reply-event-mismatch", "goal-1", "other-request", "approve"),
         };
         store.receive(mismatchedReply);
-        assert.throws(() => store.settleActionPermissionExchange(requestDelivery.deliveryId, mismatchedReply.deliveryId), /payload identity/);
+        assert.throws(() => store.settleActionPermissionExchange(requestDelivery.deliveryId, mismatchedReply.deliveryId), /reply Trigger|identity/);
         assert.equal(store.read(requestDelivery.deliveryId)?.status, "pending");
         assert.equal(store.read(mismatchedReply.deliveryId)?.status, "pending");
 
         const validReply = {
             deliveryId: "permission-reply-valid",
-            goalId: "goal-1",
-            trigger: { id: "permission-reply-event-valid", purpose: "permission", source: "supervisor", payload: JSON.stringify(reply) },
+            trigger: permissionDecisionTrigger("permission-reply-event-valid", "goal-1", requestTrigger.id, "approve"),
         };
         store.receive(validReply);
         const settled = store.settleActionPermissionExchange(requestDelivery.deliveryId, validReply.deliveryId);
@@ -131,7 +115,7 @@ test("corrupted persisted event does not become a missing delivery", async () =>
     try {
         const path = join(dir, "deliveries.db");
         const store = new TriggerDeliveryStore(path);
-        const input = { deliveryId: "d", trigger: { id: "t", purpose: "work", source: "user", payload: "{}" } };
+        const input = { deliveryId: "d", trigger: workTrigger("t") };
         store.receive(input);
         store.receive({ deliveryId: "other", trigger: { ...input.trigger, id: "other-event" } });
         store.close();
@@ -152,10 +136,10 @@ test("goal reservations survive restart and acceptance atomically orders queue a
     try {
         const path = join(dir, "deliveries.db");
         const first = new TriggerDeliveryStore(path);
-        const event = { id: "t", purpose: "work", source: "user", payload: "{}" };
+        const event = workTrigger("t");
         first.receive({ deliveryId: "d1", trigger: event });
         first.receive({ deliveryId: "d2", trigger: event });
-        first.receive({ deliveryId: "linked", trigger: event, goalId: "existing-goal" });
+        first.receive({ deliveryId: "linked", trigger: cancelTrigger("linked-trigger", "existing-goal", "run-existing") });
         assert.throws(() => first.reserveGoal("linked", "new-goal"), /pending work/);
         first.reserveGoal("d1", "g1");
         first.reserveGoal("d1", "g1");
@@ -188,7 +172,7 @@ test("dispatch claims persist FIFO bindings and cannot reuse a busy Worker", asy
         const path = join(dir, "receipts.db");
         const owner = new SupervisorOwnership(join(dir, "owner.db"));
         const store = new TriggerDeliveryStore(path);
-        const trigger = { id: "t", purpose: "work", source: "user", payload: "{}" };
+        const trigger = workTrigger("t");
         for (const id of ["1", "2"]) {
             store.receive({ deliveryId: `d${id}`, trigger });
             store.reserveGoal(`d${id}`, `g${id}`);
@@ -215,7 +199,7 @@ test("a forged accepted outcome without its atomic queue entry fails closed", as
     try {
         const path = join(dir, "deliveries.db");
         const store = new TriggerDeliveryStore(path);
-        store.receive({ deliveryId: "d", trigger: { id: "t", purpose: "work", source: "user", payload: "{}" } });
+        store.receive({ deliveryId: "d", trigger: workTrigger("t") });
         store.reserveGoal("d", "g");
         store.close();
         const db = new DatabaseSync(path);

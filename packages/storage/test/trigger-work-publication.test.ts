@@ -9,6 +9,7 @@ import { JsonFileGoalStore } from "../src/goal-store";
 import { SupervisorOwnership } from "../src/supervisor-ownership";
 import { TriggerDeliveryStore } from "../src/trigger-delivery-store";
 import { publishAuthorizedWork } from "../src/trigger-work-publication";
+import { workTrigger } from "../../runtime/test/trigger-fixtures";
 
 test("authorized work is persisted and duplicate deliveries return the original result", async () => {
     const dir = await mkdtemp(join(tmpdir(), "trigger-work-"));
@@ -17,7 +18,7 @@ test("authorized work is persisted and duplicate deliveries return the original 
         const receipts = new TriggerDeliveryStore(join(dir, "receipts.db"));
         const goals = new JsonFileGoalStore(dir);
         const principal = { role: "user", mayCreateGoal: true, goalIds: [] } as const;
-        const trigger = { id: "t", purpose: "work", source: "user", payload: "{}" };
+        const trigger = workTrigger("t");
         const goal = createGoal({ ...currentProtocols, id: "g", runId: "r", intent: "work", promptBundleVersion: 1,
             profile: { id: "profile", systemPrompt: "", instructions: [], toolIds: [] } });
         const delivery = { deliveryId: "d", trigger };
@@ -31,7 +32,7 @@ test("authorized work is persisted and duplicate deliveries return the original 
         assert.deepEqual(second, first);
         assert.deepEqual(receipts.queuedGoalIds(), ["g"]);
         assert.equal((await goals.restore("g"))?.id, "g");
-        await assert.rejects(publishAuthorizedWork(owner, receipts, goals, { deliveryId: "bad", trigger: { ...trigger, source: "external" } }, principal, async () => goal), /source/);
+        await assert.rejects(publishAuthorizedWork(owner, receipts, goals, { deliveryId: "bad", trigger: { ...trigger, source: { role: "supervisor" } } }, principal, async () => goal), /source/);
         await owner.close();
         receipts.close();
     } finally { await rm(dir, { recursive: true, force: true }); }
@@ -44,7 +45,7 @@ test("a retry reuses the Goal ID reserved before interruption", async () => {
         const receipts = new TriggerDeliveryStore(join(dir, "receipts.db"));
         const goals = new JsonFileGoalStore(dir);
         const principal = { role: "user", mayCreateGoal: true, goalIds: [] } as const;
-        const delivery = { deliveryId: "d", trigger: { id: "t", purpose: "work", source: "user", payload: "{}" } };
+        const delivery = { deliveryId: "d", trigger: workTrigger("t") };
         receipts.receive(delivery);
         receipts.reserveGoal("d", "reserved-g");
         const result = await publishAuthorizedWork(owner, receipts, goals, delivery, principal, async (reserved) => {

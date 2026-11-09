@@ -68,4 +68,4 @@
 | 模型请求失败 | 适配边界确认的请求错误以 `MODEL_REQUEST_FAILED` 结算，不进入协议纠错。 | [Goal Runtime](../README.md) | [错误分类](../src/runner.ts) |
 | 阶段请求状态核对 | 在接受与提交前核对请求的阶段和路线版本，拒绝过期结果并重新决策。 | [Goal Runtime](../README.md) | [执行循环](../src/runner.ts) |
 
-| GoalTriggerContext | 记录创建 Goal 的 Trigger、投递身份和动作权限上限；Runner 在工具准备与授权时强制工具 ID 和实际沙箱范围不越界。 | [Runtime](../README.md) | [领域契约](../src/domain.ts)、[Runner](../src/runner.ts) |
+| GoalTriggerContext | 记录创建 Goal 的 Trigger ID 和动作权限上限；Runner 在工具准备与授权时强制工具 ID 和实际沙箱范围不越界。 | [Runtime](../README.md) | [领域契约](../src/domain.ts)、[Runner](../src/runner.ts) |

@@ -11,6 +11,7 @@ import { currentProtocols } from "../../runtime/test/current-fixtures";
 import { SupervisorOwnership } from "../src/supervisor-ownership";
 import { JsonFileGoalStore } from "../src/goal-store";
 import { TriggerDeliveryStore } from "../src/trigger-delivery-store";
+import { workTrigger } from "../../runtime/test/trigger-fixtures";
 import { publishTriggerGoal } from "../src/trigger-goal-publication";
 
 function goal(id: string) {
@@ -24,7 +25,7 @@ test("published Goal is recovered after losing its publication response", async 
         const db = join(dir, "receipts.db");
         const owner = new SupervisorOwnership(join(dir, "owner.db"));
         const deliveries = new TriggerDeliveryStore(db);
-        deliveries.receive({ deliveryId: "d", trigger: { id: "t", purpose: "work", source: "user", payload: "{}" } });
+        deliveries.receive({ deliveryId: "d", trigger: workTrigger("t") });
         deliveries.reserveGoal("d", "g");
         deliveries.freezeGoal("d", goal("g"));
         let calls = 0;
@@ -51,7 +52,7 @@ test("occupied unreadable Goal is rejected without changing its file", async () 
     try {
         const owner = new SupervisorOwnership(join(dir, "owner.db"));
         const deliveries = new TriggerDeliveryStore(join(dir, "receipts.db"));
-        deliveries.receive({ deliveryId: "d", trigger: { id: "t", purpose: "work", source: "user", payload: "{}" } });
+        deliveries.receive({ deliveryId: "d", trigger: workTrigger("t") });
         deliveries.reserveGoal("d", "g");
         deliveries.freezeGoal("d", goal("g"));
         const path = join(dir, `${Buffer.from("g").toString("base64url")}.json`);
@@ -72,7 +73,7 @@ test("lost response after receipt commit is queryable and cannot enqueue twice",
         const path = join(dir, "receipts.db");
         const owner = new SupervisorOwnership(join(dir, "owner.db"));
         const deliveries = new TriggerDeliveryStore(path);
-        deliveries.receive({ deliveryId: "d", trigger: { id: "t", purpose: "work", source: "user", payload: "{}" } });
+        deliveries.receive({ deliveryId: "d", trigger: workTrigger("t") });
         deliveries.reserveGoal("d", "g");
         deliveries.freezeGoal("d", goal("g"));
         const failingCleanup = new JsonFileGoalStore(dir, {
@@ -99,7 +100,7 @@ test("receipt failure rolls back queue and retry completes the published Goal", 
         const path = join(dir, "receipts.db");
         const owner = new SupervisorOwnership(join(dir, "owner.db"));
         const deliveries = new TriggerDeliveryStore(path);
-        deliveries.receive({ deliveryId: "d", trigger: { id: "t", purpose: "work", source: "user", payload: "{}" } });
+        deliveries.receive({ deliveryId: "d", trigger: workTrigger("t") });
         deliveries.reserveGoal("d", "g");
         deliveries.freezeGoal("d", goal("g"));
         const { DatabaseSync } = await import("node:sqlite");
@@ -127,7 +128,7 @@ test("recovery reconciles a Goal after the publishing process terminates", async
     try {
         const path = join(dir, "receipts.db");
         const receipts = new TriggerDeliveryStore(path);
-        receipts.receive({ deliveryId: "d", trigger: { id: "t", purpose: "work", source: "user", payload: "{}" } });
+        receipts.receive({ deliveryId: "d", trigger: workTrigger("t") });
         receipts.reserveGoal("d", "g");
         receipts.freezeGoal("d", goal("g"));
         receipts.close();

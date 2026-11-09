@@ -1,4 +1,4 @@
-import { triggerDeliveryFileBinding } from "./generated/trigger-delivery-binding";
+import { readTriggerDeliveryFile } from "./trigger-delivery-file";
 import type { TriggerDeliveryResult } from "./trigger-delivery-store";
 import { TriggerDeliveryStore } from "./trigger-delivery-store";
 
@@ -42,21 +42,24 @@ export function receiveAuthorizedTrigger(
     input: unknown,
     principal: TriggerIngressPrincipal,
 ): TriggerDeliveryResult {
-    const parsed = triggerDeliveryFileBinding.read(input, "reject");
-    if (!parsed.ok) throw new Error("Invalid trigger delivery");
-    const { trigger, goalId } = parsed.data;
-    if (trigger.source !== principal.role) throw new Error("Trigger source does not match authenticated principal");
+    const delivery = readTriggerDeliveryFile(input);
+    if (delivery === undefined) throw new Error("Invalid trigger delivery");
+    const { trigger } = delivery;
+    const goalId = "goalId" in trigger ? trigger.goalId : undefined;
+    const expectedRole = principal.role === "user" ? "external" : principal.role;
+    if (trigger.source.role !== expectedRole) throw new Error("Trigger source does not match authenticated principal");
     if (principal.role === "worker") {
-        if (trigger.workerId !== principal.workerId || trigger.generation !== principal.generation) {
+        if (trigger.source.role !== "worker" || trigger.source.workerId !== principal.workerId
+            || trigger.source.generation !== principal.generation) {
             throw new Error("Trigger worker identity does not match authenticated process");
         }
         if (goalId !== undefined && goalId !== principal.goalId) throw new Error("Trigger target is not authorized");
-        if (goalId === undefined && trigger.purpose === "work" && !principal.mayCreateGoal) throw new Error("Trigger cannot create a Goal");
-        if (goalId === undefined && trigger.purpose !== "work" && trigger.purpose !== "lifecycle") throw new Error("Worker trigger requires its assigned Goal");
+        if (goalId === undefined && trigger.type === "work" && !principal.mayCreateGoal) throw new Error("Trigger cannot create a Goal");
+        if (goalId === undefined && trigger.type !== "work" && trigger.type !== "lifecycle") throw new Error("Worker trigger requires its assigned Goal");
     } else if (goalId === undefined) {
-        if (trigger.purpose !== "work" || !principal.mayCreateGoal) throw new Error("Trigger cannot create a Goal");
+        if (trigger.type !== "work" || !principal.mayCreateGoal) throw new Error("Trigger cannot create a Goal");
     } else if (!principal.goalIds.includes(goalId)) {
         throw new Error("Trigger target is not authorized");
     }
-    return store.receive(parsed.data);
+    return store.receive(delivery);
 }

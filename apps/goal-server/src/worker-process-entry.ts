@@ -6,13 +6,8 @@ import { createRuntimeComposition, decodeWorkerInteractionPayload, type WorkerPr
 import { projectInteractionView } from "../../../packages/runtime/src/interaction-view";
 import type { GoalStore } from "../../../packages/runtime/src/goal-store";
 import type { Goal } from "../../../packages/runtime/src/domain";
-import {
-    decodeTriggerActionPermissionReply,
-    goalSnapshotCodec,
-    type GoalSnapshotV1,
-    type TriggerDeliveryFile,
-} from "../../../packages/storage/src/index";
-import { triggerDeliveryFileBinding } from "../../../packages/storage/src/generated/trigger-delivery-binding";
+import { goalSnapshotCodec, type GoalSnapshotV1 } from "../../../packages/storage/src/index";
+import { readTriggerDeliveryFile, type TriggerDeliveryFile } from "../../../packages/storage/src/trigger-delivery-file";
 
 type ParentMessage =
     | { readonly kind: "probe"; readonly requestId: string }
@@ -250,7 +245,7 @@ async function handle(message: ParentMessage): Promise<void> {
         return;
     }
     if (message.kind === "permission-response") {
-        const goalId = message.delivery.goalId;
+        const goalId = "goalId" in message.delivery.trigger ? message.delivery.trigger.goalId : undefined;
         if (operationActive || assignedGoalId === undefined || assignedRunId === undefined || goalId === undefined || assignedGoalId !== goalId) {
             await persistAndSend({ kind: "permission-result", requestId: message.requestId, goalId: goalId ?? "",
                 result: { kind: "rejected", code: "WORKER_GOAL_MISMATCH", message: "Worker does not own the permission target" } });
@@ -265,7 +260,7 @@ async function handle(message: ParentMessage): Promise<void> {
         return;
     }
     if (message.kind === "interaction-response") {
-        const goalId = message.delivery.goalId;
+        const goalId = "goalId" in message.delivery.trigger ? message.delivery.trigger.goalId : undefined;
         if (operationActive || assignedGoalId === undefined || assignedRunId === undefined
             || goalId === undefined || assignedGoalId !== goalId) {
             await persistAndSend({ kind: "interaction-result", requestId: message.requestId, goalId: goalId ?? "",
@@ -318,34 +313,26 @@ async function executeAdvance(message: Extract<ParentMessage, { readonly kind: "
 }
 
 async function executePermissionResponse(message: Extract<ParentMessage, { readonly kind: "permission-response" }>): Promise<void> {
-    const goalId = message.delivery.goalId ?? "";
+    const trigger = message.delivery.trigger;
+    const goalId = "goalId" in trigger ? trigger.goalId : "";
     let progress: WorkerProgress;
     try {
-        const parsed = triggerDeliveryFileBinding.read(message.delivery, "reject");
-        if (!parsed.ok) throw new Error("Invalid permission delivery");
-        const delivery = parsed.data;
-        if (delivery.trigger.purpose !== "permission" || delivery.goalId !== assignedGoalId
-            || (delivery.trigger.source !== "user" && delivery.trigger.source !== "supervisor")) {
-            throw new Error("Permission delivery target is invalid");
-        }
-        const reply = decodeTriggerActionPermissionReply(delivery.trigger.payload);
-        if (reply.workerId !== workerId || reply.generation !== generation || reply.runId !== assignedRunId
-            || reply.interactionId !== `action_approval:${reply.actionId}`) {
-            throw new Error("Permission reply identity does not match this Worker generation");
+        if (trigger.type !== "permission" || trigger.payload.action !== "decided" || goalId !== assignedGoalId
+            || (trigger.source.role !== "external" && trigger.source.role !== "supervisor")) {
+            throw new Error("Permission Trigger target is invalid");
         }
         const currentRuntime = await ensureRuntime();
-        const goal = await currentRuntime.store.restore(delivery.goalId!);
-        if (goal === undefined || goal.state.run.id !== reply.runId || goal.state.run.status !== "waiting"
-            || (goal.state.commitRevision ?? 0) !== reply.commitRevision
-            || goal.state.run.pendingAction?.status !== "awaiting_approval"
-            || goal.state.run.pendingAction.action.actionId !== reply.actionId) {
-            throw new Error("Permission reply no longer matches the current Action wait");
+        const goal = await currentRuntime.store.restore(goalId);
+        const actionId = goal?.state.run.pendingAction?.action.actionId;
+        if (goal === undefined || goal.state.run.id !== assignedRunId || goal.state.run.status !== "waiting"
+            || goal.state.run.pendingAction?.status !== "awaiting_approval" || actionId === undefined) {
+            throw new Error("Permission Trigger no longer matches the current Action wait");
         }
         const result = await currentRuntime.commands.resume({
-            ref: { goalId: goal.id, runId: reply.runId },
-            action: reply.decision === "approve"
-                ? { kind: "approve_action", actionId: reply.actionId, scope: "action", approvalInputId: delivery.trigger.id }
-                : { kind: "reject_action", actionId: reply.actionId, reason: reply.reason! },
+            ref: { goalId: goal.id, runId: goal.state.run.id },
+            action: trigger.payload.decision === "approve"
+                ? { kind: "approve_action", actionId, scope: "action", approvalInputId: trigger.id }
+                : { kind: "reject_action", actionId, reason: trigger.payload.reason },
         });
         progress = !result.ok
             ? { kind: "rejected", code: result.error.code, message: "Action permission reply was not accepted" }
@@ -363,28 +350,25 @@ async function executePermissionResponse(message: Extract<ParentMessage, { reado
 
 async function executeInteractionResponse(message: Extract<ParentMessage, { readonly kind: "interaction-response" }>): Promise<void> {
     const delivery = message.delivery;
-    const goalId = delivery.goalId ?? "";
+    const trigger = delivery.trigger;
+    const goalId = "goalId" in trigger ? trigger.goalId : "";
     let progress: WorkerProgress;
     try {
         const payload = decodeWorkerInteractionPayload(delivery);
-        if (assignedGoalId !== goalId || assignedRunId !== payload.runId
-            || payload.workerId !== workerId || payload.generation !== generation) {
-            throw new Error("Interaction Trigger belongs to another Worker generation");
+        if (trigger.type !== "interaction" || trigger.payload.action !== "answered" || assignedGoalId !== goalId) {
+            throw new Error("Interaction Trigger belongs to another Goal");
         }
         const currentRuntime = await ensureRuntime();
         const goal = await currentRuntime.store.restore(goalId);
-        const interaction = goal === undefined ? undefined : projectInteractionView(goal);
         const localId = goal?.state.run.pendingAction?.action.actionId
             ?? goal?.state.run.pendingInteraction?.requestId;
-        if (goal === undefined || goal.state.run.id !== payload.runId || goal.state.run.status !== "waiting"
-            || (goal.state.commitRevision ?? 0) !== payload.commitRevision
-            || interaction === undefined || interaction.interactionId !== payload.interactionId
-            || interaction.runId !== payload.runId || localId !== payload.requestId) {
+        if (goal === undefined || goal.state.run.id !== assignedRunId || goal.state.run.status !== "waiting"
+            || (payload.interactionRequestId !== undefined && localId !== payload.interactionRequestId)) {
             throw new Error("Interaction Trigger is stale for the current Goal wait");
         }
         const result = await currentRuntime.commands.resume({
-            ref: { goalId, runId: payload.runId },
-            action: payload.action,
+            ref: { goalId, runId: goal.state.run.id },
+            action: payload.answer,
         });
         progress = !result.ok
             ? { kind: "rejected", code: result.error.code, message: "Goal interaction was not accepted" }
@@ -511,13 +495,13 @@ function parseParentMessage(value: unknown): ParentMessage | undefined {
         && "runId" in value && typeof value.runId === "string") return value as ParentMessage;
     if (value.kind === "permission-response" && "requestId" in value && typeof value.requestId === "string"
         && "delivery" in value) {
-        const delivery = triggerDeliveryFileBinding.read(value.delivery, "reject");
-        return delivery.ok ? { kind: "permission-response", requestId: value.requestId, delivery: delivery.data } : undefined;
+        const delivery = readTriggerDeliveryFile(value.delivery);
+        return delivery === undefined ? undefined : { kind: "permission-response", requestId: value.requestId, delivery };
     }
     if (value.kind === "interaction-response" && "requestId" in value && typeof value.requestId === "string"
         && "delivery" in value) {
-        const delivery = triggerDeliveryFileBinding.read(value.delivery, "reject");
-        return delivery.ok ? { kind: "interaction-response", requestId: value.requestId, delivery: delivery.data } : undefined;
+        const delivery = readTriggerDeliveryFile(value.delivery);
+        return delivery === undefined ? undefined : { kind: "interaction-response", requestId: value.requestId, delivery };
     }
     if (value.kind === "store-reply" && "requestId" in value && typeof value.requestId === "string"
         && "ok" in value && typeof value.ok === "boolean"

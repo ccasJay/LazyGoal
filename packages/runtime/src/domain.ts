@@ -503,30 +503,24 @@ export type GoalMessage = UserMessage | AssistantMessage;
  * ```
  */
 /**
- * 由可信 Supervisor 冻结的 Goal 来源与动作权限范围。
+ * 由可信 Supervisor 冻结的 Goal 来源关联与动作权限范围。
  *
  * @remarks
- * 范围是当前 Goal 的上限，不能替代宿主上限、有效授权或沙箱强制执行。
- * Trigger 是不可变事实；投递身份用于恢复该次准入。
+ * `triggerId` 指向持久化 Trigger 请求；`authorization` 仅是当前 Goal 的动作上限，不能替代宿主约束、有效授权或沙箱强制执行。
  *
  * @example
  * ```ts
  * const context: GoalTriggerContext = {
- *   deliveryId: "delivery-1", trigger: { id: "event-1", purpose: "work", source: "user", payload: "{}" },
- *   authorization: { workspace: { mode: "shared", projectRoot: "/project", executionRoot: "/project" }, toolIds: [], sandbox: { extraFiles: [], network: "none" } },
+ *   triggerId: "work-1",
+ *   authorization: {
+ *     workspace: { mode: "shared", projectRoot: "/project", executionRoot: "/project" },
+ *     toolIds: [], sandbox: { extraFiles: [], network: "none" },
+ *   },
  * };
  * ```
  */
 export interface GoalTriggerContext {
-    readonly deliveryId: string;
-    readonly trigger: {
-        readonly id: string;
-        readonly purpose: "work" | "permission" | "interaction" | "cancel" | "progress" | "lifecycle";
-        readonly source: "user" | "worker" | "external" | "supervisor";
-        readonly workerId?: string;
-        readonly generation?: string;
-        readonly payload: string;
-    };
+    readonly triggerId: string;
     readonly authorization: {
         readonly workspace: {
             readonly mode: "shared" | "worktree";

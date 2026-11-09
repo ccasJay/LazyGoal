@@ -1,9 +1,8 @@
 /**
- * Worker 发起的 Action 审批 Trigger 载荷。
+ * 严格 `permission.requested` Trigger 在 Supervisor 权限处理器中的内部视图。
  *
  * @remarks
- * 请求在 Worker 已提交 `action_approval` 等待后由 Supervisor 持久化，并关联一个 Goal、
- * Run、Action、交互身份、提交修订和进程代次。该载荷不含审批决定或授权凭据。
+ * 由已验证的 Trigger 结构投影；`requestId` 等同 Trigger 顶层 `id`。此 DTO 不作为 Trigger payload、wire 消息或持久化格式。
  *
  * @example
  * ```ts
@@ -14,9 +13,9 @@
  * ```
  */
 export interface TriggerActionPermissionRequest {
-    /** 供持久化 Codec 选择当前请求协议。 */
+    /** 内部投影类型标签，不出现在 Trigger payload 中。 */
     readonly type: "action_approval_request";
-    /** 同时作为 Worker 请求 Trigger 的稳定身份。 */
+    /** 原请求 Trigger 的稳定身份。 */
     readonly requestId: string;
     /** 请求所属的当前 Run。 */
     readonly runId: string;
@@ -29,12 +28,12 @@ export interface TriggerActionPermissionRequest {
 }
 
 /**
- * Supervisor 或获准用户对当前 Action 审批 Trigger 的回复载荷。
+ * 严格 `permission.decided` Trigger 与已存请求组合出的内部路由视图。
  *
  * @remarks
- * 回复必须复述原请求及当前 Worker generation。`approve` 只能使用 `action` 单次范围，
- * 不创建 Goal/workspace Grant；`reject` 必须携带非空理由。接收方仍需认证来源、核对
- * 持久请求和最新 Goal 等待，并在 Worker Runtime 应用后结算对应投递。
+ * Run、Action、交互修订和 Worker 身份从 `replyTo` 指向的原请求投影，不重复出现在决定 Trigger 中。
+ * `requestDeliveryId` 仅供内部账本查询；`approve` 只能使用 `action` 单次范围，`reject` 必须有非空理由。
+ * 此 DTO 不作为 Trigger payload、wire 消息或持久化格式。
  *
  * @example
  * ```ts
@@ -47,11 +46,11 @@ export interface TriggerActionPermissionRequest {
  * ```
  */
 export interface TriggerActionPermissionReply {
-    /** 供持久化 Codec 选择当前回复协议。 */
+    /** 内部投影类型标签，不出现在 Trigger payload 中。 */
     readonly type: "action_approval_reply";
-    /** 已持久化的 Worker 请求投递身份。 */
+    /** 内部账本中保存原请求的投递标识。 */
     readonly requestDeliveryId: string;
-    /** 原 Worker 请求与 Trigger 身份。 */
+    /** 原请求 Trigger 的身份。 */
     readonly requestId: string;
     /** 原请求所属 Run。 */
     readonly runId: string;

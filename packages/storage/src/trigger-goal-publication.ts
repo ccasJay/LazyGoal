@@ -32,7 +32,7 @@ export async function publishTriggerGoal(
 
 async function publishOwnedGoal(deliveries: TriggerDeliveryStore, goals: JsonFileGoalStore, deliveryId: string): Promise<TriggerDeliveryResult> {
     const receipt = deliveries.read(deliveryId);
-    if (receipt === undefined || receipt.delivery.trigger.purpose !== "work") throw new Error("Pending work delivery does not exist");
+    if (receipt === undefined || receipt.delivery.trigger.type !== "work") throw new Error("Pending work delivery does not exist");
     if (receipt.status === "settled") {
         await goals.releaseCreationIntent(deliveryId);
         return receipt;

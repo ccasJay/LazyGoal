@@ -615,8 +615,7 @@ test("Worker Goal 不会因 Profile 暴露默认工具而越过冻结的 Tool ID
         definition: {
             ...created.definition,
             triggerContext: {
-                deliveryId: "work-delivery",
-                trigger: { id: "work-trigger", purpose: "work", source: "user", payload: "{}" },
+                triggerId: "work-trigger",
                 authorization: {
                     workspace: { mode: "shared", projectRoot: "/project", executionRoot: "/project" },
                     toolIds: [],

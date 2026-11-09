@@ -1,10 +1,11 @@
 import { DatabaseSync } from "node:sqlite";
 import { closeSync, openSync } from "node:fs";
-import { canonicalJson, isRecord } from "../../contracts/src/index";
-import { triggerDeliveryFileBinding } from "./generated/trigger-delivery-binding";
+import { canonicalJson } from "../../contracts/src/index";
+import { readTriggerDeliveryFile } from "./trigger-delivery-file";
 import type { TriggerDeliveryFile, TriggerDeliveryOutcome } from "./trigger-delivery-file";
 import { triggerDeliveryOutcomeBinding } from "./generated/trigger-delivery-outcome-binding";
 import type { Goal } from "../../runtime/src/domain";
+import type { Trigger } from "../../runtime/src/trigger";
 import { goalSnapshotCodec } from "./goal-snapshot-codec";
 import { SupervisorOwnership } from "./supervisor-ownership";
 import { decodeTriggerActionPermissionReply, decodeTriggerActionPermissionRequest } from "./trigger-permission-codec";
@@ -84,7 +85,12 @@ export type TriggerActionPermissionFailureReason =
  * @example
  * ```ts
  * const store = new TriggerDeliveryStore("/private/trigger.db");
- * store.receive({ deliveryId: "d", trigger: { id: "t", purpose: "work", source: "user", payload: "{}" } });
+ * store.receive({ deliveryId: "trigger-1", trigger: {
+ *   id: "trigger-1", name: "Submit work", type: "work",
+ *   source: { role: "external", externalId: "session-1" }, target: "supervisor",
+ *   payload: { action: "submitted", material: { kind: "text", text: "Inspect the failing test" } },
+ *   sentAt: new Date().toISOString(),
+ * } });
  * store.close();
  * ```
  */
@@ -123,7 +129,8 @@ export class TriggerDeliveryStore {
                 status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'claimed', 'waiting', 'terminal')),
                 CHECK ((worker_id IS NULL AND generation IS NULL) OR (worker_id IS NOT NULL AND generation IS NOT NULL))
             ) STRICT;
-            CREATE INDEX IF NOT EXISTS trigger_deliveries_goal ON trigger_deliveries(json_extract(content, '$.goalId'));
+            DROP INDEX IF EXISTS trigger_deliveries_goal;
+            CREATE INDEX trigger_deliveries_goal ON trigger_deliveries(json_extract(content, '$.trigger.goalId'));
             CREATE TABLE IF NOT EXISTS trigger_worker_recoveries (
                 goal_id TEXT PRIMARY KEY REFERENCES trigger_goal_queue(goal_id),
                 worker_id TEXT NOT NULL,
@@ -195,8 +202,8 @@ export class TriggerDeliveryStore {
                 || (result.kind === "accepted" && queued?.goal_id !== result.goalId)
                 || (result.kind === "rejected" && queued !== undefined)) throw new Error("Inconsistent trigger outcome");
         }
-        if ((result.kind === "ignored" && delivery.trigger.purpose !== "work")
-            || (result.kind === "handled" && delivery.trigger.purpose === "work" && delivery.goalId === undefined)) {
+        if ((result.kind === "ignored" && !isWorkTrigger(delivery.trigger))
+            || (result.kind === "handled" && isWorkTrigger(delivery.trigger))) {
             throw new Error("Inconsistent trigger outcome");
         }
         return { status: "settled", delivery, result };
@@ -241,7 +248,7 @@ export class TriggerDeliveryStore {
      *
      * @remarks
      * 返回待处理与已结算记录，供宿主恢复交互、进度和结果视图；调用方仍须按
-     * `trigger.purpose` 解释载荷，不应把其内容当作可执行授权。
+     * `trigger.type` 与 `payload.action` 解释事件；结构校验不替代授权判断。
      *
      * @param goalId - Trigger 投递关联的 Goal 身份。
      * @returns 该 Goal 的已校验投递记录；没有记录时返回空数组。
@@ -253,7 +260,7 @@ export class TriggerDeliveryStore {
      */
     listGoalDeliveries(goalId: string): readonly TriggerDeliveryResult[] {
         if (!goalId.trim()) throw new Error("Goal identity is required");
-        const rows = this.database.prepare("SELECT id FROM trigger_deliveries WHERE json_extract(content, '$.goalId') = ? ORDER BY rowid").all(goalId) as { id: string }[];
+        const rows = this.database.prepare("SELECT id FROM trigger_deliveries WHERE json_extract(content, '$.trigger.goalId') = ? ORDER BY rowid").all(goalId) as { id: string }[];
         return rows.map(({ id }) => this.read(id)).filter((result): result is TriggerDeliveryResult => result !== undefined);
     }
 
@@ -268,9 +275,9 @@ export class TriggerDeliveryStore {
     listWorkerLifecycle(workerId: string, generation: string): readonly TriggerDeliveryResult[] {
         if (!workerId.trim() || !generation.trim()) throw new Error("Worker identity is required");
         const rows = this.database.prepare(`SELECT id FROM trigger_deliveries
-            WHERE json_extract(content, '$.trigger.purpose') = 'lifecycle'
-                AND json_extract(content, '$.trigger.workerId') = ?
-                AND json_extract(content, '$.trigger.generation') = ?
+            WHERE json_extract(content, '$.trigger.type') = 'lifecycle'
+                AND json_extract(content, '$.trigger.source.workerId') = ?
+                AND json_extract(content, '$.trigger.source.generation') = ?
             ORDER BY rowid`).all(workerId, generation) as { id: string }[];
         return rows.map(({ id }) => this.read(id)).filter((result): result is TriggerDeliveryResult => result !== undefined);
     }
@@ -285,12 +292,12 @@ export class TriggerDeliveryStore {
      */
     recordActionPermissionFailure(deliveryId: string, reason: TriggerActionPermissionFailureReason): void {
         const current = this.read(deliveryId);
-        if (current?.status !== "pending" || current.delivery.trigger.purpose !== "permission"
-            || current.delivery.trigger.source !== "worker" || current.delivery.goalId === undefined
-            || current.delivery.trigger.workerId === undefined || current.delivery.trigger.generation === undefined) {
+        if (current?.status !== "pending" || current.delivery.trigger.type !== "permission" || current.delivery.trigger.payload.action !== "requested"
+            || current.delivery.trigger.source.role !== "worker" || !("goalId" in current.delivery.trigger)
+            || current.delivery.trigger.source.workerId.trim() === "" || current.delivery.trigger.source.generation.trim() === "") {
             throw new Error("Action permission failure requires a pending permission delivery");
         }
-        const request = decodeTriggerActionPermissionRequest(current.delivery.trigger.payload);
+        const request = decodeTriggerActionPermissionRequest(current.delivery.trigger);
         if (request.requestId !== current.delivery.trigger.id) throw new Error("Action permission failure request identity is invalid");
         this.database.prepare(`INSERT INTO trigger_permission_failures (delivery_id, reason) VALUES (?, ?)
             ON CONFLICT(delivery_id) DO UPDATE SET reason = excluded.reason`).run(deliveryId, reason);
@@ -317,21 +324,21 @@ export class TriggerDeliveryStore {
             const request = this.read(requestDeliveryId);
             const reply = this.read(replyDeliveryId);
             if (request === undefined || reply === undefined
-                || request.delivery.trigger.purpose !== "permission" || request.delivery.trigger.source !== "worker"
-                || reply.delivery.trigger.purpose !== "permission"
-                || (reply.delivery.trigger.source !== "user" && reply.delivery.trigger.source !== "supervisor")
-                || request.delivery.goalId === undefined || request.delivery.goalId !== reply.delivery.goalId) {
+                || request.delivery.trigger.type !== "permission" || request.delivery.trigger.payload.action !== "requested" || request.delivery.trigger.source.role !== "worker"
+                || reply.delivery.trigger.type !== "permission" || reply.delivery.trigger.payload.action !== "decided"
+                || (reply.delivery.trigger.source.role !== "external" && reply.delivery.trigger.source.role !== "supervisor")
+                || !("goalId" in request.delivery.trigger) || request.delivery.trigger.goalId !== reply.delivery.trigger.goalId) {
                 throw new Error("Action permission exchange identity is inconsistent");
             }
-            const requestPayload = decodeTriggerActionPermissionRequest(request.delivery.trigger.payload);
-            const replyPayload = decodeTriggerActionPermissionReply(reply.delivery.trigger.payload);
+            const requestPayload = decodeTriggerActionPermissionRequest(request.delivery.trigger);
+            const replyPayload = decodeTriggerActionPermissionReply(reply.delivery.trigger, request.delivery.trigger, requestDeliveryId);
             if (request.delivery.trigger.id !== requestPayload.requestId
                 || replyPayload.requestDeliveryId !== requestDeliveryId
                 || replyPayload.requestId !== requestPayload.requestId || replyPayload.runId !== requestPayload.runId
                 || replyPayload.actionId !== requestPayload.actionId || replyPayload.interactionId !== requestPayload.interactionId
                 || replyPayload.commitRevision !== requestPayload.commitRevision
-                || replyPayload.workerId !== request.delivery.trigger.workerId
-                || replyPayload.generation !== request.delivery.trigger.generation) {
+                || replyPayload.workerId !== request.delivery.trigger.source.workerId
+                || replyPayload.generation !== request.delivery.trigger.source.generation) {
                 throw new Error("Action permission exchange payload identity is inconsistent");
             }
             for (const current of [request, reply]) {
@@ -374,24 +381,21 @@ export class TriggerDeliveryStore {
             const request = this.read(requestDeliveryId);
             const reply = this.read(interactionDeliveryId);
             if (request === undefined || reply === undefined
-                || request.delivery.trigger.purpose !== "permission" || request.delivery.trigger.source !== "worker"
-                || reply.delivery.trigger.purpose !== "interaction"
-                || (reply.delivery.trigger.source !== "user" && reply.delivery.trigger.source !== "supervisor")
-                || request.delivery.goalId === undefined || request.delivery.goalId !== reply.delivery.goalId
-                || request.delivery.trigger.workerId === undefined || request.delivery.trigger.generation === undefined) {
+                || request.delivery.trigger.type !== "permission" || request.delivery.trigger.payload.action !== "requested" || request.delivery.trigger.source.role !== "worker"
+                || reply.delivery.trigger.type !== "interaction" || reply.delivery.trigger.payload.action !== "answered"
+                || (reply.delivery.trigger.source.role !== "external" && reply.delivery.trigger.source.role !== "supervisor")
+                || !("goalId" in request.delivery.trigger) || request.delivery.trigger.goalId !== reply.delivery.trigger.goalId
+                || request.delivery.trigger.source.workerId === undefined || request.delivery.trigger.source.generation === undefined) {
                 throw new Error("Action permission interaction identity is inconsistent");
             }
-            const actionRequest = decodeTriggerActionPermissionRequest(request.delivery.trigger.payload);
-            const payload: unknown = JSON.parse(reply.delivery.trigger.payload);
-            if (!isRecord(payload) || payload.type !== "interaction_response"
-                || payload.runId !== actionRequest.runId
-                || payload.requestId !== actionRequest.actionId
-                || payload.interactionId !== actionRequest.interactionId
-                || payload.commitRevision !== actionRequest.commitRevision
-                || payload.workerId !== request.delivery.trigger.workerId
-                || payload.generation !== request.delivery.trigger.generation
-                || !isRecord(payload.response) || payload.response.actionId !== actionRequest.actionId
-                || !["approve_action", "approve_action_revision", "reject_action"].includes(String(payload.response.kind))) {
+            const actionRequest = decodeTriggerActionPermissionRequest(request.delivery.trigger);
+            const interaction = reply.delivery.trigger;
+            const answer = interaction.payload.answer;
+            const isActionDecision = answer.kind === "approve_action" || answer.kind === "approve_action_revision" || answer.kind === "reject_action";
+            if (!isActionDecision || interaction.replyTo !== request.delivery.trigger.id || answer.actionId !== actionRequest.actionId
+                || ((answer.kind === "approve_action" || answer.kind === "approve_action_revision")
+                    && answer.approvalInputId !== interaction.id)
+                || (answer.kind === "reject_action" && !answer.reason.trim())) {
                 throw new Error("Action permission interaction payload is inconsistent");
             }
             for (const current of [request, reply]) {
@@ -447,7 +451,7 @@ export class TriggerDeliveryStore {
         this.database.exec("BEGIN IMMEDIATE");
         try {
             const delivery = this.read(deliveryId);
-            if (delivery === undefined || delivery.status !== "pending" || delivery.delivery.trigger.purpose !== "work" || delivery.delivery.goalId !== undefined) {
+            if (delivery === undefined || delivery.status !== "pending" || !isWorkTrigger(delivery.delivery.trigger) || "goalId" in delivery.delivery.trigger) {
                 throw new Error("Goal reservation requires a pending work delivery");
             }
             const current = this.database.prepare("SELECT goal_id FROM trigger_goal_reservations WHERE delivery_id = ?").get(deliveryId) as { goal_id: string } | undefined;
@@ -640,12 +644,11 @@ export class TriggerDeliveryStore {
                 }
                 const lifecycle = this.read(input.lifecycleDeliveryId);
                 if (lifecycle?.status !== "settled" || lifecycle.result.kind !== "handled"
-                    || lifecycle.delivery.trigger.purpose !== "lifecycle" || lifecycle.delivery.trigger.source !== "worker"
-                    || lifecycle.delivery.trigger.workerId !== input.workerId || lifecycle.delivery.trigger.generation !== input.generation) {
-                    throw new Error("Worker recovery requires a settled lifecycle Trigger from the same generation");
+                    || lifecycle.delivery.trigger.type !== "lifecycle" || lifecycle.delivery.trigger.source.role !== "worker"
+                    || lifecycle.delivery.trigger.source.workerId !== input.workerId || lifecycle.delivery.trigger.source.generation !== input.generation
+                    || lifecycle.delivery.trigger.payload.action !== "exited" || lifecycle.delivery.trigger.payload.outcome !== "unexpected") {
+                    throw new Error("Worker recovery requires a settled unexpected-exit Trigger from the same generation");
                 }
-                const payload: unknown = JSON.parse(lifecycle.delivery.trigger.payload);
-                if (!isRecord(payload) || payload.type !== "worker_exited") throw new Error("Worker exit lifecycle evidence is invalid");
                 const existing = this.workerRecovery(input.goalId);
                 if (existing !== undefined) {
                     if (existing.workerId !== input.workerId || existing.generation !== input.generation
@@ -808,8 +811,8 @@ export class TriggerDeliveryStore {
             const current = this.read(deliveryId);
             if (current === undefined) throw new Error("Trigger delivery does not exist");
             if (current.status === "pending" && this.frozenGoal(deliveryId) !== undefined) throw new Error("Frozen Goal requires publication settlement");
-            if ((result.kind === "ignored" && current.delivery.trigger.purpose !== "work")
-                || (result.kind === "handled" && current.delivery.trigger.purpose === "work" && current.delivery.goalId === undefined)) {
+            if ((result.kind === "ignored" && !isWorkTrigger(current.delivery.trigger))
+                || (result.kind === "handled" && isWorkTrigger(current.delivery.trigger))) {
                 throw new Error("Trigger outcome does not match purpose");
             }
             if (current.status === "settled" && canonicalJson(current.result) !== canonicalJson(result)) throw new Error("Trigger delivery result conflict");
@@ -828,17 +831,18 @@ export class TriggerDeliveryStore {
 }
 
 function normalizeDelivery(input: unknown): TriggerDeliveryFile {
-    const validated = triggerDeliveryFileBinding.read(input, "reject");
-    if (!validated.ok) throw new Error("Invalid trigger delivery");
-    const delivery = validated.data;
+    const delivery = readTriggerDeliveryFile(input);
+    if (delivery === undefined) throw new Error("Invalid trigger delivery");
     const event = delivery.trigger;
-    if (!delivery.deliveryId.trim() || !event.id.trim()
-        || (delivery.goalId !== undefined && !delivery.goalId.trim())
-        || (event.source === "worker" && (!event.workerId?.trim() || !event.generation?.trim()))
-        || (event.source !== "worker" && (event.workerId !== undefined || event.generation !== undefined))) {
+    const goalId = "goalId" in event ? event.goalId : undefined;
+    if (!delivery.deliveryId.trim() || !event.id.trim() || (goalId !== undefined && !goalId.trim())
+        || (event.source.role === "worker" && (!event.source.workerId.trim() || !event.source.generation.trim()))
+        || (event.source.role === "external" && !event.source.externalId.trim())) {
         throw new Error("Invalid trigger identity");
     }
-    let payload: unknown;
-    try { payload = JSON.parse(event.payload); } catch { throw new Error("Invalid trigger payload JSON"); }
-    return { ...delivery, trigger: { ...event, payload: canonicalJson(payload) } };
+    return delivery;
+}
+
+function isWorkTrigger(trigger: Trigger): trigger is Extract<Trigger, { readonly type: "work" }> {
+    return trigger.type === "work";
 }

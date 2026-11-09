@@ -9511,88 +9511,28 @@
             "role": "boundary-root"
         },
         {
-            "key": "storage/src/trigger-delivery-file#TriggerDeliveryFile",
-            "declaration": "TriggerDeliveryFile",
+            "key": "runtime/src/trigger#Trigger",
+            "declaration": "Trigger",
             "source": {
-                "path": "packages/storage/src/trigger-delivery-file.ts",
-                "line": 16
+                "path": "packages/runtime/src/trigger.ts",
+                "line": 120
             },
-            "owner": "storage",
-            "module": "storage",
-            "boundary": "durable",
-            "section": "Storage 文件 DTO",
-            "definition": "原生 TS 类型别名",
-            "definitionKind": "native-ts",
-            "relations": [],
-            "consumers": [
-                "packages/storage/src/trigger-delivery-store.ts"
-            ],
-            "protocol": {
-                "identity": {
-                    "state": "declared",
-                    "value": "storage.trigger-delivery"
-                },
-                "version": {
-                    "state": "declared",
-                    "value": 1,
-                    "detail": "version: 1"
-                }
-            },
-            "generation": {
-                "state": "enabled",
-                "detail": "Trigger 投递边界的结构 Schema、校验器与绑定。",
-                "strategy": "typescript-binding",
-                "rootType": "TriggerDeliveryFile",
-                "declaredTypes": [
-                    "TriggerDeliveryFile"
-                ],
-                "outputDirectory": "packages/storage/src/generated",
-                "artifacts": {
-                    "schemaModule": "trigger-delivery-schema.ts",
-                    "validator": "trigger-delivery-validator.mjs",
-                    "validatorTypes": "trigger-delivery-validator.d.mts",
-                    "manifest": "trigger-delivery-manifest.json",
-                    "binding": "trigger-delivery-binding.ts"
-                },
-                "binding": {
-                    "module": "../../../contract-binding/src/index",
-                    "dataType": "TriggerDeliveryFile",
-                    "dataTypeModule": "../trigger-delivery-file",
-                    "exportName": "triggerDeliveryFileBinding",
-                    "names": {
-                        "schema": "triggerDeliveryFileSchema",
-                        "metadata": "triggerDeliveryFileMetadata",
-                        "validator": "validateTriggerDeliveryFile"
-                    }
-                }
-            },
-            "validation": {
-                "state": "generated-reader",
-                "detail": "生成绑定校验结构与封闭对象；文件级语义约束由 Store 执行。"
-            },
-            "role": "boundary-root"
-        },
-        {
-            "key": "storage/src/trigger-wire-request#TriggerWireRequest",
-            "declaration": "TriggerWireRequest",
-            "source": {
-                "path": "packages/storage/src/trigger-delivery-file.ts",
-                "line": 42
-            },
-            "owner": "storage",
-            "module": "storage",
+            "owner": "runtime",
+            "module": "runtime",
             "boundary": "ipc",
             "section": "Trigger 进程边界",
             "definition": "原生 TS 类型别名",
             "definitionKind": "native-ts",
             "relations": [],
             "consumers": [
+                "packages/storage/src/trigger-delivery-file.ts",
+                "packages/storage/src/trigger-delivery-store.ts",
                 "apps/goal-server/src/runtime/trigger-wire-server.ts"
             ],
             "protocol": {
                 "identity": {
                     "state": "declared",
-                    "value": "ipc.trigger-request"
+                    "value": "runtime.trigger"
                 },
                 "version": {
                     "state": "declared",
@@ -9602,36 +9542,39 @@
             },
             "generation": {
                 "state": "enabled",
-                "detail": "Trigger 投递边界的结构 Schema、校验器与绑定。",
+                "detail": "Trigger 消息与封闭 payload 的结构 Schema、校验器与绑定。",
                 "strategy": "typescript-binding",
-                "rootType": "TriggerWireRequest",
+                "rootType": "Trigger",
                 "declaredTypes": [
-                    "TriggerWireRequest",
-                    "TriggerDeliveryFile"
+                    "Trigger",
+                    "TriggerActor",
+                    "TriggerTarget",
+                    "GoalUserAction",
+                    "GoalActionJsonValue"
                 ],
                 "outputDirectory": "packages/storage/src/generated",
                 "artifacts": {
-                    "schemaModule": "trigger-wire-request-schema.ts",
-                    "validator": "trigger-wire-request-validator.mjs",
-                    "validatorTypes": "trigger-wire-request-validator.d.mts",
-                    "manifest": "trigger-wire-request-manifest.json",
-                    "binding": "trigger-wire-request-binding.ts"
+                    "schemaModule": "trigger-schema.ts",
+                    "validator": "trigger-validator.mjs",
+                    "validatorTypes": "trigger-validator.d.mts",
+                    "manifest": "trigger-manifest.json",
+                    "binding": "trigger-binding.ts"
                 },
                 "binding": {
                     "module": "../../../contract-binding/src/index",
-                    "dataType": "TriggerWireRequest",
-                    "dataTypeModule": "../trigger-delivery-file",
-                    "exportName": "triggerWireRequestBinding",
+                    "dataType": "Trigger",
+                    "dataTypeModule": "../../../runtime/src/trigger",
+                    "exportName": "triggerBinding",
                     "names": {
-                        "schema": "triggerWireRequestSchema",
-                        "metadata": "triggerWireRequestMetadata",
-                        "validator": "validateTriggerWireRequest"
+                        "schema": "triggerSchema",
+                        "metadata": "triggerMetadata",
+                        "validator": "validateTrigger"
                     }
                 }
             },
             "validation": {
                 "state": "generated-reader",
-                "detail": "生成绑定校验结构与封闭对象；文件级语义约束由 Store 执行。"
+                "detail": "生成绑定拒绝额外字段并校验 type/action 分支；来源认证与关联由接收边界核验。"
             },
             "role": "boundary-root"
         },
@@ -9756,131 +9699,6 @@
             "validation": {
                 "state": "generated-reader",
                 "detail": "生成绑定校验结构与封闭对象；文件级语义约束由 Store 执行。"
-            },
-            "role": "boundary-root"
-        },
-        {
-            "key": "storage/src/trigger-permission#TriggerActionPermissionRequest",
-            "declaration": "TriggerActionPermissionRequest",
-            "source": {
-                "path": "packages/storage/src/trigger-permission.ts",
-                "line": 5
-            },
-            "owner": "storage",
-            "module": "storage",
-            "boundary": "durable",
-            "section": "Trigger 权限协议",
-            "definition": "原生 TypeScript 类型契约",
-            "definitionKind": "native-ts",
-            "relations": [],
-            "consumers": [
-                "apps/goal-server/src/runtime/worker-scheduler.ts"
-            ],
-            "protocol": {
-                "identity": {
-                    "state": "declared",
-                    "value": "storage.trigger-action-permission-request"
-                },
-                "version": {
-                    "state": "declared",
-                    "value": 1,
-                    "detail": "version: 1"
-                }
-            },
-            "generation": {
-                "state": "enabled",
-                "detail": "持久化 Worker Action 权限请求 Trigger 的结构绑定。",
-                "strategy": "typescript-binding",
-                "rootType": "TriggerActionPermissionRequest",
-                "declaredTypes": [
-                    "TriggerActionPermissionRequest"
-                ],
-                "outputDirectory": "packages/storage/src/generated",
-                "artifacts": {
-                    "schemaModule": "trigger-action-permission-request-schema.ts",
-                    "validator": "trigger-action-permission-request-validator.mjs",
-                    "validatorTypes": "trigger-action-permission-request-validator.d.mts",
-                    "manifest": "trigger-action-permission-request-manifest.json",
-                    "binding": "trigger-action-permission-request-binding.ts"
-                },
-                "binding": {
-                    "module": "../../../contract-binding/src/index",
-                    "dataType": "TriggerActionPermissionRequest",
-                    "dataTypeModule": "../trigger-permission",
-                    "exportName": "triggerActionPermissionRequestBinding",
-                    "names": {
-                        "schema": "triggerActionPermissionRequestSchema",
-                        "metadata": "triggerActionPermissionRequestMetadata",
-                        "validator": "validateTriggerActionPermissionRequest"
-                    }
-                }
-            },
-            "validation": {
-                "state": "generated-reader",
-                "detail": "消费端使用生成 binding 校验 JSON 结构，并在入口核对目标身份与业务不变量。"
-            },
-            "role": "boundary-root"
-        },
-        {
-            "key": "storage/src/trigger-permission#TriggerActionPermissionReply",
-            "declaration": "TriggerActionPermissionReply",
-            "source": {
-                "path": "packages/storage/src/trigger-permission.ts",
-                "line": 15
-            },
-            "owner": "storage",
-            "module": "storage",
-            "boundary": "durable",
-            "section": "Trigger 权限协议",
-            "definition": "原生 TypeScript 类型契约",
-            "definitionKind": "native-ts",
-            "relations": [],
-            "consumers": [
-                "apps/goal-server/src/runtime/worker-scheduler.ts",
-                "apps/goal-server/src/runtime/worker-process-entry.ts"
-            ],
-            "protocol": {
-                "identity": {
-                    "state": "declared",
-                    "value": "storage.trigger-action-permission-reply"
-                },
-                "version": {
-                    "state": "declared",
-                    "value": 1,
-                    "detail": "version: 1"
-                }
-            },
-            "generation": {
-                "state": "enabled",
-                "detail": "持久化 Supervisor／用户 Action 权限回复 Trigger 的结构绑定。",
-                "strategy": "typescript-binding",
-                "rootType": "TriggerActionPermissionReply",
-                "declaredTypes": [
-                    "TriggerActionPermissionReply"
-                ],
-                "outputDirectory": "packages/storage/src/generated",
-                "artifacts": {
-                    "schemaModule": "trigger-action-permission-reply-schema.ts",
-                    "validator": "trigger-action-permission-reply-validator.mjs",
-                    "validatorTypes": "trigger-action-permission-reply-validator.d.mts",
-                    "manifest": "trigger-action-permission-reply-manifest.json",
-                    "binding": "trigger-action-permission-reply-binding.ts"
-                },
-                "binding": {
-                    "module": "../../../contract-binding/src/index",
-                    "dataType": "TriggerActionPermissionReply",
-                    "dataTypeModule": "../trigger-permission",
-                    "exportName": "triggerActionPermissionReplyBinding",
-                    "names": {
-                        "schema": "triggerActionPermissionReplySchema",
-                        "metadata": "triggerActionPermissionReplyMetadata",
-                        "validator": "validateTriggerActionPermissionReply"
-                    }
-                }
-            },
-            "validation": {
-                "state": "generated-reader",
-                "detail": "消费端使用生成 binding 校验 JSON 结构，并在入口核对目标身份与业务不变量。"
             },
             "role": "boundary-root"
         },

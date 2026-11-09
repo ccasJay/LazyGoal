@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { createServer, type Server, type Socket } from "node:net";
-import { triggerWireRequestBinding } from "../../../../packages/storage/src/generated/trigger-wire-request-binding";
+import { readTriggerWireRequest } from "../../../../packages/storage/src/trigger-delivery-file";
 import { receiveAuthorizedTrigger, type TriggerIngressPrincipal } from "../../../../packages/storage/src/trigger-delivery-ingress";
 import { TriggerDeliveryStore } from "../../../../packages/storage/src/trigger-delivery-store";
 import { SupervisorOwnership } from "../../../../packages/storage/src/supervisor-ownership";
@@ -79,11 +79,11 @@ function receive(socket: Socket, owner: SupervisorOwnership, store: TriggerDeliv
         void owner.run(async () => {
             try {
                 const raw: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-                const request = triggerWireRequestBinding.read(raw, "reject");
-                if (!request.ok) throw new Error("Invalid request");
-                const principal = credentials.resolve(request.data.secret);
+                const request = readTriggerWireRequest(raw);
+                if (request === undefined) throw new Error("Invalid request");
+                const principal = credentials.resolve(request.secret);
                 if (principal === undefined) throw new Error("Invalid credential");
-                const result = receiveAuthorizedTrigger(store, request.data.delivery, principal);
+                const result = receiveAuthorizedTrigger(store, { deliveryId: request.trigger.id, trigger: request.trigger }, principal);
                 socket.end(JSON.stringify({ ok: true, result }));
             } catch {
                 socket.end(JSON.stringify({ ok: false, error: "Trigger delivery rejected" }));
