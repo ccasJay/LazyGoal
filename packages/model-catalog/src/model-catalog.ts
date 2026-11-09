@@ -29,8 +29,9 @@ import { DefaultProviderModelFetcher } from "./provider-fetchers.js";
  *   contextWindowTokens: 1_000_000,
  *   maxOutputTokens: 524_288,
  *   executionApi: "openai-completions",
+ *   supportsRequiredToolChoice: true,
  *   availabilitySource: "live",
- *   metadataSource: "execution",
+ *   metadataSource: "live",
  *   selectable: true,
  * };
  * ```
@@ -52,6 +53,8 @@ export interface LlmModelDescriptor {
     readonly reasoning?: boolean | undefined;
     /** 模型是否支持图像等视觉输入。 */
     readonly vision?: boolean | undefined;
+    /** OpenAI Chat Completions 路径是否支持强制工具选择；未知时省略。 */
+    readonly supportsRequiredToolChoice?: boolean | undefined;
     /** 可用性验证来源：在线列表查询、内置静态目录或当前启动配置。 */
     readonly availabilitySource: "live" | "catalog" | "configured";
     /** 元数据字段来源：在线、静态目录、执行登记、当前配置或多来源补全。 */
@@ -67,7 +70,7 @@ export interface LlmModelDescriptor {
  *
  * @remarks
  * 获取当前 Provider 可用模型列表，支持在线查询、pi-ai Catalog 补全、排序与不可选过滤。
- * OpenCode Go 在线返回但不在 pi-ai 静态目录中的模型，只有存在独立执行登记时才可选；未知模型保留展示并标记不可选。
+ * OpenCode Go 在线文本模型按实时工具与容量元数据判定可用性，并通过其 OpenAI Chat Completions 兼容路径执行。
  *
  * @example
  * ```ts
@@ -106,10 +109,10 @@ const STATIC_FACTORIES = {
 };
 
 /**
- * pi-ai 静态目录未登记、但已从可信资料确认的 OpenCode Go 动态模型执行契约。
+ * 用于启动配置回退的 OpenCode Go 模型执行元数据。
  *
  * @remarks
- * 注册项只描述可安全构造 Binding 的非敏感协议与容量。在线目录仍必须同时返回模型 ID，端点固定由 OpenCode Go Provider 所有。
+ * 仅用于显式启动配置没有在线目录上下文时的已知模型回退。在线模型可用性和能力始终以当前 OpenCode Go 模型目录为准；执行端点固定由 LazyGoal 适配器所有。
  *
  * @example
  * ```ts
@@ -130,6 +133,8 @@ export interface OpenCodeGoExecutionMetadata {
     readonly reasoning: boolean;
     /** 是否支持视觉输入。 */
     readonly vision: boolean;
+    /** OpenAI Chat Completions 路径是否支持强制工具选择。 */
+    readonly supportsRequiredToolChoice: boolean;
 }
 
 const OPENCODE_GO_EXECUTION_METADATA: Readonly<Record<string, OpenCodeGoExecutionMetadata>> = {
@@ -140,6 +145,7 @@ const OPENCODE_GO_EXECUTION_METADATA: Readonly<Record<string, OpenCodeGoExecutio
         maxOutputTokens: 131_072,
         reasoning: true,
         vision: false,
+        supportsRequiredToolChoice: true,
     },
     "minimax-m3.1-flash-free": {
         modelId: "minimax-m3.1-flash-free",
@@ -148,6 +154,7 @@ const OPENCODE_GO_EXECUTION_METADATA: Readonly<Record<string, OpenCodeGoExecutio
         maxOutputTokens: 524_288,
         reasoning: true,
         vision: false,
+        supportsRequiredToolChoice: false,
     },
 };
 
@@ -206,6 +213,7 @@ export function determineSelectability(
     rawDetails: {
         readonly supportedGenerationMethods?: readonly string[] | undefined;
         readonly isTextGeneration?: boolean | undefined;
+        readonly supportsTools?: boolean | undefined;
         readonly supportsStrictOutput?: boolean | undefined;
     },
     config: LLMConfig,
@@ -214,6 +222,9 @@ export function determineSelectability(
     // 1. 明确声明不支持文本生成，或命中明显非文本正则
     if (rawDetails.isTextGeneration === false || isKnownNonTextModel(id)) {
         return { selectable: false, unavailableReason: "Model does not support text generation." };
+    }
+    if (rawDetails.supportsTools === false) {
+        return { selectable: false, unavailableReason: "Model does not support tool calls." };
     }
 
     // Google 特性：若返回了 supportedGenerationMethods，必须包含 generateContent
@@ -378,9 +389,14 @@ export class DefaultLlmModelCatalog implements LlmModelCatalog {
 
             const displayName = raw.displayName ?? staticModel?.name ?? raw.id;
             const contextWindowTokens = raw.contextWindowTokens ?? executionMetadata?.contextWindowTokens ?? staticModel?.contextWindow;
-            const maxOutputTokens = raw.maxOutputTokens ?? executionMetadata?.maxOutputTokens ?? staticModel?.maxTokens;
+            const rawMaxOutputTokens = raw.maxOutputTokens ?? executionMetadata?.maxOutputTokens ?? staticModel?.maxTokens;
+            const maxOutputTokens = contextWindowTokens !== undefined && rawMaxOutputTokens !== undefined
+                ? Math.min(rawMaxOutputTokens, Math.max(0, contextWindowTokens - 1))
+                : rawMaxOutputTokens;
             const reasoning = raw.reasoning ?? executionMetadata?.reasoning ?? staticModel?.reasoning ?? false;
             const vision = raw.vision ?? executionMetadata?.vision ?? (staticModel?.input.includes("image") ?? false);
+            const supportsRequiredToolChoice = raw.supportsRequiredToolChoice
+                ?? executionMetadata?.supportsRequiredToolChoice;
 
             let metadataSource: "live" | "catalog" | "execution" | "configured" | "mixed";
             const liveFieldCount =
@@ -388,20 +404,40 @@ export class DefaultLlmModelCatalog implements LlmModelCatalog {
                 (hasLiveContext ? 1 : 0) +
                 (hasLiveMaxTokens ? 1 : 0) +
                 (hasLiveReasoning ? 1 : 0) +
-                (hasLiveVision ? 1 : 0);
+                (hasLiveVision ? 1 : 0) +
+                (raw.supportsTools !== undefined ? 1 : 0) +
+                (raw.supportsRequiredToolChoice !== undefined ? 1 : 0);
 
-            if (executionMetadata !== undefined) {
-                metadataSource = liveFieldCount === 0 ? "execution" : "mixed";
-            } else if (liveFieldCount === 5 || (hasLiveDisplayName && hasLiveContext && hasLiveMaxTokens)) {
+            if (liveFieldCount >= 5 || (hasLiveDisplayName && hasLiveContext && hasLiveMaxTokens)) {
                 metadataSource = "live";
+            } else if (executionMetadata !== undefined) {
+                metadataSource = liveFieldCount === 0 ? "execution" : "mixed";
             } else if (liveFieldCount === 0) {
                 metadataSource = "catalog";
             } else {
                 metadataSource = "mixed";
             }
 
-            const { selectable, unavailableReason } = config.provider === "opencode-go" && staticModel === undefined && executionMetadata === undefined
-                ? { selectable: false, unavailableReason: "Model is not supported by the installed OpenCode Go adapter." }
+            const isOpenCodeGoLiveTextModel = config.provider === "opencode-go" && raw.isTextGeneration === true;
+            const needsDynamicOpenCodeGoMetadata = config.provider === "opencode-go"
+                && staticModel === undefined
+                && executionMetadata === undefined;
+            const hasRequiredOpenCodeGoMetadata = !needsDynamicOpenCodeGoMetadata
+                || (raw.isTextGeneration === true
+                    && raw.supportsTools === true
+                    && contextWindowTokens !== undefined
+                    && maxOutputTokens !== undefined);
+            const { selectable, unavailableReason } = !hasRequiredOpenCodeGoMetadata
+                ? {
+                    selectable: false,
+                    unavailableReason: raw.isTextGeneration === false
+                        ? "Model does not support text generation."
+                        : raw.isTextGeneration !== true
+                            ? "Model is missing text-generation capability metadata required by the adapter."
+                            : raw.supportsTools !== true
+                                ? "Model does not provide the tool-call capability required by LazyGoal."
+                                : "Model is missing context or output capacity metadata required by the adapter.",
+                }
                 : determineSelectability(
                 config.provider,
                 raw.id,
@@ -410,10 +446,11 @@ export class DefaultLlmModelCatalog implements LlmModelCatalog {
                 {
                     supportedGenerationMethods: raw.supportedGenerationMethods,
                     isTextGeneration: raw.isTextGeneration,
+                    supportsTools: raw.supportsTools,
                     supportsStrictOutput: raw.supportsStrictOutput,
                 },
                 config,
-                requireTokenCapacity,
+                requireTokenCapacity || isOpenCodeGoLiveTextModel,
             );
 
             results.push({
@@ -422,9 +459,12 @@ export class DefaultLlmModelCatalog implements LlmModelCatalog {
                 displayName,
                 contextWindowTokens,
                 maxOutputTokens,
-                ...(executionMetadata === undefined ? {} : { executionApi: executionMetadata.executionApi }),
+                ...(isOpenCodeGoLiveTextModel
+                    ? { executionApi: "openai-completions" as const }
+                    : executionMetadata === undefined ? {} : { executionApi: executionMetadata.executionApi }),
                 reasoning,
                 vision,
+                ...(supportsRequiredToolChoice === undefined ? {} : { supportsRequiredToolChoice }),
                 availabilitySource: "live",
                 metadataSource,
                 selectable,
@@ -464,7 +504,7 @@ export class DefaultLlmModelCatalog implements LlmModelCatalog {
                 config.provider,
                 sm.id,
                 sm.contextWindow,
-                sm.maxTokens,
+                sm.contextWindow > 1 ? Math.min(sm.maxTokens, sm.contextWindow - 1) : sm.maxTokens,
                 {
                     isTextGeneration: sm.input.includes("text"),
                 },

@@ -841,14 +841,15 @@ export type GoalSnapshotWorkflowV1 = {
  * Snapshot v1 中持久化的模型选择与执行协议。
  *
  * @remarks
- * 仅保存重建 Binding 所需的非敏感 API 家族和容量；凭据与 Base URL 不属于快照，本字段扩展不改变 schemaVersion。
+ * 保存重建 Binding 所需的非敏感 API 家族、容量和模型能力；凭据与 Base URL 不属于快照，本字段扩展不改变 schemaVersion。
  *
  * @example
  * ```ts
  * const selection: GoalSnapshotModelSelectionV1 = {
  *   provider: "opencode-go", modelId: "minimax-m3.1-flash-free",
  *   executionApi: "openai-completions", contextWindowTokens: 1_000_000,
- *   maxOutputTokens: 524_288, inputEstimator: { kind: "character-v1" },
+ *   maxOutputTokens: 524_288, reasoning: true, vision: false, supportsRequiredToolChoice: true,
+ *   inputEstimator: { kind: "character-v1" },
  * };
  * ```
  */
@@ -860,6 +861,12 @@ export interface GoalSnapshotModelSelectionV1 {
     readonly structuredOutputMode?: "strict" | "prompt_only" | "two_stage" | undefined;
     readonly contextWindowTokens?: number | undefined;
     readonly maxOutputTokens?: number | undefined;
+    /** 模型是否支持推理内容。 */
+    readonly reasoning?: boolean | undefined;
+    /** 模型是否接受图像等视觉输入。 */
+    readonly vision?: boolean | undefined;
+    /** Chat Completions 路径是否接受 `tool_choice: required`。 */
+    readonly supportsRequiredToolChoice?: boolean | undefined;
     readonly inputEstimator:
         | { readonly kind: "character-v1" }
         | { readonly kind: "token-encoding"; readonly encoding: "cl100k_base" | "o200k_base" };

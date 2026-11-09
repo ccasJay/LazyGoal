@@ -113,6 +113,11 @@ function cloneModelSelection(selection: GoalModelSelection): GoalModelSelection 
         structuredOutputMode: selection.structuredOutputMode,
         ...(selection.contextWindowTokens !== undefined ? { contextWindowTokens: selection.contextWindowTokens } : {}),
         ...(selection.maxOutputTokens !== undefined ? { maxOutputTokens: selection.maxOutputTokens } : {}),
+        ...(selection.reasoning !== undefined ? { reasoning: selection.reasoning } : {}),
+        ...(selection.vision !== undefined ? { vision: selection.vision } : {}),
+        ...(selection.supportsRequiredToolChoice !== undefined
+            ? { supportsRequiredToolChoice: selection.supportsRequiredToolChoice }
+            : {}),
         inputEstimator: selection.inputEstimator.kind === "character-v1"
             ? { kind: "character-v1" }
             : { kind: "token-encoding", encoding: selection.inputEstimator.encoding },

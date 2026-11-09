@@ -54,8 +54,8 @@ const factories = {
 /** LazyGoal 自有 User-Agent；缺失版本号时使用纯标识。 */
 const LAZYGOAL_USER_AGENT = "lazygoal";
 
-/** OpenCode Go 的 OpenAI-compatible Chat Completions API 前缀。 */
-const OPENCODE_GO_OPENAI_COMPLETIONS_BASE_URL = "https://opencode.ai/inference/go/v1";
+/** OpenCode Go 将 OpenAI Chat Completions 请求转换到各模型的原生接口。 */
+const OPENCODE_GO_OPENAI_COMPLETIONS_BASE_URL = "https://opencode.ai/inference/go/openai/v1";
 
 /**
  * 构造 pi-ai 请求 options 中的供应商专属附加项。
@@ -116,12 +116,12 @@ function verifyToolCallArguments(raw: string | undefined, toolCall: { readonly a
  * pi-ai 的单次文本生成边界，固定使用 prompt_only。
  *
  * @remarks
- * 静态模型在构造时从 pi-ai 目录解析；OpenCode Go 动态模型使用服务端传入的执行 API 与容量，端点固定在本适配器。
+ * OpenCode Go 在线模型使用服务端传入的执行 API、容量与模型能力，并统一通过 Chat Completions 兼容路径执行；端点固定在本适配器。
  * 不执行登录、目录刷新或凭据持久化。
  * 内部聚合流式输出，只有正常结束的文本交给 Agent。pi-ai usage 无法证明
  * 原始计数是否存在，因此只返回诊断 piUsage，不参与正式用量累计。
  * 工具选择按模型 API 映射：auto/none 使用 simple 入口；required 使用完整 API，
- * OpenAI 发送 required，Anthropic/Google 发送 any，不改变 Runtime 的工具授权。
+ * OpenAI 发送 required，Anthropic/Google 发送 any。OpenCode Go 元数据声明不支持 required 时发送 auto，不改变 Runtime 的工具授权。
  */
 export class PiAiAdapter implements LLMAdapter {
     readonly structuredOutputMode = "prompt_only" as const;
@@ -131,7 +131,7 @@ export class PiAiAdapter implements LLMAdapter {
     private readonly model: Model<Api>;
 
     /**
-     * @param config - 显式 API Key、供应商、模型及可信执行元数据；动态 OpenCode Go 不接受调用方端点。
+     * @param config - 显式 API Key、供应商、模型及服务端解析的执行元数据；OpenCode Go 不接受调用方端点。
      * @throws LLMConfigurationError 模式不匹配、静态模型不在目录、动态协议不受支持或动态容量无效时抛出。
      */
     constructor(private readonly config: LLMConfig) {
@@ -160,38 +160,49 @@ export class PiAiAdapter implements LLMAdapter {
                     resolve: async () => ({ auth: { apiKey: config.apiKey }, source: "explicit" }),
                 } },
             }));
-        } else if (config.provider === "opencode-go" && (config.executionApi === "openai-completions" || config.model === "beam-free")) {
+        } else if (config.provider === "opencode-go") {
+            const provider = opencodeGoProvider();
+            const sourceModel = provider.getModels().find(candidate => candidate.id === config.model);
             const dynamicConfig = config.executionApi === "openai-completions" ? config : undefined;
-            const contextWindow = dynamicConfig?.contextWindowTokens ?? 128000;
-            const maxTokens = dynamicConfig?.maxOutputTokens ?? config.maxOutputTokens ?? 8192;
-            if (!Number.isSafeInteger(contextWindow) || contextWindow <= 0
+            const unknownBeamFallback = dynamicConfig === undefined && sourceModel === undefined && config.model === "beam-free";
+            const contextWindow = dynamicConfig?.contextWindowTokens ?? sourceModel?.contextWindow ?? (unknownBeamFallback ? 128_000 : undefined);
+            const sourceMaxTokens = dynamicConfig?.maxOutputTokens ?? sourceModel?.maxTokens ?? (unknownBeamFallback ? config.maxOutputTokens ?? 8192 : undefined);
+            const maxTokens = contextWindow !== undefined && sourceMaxTokens !== undefined && dynamicConfig === undefined
+                ? Math.min(sourceMaxTokens, Math.max(0, contextWindow - 1))
+                : sourceMaxTokens;
+            if (contextWindow === undefined || maxTokens === undefined
+                || !Number.isSafeInteger(contextWindow) || contextWindow <= 1
                 || !Number.isSafeInteger(maxTokens) || maxTokens <= 0
                 || maxTokens >= contextWindow) {
                 throw new LLMConfigurationError([], `Invalid dynamic model capacity for "${config.model}"`);
             }
-            const provider = opencodeGoProvider();
             const completionsTemplate = provider.getModels().find(
                 (candidate): candidate is Model<"openai-completions"> => candidate.api === "openai-completions",
             );
             if (completionsTemplate === undefined) {
                 throw new LLMConfigurationError([], "OpenCode Go adapter does not expose the openai-completions API");
             }
+            const compat = sourceModel?.api === "openai-completions"
+                ? sourceModel.compat ?? completionsTemplate.compat
+                : completionsTemplate.compat;
             const model: Model<"openai-completions"> = {
                 id: config.model,
-                name: config.model,
+                name: sourceModel?.name ?? config.model,
                 provider: "opencode-go",
                 api: "openai-completions",
                 baseUrl: OPENCODE_GO_OPENAI_COMPLETIONS_BASE_URL,
-                reasoning: dynamicConfig?.reasoning ?? false,
-                input: ["text"],
+                reasoning: dynamicConfig?.reasoning ?? sourceModel?.reasoning ?? false,
+                input: dynamicConfig?.vision === undefined
+                    ? sourceModel?.input ?? ["text"]
+                    : dynamicConfig.vision ? ["text", "image"] : ["text"],
                 contextWindow,
                 maxTokens,
                 cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-                ...(completionsTemplate.compat === undefined ? {} : { compat: completionsTemplate.compat }),
+                ...(compat === undefined ? {} : { compat }),
             };
             this.models.setProvider({
                 ...provider,
-                getModels: () => [...provider.getModels(), model],
+                getModels: () => [...provider.getModels().filter(candidate => candidate.id !== config.model), model],
             });
             this.model = model;
         } else {
@@ -416,6 +427,11 @@ export class PiAiAdapter implements LLMAdapter {
     }
 
     private requiredToolStream(context: Context, options: StreamOptions) {
+        if (this.config.provider === "opencode-go"
+            && this.config.executionApi === "openai-completions"
+            && this.config.supportsRequiredToolChoice !== true) {
+            return this.models.streamSimple(this.model, context, { ...options, toolChoice: "auto" });
+        }
         // pi-ai 1.3.0 的 simple 选项只接受 auto/none；强制调用按模型 API 使用完整选项。
         const model = this.model;
         if (hasApi(model, "openai-completions") || hasApi(model, "openai-responses")) {

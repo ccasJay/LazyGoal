@@ -382,7 +382,83 @@ export class DefaultProviderModelFetcher implements ProviderModelFetcher {
         const headers: Record<string, string> = {
             Authorization: `Bearer ${config.apiKey}`,
         };
-        return this.parseIdOnlyModelList(await executeRequest(url, headers), { provider: "opencode-go" });
+        const json = await executeRequest(url, headers);
+        const record = json !== null && typeof json === "object"
+            ? json as { data?: unknown }
+            : undefined;
+        if (!Array.isArray(record?.data)) {
+            throw new ModelCatalogError("protocol", 'Provider "opencode-go" returned malformed models response.');
+        }
+
+        return record.data.map((item): RawFetchedModel => {
+            if (item === null || typeof item !== "object" || typeof (item as { id?: unknown }).id !== "string") {
+                throw new ModelCatalogError("protocol", 'Provider "opencode-go" returned malformed model item.');
+            }
+            const typed = item as {
+                readonly id: string;
+                readonly name?: unknown;
+                readonly type?: unknown;
+                readonly modalities?: { readonly input?: unknown; readonly output?: unknown };
+                readonly capabilities?: {
+                    readonly reasoning?: { readonly supported?: unknown };
+                    readonly tools?: { readonly supported?: unknown };
+                    readonly structured_output?: unknown;
+                };
+                readonly limit?: { readonly context?: unknown; readonly output?: unknown };
+                readonly api?: {
+                    readonly "chat-completions"?: {
+                        readonly capabilities?: {
+                            readonly tools?: { readonly choice?: unknown };
+                        };
+                    };
+                };
+            };
+            const id = typed.id.trim();
+            if (!id) {
+                throw new ModelCatalogError("protocol", 'Provider "opencode-go" returned malformed model item.');
+            }
+            const positiveSafeInteger = (value: unknown): number | undefined =>
+                typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined;
+            const displayName = typeof typed.name === "string" && typed.name.trim()
+                ? typed.name.trim()
+                : undefined;
+            const contextWindowTokens = positiveSafeInteger(typed.limit?.context);
+            const maxOutputTokens = positiveSafeInteger(typed.limit?.output);
+            const inputModalities = Array.isArray(typed.modalities?.input)
+                ? typed.modalities.input.filter((value): value is string => typeof value === "string")
+                : [];
+            const hasInputModalities = Array.isArray(typed.modalities?.input);
+            const outputModalities = Array.isArray(typed.modalities?.output)
+                ? typed.modalities.output.filter((value): value is string => typeof value === "string")
+                : [];
+            const toolChoices = typed.api?.["chat-completions"]?.capabilities?.tools?.choice;
+            const supportsRequiredToolChoice = Array.isArray(toolChoices)
+                ? toolChoices.includes("required")
+                : undefined;
+
+            return {
+                id,
+                ...(displayName === undefined ? {} : { displayName }),
+                ...(contextWindowTokens === undefined ? {} : { contextWindowTokens }),
+                ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
+                ...(typeof typed.capabilities?.reasoning?.supported === "boolean"
+                    ? { reasoning: typed.capabilities.reasoning.supported }
+                    : {}),
+                ...(hasInputModalities
+                    ? { vision: inputModalities.some((modality) => /^image(?:\/|$)/i.test(modality)) }
+                    : {}),
+                ...(typeof typed.capabilities?.tools?.supported === "boolean"
+                    ? { supportsTools: typed.capabilities.tools.supported }
+                    : {}),
+                ...(supportsRequiredToolChoice === undefined ? {} : { supportsRequiredToolChoice }),
+                isTextGeneration: typed.type === "chat"
+                    && inputModalities.includes("text")
+                    && outputModalities.includes("text"),
+                ...(typeof typed.capabilities?.structured_output === "boolean"
+                    ? { supportsStrictOutput: typed.capabilities.structured_output }
+                    : {}),
+            };
+        });
     }
 
     private async fetchOpenAiCompatible(

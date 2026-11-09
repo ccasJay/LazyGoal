@@ -599,14 +599,26 @@ test("ProviderModelFetcher: createLlmModelCatalog() 默认集成 DefaultProvider
     assert.equal(result[0]?.availabilitySource, "live");
 });
 
-test("ProviderModelFetcher: opencode-go 官方端点、Bearer 认证与 id-only 解析", async () => {
+test("ProviderModelFetcher: opencode-go 官方目录解析模型容量与能力", async () => {
     let capturedUrl = "";
     let capturedAuth = "";
     const fakeFetch: typeof fetch = async (input, init) => {
         capturedUrl = String(input);
         capturedAuth = (init?.headers as Record<string, string>)?.["Authorization"] ?? "";
         return new Response(
-            JSON.stringify({ data: [{ id: "kimi-k3" }, { id: "glm-5.3" }] }),
+            JSON.stringify({ data: [{
+                id: "kimi-k3",
+                name: "Kimi K3",
+                type: "chat",
+                modalities: { input: ["text", "image/jpeg"], output: ["text"] },
+                capabilities: {
+                    reasoning: { supported: true },
+                    tools: { supported: true },
+                    structured_output: true,
+                },
+                limit: { context: 1_048_576, output: 131_072 },
+                api: { "chat-completions": { capabilities: { tools: { choice: ["auto"] } } } },
+            }] }),
             { status: 200, headers: { "Content-Type": "application/json" } },
         );
     };
@@ -623,7 +635,18 @@ test("ProviderModelFetcher: opencode-go 官方端点、Bearer 认证与 id-only 
 
     assert.equal(capturedUrl, "https://opencode.ai/inference/go/v1/models");
     assert.equal(capturedAuth, `Bearer ${CANARY_API_KEY}`);
-    assert.deepEqual(models.map((m) => m.id), ["kimi-k3", "glm-5.3"]);
+    assert.deepEqual(models, [{
+        id: "kimi-k3",
+        displayName: "Kimi K3",
+        contextWindowTokens: 1_048_576,
+        maxOutputTokens: 131_072,
+        reasoning: true,
+        vision: true,
+        supportsTools: true,
+        supportsRequiredToolChoice: false,
+        isTextGeneration: true,
+        supportsStrictOutput: true,
+    }]);
 });
 
 test("ProviderModelFetcher: opencode-go 畸形响应映射为脱敏 protocol 错误", async () => {
