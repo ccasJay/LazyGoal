@@ -33,23 +33,21 @@ export function decodeTriggerActionPermissionRequest(trigger: Trigger): TriggerA
  *
  * @param trigger - 已由 Trigger 生成绑定校验的决定事件。
  * @param request - `replyTo` 指向的原 Worker 权限请求。
- * @param requestDeliveryId - 内部账本中保存原请求的投递标识。
  * @returns 保留既有 Worker 路由所需字段的内部回复视图；回复本身不重复携带这些字段。
  * @throws 回复、请求、Goal 或关联身份不一致时抛出。
  * @example
  * ```ts
- * const reply = decodeTriggerActionPermissionReply(replyTrigger, requestTrigger, requestDeliveryId);
+ * const reply = decodeTriggerActionPermissionReply(replyTrigger, requestTrigger);
  * ```
  */
 export function decodeTriggerActionPermissionReply(
     trigger: Trigger,
     request: Trigger,
-    requestDeliveryId: string,
 ): TriggerActionPermissionReply {
     const requestPayload = decodeTriggerActionPermissionRequest(request);
     if (trigger.type !== "permission" || trigger.payload.action !== "decided" || trigger.target !== "worker"
         || trigger.source.role !== "external" && trigger.source.role !== "supervisor" || !("goalId" in trigger) || !("replyTo" in trigger) || !("goalId" in request) || trigger.goalId !== request.goalId
-        || trigger.replyTo !== request.id || !requestDeliveryId.trim() || !trigger.id.trim()) {
+        || trigger.replyTo !== request.id || !trigger.id.trim()) {
         throw new Error("Invalid Action permission reply Trigger");
     }
     if (request.source.role !== "worker") throw new Error("Action permission request does not identify a Worker");
@@ -61,7 +59,6 @@ export function decodeTriggerActionPermissionReply(
     }
     return {
         type: "action_approval_reply",
-        requestDeliveryId,
         requestId: requestPayload.requestId,
         runId: requestPayload.runId,
         actionId: requestPayload.actionId,

@@ -1,8 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import { createServer, type Server, type Socket } from "node:net";
-import { readTriggerWireRequest } from "../../../../packages/storage/src/trigger-delivery-file";
-import { receiveAuthorizedTrigger, type TriggerIngressPrincipal } from "../../../../packages/storage/src/trigger-delivery-ingress";
-import { TriggerDeliveryStore } from "../../../../packages/storage/src/trigger-delivery-store";
+import { readTriggerWireRequest } from "../../../../packages/storage/src/trigger-wire";
+import { receiveAuthorizedTrigger, type TriggerIngressPrincipal } from "../../../../packages/storage/src/trigger-ingress";
+import { TriggerStore } from "../../../../packages/storage/src/trigger-store";
 import { SupervisorOwnership } from "../../../../packages/storage/src/supervisor-ownership";
 
 const MAX_REQUEST_BYTES = 1024 * 1024;
@@ -31,7 +31,7 @@ export class TriggerCredentials {
         return secret;
     }
 
-    /** 吊销凭据；已吊销的凭据不能再提交投递。 */
+    /** 吊销凭据；已吊销的凭据不能再提交 Trigger。 */
     revoke(secret: string): void { this.principals.delete(digest(secret)); }
 
     /** @returns 已登记的可信身份；密钥无效时返回 undefined。 */
@@ -41,15 +41,15 @@ export class TriggerCredentials {
 function digest(secret: string): string { return createHash("sha256").update(secret).digest("hex"); }
 
 /**
- * 创建只在 loopback 接收单条 JSON Trigger 投递的本地服务。
+ * 创建只在 loopback 接收单条 JSON Trigger 的本地服务。
  *
  * @remarks
- * 服务只监听 IPv4 loopback，宿主负责关闭及分发真实连接凭据。每个连接在写入一个 JSON 对象后关闭
- * 写入端，服务返回一个 JSON 对象并关闭连接。结构、凭据、来源及目标授权全部
- * 验证通过后才保存收据；错误响应不包含输入或凭据。此服务不执行 Goal 准入或派发。
+ * 服务只监听 IPv4 loopback，宿主负责关闭及分发真实连接凭据。每个连接写入一个
+ * JSON 对象后关闭写入端；服务以 `{ ok: true }` 确认持久接收。此服务不执行 Goal
+ * 准入或派发，因此不会标记 Trigger 已路由。
  *
  * @param owner - 此工作区当前 Supervisor 的所有权。
- * @param store - 同一工作区的投递存储。
+ * @param store - 同一工作区的 Trigger 存储。
  * @param credentials - 由宿主维护的可信连接身份登记。
  * @returns 已监听 loopback 随机端口的服务；调用方负责关闭。
  * @example
@@ -57,7 +57,7 @@ function digest(secret: string): string { return createHash("sha256").update(sec
  * const server = await startTriggerWireServer(owner, store, credentials);
  * ```
  */
-export async function startTriggerWireServer(owner: SupervisorOwnership, store: TriggerDeliveryStore, credentials: TriggerCredentials): Promise<Server> {
+export async function startTriggerWireServer(owner: SupervisorOwnership, store: TriggerStore, credentials: TriggerCredentials): Promise<Server> {
     const server = createServer({ allowHalfOpen: true }, (socket) => receive(socket, owner, store, credentials));
     await new Promise<void>((resolve, reject) => {
         server.once("error", reject);
@@ -66,7 +66,7 @@ export async function startTriggerWireServer(owner: SupervisorOwnership, store: 
     return server;
 }
 
-function receive(socket: Socket, owner: SupervisorOwnership, store: TriggerDeliveryStore, credentials: TriggerCredentials): void {
+function receive(socket: Socket, owner: SupervisorOwnership, store: TriggerStore, credentials: TriggerCredentials): void {
     let bytes = 0;
     const chunks: Buffer[] = [];
     socket.on("error", () => { socket.destroy(); });
@@ -83,10 +83,10 @@ function receive(socket: Socket, owner: SupervisorOwnership, store: TriggerDeliv
                 if (request === undefined) throw new Error("Invalid request");
                 const principal = credentials.resolve(request.secret);
                 if (principal === undefined) throw new Error("Invalid credential");
-                const result = receiveAuthorizedTrigger(store, { deliveryId: request.trigger.id, trigger: request.trigger }, principal);
-                socket.end(JSON.stringify({ ok: true, result }));
+                receiveAuthorizedTrigger(store, request.trigger, principal);
+                socket.end(JSON.stringify({ ok: true }));
             } catch {
-                socket.end(JSON.stringify({ ok: false, error: "Trigger delivery rejected" }));
+                socket.end(JSON.stringify({ ok: false, error: "Trigger rejected" }));
             }
         }).catch(() => { socket.end(JSON.stringify({ ok: false, error: "Supervisor unavailable" })); });
     });

@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { JsonFileGoalStore } from "../../../packages/storage/src/goal-store";
-import { TriggerDeliveryStore } from "../../../packages/storage/src/trigger-delivery-store";
+import { TriggerStore } from "../../../packages/storage/src/trigger-store";
 import { SupervisorOwnership } from "../../../packages/storage/src/supervisor-ownership";
 import { SupervisorWorkerProcess } from "../src/runtime/worker-process";
 import { createWorkerProcessRegistration } from "../src/runtime/worker-process-registry";
@@ -12,7 +12,7 @@ import { createWorkerProcessRegistration } from "../src/runtime/worker-process-r
 test("Supervisor 启动独立 Worker 并在同一进程中重复确认身份", async () => {
     const root = await mkdtemp(join(tmpdir(), "lg-worker-process-"));
     const owner = new SupervisorOwnership(join(root, "owner.db"));
-    const deliveries = new TriggerDeliveryStore(join(root, "deliveries.db"));
+    const triggers = new TriggerStore(join(root, "triggers.db"));
     const goals = new JsonFileGoalStore(join(root, "goals"));
     const dataDirectory = join(root, "worker-data");
     const registration = await createWorkerProcessRegistration(dataDirectory, "worker-1", "generation-1", { projectRoot: root, executionRoot: root });
@@ -24,7 +24,7 @@ test("Supervisor 启动独立 Worker 并在同一进程中重复确认身份", a
         dataDirectory,
         registration,
         owner,
-        deliveries,
+        triggers,
         goals,
     });
     try {
@@ -35,7 +35,7 @@ test("Supervisor 启动独立 Worker 并在同一进程中重复确认身份", a
         assert.equal(worker.assignedGoalId, undefined);
     } finally {
         await worker.close();
-        deliveries.close();
+        triggers.close();
         await owner.close();
         await rm(root, { recursive: true, force: true });
     }

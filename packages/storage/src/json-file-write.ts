@@ -173,7 +173,7 @@ const DEFAULT_CREATION_INTENT_OPERATIONS: CreationIntentOperations = Object.free
 
 interface CreateJsonFileWithIntentOptions {
     readonly directory: string;
-    readonly deliveryId: string;
+    readonly triggerId: string;
     readonly targetPath: string;
     readonly value: unknown;
     readonly operations?: Partial<CreationIntentOperations>;
@@ -181,7 +181,7 @@ interface CreateJsonFileWithIntentOptions {
 
 interface ReleaseJsonFileCreationIntentOptions {
     readonly directory: string;
-    readonly deliveryId: string;
+    readonly triggerId: string;
     readonly operations?: Partial<CreationIntentOperations>;
 }
 
@@ -191,18 +191,18 @@ type AtomicWriteStage = "mkdir" | "open" | "write" | "sync" | "rename";
  * 以持久化创建意图和不覆盖硬链接发布一个 JSON 文件。
  *
  * @remarks
- * 意图与目标位于同一目录。相同投递的重试必须提供完全相同的 JSON；已存在的
+ * 意图与目标位于同一目录。相同 Trigger 的恢复必须提供完全相同的 JSON；已存在的
  * 意图内容冲突会抛错。目标已存在时仅当它与该意图是同一 inode 才返回成功，
- * 避免把旧文件或其他投递误认作本次创建。目录及文件均使用私有权限。
+ * 避免把旧文件或其他 Trigger 的文件误认作本次创建。目录及文件均使用私有权限。
  *
- * @param options - 创建目录、投递身份、目标路径、内容与可选文件系统替身。
+ * @param options - 创建目录、Trigger 身份、目标路径、内容与可选文件系统替身。
  * @returns 本次创建目标或确认该意图此前已发布时为 `true`；目标由其他文件占用时为 `false`。
- * @throws 文件系统操作失败或同一投递的意图内容冲突时抛出。
+ * @throws 文件系统操作失败或同一 Trigger 的意图内容冲突时抛出。
  * @example
  * ```ts
  * const created = await createJsonFileWithIntent({
  *     directory: "/private/goals",
- *     deliveryId: "delivery-1",
+ *     triggerId: "trigger-1",
  *     targetPath: "/private/goals/goal-1.json",
  *     value: snapshot,
  * });
@@ -213,7 +213,7 @@ export async function createJsonFileWithIntent(
 ): Promise<boolean> {
     const operations = resolveCreationIntentOperations(options.operations);
     const serialized = `${JSON.stringify(options.value)}\n`;
-    const intent = creationIntentPath(options.directory, options.deliveryId);
+    const intent = creationIntentPath(options.directory, options.triggerId);
     const temporary = `${intent}.${randomUUID()}.tmp`;
 
     await operations.mkdir(options.directory, { recursive: true, mode: 0o700 });
@@ -257,14 +257,14 @@ export async function createJsonFileWithIntent(
 }
 
 /**
- * 释放已结算投递的 JSON 创建意图。
+ * 释放已完成路由的 Trigger JSON 创建意图。
  *
- * @param options - 创建目录、稳定投递身份与可选文件系统替身。
+ * @param options - 创建目录、稳定 Trigger 身份与可选文件系统替身。
  * @returns 意图删除或已经不存在后 resolve。
  * @throws 除文件不存在以外的删除错误原样传播。
  * @example
  * ```ts
- * await releaseJsonFileCreationIntent({ directory: "/private/goals", deliveryId: "delivery-1" });
+ * await releaseJsonFileCreationIntent({ directory: "/private/goals", triggerId: "trigger-1" });
  * ```
  */
 export async function releaseJsonFileCreationIntent(
@@ -272,7 +272,7 @@ export async function releaseJsonFileCreationIntent(
 ): Promise<void> {
     const operations = resolveCreationIntentOperations(options.operations);
     try {
-        await operations.unlink(creationIntentPath(options.directory, options.deliveryId));
+        await operations.unlink(creationIntentPath(options.directory, options.triggerId));
     } catch (error) {
         if (readErrorCode(error) !== "ENOENT") throw error;
     }
@@ -459,8 +459,8 @@ function resolveCreationIntentOperations(
         : { ...DEFAULT_CREATION_INTENT_OPERATIONS, ...overrides };
 }
 
-function creationIntentPath(directory: string, deliveryId: string): string {
-    const digest = createHash("sha256").update(deliveryId).digest("hex");
+function creationIntentPath(directory: string, triggerId: string): string {
+    const digest = createHash("sha256").update(triggerId).digest("hex");
     return join(directory, `.trigger-create-${digest}.tmp`);
 }
 

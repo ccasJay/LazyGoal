@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type { GoalUserAction, Trigger } from "../../runtime/src/trigger";
 import { triggerBinding } from "../src/generated/trigger-binding";
-import { readTriggerDeliveryFile, readTriggerWireRequest } from "../src/trigger-delivery-file";
+import { readTrigger, readTriggerWireRequest } from "../src/trigger-wire";
 
 const base = {
     id: "trigger-1",
@@ -108,16 +108,15 @@ test("generated Trigger binding rejects type/action mismatches and arbitrary JSO
 });
 
 
-test("Trigger persistence and wire parsers use the generated Trigger binding", () => {
+test("direct Trigger and wire parsers use the generated Trigger binding", () => {
     for (const trigger of acceptedTriggers) {
-        const delivery = readTriggerDeliveryFile({ deliveryId: `delivery-${trigger.id}`, trigger });
-        assert.deepEqual(delivery, { deliveryId: `delivery-${trigger.id}`, trigger });
+        assert.deepEqual(readTrigger(trigger), trigger);
         assert.deepEqual(readTriggerWireRequest({ secret: "connection-secret", trigger }), { secret: "connection-secret", trigger });
-        assert.equal(readTriggerDeliveryFile({ deliveryId: "d", trigger, goalId: "duplicate-goal" }), undefined);
-        assert.equal(readTriggerWireRequest({ secret: "connection-secret", trigger, deliveryId: "d" }), undefined);
+        assert.equal(readTrigger({ ...trigger, extra: true }), undefined);
+        assert.equal(readTriggerWireRequest({ secret: "connection-secret", trigger, extra: true }), undefined);
     }
     const malformed = { ...acceptedTriggers[0]!, payload: { action: "submitted", extra: true } };
-    assert.equal(readTriggerDeliveryFile({ deliveryId: "d", trigger: malformed }), undefined);
+    assert.equal(readTrigger(malformed), undefined);
     assert.equal(readTriggerWireRequest({ secret: "connection-secret", trigger: malformed }), undefined);
 });
 

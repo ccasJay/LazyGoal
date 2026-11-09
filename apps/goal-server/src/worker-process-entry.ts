@@ -7,14 +7,15 @@ import { projectInteractionView } from "../../../packages/runtime/src/interactio
 import type { GoalStore } from "../../../packages/runtime/src/goal-store";
 import type { Goal } from "../../../packages/runtime/src/domain";
 import { goalSnapshotCodec, type GoalSnapshotV1 } from "../../../packages/storage/src/index";
-import { readTriggerDeliveryFile, type TriggerDeliveryFile } from "../../../packages/storage/src/trigger-delivery-file";
+import { readTrigger } from "../../../packages/storage/src/trigger-wire";
+import type { Trigger } from "../../../packages/runtime/src/trigger";
 
 type ParentMessage =
     | { readonly kind: "probe"; readonly requestId: string }
     | { readonly kind: "advance"; readonly requestId: string; readonly goalId: string; readonly runId: string }
     | { readonly kind: "cancel"; readonly requestId: string; readonly interruptId: string; readonly goalId: string; readonly runId: string }
-    | { readonly kind: "permission-response"; readonly requestId: string; readonly delivery: TriggerDeliveryFile }
-    | { readonly kind: "interaction-response"; readonly requestId: string; readonly delivery: TriggerDeliveryFile }
+    | { readonly kind: "permission-response"; readonly requestId: string; readonly trigger: Trigger }
+    | { readonly kind: "interaction-response"; readonly requestId: string; readonly trigger: Trigger }
     | { readonly kind: "store-reply"; readonly requestId: string; readonly ok: true; readonly snapshot?: GoalSnapshotV1 }
     | { readonly kind: "store-reply"; readonly requestId: string; readonly ok: false }
     | { readonly kind: "replay-offline"; readonly requestId: string }
@@ -245,7 +246,7 @@ async function handle(message: ParentMessage): Promise<void> {
         return;
     }
     if (message.kind === "permission-response") {
-        const goalId = "goalId" in message.delivery.trigger ? message.delivery.trigger.goalId : undefined;
+        const goalId = "goalId" in message.trigger ? message.trigger.goalId : undefined;
         if (operationActive || assignedGoalId === undefined || assignedRunId === undefined || goalId === undefined || assignedGoalId !== goalId) {
             await persistAndSend({ kind: "permission-result", requestId: message.requestId, goalId: goalId ?? "",
                 result: { kind: "rejected", code: "WORKER_GOAL_MISMATCH", message: "Worker does not own the permission target" } });
@@ -260,7 +261,7 @@ async function handle(message: ParentMessage): Promise<void> {
         return;
     }
     if (message.kind === "interaction-response") {
-        const goalId = "goalId" in message.delivery.trigger ? message.delivery.trigger.goalId : undefined;
+        const goalId = "goalId" in message.trigger ? message.trigger.goalId : undefined;
         if (operationActive || assignedGoalId === undefined || assignedRunId === undefined
             || goalId === undefined || assignedGoalId !== goalId) {
             await persistAndSend({ kind: "interaction-result", requestId: message.requestId, goalId: goalId ?? "",
@@ -313,7 +314,7 @@ async function executeAdvance(message: Extract<ParentMessage, { readonly kind: "
 }
 
 async function executePermissionResponse(message: Extract<ParentMessage, { readonly kind: "permission-response" }>): Promise<void> {
-    const trigger = message.delivery.trigger;
+    const trigger = message.trigger;
     const goalId = "goalId" in trigger ? trigger.goalId : "";
     let progress: WorkerProgress;
     try {
@@ -349,12 +350,11 @@ async function executePermissionResponse(message: Extract<ParentMessage, { reado
 }
 
 async function executeInteractionResponse(message: Extract<ParentMessage, { readonly kind: "interaction-response" }>): Promise<void> {
-    const delivery = message.delivery;
-    const trigger = delivery.trigger;
+    const trigger = message.trigger;
     const goalId = "goalId" in trigger ? trigger.goalId : "";
     let progress: WorkerProgress;
     try {
-        const payload = decodeWorkerInteractionPayload(delivery);
+        const payload = decodeWorkerInteractionPayload(trigger);
         if (trigger.type !== "interaction" || trigger.payload.action !== "answered" || trigger.target !== "worker" || assignedGoalId !== goalId) {
             throw new Error("Interaction Trigger belongs to another Goal");
         }
@@ -494,14 +494,14 @@ function parseParentMessage(value: unknown): ParentMessage | undefined {
         && "interruptId" in value && typeof value.interruptId === "string" && "goalId" in value && typeof value.goalId === "string"
         && "runId" in value && typeof value.runId === "string") return value as ParentMessage;
     if (value.kind === "permission-response" && "requestId" in value && typeof value.requestId === "string"
-        && "delivery" in value) {
-        const delivery = readTriggerDeliveryFile(value.delivery);
-        return delivery === undefined ? undefined : { kind: "permission-response", requestId: value.requestId, delivery };
+        && "trigger" in value) {
+        const trigger = readTrigger(value.trigger);
+        return trigger === undefined ? undefined : { kind: "permission-response", requestId: value.requestId, trigger };
     }
     if (value.kind === "interaction-response" && "requestId" in value && typeof value.requestId === "string"
-        && "delivery" in value) {
-        const delivery = readTriggerDeliveryFile(value.delivery);
-        return delivery === undefined ? undefined : { kind: "interaction-response", requestId: value.requestId, delivery };
+        && "trigger" in value) {
+        const trigger = readTrigger(value.trigger);
+        return trigger === undefined ? undefined : { kind: "interaction-response", requestId: value.requestId, trigger };
     }
     if (value.kind === "store-reply" && "requestId" in value && typeof value.requestId === "string"
         && "ok" in value && typeof value.ok === "boolean"

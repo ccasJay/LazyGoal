@@ -5,19 +5,14 @@ import type { Goal } from "../../../../packages/runtime/src/domain";
 import type { Trigger } from "../../../../packages/runtime/src/trigger";
 import { projectInteractionView } from "../../../../packages/runtime/src/interaction-view";
 import { JsonFileGoalStore } from "../../../../packages/storage/src/goal-store";
-import { TriggerDeliveryStore } from "../../../../packages/storage/src/trigger-delivery-store";
+import { TriggerStore } from "../../../../packages/storage/src/trigger-store";
 import { SupervisorOwnership } from "../../../../packages/storage/src/supervisor-ownership";
-import { receiveAuthorizedTrigger, type TriggerIngressPrincipal } from "../../../../packages/storage/src/trigger-delivery-ingress";
-import { readTriggerDeliveryFile } from "../../../../packages/storage/src/trigger-delivery-file";
+import { receiveAuthorizedTrigger, type TriggerIngressPrincipal } from "../../../../packages/storage/src/trigger-ingress";
 import {
     decodeTriggerActionPermissionReply,
     decodeTriggerActionPermissionRequest,
 } from "../../../../packages/storage/src/trigger-permission-codec";
-import type { TriggerDeliveryFile } from "../../../../packages/storage/src/trigger-delivery-file";
-import type {
-    TriggerActionPermissionFailureReason,
-    TriggerDeliveryResult,
-} from "../../../../packages/storage/src/trigger-delivery-store";
+import type { TriggerActionPermissionFailureReason } from "../../../../packages/storage/src/trigger-store";
 import type { TriggerActionPermissionReply, TriggerActionPermissionRequest } from "../../../../packages/storage/src/trigger-permission";
 import { decodeWorkerInteractionPayload } from "./worker-interaction";
 import { decideWorkerActionPermission } from "./worker-permission";
@@ -35,16 +30,16 @@ import {
  * 一条 Worker Action 权限请求及其持久处理状态。
  *
  * @remarks
- * `pending` 反映 Trigger 投递收据；失败原因只对仍需人工处理的请求存在。此视图不
+ * `pending` 反映权限请求 Trigger 尚未与已应用回复一并标记路由；失败原因只对仍需人工处理的请求存在。此视图不
  * 暴露可执行授权，决定必须经 `handleActionPermissionReply` 核验并由原 Worker Runtime 应用。
  *
  * @example
  * ```ts
- * const status: WorkerActionPermissionStatus = { deliveryId: "delivery-1", request, pending: true };
+ * const status: WorkerActionPermissionStatus = { requestId: "request-1", request, pending: true };
  * ```
  */
 export interface WorkerActionPermissionStatus {
-    readonly deliveryId: string;
+    readonly requestId: string;
     readonly request: TriggerActionPermissionRequest;
     readonly pending: boolean;
     readonly failure?: TriggerActionPermissionFailureReason;
@@ -53,7 +48,7 @@ export interface WorkerActionPermissionStatus {
 /**
  * Supervisor 接收一条 Trigger 权限回复后的结果。
  *
- * @remarks 已结算重试返回 `settled`；新回复在 Worker 应用并保存后返回 `handled`。
+ * @remarks 已持久路由的回复返回 `settled`；新回复在 Worker 应用并保存后返回 `handled`。
  *
  * @example
  * ```ts
@@ -67,15 +62,13 @@ export type WorkerPermissionReplyResult =
 /**
  * Supervisor 接收一条 Goal 结构化交互 Trigger 后的结果。
  *
- * @remarks 新回应在 Worker Runtime 应用并保存后返回 `handled`；同一已结算投递重试返回 `settled`。
+ * @remarks 新回应在 Worker Runtime 应用并保存后返回 `handled`；Trigger 路由状态与 Goal 队列状态分别持久化。
  * @example
  * ```ts
  * const result: WorkerInteractionResult = { kind: "handled", progress: { kind: "waiting", waitingFor: "blocked" } };
  * ```
  */
-export type WorkerInteractionResult =
-    | { readonly kind: "handled"; readonly progress: WorkerProgress }
-    | { readonly kind: "settled"; readonly progress: WorkerProgress };
+export type WorkerInteractionResult = { readonly kind: "handled"; readonly progress: WorkerProgress };
 
 /**
  * 显式恢复已确认退出 Worker 所持 Goal 的处理结果。
@@ -85,9 +78,7 @@ export type WorkerInteractionResult =
  * const result: WorkerRecoveryResult = { kind: "resumed", goalId: "goal-1" };
  * ```
  */
-export type WorkerRecoveryResult =
-    | { readonly kind: "resumed"; readonly goalId: string }
-    | { readonly kind: "settled"; readonly goalId: string };
+export type WorkerRecoveryResult = { readonly kind: "resumed"; readonly goalId: string };
 
 interface WorkerSlot {
     readonly workerId: string;
@@ -113,7 +104,7 @@ type WorkerLifecycleEvent =
  *
  * @example
  * ```ts
- * const scheduler = new WorkerScheduler({ owner, deliveries, goals, cwd, dataDirectory, permissionAdapter });
+ * const scheduler = new WorkerScheduler({ owner, triggers, goals, cwd, dataDirectory, permissionAdapter });
  * await scheduler.pump();
  * ```
  */
@@ -128,7 +119,7 @@ export class WorkerScheduler {
      */
     constructor(private readonly options: {
         readonly owner: SupervisorOwnership;
-        readonly deliveries: TriggerDeliveryStore;
+        readonly triggers: TriggerStore;
         readonly goals: JsonFileGoalStore;
         readonly cwd: string;
         readonly dataDirectory: string;
@@ -140,6 +131,7 @@ export class WorkerScheduler {
     /**
      * 派发当前所有可处理的队列项，不等待 Worker 完成。
      *
+     * @remarks 先恢复存活 Worker，再从持久化记录尝试路由取消、交互、权限决定和 checkpoint resume Trigger；不重新接收这些事件。目标当前不可用或身份/状态不匹配时保留未路由记录，后续 `pump()` 可继续尝试。未定义的协作消息不在此处理。
      * @returns 所有当前可派发 Goal 均已认领；执行继续在各 Worker 进程内进行。
      * @throws 队首快照损坏、缺少授权 workspace 或 Worker 启动失败时拒绝。
      * @example
@@ -154,7 +146,9 @@ export class WorkerScheduler {
             do {
                 this.pumpRequested = false;
                 await this.recoverWorkers();
+                await this.resumeUnroutedControlTriggers();
                 await this.dispatchQueuedGoals();
+                await this.resumeUnroutedControlTriggers();
             } while (this.pumpRequested);
         })().finally(() => { this.activePump = undefined; });
         return this.activePump;
@@ -214,38 +208,46 @@ export class WorkerScheduler {
      * 将已认证的取消 Trigger 转发给 Goal 当前绑定的 Worker。
      *
      * @remarks
-     * 投递先持久保存；Worker 只有在 Runtime 的中断检查点完成、Goal 快照确认
-     * `cancelled` 且 Supervisor 保存终态进度后才释放。断连、过期代次或未确认停止
-     * 会保持 Trigger 待处理及原队列绑定，不终止进程，也不重新派发副作用未知的工作。
+     * Trigger 先持久保存；Worker 只有在 Runtime 中断结果及 Supervisor 对应 Goal 进度
+     * 已持久化后才标记该 Trigger 已路由。队列的等待或终态状态仍由独立的 Goal 队列记录。
+     * 断连、过期代次或未确认停止会保留原队列绑定，不终止进程，也不重新派发副作用未知的工作。未路由 Trigger 留在 Store 供 `pump()` 使用原事件恢复；调用方不得重交相同 ID。
      *
-     * @param input - 关联既有 Goal 的取消投递。
+     * @param trigger - 关联既有 Goal 的取消 Trigger。
      * @param principal - 由宿主认证的来源与 Goal 授权。
      * @returns Worker 已报告的终态、等待状态或拒绝原因。
-     * @throws 载荷、授权或持久存储错误时抛出；未结算的取消投递仍可重试。
+     * @throws 载荷、授权或持久存储错误时抛出；未路由的 Trigger 可由所属处理器重试。
      * @example
      * ```ts
-     * const progress = await scheduler.handleCancelTrigger(delivery, authenticatedExternalActor);
+     * const progress = await scheduler.handleCancelTrigger(trigger, authenticatedExternalActor);
      * ```
      */
-    async handleCancelTrigger(input: unknown, principal: TriggerIngressPrincipal): Promise<WorkerProgress> {
-        const delivery = readTriggerDeliveryFile(input);
-        if (delivery === undefined || delivery.trigger.type !== "instruction" || delivery.trigger.payload.action !== "cancel"
-            || delivery.trigger.target !== "worker" || !("goalId" in delivery.trigger)) {
+    async handleCancelTrigger(trigger: Trigger, principal: TriggerIngressPrincipal): Promise<WorkerProgress> {
+        if (trigger.type !== "instruction" || trigger.payload.action !== "cancel"
+            || trigger.target !== "worker" || !("goalId" in trigger)) {
             throw new Error("Cancellation requires a Goal-bound cancel Trigger");
         }
-        const goalId = delivery.trigger.goalId;
-        const receipt = receiveAuthorizedTrigger(this.options.deliveries, delivery, principal);
-        if (receipt.status === "settled") {
-            if (receipt.result.kind !== "handled") throw new Error("Cancellation delivery has a conflicting result");
-            return this.currentTerminalProgress(goalId);
-        }
+        const goalId = trigger.goalId;
+        receiveAuthorizedTrigger(this.options.triggers, trigger, principal);
 
         await this.pump();
-        const queue = this.options.deliveries.queueRecord(goalId);
+        return this.routeCancelTrigger(trigger);
+    }
+
+    private async routeCancelTrigger(trigger: Trigger): Promise<WorkerProgress> {
+        if (trigger.type !== "instruction" || trigger.payload.action !== "cancel"
+            || trigger.target !== "worker" || !("goalId" in trigger)) {
+            throw new Error("Cancellation requires a Goal-bound cancel Trigger");
+        }
+        const goalId = trigger.goalId;
+        const routeStatus = this.options.triggers.routeStatus(trigger.id);
+        if (routeStatus === "routed") return this.currentProgress(goalId);
+        if (routeStatus !== "unrouted") throw new Error("Cancellation Trigger is not stored");
+
+        const queue = this.options.triggers.queueRecord(goalId);
         if (queue === undefined) throw new Error("Cancellation target is not in the Goal queue");
         if (queue.status === "terminal") {
             const progress = await this.currentTerminalProgress(goalId);
-            await this.options.deliveries.settle(delivery.deliveryId, { kind: "handled" });
+            this.options.triggers.markRouted(trigger.id);
             return progress;
         }
         const slot = queue.workerId === undefined || queue.generation === undefined
@@ -254,10 +256,10 @@ export class WorkerScheduler {
         if (slot === undefined || slot.generation !== queue.generation || slot.process.assignedGoalId !== goalId) {
             throw new Error("Cancellation target has no confirmed active Worker");
         }
-        const progress = await slot.process.cancel(goalId, delivery.trigger.id);
-        if (progress.kind !== "terminal") return progress;
+        const progress = await slot.process.cancel(goalId, trigger.id);
+        if (progress.kind === "rejected") return progress;
         await this.reportProgress(slot, goalId, progress);
-        await this.options.deliveries.settle(delivery.deliveryId, { kind: "handled" });
+        this.options.triggers.markRouted(trigger.id);
         return progress;
     }
 
@@ -273,16 +275,17 @@ export class WorkerScheduler {
      * ```
      */
     actionPermissionStatuses(goalId: string): readonly WorkerActionPermissionStatus[] {
-        return this.options.deliveries.listGoalDeliveries(goalId).flatMap((receipt) => {
-            const delivery = receipt.delivery;
-            if (delivery.trigger.type !== "permission" || delivery.trigger.payload.action !== "requested"
-                || delivery.trigger.source.role !== "worker") return [];
-            const request = decodeTriggerActionPermissionRequest(delivery.trigger);
-            const failure = this.options.deliveries.actionPermissionFailure(delivery.deliveryId);
+        return this.options.triggers.listGoalTriggers(goalId).flatMap((trigger) => {
+            if (trigger.type !== "permission" || trigger.payload.action !== "requested"
+                || trigger.source.role !== "worker") return [];
+            const request = decodeTriggerActionPermissionRequest(trigger);
+            const routeStatus = this.options.triggers.routeStatus(trigger.id);
+            if (routeStatus === undefined) throw new Error("Permission request Trigger route state is unavailable");
+            const failure = this.options.triggers.actionPermissionFailure(trigger.id);
             return [{
-                deliveryId: delivery.deliveryId,
+                requestId: trigger.id,
                 request,
-                pending: receipt.status === "pending",
+                pending: routeStatus === "unrouted",
                 ...(failure === undefined ? {} : { failure }),
             }];
         });
@@ -292,35 +295,42 @@ export class WorkerScheduler {
      * 接收并路由已认证的 Action 权限回复。
      *
      * @remarks 回复通过 `replyTo` 查找权限请求，并按其 Goal 与当前 Worker 等待路由；
-     * Worker Runtime 再次核验当前 Action 等待。只有保存恢复进度后才会原子结算请求与回复。
-     * @param input - `permission` Trigger 投递。
+     * Worker Runtime 再次核验当前 Action 等待。只有保存恢复进度后才会原子标记请求与回复已路由。
+     * @param trigger - `permission.decided` Trigger。
      * @param principal - 已认证且可访问目标 Goal 的用户或 Supervisor 身份。
-     * @returns 已应用回复后的 Worker 进度，或既有已结算结果。
-     * @throws 来源、请求、Goal、Action、Run 或 generation 不匹配及 Worker/存储失败时抛出。
+     * @returns 已应用回复后的 Worker 进度，或已路由的回复结果。
+     * @throws 来源、请求、Goal、Action、Run 或 generation 不匹配及 Worker/存储失败时抛出；已存储但未路由的回复由 `pump()` 使用原事件继续处理，不应由来源重复提交。
      * @example
      * ```ts
-     * const result = await scheduler.handleActionPermissionReply(delivery, authenticatedExternalActor);
+     * const result = await scheduler.handleActionPermissionReply(trigger, authenticatedExternalActor);
      * ```
      */
-    async handleActionPermissionReply(input: unknown, principal: TriggerIngressPrincipal): Promise<WorkerPermissionReplyResult> {
-        const delivery = readTriggerDeliveryFile(input);
-        if (delivery === undefined || delivery.trigger.type !== "permission" || delivery.trigger.payload.action !== "decided"
-            || delivery.trigger.target !== "worker" || !("goalId" in delivery.trigger) || !("replyTo" in delivery.trigger)
+    async handleActionPermissionReply(trigger: Trigger, principal: TriggerIngressPrincipal): Promise<WorkerPermissionReplyResult> {
+        return this.routeActionPermissionReply(trigger, principal, false);
+    }
+
+    private async routeActionPermissionReply(
+        trigger: Trigger,
+        principal: TriggerIngressPrincipal,
+        alreadyReceived: boolean,
+    ): Promise<WorkerPermissionReplyResult> {
+        if (trigger.type !== "permission" || trigger.payload.action !== "decided"
+            || trigger.target !== "worker" || !("goalId" in trigger) || !("replyTo" in trigger)
             || (principal.role !== "user" && principal.role !== "external" && principal.role !== "supervisor")
-            || !triggerActorMatchesPrincipal(delivery.trigger.source, principal.role)) {
+            || !triggerActorMatchesPrincipal(trigger.source, principal.role)) {
             throw new Error("Action permission reply requires an authorized Goal-bound external or Supervisor Trigger");
         }
-        const replyTrigger = delivery.trigger;
-        const requestReceipt = this.options.deliveries.listGoalDeliveries(replyTrigger.goalId)
-            .find((receipt) => receipt.delivery.trigger.id === replyTrigger.replyTo);
-        if (requestReceipt === undefined) throw new Error("Permission reply does not reference a stored request Trigger");
-        const reply = decodeTriggerActionPermissionReply(replyTrigger, requestReceipt.delivery.trigger, requestReceipt.delivery.deliveryId);
-        return this.options.owner.runExclusive(JSON.stringify(["permission-reply", reply.requestDeliveryId]), async () => {
-            const route = await this.dispatchPermissionReply(delivery, principal, reply);
+        const requestTrigger = this.options.triggers.read(trigger.replyTo);
+        if (requestTrigger === undefined || !("goalId" in requestTrigger) || requestTrigger.goalId !== trigger.goalId) {
+            throw new Error("Permission reply does not reference a stored request Trigger");
+        }
+        const reply = decodeTriggerActionPermissionReply(trigger, requestTrigger);
+        return this.options.owner.runExclusive(JSON.stringify(["permission-reply", reply.requestId]), async () => {
+            const route = await this.dispatchPermissionReply(trigger, principal, reply, alreadyReceived);
             if (route.kind === "settled") return route;
             await this.recordProgress(route.slot, route.goalId, route.progress, {
-                requestDeliveryId: reply.requestDeliveryId,
-                replyDeliveryId: delivery.deliveryId,
+                requestTriggerId: reply.requestId,
+                replyTriggerId: trigger.id,
             });
             return { kind: "handled", progress: route.progress };
         });
@@ -330,32 +340,39 @@ export class WorkerScheduler {
      * 接收并路由已认证的 Goal 结构化交互回应。
      *
      * @remarks 回复以 Goal 身份和 `replyTo` 匹配当前等待，并由当前持有该 Goal 的 Worker
-     * Runtime 再次验证领域决定。若等待是 Action 权限，请求与回应仅在进度保存后原子结算。
-     * @param input - `interaction` Trigger 投递。
+     * Runtime 再次验证领域决定。只有恢复进度保存后才标记 Trigger 已路由；Action 权限请求与其回复由存储原子标记。
+     * @param trigger - `interaction.answered` Trigger。
      * @param principal - 已认证且可访问目标 Goal 的用户或 Supervisor 身份。
-     * @returns Worker 已应用回应后的等待、终态或拒绝进度，或既有收据。
-     * @throws 来源、Goal、等待、Run、修订或 Worker 代次不匹配及 IPC/存储故障时抛出。
+     * @returns Worker 已应用回应后的等待、终态或拒绝进度。
+     * @throws 来源、Goal、等待、Run、修订或 Worker 代次不匹配及 IPC/存储故障时抛出；未路由事件由 `pump()` 从存储恢复，不应由来源重复提交。
      * @example
      * ```ts
-     * const result = await scheduler.handleInteractionTrigger(delivery, authenticatedExternalActor);
+     * const result = await scheduler.handleInteractionTrigger(trigger, authenticatedExternalActor);
      * ```
      */
-    async handleInteractionTrigger(input: unknown, principal: TriggerIngressPrincipal): Promise<WorkerInteractionResult> {
-        const delivery = readTriggerDeliveryFile(input);
-        if (delivery === undefined || delivery.trigger.type !== "interaction" || delivery.trigger.payload.action !== "answered"
-            || delivery.trigger.target !== "worker" || !("goalId" in delivery.trigger) || (principal.role !== "user" && principal.role !== "external" && principal.role !== "supervisor")
-            || !triggerActorMatchesPrincipal(delivery.trigger.source, principal.role)) {
+    async handleInteractionTrigger(trigger: Trigger, principal: TriggerIngressPrincipal): Promise<WorkerInteractionResult> {
+        return this.routeInteractionTrigger(trigger, principal, false);
+    }
+
+    private async routeInteractionTrigger(
+        trigger: Trigger,
+        principal: TriggerIngressPrincipal,
+        alreadyReceived: boolean,
+    ): Promise<WorkerInteractionResult> {
+        if (trigger.type !== "interaction" || trigger.payload.action !== "answered"
+            || trigger.target !== "worker" || !("goalId" in trigger) || (principal.role !== "user" && principal.role !== "external" && principal.role !== "supervisor")
+            || !triggerActorMatchesPrincipal(trigger.source, principal.role)) {
             throw new Error("Goal interaction requires an authorized external or Supervisor Trigger");
         }
-        const goalId = delivery.trigger.goalId;
-        return this.options.owner.runExclusive(JSON.stringify(["interaction-trigger", goalId, delivery.deliveryId]), async () => {
-            const receipt = receiveAuthorizedTrigger(this.options.deliveries, delivery, principal);
-            if (receipt.status === "settled") {
-                if (receipt.result.kind !== "handled") throw new Error("Interaction Trigger has a conflicting result");
-                return { kind: "settled", progress: await this.currentProgress(goalId) };
+        const goalId = trigger.goalId;
+        return this.options.owner.runExclusive(JSON.stringify(["interaction-trigger", goalId, trigger.id]), async () => {
+            if (alreadyReceived) {
+                assertStoredUnroutedTrigger(this.options.triggers, trigger);
+            } else {
+                receiveAuthorizedTrigger(this.options.triggers, trigger, principal);
             }
-            const payload = decodeWorkerInteractionPayload(delivery);
-            const queue = this.options.deliveries.queueRecord(goalId);
+            const payload = decodeWorkerInteractionPayload(trigger);
+            const queue = this.options.triggers.queueRecord(goalId);
             const slot = queue?.workerId === undefined || queue.generation === undefined
                 ? undefined
                 : this.workers.get(queue.workerId);
@@ -376,14 +393,11 @@ export class WorkerScheduler {
                 || (payload.interactionRequestId !== undefined && interactionLocalId(goal) !== payload.interactionRequestId)) {
                 throw new Error("Interaction Trigger does not match the current Goal wait");
             }
-            const progress = await slot.process.respondInteraction(delivery);
+            const progress = await slot.process.respondInteraction(trigger);
             await this.recordProgress(slot, goalId, progress);
             if (progress.kind !== "rejected") {
-                if (permissionRequest === undefined) {
-                    await this.options.deliveries.settle(delivery.deliveryId, { kind: "handled" });
-                } else {
-                    this.options.deliveries.settleActionPermissionInteraction(permissionRequest.deliveryId, delivery.deliveryId);
-                }
+                if (permissionRequest === undefined) this.options.triggers.markRouted(trigger.id);
+                else this.options.triggers.markActionPermissionReplyRouted(permissionRequest.request.requestId, trigger.id);
             }
             return { kind: "handled", progress };
         });
@@ -397,40 +411,50 @@ export class WorkerScheduler {
      * 已产生外部副作用，只有 Trigger 明确携带 `acknowledgeUnknownEffects: true` 时
      * 才会重新排队；进程断连、PID 不可达或超时本身不能满足此操作。
      *
-     * @param input - `instruction.resume` Trigger；`replyTo` 必须指向当前 Goal 的退出事件。
+     * @param trigger - `instruction.resume` Trigger；`replyTo` 必须指向当前 Goal 的退出事件。
      * @param principal - 已认证且有权访问目标 Goal 的用户或 Supervisor。
-     * @returns 首次恢复为 `resumed`；已处理的同一投递返回 `settled`。
-     * @throws Worker 退出证据、Goal 授权、回复关联或明确确认不匹配时抛出。
+     * @returns 首次恢复为 `resumed`。
+     * @throws Worker 退出证据、Goal 授权、回复关联或明确确认不匹配时抛出；跨提交边界的恢复中断由后续 `pump()` 从原 Trigger 继续。
      * @example
      * ```ts
-     * await scheduler.handleWorkerRecoveryTrigger(delivery, userPrincipal);
+     * await scheduler.handleWorkerRecoveryTrigger(trigger, userPrincipal);
      * ```
      */
-    async handleWorkerRecoveryTrigger(input: unknown, principal: TriggerIngressPrincipal): Promise<WorkerRecoveryResult> {
-        const delivery = readTriggerDeliveryFile(input);
-        if (delivery === undefined || delivery.trigger.type !== "instruction" || delivery.trigger.payload.action !== "resume"
-            || delivery.trigger.target !== "supervisor" || !("goalId" in delivery.trigger) || !("replyTo" in delivery.trigger)
+    async handleWorkerRecoveryTrigger(trigger: Trigger, principal: TriggerIngressPrincipal): Promise<WorkerRecoveryResult> {
+        return this.routeWorkerRecoveryTrigger(trigger, principal, false);
+    }
+
+    private async routeWorkerRecoveryTrigger(
+        trigger: Trigger,
+        principal: TriggerIngressPrincipal,
+        alreadyReceived: boolean,
+    ): Promise<WorkerRecoveryResult> {
+        if (trigger.type !== "instruction" || trigger.payload.action !== "resume"
+            || trigger.target !== "supervisor" || !("goalId" in trigger) || !("replyTo" in trigger)
             || (principal.role !== "user" && principal.role !== "external" && principal.role !== "supervisor")
-            || !triggerActorMatchesPrincipal(delivery.trigger.source, principal.role)) {
+            || !triggerActorMatchesPrincipal(trigger.source, principal.role)) {
             throw new Error("Worker recovery requires an authorized Goal-bound resume Trigger");
         }
-        const resumeTrigger = delivery.trigger;
-        const payload = resumeTrigger.payload;
-        const goalId = resumeTrigger.goalId;
-        const replyTo = resumeTrigger.replyTo;
-        return this.options.owner.runExclusive(JSON.stringify(["worker-recovery-trigger", goalId, delivery.deliveryId]), async () => {
-            const receipt = receiveAuthorizedTrigger(this.options.deliveries, delivery, principal);
-            if (receipt.status === "settled") {
-                if (receipt.result.kind !== "handled") throw new Error("Worker recovery Trigger has a conflicting result");
-                return { kind: "settled", goalId };
+        const payload = trigger.payload;
+        const goalId = trigger.goalId;
+        const replyTo = trigger.replyTo;
+        return this.options.owner.runExclusive(JSON.stringify(["worker-recovery-trigger", goalId, trigger.id]), async () => {
+            if (alreadyReceived) {
+                assertStoredUnroutedTrigger(this.options.triggers, trigger);
+            } else {
+                receiveAuthorizedTrigger(this.options.triggers, trigger, principal);
             }
-            const recovery = this.options.deliveries.workerRecovery(goalId);
-            const exit = recovery === undefined ? undefined : this.options.deliveries.read(recovery.lifecycleDeliveryId);
-            if (recovery === undefined || recovery.status !== "pending" || exit === undefined
-                || exit.delivery.trigger.id !== replyTo) {
+            const recovery = this.options.triggers.workerRecovery(goalId);
+            const exit = recovery === undefined ? undefined : this.options.triggers.read(recovery.lifecycleTriggerId);
+            if (recovery === undefined || (recovery.status !== "pending" && recovery.status !== "resumed")
+                || exit === undefined || exit.id !== replyTo) {
                 throw new Error("Goal has no matching confirmed Worker exit to recover");
             }
-            const slot = this.workers.get(recovery.workerId);
+            const queue = this.options.triggers.queueRecord(goalId);
+            if (recovery.status === "resumed" && queue?.status !== "queued") {
+                throw new Error("Recovered Goal is not in its queued state");
+            }
+            const slot = recovery.status === "pending" ? this.workers.get(recovery.workerId) : undefined;
             if (slot !== undefined && slot.generation === recovery.generation) {
                 let responsive = true;
                 try { await slot.process.probe(); } catch { responsive = false; }
@@ -444,10 +468,10 @@ export class WorkerScheduler {
             if (goal.state.run.status === "running" && payload.acknowledgeUnknownEffects !== true) {
                 throw new Error("Resuming a running Goal requires explicit acknowledgement of possible external effects");
             }
-            await this.options.deliveries.requeueRecoveredGoal(this.options.owner, goalId, recovery.workerId, recovery.generation);
+            await this.options.triggers.requeueRecoveredGoal(this.options.owner, goalId, recovery.workerId, recovery.generation);
             this.workers.delete(recovery.workerId);
             await removeWorkerRegistration(this.options.dataDirectory, recovery.workerId);
-            await this.options.deliveries.settle(delivery.deliveryId, { kind: "handled" });
+            this.options.triggers.markRouted(trigger.id);
             void this.pump();
             return { kind: "resumed", goalId };
         });
@@ -502,7 +526,7 @@ export class WorkerScheduler {
 
     private async dispatchQueuedGoals(): Promise<void> {
         for (;;) {
-            const nextGoalId = this.options.deliveries.nextQueuedGoal();
+            const nextGoalId = this.options.triggers.nextQueuedGoal();
             if (nextGoalId === undefined) return;
             const goal = await this.options.goals.restore(nextGoalId);
             if (goal === undefined) throw new Error("Queued Goal snapshot is missing");
@@ -530,7 +554,7 @@ export class WorkerScheduler {
                     { type: "worker_started", pid: await process.probe() });
             }
 
-            const claimed = await this.options.deliveries.claimNextGoal(this.options.owner, slot.workerId, slot.generation);
+            const claimed = await this.options.triggers.claimNextGoal(this.options.owner, slot.workerId, slot.generation);
             if (claimed !== nextGoalId) throw new Error("Goal queue head changed before dispatch");
             void slot.process.advance(nextGoalId)
                 .then((progress) => this.reportProgress(slot, nextGoalId, progress))
@@ -544,13 +568,13 @@ export class WorkerScheduler {
             let task!: Promise<void>;
             task = this.recordWorkerLifecycle(slot.workerId, slot.generation, {
                 type: "worker_exited", pid: exit.pid, code: exit.code, signal: exit.signal, normal: exit.normal,
-            }).then(async (lifecycleDeliveryId) => {
+            }).then(async (lifecycleTriggerId) => {
                 if (exit.normal || goalId === undefined) return;
-                const queue = this.options.deliveries.queueRecord(goalId);
+                const queue = this.options.triggers.queueRecord(goalId);
                 if (queue?.workerId !== slot.workerId || queue.generation !== slot.generation
                     || (queue.status !== "claimed" && queue.status !== "waiting")) return;
-                await this.options.deliveries.recordWorkerRecovery(this.options.owner, {
-                    goalId, workerId: slot.workerId, generation: slot.generation, lifecycleDeliveryId,
+                await this.options.triggers.recordWorkerRecovery(this.options.owner, {
+                    goalId, workerId: slot.workerId, generation: slot.generation, lifecycleTriggerId,
                 });
             }).catch(() => undefined).finally(() => this.progressTasks.delete(task));
             this.progressTasks.add(task);
@@ -564,11 +588,11 @@ export class WorkerScheduler {
     ): Promise<string> {
         return this.options.owner.runExclusive(JSON.stringify(["worker-lifecycle", workerId, generation, event]), async () => {
             const digest = createHash("sha256").update(canonicalJson({ workerId, generation, event })).digest("hex");
-            const deliveryId = `worker-lifecycle-delivery-${digest}`;
-            const sentAt = deliverySentAt(this.options.deliveries, deliveryId);
+            const triggerId = `worker-lifecycle-${digest}`;
+            const sentAt = triggerSentAt(this.options.triggers, triggerId);
             const trigger: Trigger = event.type === "worker_exited"
                 ? {
-                    id: `worker-lifecycle-${digest}`,
+                    id: triggerId,
                     name: "Worker exited",
                     type: "lifecycle",
                     source: { role: "supervisor" },
@@ -577,7 +601,7 @@ export class WorkerScheduler {
                     sentAt,
                 }
                 : {
-                    id: `worker-lifecycle-${digest}`,
+                    id: triggerId,
                     name: "Worker started",
                     type: "lifecycle",
                     source: { role: "supervisor" },
@@ -585,10 +609,14 @@ export class WorkerScheduler {
                     payload: { action: "started" },
                     sentAt,
                 };
-            const receipt = receiveAuthorizedTrigger(this.options.deliveries, { deliveryId, trigger },
-                { role: "supervisor", mayCreateGoal: false, goalIds: [] });
-            if (receipt.status === "pending") this.options.deliveries.settle(receipt.delivery.deliveryId, { kind: "handled" });
-            return receipt.delivery.deliveryId;
+            const existing = this.options.triggers.read(triggerId);
+            if (existing === undefined) {
+                receiveAuthorizedTrigger(this.options.triggers, trigger, { role: "supervisor", mayCreateGoal: false, goalIds: [] });
+            } else if (canonicalJson(existing) !== canonicalJson(trigger)) {
+                throw new Error("Worker lifecycle Trigger identity conflict");
+            }
+            this.options.triggers.markRouted(triggerId);
+            return triggerId;
         });
     }
 
@@ -602,7 +630,7 @@ export class WorkerScheduler {
             registration,
             ...(this.options.env === undefined ? {} : { env: this.options.env }),
             owner: this.options.owner,
-            deliveries: this.options.deliveries,
+            triggers: this.options.triggers,
             goals: this.options.goals,
         };
     }
@@ -619,8 +647,8 @@ export class WorkerScheduler {
             }
             const assignedGoalId = process.assignedGoalId;
             let claimedGoalId: string | undefined;
-            try { claimedGoalId = this.options.deliveries.workerClaim(registration.workerId, registration.generation); } catch { /* Keep the assignment unresolved. */ }
-            if (assignedGoalId !== claimedGoalId || (assignedGoalId !== undefined && this.options.deliveries.queueRecord(assignedGoalId)?.status === "terminal")) {
+            try { claimedGoalId = this.options.triggers.workerClaim(registration.workerId, registration.generation); } catch { /* Keep the assignment unresolved. */ }
+            if (assignedGoalId !== claimedGoalId || (assignedGoalId !== undefined && this.options.triggers.queueRecord(assignedGoalId)?.status === "terminal")) {
                 await process.detach().catch(() => undefined);
                 continue;
             }
@@ -651,8 +679,52 @@ export class WorkerScheduler {
         }
     }
 
+    private async resumeUnroutedControlTriggers(): Promise<void> {
+        for (const trigger of this.options.triggers.unroutedTriggers()) {
+            const principal = principalForStoredTrigger(trigger);
+            try {
+                if (trigger.type === "instruction" && trigger.payload.action === "cancel") {
+                    const queue = "goalId" in trigger ? this.options.triggers.queueRecord(trigger.goalId) : undefined;
+                    if (queue?.status === "terminal"
+                        || (queue !== undefined && queue.workerId !== undefined && queue.generation !== undefined
+                            && this.workers.get(queue.workerId)?.generation === queue.generation)) {
+                        await this.routeCancelTrigger(trigger);
+                    }
+                    continue;
+                }
+                if (trigger.type === "instruction" && trigger.payload.action === "resume") {
+                    const recovery = "goalId" in trigger ? this.options.triggers.workerRecovery(trigger.goalId) : undefined;
+                    if (recovery !== undefined && (recovery.status === "pending" || recovery.status === "resumed")) {
+                        await this.routeWorkerRecoveryTrigger(trigger, principal, true);
+                    }
+                    continue;
+                }
+                if (trigger.type === "interaction" && trigger.payload.action === "answered") {
+                    const queue = "goalId" in trigger ? this.options.triggers.queueRecord(trigger.goalId) : undefined;
+                    if (queue?.status === "waiting" && queue.workerId !== undefined && queue.generation !== undefined
+                        && this.workers.get(queue.workerId)?.generation === queue.generation) {
+                        await this.routeInteractionTrigger(trigger, principal, true);
+                    }
+                    continue;
+                }
+                if (trigger.type === "permission" && trigger.payload.action === "decided" && "replyTo" in trigger) {
+                    const request = this.options.triggers.read(trigger.replyTo);
+                    const queue = "goalId" in trigger ? this.options.triggers.queueRecord(trigger.goalId) : undefined;
+                    if (request?.type === "permission" && request.payload.action === "requested"
+                        && this.options.triggers.routeStatus(request.id) === "unrouted"
+                        && queue?.status === "waiting" && queue.workerId !== undefined && queue.generation !== undefined
+                        && this.workers.get(queue.workerId)?.generation === queue.generation) {
+                        await this.routeActionPermissionReply(trigger, principal, true);
+                    }
+                }
+            } catch {
+                // A control event remains unrouted until its current Goal and Worker state permit application.
+            }
+        }
+    }
+
     private async recoverProgress(slot: WorkerSlot, event: WorkerOfflineProgress): Promise<void> {
-        if (this.options.deliveries.workerClaim(slot.workerId, slot.generation) !== event.goalId) return;
+        if (this.options.triggers.workerClaim(slot.workerId, slot.generation) !== event.goalId) return;
         await this.recordProgress(slot, event.goalId, event.result);
     }
 
@@ -689,14 +761,14 @@ export class WorkerScheduler {
         slot: WorkerSlot,
         goalId: string,
         initialProgress: WorkerProgress,
-        consumedExchange?: { readonly requestDeliveryId: string; readonly replyDeliveryId: string },
+        consumedExchange?: { readonly requestTriggerId: string; readonly replyTriggerId: string },
     ): Promise<void> {
         let progress = initialProgress;
         let exchange = consumedExchange;
         for (;;) {
             await this.persistProgress(slot, goalId, progress);
             if (exchange !== undefined) {
-                this.options.deliveries.settleActionPermissionExchange(exchange.requestDeliveryId, exchange.replyDeliveryId);
+                this.options.triggers.markActionPermissionReplyRouted(exchange.requestTriggerId, exchange.replyTriggerId);
                 exchange = undefined;
             }
             slot.process.acknowledgeProgress(goalId, progress);
@@ -709,7 +781,7 @@ export class WorkerScheduler {
     }
 
     private async persistProgress(slot: WorkerSlot, goalId: string, progress: WorkerProgress): Promise<void> {
-        const queue = this.options.deliveries.queueRecord(goalId);
+        const queue = this.options.triggers.queueRecord(goalId);
         if (queue === undefined || queue.workerId !== slot.workerId || queue.generation !== slot.generation) {
             throw new Error("Worker progress does not match its durable Goal binding");
         }
@@ -723,9 +795,9 @@ export class WorkerScheduler {
             if (replyTo === undefined) throw new Error("Worker progress has no source Trigger association");
             const report = { workerId: slot.workerId, generation: slot.generation, goalId, runId: goal.state.run.id, waitingFor: progress.waitingFor };
             const digest = createHash("sha256").update(canonicalJson(report)).digest("hex");
-            const deliveryId = `worker-progress-delivery-${digest}`;
+            const triggerId = `worker-progress-${digest}`;
             const trigger: Trigger = {
-                id: `worker-progress-${digest}`,
+                id: triggerId,
                 name: "Goal is waiting",
                 type: "response",
                 source: { role: "worker", workerId: slot.workerId, generation: slot.generation },
@@ -733,17 +805,22 @@ export class WorkerScheduler {
                 goalId,
                 replyTo,
                 payload: { action: "progress", runId: goal.state.run.id, status: "waiting", waitingFor: progress.waitingFor },
-                sentAt: deliverySentAt(this.options.deliveries, deliveryId),
+                sentAt: triggerSentAt(this.options.triggers, triggerId),
             };
-            const receipt = receiveAuthorizedTrigger(this.options.deliveries, { deliveryId, trigger }, {
-                role: "worker", workerId: slot.workerId, generation: slot.generation, goalId, mayCreateGoal: false,
-            });
-            if (receipt.status === "pending") await this.options.deliveries.settle(receipt.delivery.deliveryId, { kind: "handled" });
-            await this.options.deliveries.markWorkerGoalStatus(this.options.owner, slot.workerId, slot.generation, goalId, "waiting");
+            const existing = this.options.triggers.read(triggerId);
+            if (existing === undefined) {
+                receiveAuthorizedTrigger(this.options.triggers, trigger, {
+                    role: "worker", workerId: slot.workerId, generation: slot.generation, goalId, mayCreateGoal: false,
+                });
+            } else if (canonicalJson(existing) !== canonicalJson(trigger)) {
+                throw new Error("Worker progress Trigger identity conflict");
+            }
+            await this.options.triggers.markWorkerGoalStatus(this.options.owner, slot.workerId, slot.generation, goalId, "waiting");
+            this.options.triggers.markRouted(triggerId);
             return;
         }
         if (progress.kind === "terminal") {
-            await this.options.deliveries.markWorkerGoalStatus(this.options.owner, slot.workerId, slot.generation, goalId, "terminal");
+            await this.options.triggers.markWorkerGoalStatus(this.options.owner, slot.workerId, slot.generation, goalId, "terminal");
             slot.process.confirmTerminal(goalId);
             void this.pump();
         }
@@ -752,61 +829,58 @@ export class WorkerScheduler {
     private async autoHandleActionPermission(
         slot: WorkerSlot,
         goalId: string,
-    ): Promise<{ readonly progress: WorkerProgress; readonly exchange: { readonly requestDeliveryId: string; readonly replyDeliveryId: string } } | undefined> {
+    ): Promise<{ readonly progress: WorkerProgress; readonly exchange: { readonly requestTriggerId: string; readonly replyTriggerId: string } } | undefined> {
         const goal = await this.options.goals.restore(goalId);
         if (goal === undefined) throw new Error("Action permission target Goal snapshot is missing");
-        const requestReceipt = this.ensureActionPermissionRequest(slot, goal);
-        if (requestReceipt.status !== "pending") return undefined;
-        const requestTrigger = requestReceipt.delivery.trigger;
+        const requestTrigger = this.ensureActionPermissionRequest(slot, goal);
+        if (this.options.triggers.routeStatus(requestTrigger.id) !== "unrouted") return undefined;
         const request = decodeTriggerActionPermissionRequest(requestTrigger);
 
-        const existingReply = this.findPendingPermissionReply(goalId, requestReceipt.delivery.deliveryId);
+        const existingReply = this.findPendingPermissionReply(goalId, requestTrigger.id);
         if (existingReply !== undefined) {
-            const replyTrigger = existingReply.delivery.trigger;
-            const reply = decodeTriggerActionPermissionReply(replyTrigger, requestTrigger, requestReceipt.delivery.deliveryId);
-            const replyPrincipal: TriggerIngressPrincipal = replyTrigger.source.role === "external"
-                ? { role: "external", externalId: replyTrigger.source.externalId, mayCreateGoal: false, goalIds: [goalId] }
+            const reply = decodeTriggerActionPermissionReply(existingReply, requestTrigger);
+            const replyPrincipal: TriggerIngressPrincipal = existingReply.source.role === "external"
+                ? { role: "external", externalId: existingReply.source.externalId, mayCreateGoal: false, goalIds: [goalId] }
                 : { role: "supervisor", mayCreateGoal: false, goalIds: [goalId] };
-            const route = await this.dispatchPermissionReply(existingReply.delivery, replyPrincipal, reply);
+            const route = await this.dispatchPermissionReply(existingReply, replyPrincipal, reply, true);
             return route.kind === "settled" ? undefined : {
                 progress: route.progress,
-                exchange: { requestDeliveryId: requestReceipt.delivery.deliveryId, replyDeliveryId: existingReply.delivery.deliveryId },
+                exchange: { requestTriggerId: request.requestId, replyTriggerId: existingReply.id },
             };
         }
 
         const advice = await decideWorkerActionPermission(this.options.permissionAdapter, goal);
         if (advice.kind === "pending") {
-            this.options.deliveries.recordActionPermissionFailure(requestReceipt.delivery.deliveryId, advice.reason);
+            this.options.triggers.recordActionPermissionFailure(requestTrigger.id, advice.reason);
             return undefined;
         }
         const decision = advice.decision;
-        const replyIdentity = { requestDeliveryId: requestReceipt.delivery.deliveryId, decision };
+        const replyIdentity = { requestId: request.requestId, decision };
         const digest = createHash("sha256").update(canonicalJson(replyIdentity)).digest("hex");
-        const replyDeliveryId = `worker-permission-reply-delivery-${digest}`;
+        const replyTriggerId = `worker-permission-reply-${digest}`;
         const base = {
-            id: `worker-permission-reply-${digest}`,
+            id: replyTriggerId,
             name: decision.kind === "approve" ? "Approve Action" : "Reject Action",
             type: "permission" as const,
             source: { role: "supervisor" as const },
             target: "worker" as const,
             goalId,
             replyTo: requestTrigger.id,
-            sentAt: deliverySentAt(this.options.deliveries, replyDeliveryId),
+            sentAt: triggerSentAt(this.options.triggers, replyTriggerId),
         };
         const replyTrigger: Trigger = decision.kind === "approve"
             ? { ...base, payload: { action: "decided", decision: "approve", scope: "action" } }
             : { ...base, payload: { action: "decided", decision: "reject", scope: "action", reason: decision.reason } };
-        const replyDelivery: TriggerDeliveryFile = { deliveryId: replyDeliveryId, trigger: replyTrigger };
-        const reply = decodeTriggerActionPermissionReply(replyTrigger, requestTrigger, requestReceipt.delivery.deliveryId);
+        const reply = decodeTriggerActionPermissionReply(replyTrigger, requestTrigger);
         const principal: TriggerIngressPrincipal = { role: "supervisor", mayCreateGoal: false, goalIds: [goalId] };
-        const route = await this.dispatchPermissionReply(replyDelivery, principal, reply);
+        const route = await this.dispatchPermissionReply(replyTrigger, principal, reply);
         return route.kind === "settled" ? undefined : {
             progress: route.progress,
-            exchange: { requestDeliveryId: requestReceipt.delivery.deliveryId, replyDeliveryId: replyDelivery.deliveryId },
+            exchange: { requestTriggerId: request.requestId, replyTriggerId: replyTrigger.id },
         };
     }
 
-    private ensureActionPermissionRequest(slot: WorkerSlot, goal: Goal): TriggerDeliveryResult {
+    private ensureActionPermissionRequest(slot: WorkerSlot, goal: Goal): Trigger {
         const view = projectInteractionView(goal);
         if (view?.kind !== "action_approval" || goal.state.run.pendingAction?.status !== "awaiting_approval") {
             throw new Error("Worker reported Action approval without a matching persisted wait");
@@ -823,7 +897,6 @@ export class WorkerScheduler {
         };
         const digest = createHash("sha256").update(canonicalJson(identity)).digest("hex");
         const requestId = `worker-permission-request-${digest}`;
-        const deliveryId = `worker-permission-request-delivery-${digest}`;
         const trigger: Trigger = {
             id: requestId,
             name: "Action approval requested",
@@ -838,9 +911,14 @@ export class WorkerScheduler {
                 interactionId: view.interactionId,
                 commitRevision,
             },
-            sentAt: deliverySentAt(this.options.deliveries, deliveryId),
+            sentAt: triggerSentAt(this.options.triggers, requestId),
         };
-        return receiveAuthorizedTrigger(this.options.deliveries, { deliveryId, trigger }, {
+        const existing = this.options.triggers.read(requestId);
+        if (existing !== undefined) {
+            if (canonicalJson(existing) !== canonicalJson(trigger)) throw new Error("Action permission request Trigger identity conflict");
+            return existing;
+        }
+        return receiveAuthorizedTrigger(this.options.triggers, trigger, {
             role: "worker",
             workerId: slot.workerId,
             generation: slot.generation,
@@ -849,64 +927,65 @@ export class WorkerScheduler {
         });
     }
 
-    private findPendingPermissionReply(goalId: string, requestDeliveryId: string): Extract<TriggerDeliveryResult, { readonly status: "pending" }> | undefined {
-        const request = this.options.deliveries.read(requestDeliveryId);
+    private findPendingPermissionReply(goalId: string, requestTriggerId: string): Trigger | undefined {
+        const request = this.options.triggers.read(requestTriggerId);
         if (request === undefined) return undefined;
-        for (const receipt of this.options.deliveries.listGoalDeliveries(goalId)) {
-            const trigger = receipt.delivery.trigger;
-            if (receipt.status === "pending" && trigger.type === "permission" && trigger.payload.action === "decided"
-                && "replyTo" in trigger && trigger.replyTo === request.delivery.trigger.id) return receipt;
-        }
-        return undefined;
+        return this.options.triggers.listGoalTriggers(goalId).find((trigger) => {
+            return this.options.triggers.routeStatus(trigger.id) === "unrouted"
+                && trigger.type === "permission" && trigger.payload.action === "decided"
+                && "replyTo" in trigger && trigger.replyTo === request.id;
+        });
     }
 
     private async dispatchPermissionReply(
-        delivery: TriggerDeliveryFile,
+        trigger: Trigger,
         principal: TriggerIngressPrincipal,
         reply: TriggerActionPermissionReply,
+        alreadyReceived = false,
     ): Promise<
         | { readonly kind: "settled"; readonly progress: WorkerProgress }
         | { readonly kind: "routed"; readonly slot: WorkerSlot; readonly goalId: string; readonly progress: WorkerProgress }
     > {
-        const trigger = delivery.trigger;
         const goalId = "goalId" in trigger ? trigger.goalId : undefined;
         if (goalId === undefined || (principal.role !== "user" && principal.role !== "external" && principal.role !== "supervisor")
             || !principal.goalIds.includes(goalId) || !triggerActorMatchesPrincipal(trigger.source, principal.role)) {
             throw new Error("Permission reply source or Goal authorization is invalid");
         }
-        const requestReceipt = this.options.deliveries.read(reply.requestDeliveryId);
-        if (requestReceipt === undefined || !("goalId" in requestReceipt.delivery.trigger)
-            || requestReceipt.delivery.trigger.goalId !== goalId
-            || requestReceipt.delivery.trigger.type !== "permission" || requestReceipt.delivery.trigger.payload.action !== "requested"
-            || requestReceipt.delivery.trigger.source.role !== "worker") {
+        const requestTrigger = this.options.triggers.read(reply.requestId);
+        if (requestTrigger === undefined || !("goalId" in requestTrigger) || requestTrigger.goalId !== goalId
+            || requestTrigger.type !== "permission" || requestTrigger.payload.action !== "requested"
+            || requestTrigger.source.role !== "worker") {
             throw new Error("Permission reply does not reference a stored Worker request");
         }
-        const requestTrigger = requestReceipt.delivery.trigger;
         const request = decodeTriggerActionPermissionRequest(requestTrigger);
-        const verifiedReply = decodeTriggerActionPermissionReply(trigger, requestTrigger, requestReceipt.delivery.deliveryId);
+        const verifiedReply = decodeTriggerActionPermissionReply(trigger, requestTrigger);
         if (canonicalJson(verifiedReply) !== canonicalJson(reply)
             || reply.requestId !== request.requestId || reply.runId !== request.runId || reply.actionId !== request.actionId
             || reply.interactionId !== request.interactionId || reply.commitRevision !== request.commitRevision) {
             throw new Error("Permission reply identity does not match its Worker request");
         }
 
-        const existing = this.options.deliveries.read(delivery.deliveryId);
-        if (existing?.status === "settled") {
-            const authenticated = receiveAuthorizedTrigger(this.options.deliveries, delivery, principal);
-            if (authenticated.status !== "settled" || authenticated.result.kind !== "handled") {
-                throw new Error("Permission reply has a conflicting settled result");
+        const requestRouteStatus = this.options.triggers.routeStatus(requestTrigger.id);
+        if (requestRouteStatus !== "unrouted") throw new Error("Permission request has already been routed");
+        if (alreadyReceived) {
+            const existing = this.options.triggers.read(trigger.id);
+            if (existing === undefined || canonicalJson(existing) !== canonicalJson(trigger)) {
+                throw new Error("Stored permission reply Trigger identity changed");
             }
-            return { kind: "settled", progress: await this.currentProgress(goalId) };
+        } else {
+            receiveAuthorizedTrigger(this.options.triggers, trigger, principal);
         }
-        if (requestReceipt.status !== "pending") throw new Error("Permission request has already been settled");
+        const routeStatus = this.options.triggers.routeStatus(trigger.id);
+        if (routeStatus === "routed") return { kind: "settled", progress: await this.currentProgress(goalId) };
+        if (routeStatus !== "unrouted") throw new Error("Permission reply Trigger was not persisted");
 
-        const queue = this.options.deliveries.queueRecord(goalId);
+        const queue = this.options.triggers.queueRecord(goalId);
         if (queue?.workerId !== reply.workerId || queue.generation !== reply.generation || queue.status !== "waiting") {
             throw new Error("Permission reply targets an old or inactive Worker generation");
         }
         const slot = this.workers.get(reply.workerId);
         if (slot === undefined || slot.generation !== reply.generation || slot.process.assignedGoalId !== goalId) {
-            this.options.deliveries.recordActionPermissionFailure(reply.requestDeliveryId, "worker-unavailable");
+            this.options.triggers.recordActionPermissionFailure(reply.requestId, "worker-unavailable");
             throw new Error("Permission target Worker is unavailable");
         }
         const goal = await this.options.goals.restore(goalId);
@@ -917,36 +996,30 @@ export class WorkerScheduler {
             || projectInteractionView(goal)?.interactionId !== reply.interactionId) {
             throw new Error("Permission reply is stale for the current Goal wait");
         }
-        const competingReply = this.options.deliveries.listGoalDeliveries(goalId).find((candidate) => {
-            const candidateTrigger = candidate.delivery.trigger;
-            return candidate.delivery.deliveryId !== delivery.deliveryId && candidate.status === "pending"
-                && candidateTrigger.type === "permission" && candidateTrigger.payload.action === "decided"
-                && "replyTo" in candidateTrigger && candidateTrigger.replyTo === requestTrigger.id;
+        const competingReply = this.options.triggers.listGoalTriggers(goalId).find((candidate) => {
+            return candidate.id !== trigger.id && this.options.triggers.routeStatus(candidate.id) === "unrouted"
+                && candidate.type === "permission" && candidate.payload.action === "decided"
+                && "replyTo" in candidate && candidate.replyTo === requestTrigger.id;
         });
         if (competingReply !== undefined) throw new Error("Another permission reply already owns this request");
 
-        const receipt = receiveAuthorizedTrigger(this.options.deliveries, delivery, principal);
-        if (receipt.status === "settled") {
-            if (receipt.result.kind !== "handled") throw new Error("Permission reply has a conflicting receipt");
-            return { kind: "settled", progress: await this.currentProgress(goalId) };
-        }
         let progress: WorkerProgress;
         try {
-            progress = await slot.process.respondActionPermission(receipt.delivery);
+            progress = await slot.process.respondActionPermission(trigger);
         } catch (error) {
-            this.options.deliveries.recordActionPermissionFailure(reply.requestDeliveryId, "worker-unavailable");
+            this.options.triggers.recordActionPermissionFailure(reply.requestId, "worker-unavailable");
             throw error;
         }
         const updated = await this.options.goals.restore(goalId);
         if (updated === undefined || updated.state.run.id !== reply.runId) {
-            this.options.deliveries.recordActionPermissionFailure(reply.requestDeliveryId, "reply-rejected");
+            this.options.triggers.recordActionPermissionFailure(reply.requestId, "reply-rejected");
             throw new Error("Worker reply did not produce a current Goal snapshot");
         }
         const stillWaitingForAction = updated.state.run.status === "waiting"
             && updated.state.run.pendingAction?.status === "awaiting_approval"
             && updated.state.run.pendingAction.action.actionId === reply.actionId;
         if (stillWaitingForAction) {
-            this.options.deliveries.recordActionPermissionFailure(reply.requestDeliveryId, "reply-rejected");
+            this.options.triggers.recordActionPermissionFailure(reply.requestId, "reply-rejected");
             throw new Error("Worker Runtime did not accept the permission reply");
         }
         if (progress.kind === "rejected" && (updated.state.run.status === "completed"
@@ -988,8 +1061,34 @@ function interactionLocalId(goal: Goal): string | undefined {
     return goal.state.run.pendingInteraction?.requestId;
 }
 
-function deliverySentAt(deliveries: TriggerDeliveryStore, deliveryId: string): string {
-    return deliveries.read(deliveryId)?.delivery.trigger.sentAt ?? new Date().toISOString();
+function triggerSentAt(triggers: TriggerStore, triggerId: string): string {
+    return triggers.read(triggerId)?.sentAt ?? new Date().toISOString();
+}
+
+function principalForStoredTrigger(trigger: Trigger): TriggerIngressPrincipal {
+    const goalIds = "goalId" in trigger ? [trigger.goalId] : [];
+    switch (trigger.source.role) {
+        case "external":
+            return { role: "external", externalId: trigger.source.externalId, mayCreateGoal: false, goalIds };
+        case "worker":
+            return {
+                role: "worker",
+                workerId: trigger.source.workerId,
+                generation: trigger.source.generation,
+                ...("goalId" in trigger ? { goalId: trigger.goalId } : {}),
+                mayCreateGoal: false,
+            };
+        case "supervisor":
+            return { role: "supervisor", mayCreateGoal: false, goalIds };
+    }
+}
+
+function assertStoredUnroutedTrigger(triggers: TriggerStore, trigger: Trigger): void {
+    const stored = triggers.read(trigger.id);
+    if (stored === undefined || triggers.routeStatus(trigger.id) !== "unrouted"
+        || canonicalJson(stored) !== canonicalJson(trigger)) {
+        throw new Error("Stored Trigger is missing, routed, or has changed");
+    }
 }
 
 function triggerActorMatchesPrincipal(source: Trigger["source"], role: TriggerIngressPrincipal["role"]): boolean {

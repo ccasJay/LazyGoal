@@ -217,6 +217,14 @@ test("真实 Web 入口使用 Trigger 并行启动 Worker、观察状态、拒�
         });
         assert.equal(createAlpha.status, 202, JSON.stringify(createAlpha.body));
         assert.equal(createAlpha.body.goalId, "goal-alpha");
+        const repeatedCreateAlpha = await request("/api/goals", "POST", {
+            goalId: "goal-alpha",
+            inputId: "work-alpha",
+            intent: "Wait until the user cancels this Goal.",
+            modelId: "test-model",
+        });
+        assert.equal(repeatedCreateAlpha.status, 409);
+        assert.equal(repeatedCreateAlpha.body.error, "input_conflict");
         const createBeta = await request("/api/goals", "POST", {
             goalId: "goal-beta",
             inputId: "work-beta",

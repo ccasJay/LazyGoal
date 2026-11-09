@@ -32,13 +32,13 @@ export interface TriggerActionPermissionRequest {
  *
  * @remarks
  * Run、Action、交互修订和 Worker 身份从 `replyTo` 指向的原请求投影，不重复出现在决定 Trigger 中。
- * `requestDeliveryId` 仅供内部账本查询；`approve` 只能使用 `action` 单次范围，`reject` 必须有非空理由。
+ * `requestId` 同时是原请求 Trigger ID；`approve` 只能使用 `action` 单次范围，`reject` 必须有非空理由。
  * 此 DTO 不作为 Trigger payload、wire 消息或持久化格式。
  *
  * @example
  * ```ts
  * const reply: TriggerActionPermissionReply = {
- *   type: "action_approval_reply", requestDeliveryId: "delivery-1", requestId: "request-1",
+ *   type: "action_approval_reply", requestId: "request-1",
  *   runId: "run-1", actionId: "action-1", interactionId: "action_approval:action-1",
  *   commitRevision: 3, workerId: "worker-1", generation: "generation-1",
  *   decision: "approve", scope: "action",
@@ -48,9 +48,8 @@ export interface TriggerActionPermissionRequest {
 export interface TriggerActionPermissionReply {
     /** 内部投影类型标签，不出现在 Trigger payload 中。 */
     readonly type: "action_approval_reply";
-    /** 内部账本中保存原请求的投递标识。 */
-    readonly requestDeliveryId: string;
-    /** 原请求 Trigger 的身份。 */
+
+    /** 原请求 Trigger 的稳定身份，也是持久化查询键。 */
     readonly requestId: string;
     /** 原请求所属 Run。 */
     readonly runId: string;

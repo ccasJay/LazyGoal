@@ -2,7 +2,7 @@
 
 本机 Web Composition Root，连接 Browser、HTTP、Supervisor、Trigger 持久化与独立 Worker。本文描述当前实现、使用边界与限制；[公开入口](../src/index.ts)。
 
-默认 `lazygoal web` 入口把 Goal Board 的创建与控制命令交给 [Trigger Browser Session Port](../src/browser-session-port.ts)。浏览器 Bearer 能力映射为认证 `externalId`；Supervisor 在持久化前校验 Trigger.source 与连接 Actor。所有 Worker-target 消息先经 Supervisor；当前支持的取消、交互与权限决定由 WorkerScheduler 按 Goal 路由，Worker 之间没有直接连接。`collaboration.requested/result` 仅保留动作标签；payload 与处理行为未定义，Supervisor 不解释额外内容。Supervisor 持有唯一 Goal Store 写入权、Trigger 收据和派发队列；准入成功后才保存 Goal 并排队，独立 Worker 进程推进获派 Goal。Worker 的检查点、进度、交互、取消和生命周期报告经 Trigger 与 Supervisor 协调。列表、会话状态及实时流都按 Goal 查询，不把单个活动 Goal 当作全局状态。
+默认 `lazygoal web` 入口把 Goal Board 的创建与控制命令交给 [Trigger Browser Session Port](../src/browser-session-port.ts)。浏览器 Bearer 能力映射为认证 `externalId`；Supervisor 在持久化前校验 Trigger.source 与连接 Actor。所有 Worker-target 消息先经 Supervisor；当前支持的取消、交互与权限决定由 WorkerScheduler 按 Goal 路由，Worker 之间没有直接连接。`collaboration.requested/result` 仅保留动作标签；payload 与处理行为未定义，Supervisor 不解释额外内容。Supervisor 独占 Goal Store 写入权，并用 SQLite 直接保存不可变 Trigger、独立路由状态和 FIFO 派发队列；重复 Trigger ID 冲突，不回放旧准入结果。Goal Snapshot 发布后，队列插入与 Trigger 路由完成在同一 SQLite 事务提交。启动时清理已排队 Goal 的残留创建意图，并从存储的未路由 work Trigger 继续准入，不等待来源重交；已有冻结 Goal 创建意图优先于当前配置。未冻结的工作在恢复时重新执行模型准入，因为持久化 Actor 不能区分 Browser user 与 external。Worker 重新接管后，Supervisor 还会尝试原样路由当前状态允许的取消、交互、权限决定和 checkpoint resume；不适用的事件保留未路由，协作 payload 仍不解释。独立 Worker 进程推进获派 Goal，检查点、进度、交互、取消和生命周期报告经 Trigger 与 Supervisor 协调。列表、会话状态及实时流都按 Goal 查询，不把单个活动 Goal 当作全局状态。
 
 浏览器入口支持创建 Goal、结构化交互、停止运行和对明确待恢复记录的恢复。普通后续消息、Steer 与消息队列控制返回不支持；已有运行快照保留原样，不自动接回旧 Runtime 会话，也不因缺少 Worker 恢复记录而重新执行。恢复运行中检查点要求用户明确承认最后动作可能产生了未知外部效果。
 
@@ -43,7 +43,7 @@ Headless Composition Root 继续使用同一 Runtime 执行链（Launcher、Coor
 flowchart LR
     WB[apps/goal-board] -->|same-origin HTTP / SSE| WS[apps/goal-server]
     WS --> BR[Browser routes]
-    BR -->|work / interaction / cancel / recovery| AD[Trigger admission and delivery]
+    BR -->|work / interaction / cancel / recovery| AD[Trigger admission and routing]
     AD --> DB[(Supervisor SQLite state)]
     AD --> GOAL[Supervisor Goal Store]
     DB --> SCH[WorkerScheduler]
@@ -59,11 +59,11 @@ flowchart LR
 
 ## 主流程
 
-1. Web 创建命令校验模型选择并提交带稳定传递身份的工作 Trigger。Supervisor 按 Fast path 规则过滤或接受；未命中或不明确时由 Supervisor 直接调用模型完成 Slow path，不启动决策 Worker。
-2. 只有已接受的工作 Trigger 才创建带来源和授权上限的 Goal。Goal、创建收据与 FIFO Worker 队列一并持久化，准入或创建失败保留可重试投递。
+1. Web 创建命令校验模型选择并提交以 Trigger ID 标识的工作事件。Supervisor 对显式用户工作走确定性 Fast path；其他来源由 Supervisor 直接调用模型完成 Slow path，不启动决策 Worker。
+2. 只有已接受的工作 Trigger 才创建带来源和授权上限的 Goal。Goal Snapshot 先发布；随后 SQLite 原子写入 FIFO Worker 队列并标记 Trigger 已路由。准入故障保留未路由 Trigger 及失败分类；Goal ID 冲突不会覆盖现有快照。
 3. WorkerScheduler 按派发顺序为 Goal 选择匹配的空闲 Worker，或启动独立进程；不同 Goal 可并行。Supervisor 是 Goal 状态的唯一写入者，Worker 持久化自己的上下文与执行检查点，并以 Trigger 回报进度和结果。
 4. 结构化回答、取消、权限请求与恢复决定都绑定 Goal、Run、请求身份及必要的 Worker generation，经 Trigger 往返。未知工具副作用只有用户明确确认恢复后才可能重试。
-5. Supervisor 重启时先核对所有权、派发队列和存活 Worker，按顺序处理离线积压；不凭 PID 或超时重派未知动作。已确认退出的 Worker 才可形成显式恢复记录。
+5. Supervisor 重启时先清理已入队 Goal 的残留创建意图，并重试存储中的未路由新 Goal work Trigger；这不依赖来源重新提交。随后核对所有权和存活 Worker、处理离线积压，再尝试路由仍适用于当前 Goal/Worker 状态的已存储控制 Trigger；不凭 PID 或超时重派未知动作，只有确认退出的 Worker 才形成显式恢复记录。
 6. Browser 从 Supervisor 保存的 Goal 与 Trigger 状态构造列表和详情，Goal SSE 初始发送 `state_sync`，后续按提交修订刷新；断线后重新连接会重新读取权威状态。
 7. Benchmark 仍有自己的 Headless Composition Root；Prompt Evaluation 执行、GEPA 与 Harness2 的优化执行入口明确返回不支持，不回退旧执行链。
 
@@ -121,7 +121,7 @@ Provider 表单在线查询由 Composition Root 校验供应商和端点规则�
 
 OpenCode Go 在线文本模型按实时模型元数据确认文本生成、工具调用和容量后可选，并统一通过 `llm-pi-ai` 的 Chat Completions 适配路径执行。`GoalModelSelection` 与 Snapshot 保存协议、容量、推理、视觉和工具选择能力；每次恢复按保存数据构造 Adapter，并按已保存的 Profile ID 解析当前 API Key。端点由 `llm-pi-ai` 固定，API Key 与 Base URL 不写入 Goal 状态。上游可能限制部分免费模型只能在 OpenCode 内调用，外部客户端请求可能收到 403。
 
-[Trigger 准入组件](../src/runtime/trigger-admission.ts) 按确定性 Fast path 过滤和判断新工作，未命中或不明确时由 Supervisor 直接调用模型执行 Slow path；失败原因与投递持久保存以便重试。默认浏览器入口使用该准入路径。
+[Trigger 准入组件](../src/runtime/trigger-admission.ts) 对显式用户工作使用确定性 Fast path；其他来源由 Supervisor 直接调用模型执行 Slow path。准入失败分类随未路由 Trigger 保存，Supervisor 重启时会直接从该事件恢复处理。默认浏览器入口使用该准入路径。
 
 [独立 Worker](../src/runtime/worker-process.ts) 以 OS 子进程复用执行 Runtime；Goal 快照经 generation 与持久队列绑定核验后由 Supervisor 保存，等待中的 Goal 保持 Worker 占用。Worker 持久化离线 outbox 与执行检查点；等待、终态和取消确认以绑定 Worker 身份的 `progress` Trigger 持久记录。取消只在 Runtime 中断结算且 Supervisor 保存终态报告后释放进程。
 

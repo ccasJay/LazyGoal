@@ -1,6 +1,6 @@
-import { readTriggerDeliveryFile } from "./trigger-delivery-file";
-import type { TriggerDeliveryResult } from "./trigger-delivery-store";
-import { TriggerDeliveryStore } from "./trigger-delivery-store";
+import type { Trigger } from "../../runtime/src/trigger";
+import { readTrigger } from "./trigger-wire";
+import { TriggerStore } from "./trigger-store";
 
 /**
  * 已由宿主认证的 Trigger 来源及可访问目标。
@@ -22,31 +22,28 @@ export type TriggerIngressPrincipal =
     | { readonly role: "supervisor"; readonly mayCreateGoal: boolean; readonly goalIds: readonly string[] };
 
 /**
- * 认证传输来源及目标后将投递持久化。
+ * 验证可信连接 Actor 与 Trigger 目标授权后，持久化一条新 Trigger。
  *
  * @remarks
- * 此入口不提供网络身份认证；宿主必须先认证连接并构造 Actor。接收方核对 Worker ID 与 generation，或 externalId，
- * 并按可访问 Goal 授权目标。只有 `work.submitted` 创建 Goal 受 `mayCreateGoal` 控制；所有 Worker target 消息仍由 Supervisor 接收。
- * 此入口不构造 `type`/`action` 方向矩阵。
+ * 此入口不提供网络身份认证；宿主必须先认证连接并构造 Actor。接收方核对 Worker ID 与 generation，或 externalId，并按可访问 Goal 授权目标。只有无 `goalId` 的 `work.submitted` 可创建 Goal，且受 `mayCreateGoal` 控制；所有 Worker target 消息仍由 Supervisor 接收。此入口不构造 `type`/`action` 方向矩阵。已存在的 Trigger ID 一律冲突，不会返回既有事件或处理结果。
  *
- * @param store - 当前 Supervisor 使用的投递存储。
- * @param input - 不可信的进程或适配器载荷。
+ * @param store - 当前 Supervisor 使用的 Trigger 存储。
+ * @param input - 不可信的进程或适配器值。
  * @param principal - 已认证连接对应的可信身份和授权。
- * @returns 该次投递的已保存状态。
- * @throws 结构、身份或目标授权不符，或存储失败时抛出。
+ * @returns 新持久化的不可变 Trigger。
+ * @throws 结构、身份、目标授权不符、Trigger ID 已存在或存储失败时抛出。
  * @example
  * ```ts
- * const result = receiveAuthorizedTrigger(store, input, principal);
+ * const trigger = receiveAuthorizedTrigger(store, input, principal);
  * ```
  */
 export function receiveAuthorizedTrigger(
-    store: TriggerDeliveryStore,
+    store: TriggerStore,
     input: unknown,
     principal: TriggerIngressPrincipal,
-): TriggerDeliveryResult {
-    const delivery = readTriggerDeliveryFile(input);
-    if (delivery === undefined) throw new Error("Invalid trigger delivery");
-    const { trigger } = delivery;
+): Trigger {
+    const trigger = readTrigger(input);
+    if (trigger === undefined) throw new Error("Invalid Trigger");
     const goalId = "goalId" in trigger ? trigger.goalId : undefined;
     const expectedRole = principal.role === "user" ? "external" : principal.role;
     if (trigger.source.role !== expectedRole) throw new Error("Trigger source role does not match the authenticated principal");
@@ -71,5 +68,5 @@ export function receiveAuthorizedTrigger(
     if (trigger.target === "worker" && goalId === undefined && principal.role !== "supervisor") {
         throw new Error("Trigger target is not authorized");
     }
-    return store.receive(delivery);
+    return store.receive(trigger);
 }

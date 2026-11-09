@@ -1,48 +1,66 @@
 import { SupervisorOwnership } from "./supervisor-ownership";
 import { JsonFileGoalStore } from "./goal-store";
-import { TriggerDeliveryStore, type TriggerDeliveryResult } from "./trigger-delivery-store";
+import { TriggerStore } from "./trigger-store";
 
 /**
- * 恢复或发布已冻结 Goal，再结算收据并入队。
+ * 单次 work Trigger 的 Goal 发布结果。
  *
- * @remarks
- * 调用方须持有当前 Supervisor 的有效所有权。Goal 发布使用可核对的文件身份；
- * 收据与队列在同一事务提交。中断后重试会重用冻结的 Goal 并核对发布结果。
- * 已被其他文件占用的 Goal ID 被拒绝，旧文件不会被读取或覆盖。此函数不派发 Goal。
+ * @remarks 此结果仅返回给当前调用方，不持久化；Goal 队列与 Trigger 路由状态由 `TriggerStore` 分别保存。
  *
- * @param owner - 当前存储目录的有效 Supervisor 所有权。
- * @param deliveries - 保存投递、创建意图和待派发队列的存储。
- * @param goals - 同一工作区的 Goal 快照存储。
- * @param deliveryId - 已冻结完整创建意图的投递身份。
- * @returns 已结算的接受或身份冲突结果。
- * @throws 未冻结、文件错误或收据事务失败时抛出，可查询投递后重试。
  * @example
  * ```ts
- * const receipt = await publishTriggerGoal(owner, deliveries, goals, "delivery-1");
+ * const result: TriggerWorkPublicationResult = { kind: "accepted", goalId: "goal-1" };
+ * ```
+ */
+export type TriggerWorkPublicationResult =
+    | { readonly kind: "accepted"; readonly goalId: string }
+    | { readonly kind: "rejected"; readonly reason: "goal-id-conflict"; readonly goalId: string };
+
+/**
+ * 恢复或发布已冻结 Goal，再将 Goal 入队并完成 Trigger 路由。
+ *
+ * @remarks
+ * 调用方须持有当前 Supervisor 的有效所有权。Goal 发布使用可核对的文件身份；同一事务提交 FIFO 队列与 Trigger 路由状态。发布后清理创建意图；中断时可从冻结意图恢复。已被其他文件占用的 Goal ID 不会覆盖现有文件，并会完成该 Trigger 的拒绝路由。此函数不派发 Goal。
+ *
+ * @param owner - 当前存储目录的有效 Supervisor 所有权。
+ * @param triggers - 保存 Trigger、创建意图和待派发队列的存储。
+ * @param goals - 同一工作区的 Goal 快照存储。
+ * @param triggerId - 已冻结完整创建意图的 work Trigger ID。
+ * @returns 当前调用成功发布的 Goal 或已占用的 Goal 身份。
+ * @throws Trigger 未路由、未冻结、文件错误或存储事务失败时抛出。
+ * @example
+ * ```ts
+ * const result = await publishTriggerGoal(owner, triggers, goals, "trigger-1");
  * ```
  */
 export async function publishTriggerGoal(
     owner: SupervisorOwnership,
-    deliveries: TriggerDeliveryStore,
+    triggers: TriggerStore,
     goals: JsonFileGoalStore,
-    deliveryId: string,
-): Promise<TriggerDeliveryResult> {
-    return owner.run(() => publishOwnedGoal(deliveries, goals, deliveryId));
+    triggerId: string,
+): Promise<TriggerWorkPublicationResult> {
+    return owner.run(() => publishOwnedGoal(triggers, goals, triggerId));
 }
 
-async function publishOwnedGoal(deliveries: TriggerDeliveryStore, goals: JsonFileGoalStore, deliveryId: string): Promise<TriggerDeliveryResult> {
-    const receipt = deliveries.read(deliveryId);
-    if (receipt === undefined || receipt.delivery.trigger.type !== "work") throw new Error("Pending work delivery does not exist");
-    if (receipt.status === "settled") {
-        await goals.releaseCreationIntent(deliveryId);
-        return receipt;
+async function publishOwnedGoal(
+    triggers: TriggerStore,
+    goals: JsonFileGoalStore,
+    triggerId: string,
+): Promise<TriggerWorkPublicationResult> {
+    const trigger = triggers.read(triggerId);
+    if (trigger === undefined || trigger.type !== "work" || trigger.target !== "supervisor"
+        || triggers.routeStatus(triggerId) !== "unrouted") {
+        throw new Error("Unrouted Supervisor work Trigger does not exist");
     }
-    const goal = deliveries.frozenGoal(deliveryId);
+    const goal = triggers.frozenGoal(triggerId);
     if (goal === undefined) throw new Error("Goal creation intent is not frozen");
-    const created = await goals.createForDelivery(deliveryId, goal);
-    const result = created
-        ? deliveries.acceptGoal(deliveryId)
-        : deliveries.rejectOccupiedGoal(deliveryId);
-    await goals.releaseCreationIntent(deliveryId);
-    return result;
+    const created = await goals.createForTrigger(triggerId, goal);
+    if (!created) {
+        await goals.releaseCreationIntent(triggerId);
+        triggers.markRouted(triggerId);
+        return { kind: "rejected", reason: "goal-id-conflict", goalId: goal.id };
+    }
+    triggers.acceptGoal(triggerId);
+    await goals.releaseCreationIntent(triggerId);
+    return { kind: "accepted", goalId: goal.id };
 }

@@ -14,15 +14,16 @@ import { currentProtocols } from "../../../packages/runtime/test/current-fixture
 import { cancelTrigger, resumeTrigger, workTrigger } from "../../../packages/runtime/test/trigger-fixtures";
 import { JsonFileGoalStore } from "../../../packages/storage/src/goal-store";
 import { SupervisorOwnership } from "../../../packages/storage/src/supervisor-ownership";
-import { TriggerDeliveryStore } from "../../../packages/storage/src/trigger-delivery-store";
+import { TriggerStore } from "../../../packages/storage/src/trigger-store";
+import { receiveAuthorizedTrigger } from "../../../packages/storage/src/trigger-ingress";
 import { admitTrigger } from "../src/runtime/trigger-admission";
 import { WorkerScheduler } from "../src/runtime/worker-scheduler";
 
 const never = { structuredOutputMode: "prompt_only" as const, async generate() { throw new Error("Waiting Goals must not call a model"); } };
 const principal = { role: "user", externalId: "test-actor", mayCreateGoal: true, goalIds: [] } as const;
 
-function cancelDelivery(deliveryId: string, triggerId: string, goalId: string) {
-    return { deliveryId, trigger: cancelTrigger(triggerId, goalId, `run-${goalId}`) };
+function cancelEvent(triggerId: string, goalId: string) {
+    return cancelTrigger(triggerId, goalId, `run-${goalId}`);
 }
 
 function permissionTestToolFrames(toolId: string, args: Record<string, unknown>, callId: string): string {
@@ -54,10 +55,8 @@ function createWaitingGoal(id: string, intent: string, workspaceRoot: string) {
 }
 
 function acceptedGoalId(admission: Awaited<ReturnType<typeof admitTrigger>>): string {
-    if (admission.kind !== "settled" || admission.receipt.status !== "settled" || admission.receipt.result.kind !== "accepted") {
-        throw new Error("Expected an accepted Trigger delivery");
-    }
-    return admission.receipt.result.goalId;
+    if (admission.kind !== "accepted") throw new Error("Expected an accepted Goal admission");
+    return admission.goalId;
 }
 
 async function waitFor(predicate: () => boolean, timeoutMs = 10000): Promise<void> {
@@ -88,118 +87,119 @@ test("FIFO 派发让不同 Goal 并行，等待绑定保留，终态后复用匹
     await writeFile(join(home, "agent-profiles", "default.json"), JSON.stringify({ schemaVersion: 1, id: "default", name: "Test", description: "Test", systemPrompt: "Test", instructions: ["Test"], toolIds: [] }));
     const env = { LAZYGOAL_HOME: home, LLM_PROVIDER: "openai", LLM_MODEL: "gpt-4o-mini", LLM_API_KEY: "test" } as NodeJS.ProcessEnv;
     const owner = new SupervisorOwnership(join(dataDirectory, "owner.db"));
-    const deliveries = new TriggerDeliveryStore(join(dataDirectory, "deliveries.db"));
+    const triggers = new TriggerStore(join(dataDirectory, "triggers.db"));
     const goals = new JsonFileGoalStore(join(dataDirectory, "goals"));
     const factory = async (intent: string, reserved: string | undefined) => createWaitingGoal(reserved ?? `goal-${intent}`, intent, workspace);
-    const event = (suffix: string) => ({ deliveryId: `delivery-${suffix}`, trigger: workTrigger(`trigger-${suffix}`, `goal-${suffix}`) });
+    const event = (suffix: string) => workTrigger(`trigger-${suffix}`, `goal-${suffix}`);
     const acceptedIds: string[] = [];
     let cleanupGoalId: string | undefined;
-    const scheduler = new WorkerScheduler({ owner, deliveries, goals, cwd: workspace, dataDirectory, env, permissionAdapter: never });
+    const scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, permissionAdapter: never });
     try {
         for (const suffix of ["a", "b"]) {
-            const result = await admitTrigger(owner, deliveries, goals, never, event(suffix), principal, factory);
+            const result = await admitTrigger(owner, triggers, goals, never, event(suffix), principal, factory);
             acceptedIds.push(acceptedGoalId(result));
         }
         await scheduler.pump();
-        await waitFor(() => acceptedIds.every((goalId) => deliveries.queueRecord(goalId)?.status === "waiting"));
-        const records = acceptedIds.map((goalId) => deliveries.queueRecord(goalId)!);
+        await waitFor(() => acceptedIds.every((goalId) => triggers.queueRecord(goalId)?.status === "waiting"));
+        const records = acceptedIds.map((goalId) => triggers.queueRecord(goalId)!);
         assert.ok(records[0]!.sequence < records[1]!.sequence);
+        assert.deepEqual(records.map((item) => item.triggerId), ["trigger-a", "trigger-b"]);
         assert.deepEqual(records.map((item) => item.status), ["waiting", "waiting"]);
         assert.notEqual(records[0]!.workerId, records[1]!.workerId);
         const pids = await scheduler.processIds();
         assert.equal(new Set(pids.map((item) => item.pid)).size, 2);
         assert.deepEqual(scheduler.assignments().map((item) => item.goalId).sort(), [...acceptedIds].sort());
 
-        const firstCancel = cancelDelivery("cancel-delivery-a", "cancel-trigger-a", acceptedIds[0]!);
+        const firstCancel = cancelEvent("cancel-trigger-a", acceptedIds[0]!);
         const firstTerminal = await scheduler.handleCancelTrigger(firstCancel, { ...principal, goalIds: [acceptedIds[0]!] });
         assert.deepEqual(firstTerminal, { kind: "terminal", status: "cancelled" });
-        assert.equal(deliveries.queueRecord(acceptedIds[0]!)?.status, "terminal");
-        assert.equal(deliveries.read(firstCancel.deliveryId)?.status, "settled");
+        assert.equal(triggers.queueRecord(acceptedIds[0]!)?.status, "terminal");
+        assert.equal(triggers.routeStatus(firstCancel.id), "routed");
         assert.equal((await goals.restore(acceptedIds[0]!))?.state.run.interruption?.status, "finished");
-        const firstReports = deliveries.listGoalDeliveries(acceptedIds[0]!).filter((item) => item.delivery.trigger.type === "response"
-            && item.delivery.trigger.payload.action === "progress");
-        assert.ok(firstReports.some((item) => item.status === "settled" && item.result.kind === "handled"
-            && item.delivery.trigger.type === "response" && item.delivery.trigger.payload.action === "progress"
-            && item.delivery.trigger.payload.status === "waiting"));
+        const firstReports = triggers.listGoalTriggers(acceptedIds[0]!).filter((trigger) => trigger.type === "response"
+            && trigger.payload.action === "progress");
+        assert.ok(firstReports.some((trigger) => trigger.type === "response" && trigger.payload.action === "progress"
+            && trigger.payload.status === "waiting" && triggers.routeStatus(trigger.id) === "routed"));
         assert.equal(scheduler.assignments().some((item) => item.goalId === acceptedIds[0]), false);
 
-        const third = await admitTrigger(owner, deliveries, goals, never, event("c"), principal, factory);
+        const third = await admitTrigger(owner, triggers, goals, never, event("c"), principal, factory);
         const thirdGoalId = acceptedGoalId(third);
         await scheduler.pump();
-        await waitFor(() => deliveries.queueRecord(thirdGoalId)?.status === "waiting");
-        assert.equal(deliveries.queueRecord(thirdGoalId)?.workerId, records[0]!.workerId);
+        await waitFor(() => triggers.queueRecord(thirdGoalId)?.status === "waiting");
+        assert.equal(triggers.queueRecord(thirdGoalId)?.workerId, records[0]!.workerId);
 
         for (const [index, goalId] of [acceptedIds[1]!, thirdGoalId].entries()) {
             const suffix = `waiting-${index}`;
-            const terminal = await scheduler.handleCancelTrigger(cancelDelivery(`cancel-${suffix}`, `cancel-trigger-${suffix}`, goalId),
+            const terminal = await scheduler.handleCancelTrigger(cancelEvent(`cancel-trigger-${suffix}`, goalId),
                 { ...principal, goalIds: [goalId] });
             assert.deepEqual(terminal, { kind: "terminal", status: "cancelled" });
         }
 
-        const fourth = await admitTrigger(owner, deliveries, goals, never, event("d"), principal, factory);
+        const fourth = await admitTrigger(owner, triggers, goals, never, event("d"), principal, factory);
         const fourthGoalId = acceptedGoalId(fourth);
         cleanupGoalId = fourthGoalId;
         await scheduler.pump();
-        await waitFor(() => deliveries.queueRecord(fourthGoalId)?.status === "waiting");
-        const lostAssignment = deliveries.queueRecord(fourthGoalId)!;
+        await waitFor(() => triggers.queueRecord(fourthGoalId)?.status === "waiting");
+        const lostAssignment = triggers.queueRecord(fourthGoalId)!;
         const lostWorkerPid = (await scheduler.processIds()).find((item) => item.workerId === lostAssignment.workerId)?.pid;
         assert.ok(lostWorkerPid !== undefined);
-        const unconfirmedCancel = scheduler.handleCancelTrigger(cancelDelivery("cancel-delivery-d", "cancel-trigger-d", fourthGoalId),
+        const unconfirmedTrigger = cancelEvent("cancel-trigger-d", fourthGoalId);
+                const unconfirmedCancel = scheduler.handleCancelTrigger(unconfirmedTrigger,
             { ...principal, goalIds: [fourthGoalId] });
         process.kill(lostWorkerPid, "SIGKILL");
         await assert.rejects(unconfirmedCancel);
-        assert.equal(deliveries.queueRecord(fourthGoalId)?.status, "waiting");
-        assert.equal(deliveries.read("cancel-delivery-d")?.status, "pending");
+        assert.equal(triggers.queueRecord(fourthGoalId)?.status, "waiting");
+        assert.equal(triggers.routeStatus(unconfirmedTrigger.id), "unrouted");
         assert.equal(scheduler.assignments().find((item) => item.workerId === lostAssignment.workerId)?.goalId, fourthGoalId);
-        await waitFor(() => deliveries.workerRecovery(fourthGoalId)?.status === "pending");
-        const recovery = deliveries.workerRecovery(fourthGoalId);
+        await waitFor(() => triggers.workerRecovery(fourthGoalId)?.status === "pending");
+        const recovery = triggers.workerRecovery(fourthGoalId);
         assert.ok(recovery !== undefined);
-        const exitEvidence = deliveries.read(recovery.lifecycleDeliveryId);
-        assert.ok(exitEvidence?.status === "settled" && exitEvidence.result.kind === "handled");
-        assert.deepEqual(exitEvidence.delivery.trigger.payload, { action: "exited", outcome: "unexpected" });
-        assert.deepEqual(exitEvidence.delivery.trigger.source, { role: "supervisor" });
-        const exitTriggerId = exitEvidence.delivery.trigger.id;
+        const exitEvidence = triggers.read(recovery.lifecycleTriggerId);
+        assert.ok(exitEvidence !== undefined && triggers.routeStatus(exitEvidence.id) === "routed");
+        assert.deepEqual(exitEvidence.payload, { action: "exited", outcome: "unexpected" });
+        assert.deepEqual(exitEvidence.source, { role: "supervisor" });
+        const exitTriggerId = exitEvidence.id;
         const waitingCheckpoint = (await goals.restore(fourthGoalId))!;
         const runningBaseline = createGoal({ ...currentProtocols, id: fourthGoalId, intent: waitingCheckpoint.definition.intent,
             runId: waitingCheckpoint.state.run.id, promptBundleVersion: 1, profile: waitingCheckpoint.definition.profile });
         const runningTransition = transition(runningBaseline.state.run, { kind: "start" });
         assert.equal(runningTransition.ok, true);
         await goals.save({ ...waitingCheckpoint, state: { ...waitingCheckpoint.state, run: runningTransition.state } });
-        await assert.rejects(scheduler.handleWorkerRecoveryTrigger({
-            deliveryId: "resume-uncertain-fourth-delivery",
-            trigger: resumeTrigger("resume-uncertain-fourth-trigger", fourthGoalId, waitingCheckpoint.state.run.id, exitTriggerId, false),
-        }, { role: "user", externalId: "test-actor", mayCreateGoal: false, goalIds: [fourthGoalId] }));
+        await assert.rejects(scheduler.handleWorkerRecoveryTrigger(
+            resumeTrigger("resume-uncertain-fourth-trigger", fourthGoalId, waitingCheckpoint.state.run.id, exitTriggerId, false),
+            { role: "user", externalId: "test-actor", mayCreateGoal: false, goalIds: [fourthGoalId] }));
         await goals.save(waitingCheckpoint);
-        const resumed = await scheduler.handleWorkerRecoveryTrigger({
-            deliveryId: "resume-fourth-delivery",
-            trigger: resumeTrigger("resume-fourth-trigger", fourthGoalId, waitingCheckpoint.state.run.id, exitTriggerId, false),
-        }, { role: "user", externalId: "test-actor", mayCreateGoal: false, goalIds: [fourthGoalId] });
+        const resumed = await scheduler.handleWorkerRecoveryTrigger(
+            resumeTrigger("resume-fourth-trigger", fourthGoalId, waitingCheckpoint.state.run.id, exitTriggerId, false),
+            { role: "user", externalId: "test-actor", mayCreateGoal: false, goalIds: [fourthGoalId] });
         assert.deepEqual(resumed, { kind: "resumed", goalId: fourthGoalId });
-        assert.equal(deliveries.workerRecovery(fourthGoalId)?.status, "resumed");
+        assert.equal(triggers.workerRecovery(fourthGoalId)?.status, "resumed");
         await scheduler.pump();
-        await waitFor(() => deliveries.queueRecord(fourthGoalId)?.status === "waiting");
-        assert.notEqual(deliveries.queueRecord(fourthGoalId)?.workerId, lostAssignment.workerId);
+        await waitFor(() => triggers.queueRecord(fourthGoalId)?.status === "terminal");
+        assert.equal(triggers.routeStatus(unconfirmedTrigger.id), "routed");
+        assert.notEqual(triggers.queueRecord(fourthGoalId)?.workerId, lostAssignment.workerId);
+        assert.equal((await goals.restore(fourthGoalId))?.state.run.status, "cancelled");
         const recoveredCancellation = await scheduler.handleCancelTrigger(
-            cancelDelivery("cancel-recovered-fourth-delivery", "cancel-recovered-fourth-trigger", fourthGoalId),
+            cancelEvent("cancel-recovered-fourth-trigger", fourthGoalId),
             { role: "user", externalId: "test-actor", mayCreateGoal: false, goalIds: [fourthGoalId] });
         assert.deepEqual(recoveredCancellation, { kind: "terminal", status: "cancelled" });
 
-        const fifth = await admitTrigger(owner, deliveries, goals, never, event("e"), principal, factory);
+        const fifth = await admitTrigger(owner, triggers, goals, never, event("e"), principal, factory);
         const fifthGoalId = acceptedGoalId(fifth);
         await scheduler.pump();
-        await waitFor(() => deliveries.queueRecord(fifthGoalId)?.status === "waiting");
-        assert.notEqual(deliveries.queueRecord(fifthGoalId)?.workerId, lostAssignment.workerId);
-        const fifthCancellation = await scheduler.handleCancelTrigger(cancelDelivery("cancel-fifth-delivery", "cancel-fifth-trigger", fifthGoalId),
+        await waitFor(() => triggers.queueRecord(fifthGoalId)?.status === "waiting");
+        assert.notEqual(triggers.queueRecord(fifthGoalId)?.workerId, lostAssignment.workerId);
+        const fifthCancellation = await scheduler.handleCancelTrigger(cancelEvent("cancel-fifth-trigger", fifthGoalId),
             { ...principal, goalIds: [fifthGoalId] });
         assert.deepEqual(fifthCancellation, { kind: "terminal", status: "cancelled" });
         await scheduler.closeIdle();
     } finally {
-        if (cleanupGoalId !== undefined && deliveries.queueRecord(cleanupGoalId)?.status !== "terminal") {
-            await scheduler.handleCancelTrigger(cancelDelivery("cleanup-recovery-cancel", "cleanup-recovery-cancel-trigger", cleanupGoalId),
+        if (cleanupGoalId !== undefined && triggers.queueRecord(cleanupGoalId)?.status !== "terminal") {
+            await scheduler.handleCancelTrigger(cancelEvent("cleanup-recovery-cancel-trigger", cleanupGoalId),
                 { role: "user", externalId: "test-actor", mayCreateGoal: false, goalIds: [cleanupGoalId] }).catch(() => undefined);
         }
         await scheduler.closeIdle().catch(() => undefined);
-        deliveries.close();
+        triggers.close();
         await owner.close();
         await rm(root, { recursive: true, force: true });
     }
@@ -238,9 +238,9 @@ test("活动模型调用收到取消后等待 Runtime 结算，再持久化终�
         LLM_TOKENIZER_ENCODING: "cl100k_base",
     } as NodeJS.ProcessEnv;
     const owner = new SupervisorOwnership(join(dataDirectory, "owner.db"));
-    const deliveries = new TriggerDeliveryStore(join(dataDirectory, "deliveries.db"));
+    const triggers = new TriggerStore(join(dataDirectory, "triggers.db"));
     const goals = new JsonFileGoalStore(join(dataDirectory, "goals"));
-    const scheduler = new WorkerScheduler({ owner, deliveries, goals, cwd: workspace, dataDirectory, env, permissionAdapter: never });
+    const scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, permissionAdapter: never });
     const factory = async (intent: string, reserved: string | undefined) => {
         const goal = createGoal({ ...currentProtocols, id: reserved ?? "goal-active-cancel", runId: "run-active-cancel", intent,
             promptBundleVersion: 1, modelSelection: { provider: "openai-compatible", modelId: "test", contextWindowTokens: 16000,
@@ -248,24 +248,24 @@ test("活动模型调用收到取消后等待 Runtime 结算，再持久化终�
             profile: { id: "default", systemPrompt: "Test", instructions: ["Test"], toolIds: [] } });
         return { goal, authorization: { workspace: { mode: "shared" as const, projectRoot: workspace, executionRoot: workspace }, toolIds: [], sandbox: { extraFiles: [], network: "none" as const } } };
     };
-    const input = { deliveryId: "active-cancel-work", trigger: workTrigger("active-cancel-work-trigger", "wait for cancellation") };
+    const input = workTrigger("active-cancel-work-trigger", "wait for cancellation");
     try {
-        const accepted = await admitTrigger(owner, deliveries, goals, never, input, principal, factory);
+        const accepted = await admitTrigger(owner, triggers, goals, never, input, principal, factory);
         const goalId = acceptedGoalId(accepted);
         await scheduler.pump();
-        await withTimeout(modelRequest, 5000, `Model request was not received; queue=${JSON.stringify(deliveries.queueRecord(goalId))}`);
+        await withTimeout(modelRequest, 5000, `Model request was not received; queue=${JSON.stringify(triggers.queueRecord(goalId))}`);
         assert.equal((await goals.restore(goalId))?.state.run.status, "running");
 
-        const cancel = scheduler.handleCancelTrigger(cancelDelivery("active-cancel", "active-cancel-trigger", goalId),
+        const cancel = scheduler.handleCancelTrigger(cancelEvent("active-cancel-trigger", goalId),
             { ...principal, goalIds: [goalId] });
         const cancelResult = await withTimeout(cancel, 5000, "Cancellation did not settle");
         assert.deepEqual(cancelResult, { kind: "terminal", status: "cancelled" });
         await withTimeout(responseClosed, 5000, "Worker did not abort the active model request");
         assert.equal((await goals.restore(goalId))?.state.run.interruption?.status, "finished");
-        assert.equal(deliveries.queueRecord(goalId)?.status, "terminal");
-        assert.equal(deliveries.read("active-cancel")?.status, "settled");
-        assert.equal(deliveries.listGoalDeliveries(goalId).some((item) => item.delivery.trigger.type === "response"
-            && item.delivery.trigger.payload.action === "progress" && item.delivery.trigger.payload.status === "cancelled"), false);
+        assert.equal(triggers.queueRecord(goalId)?.status, "terminal");
+        assert.equal(triggers.routeStatus("active-cancel-trigger"), "routed");
+        assert.equal(triggers.listGoalTriggers(goalId).some((trigger) => trigger.type === "response"
+            && trigger.payload.action === "cancelled"), false);
         await scheduler.closeIdle();
     } finally {
         server.closeAllConnections();
@@ -273,13 +273,13 @@ test("活动模型调用收到取消后等待 Runtime 结算，再持久化终�
         const pids = await scheduler.processIds().catch(() => []);
         for (const worker of pids) process.kill(worker.pid, "SIGKILL");
         await scheduler.closeIdle().catch(() => undefined);
-        deliveries.close();
+        triggers.close();
         await owner.close();
         await rm(root, { recursive: true, force: true });
     }
 });
 
-test("Supervisor 强制退出后，新 Supervisor 通过认证通道重新接管仍存活 Worker", { timeout: 20000 }, async () => {
+test("新 Supervisor 恢复未路由 work 与 cancel Trigger，并接管 Worker", { timeout: 20000 }, async () => {
     const root = await mkdtemp(join(tmpdir(), "lg-worker-supervisor-reconnect-"));
     const workspace = join(root, "workspace");
     const home = join(root, "home");
@@ -287,15 +287,13 @@ test("Supervisor 强制退出后，新 Supervisor 通过认证通道重新接管
     await Promise.all([mkdir(workspace, { recursive: true }), mkdir(join(home, "agent-profiles"), { recursive: true }), mkdir(dataDirectory, { recursive: true })]);
     await writeFile(join(home, "agent-profiles", "default.json"), JSON.stringify({ schemaVersion: 1, id: "default", name: "Test", description: "Test", systemPrompt: "Test", instructions: ["Test"], toolIds: [] }));
     const originalOwner = new SupervisorOwnership(join(dataDirectory, "owner.db"));
-    const originalDeliveries = new TriggerDeliveryStore(join(dataDirectory, "deliveries.db"));
+    const originalTriggers = new TriggerStore(join(dataDirectory, "triggers.db"));
     const goals = new JsonFileGoalStore(join(dataDirectory, "goals"));
-    const factory = async (intent: string, reserved: string | undefined) => createWaitingGoal(reserved ?? `goal-${intent}`, intent, workspace);
-    const admitted = await admitTrigger(originalOwner, originalDeliveries, goals, never, {
-        deliveryId: "reconnect-delivery",
-        trigger: workTrigger("reconnect-trigger", "reconnect"),
-    }, principal, factory);
-    const goalId = acceptedGoalId(admitted);
-    originalDeliveries.close();
+    const reconnectTrigger = workTrigger("reconnect-trigger", "reconnect");
+    originalTriggers.receive(reconnectTrigger);
+    const goalId = "goal-reconnect";
+    assert.equal(originalTriggers.routeStatus(reconnectTrigger.id), "unrouted");
+    originalTriggers.close();
     await originalOwner.close();
 
     const supervisor = fork(fileURLToPath(new URL("./worker-scheduler-supervisor-fixture.ts", import.meta.url)), [], {
@@ -319,24 +317,32 @@ test("Supervisor 强制退出后，新 Supervisor 通过认证通道重新接管
         originalWorkerId = ready.workers[0]?.workerId;
         originalWorkerPid = ready.workers[0]?.pid;
         assert.ok(originalWorkerId !== undefined && originalWorkerPid !== undefined);
-        const beforeExitStore = new TriggerDeliveryStore(join(dataDirectory, "deliveries.db"));
-        try { await waitFor(() => beforeExitStore.queueRecord(goalId)?.status === "waiting"); }
-        finally { beforeExitStore.close(); }
+        const beforeExitStore = new TriggerStore(join(dataDirectory, "triggers.db"));
+        const cancelAfterRestart = cancelEvent("cancel-after-restart", goalId);
+        try {
+            assert.equal(beforeExitStore.routeStatus(reconnectTrigger.id), "routed");
+            assert.equal(beforeExitStore.queueRecord(goalId)?.triggerId, reconnectTrigger.id);
+            await waitFor(() => beforeExitStore.queueRecord(goalId)?.status === "waiting");
+            receiveAuthorizedTrigger(beforeExitStore, cancelAfterRestart, { ...principal, mayCreateGoal: false, goalIds: [goalId] });
+            assert.equal(beforeExitStore.routeStatus(cancelAfterRestart.id), "unrouted");
+        } finally { beforeExitStore.close(); }
 
         supervisor.kill("SIGKILL");
         await new Promise<void>((resolve) => supervisor.once("exit", () => resolve()));
         const owner = new SupervisorOwnership(join(dataDirectory, "owner.db"));
-        const deliveries = new TriggerDeliveryStore(join(dataDirectory, "deliveries.db"));
-        const scheduler = new WorkerScheduler({ owner, deliveries, goals, cwd: workspace, dataDirectory,
+        const triggers = new TriggerStore(join(dataDirectory, "triggers.db"));
+        const scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory,
             env: { LAZYGOAL_HOME: home, LLM_PROVIDER: "openai", LLM_MODEL: "gpt-4o-mini", LLM_API_KEY: "test" }, permissionAdapter: never });
         try {
             await scheduler.pump();
-            assert.deepEqual(scheduler.assignments(), [{ workerId: originalWorkerId, goalId }]);
+            assert.deepEqual(scheduler.assignments(), [{ workerId: originalWorkerId }]);
             assert.deepEqual(await scheduler.processIds(), [{ workerId: originalWorkerId, pid: originalWorkerPid }]);
-            assert.equal(deliveries.queueRecord(goalId)?.status, "waiting");
+            assert.equal(triggers.routeStatus(cancelAfterRestart.id), "routed");
+            assert.equal(triggers.queueRecord(goalId)?.status, "terminal");
+            assert.equal((await goals.restore(goalId))?.state.run.status, "cancelled");
         } finally {
             await scheduler.closeIdle().catch(() => undefined);
-            deliveries.close();
+            triggers.close();
             await owner.close();
         }
     } finally {
@@ -432,20 +438,18 @@ test("Supervisor 断开后 Worker 用本地检查点完成已授权工具并在�
         LLM_TOKENIZER_ENCODING: "cl100k_base",
     } as NodeJS.ProcessEnv;
     let owner = new SupervisorOwnership(join(dataDirectory, "owner.db"));
-    let deliveries = new TriggerDeliveryStore(join(dataDirectory, "deliveries.db"));
+    let triggers = new TriggerStore(join(dataDirectory, "triggers.db"));
     const goals = new JsonFileGoalStore(join(dataDirectory, "goals"));
-    let scheduler = new WorkerScheduler({ owner, deliveries, goals, cwd: workspace, dataDirectory, env,
+    let scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env,
         permissionAdapter: { structuredOutputMode: "strict", async generate() {
             return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({ kind: "approve", reason: null }) }] };
         } } });
     let workerPid: number | undefined;
     let oldStoresClosed = false;
-    let restartedStores: { readonly owner: SupervisorOwnership; readonly deliveries: TriggerDeliveryStore; readonly scheduler: WorkerScheduler } | undefined;
+    let restartedStores: { readonly owner: SupervisorOwnership; readonly triggers: TriggerStore; readonly scheduler: WorkerScheduler } | undefined;
     try {
-        const admitted = await admitTrigger(owner, deliveries, goals, never, {
-            deliveryId: "offline-action-work",
-            trigger: workTrigger("offline-action-trigger", "Execute the delayed offline command"),
-        }, principal, async (intent, reservedGoalId) => ({
+        const admitted = await admitTrigger(owner, triggers, goals, never,
+            workTrigger("offline-action-trigger", "Execute the delayed offline command"), principal, async (intent, reservedGoalId) => ({
             goal: createGoal({ ...currentProtocols, id: reservedGoalId ?? "goal-offline-action", runId: "run-offline-action", intent,
                 promptBundleVersion: 1,
                 modelSelection: { provider: "openai-compatible", modelId: "offline-test-model", contextWindowTokens: 16000,
@@ -462,7 +466,7 @@ test("Supervisor 断开后 Worker 用本地检查点完成已授权工具并在�
         workerPid = worker.pid;
 
         await scheduler.detachAll();
-        deliveries.close();
+        triggers.close();
         await owner.close();
         oldStoresClosed = true;
 
@@ -496,15 +500,15 @@ test("Supervisor 断开后 Worker 用本地检查点完成已授权工具并在�
         assert.equal(bashCallCount, 1);
 
         owner = new SupervisorOwnership(join(dataDirectory, "owner.db"));
-        deliveries = new TriggerDeliveryStore(join(dataDirectory, "deliveries.db"));
-        scheduler = new WorkerScheduler({ owner, deliveries, goals, cwd: workspace, dataDirectory, env,
+        triggers = new TriggerStore(join(dataDirectory, "triggers.db"));
+        scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env,
             permissionAdapter: never });
-        restartedStores = { owner, deliveries, scheduler };
+        restartedStores = { owner, triggers, scheduler };
         await scheduler.pump();
-        await waitFor(() => deliveries.queueRecord(goalId)?.status === "terminal");
+        await waitFor(() => triggers.queueRecord(goalId)?.status === "terminal");
         assert.equal((await goals.restore(goalId))?.state.run.status, "completed");
-        assert.equal(deliveries.listGoalDeliveries(goalId).some((item) => item.delivery.trigger.type === "response"
-            && item.delivery.trigger.payload.action === "progress" && item.delivery.trigger.payload.status === "completed"), false);
+        assert.equal(triggers.listGoalTriggers(goalId).some((trigger) => trigger.type === "response"
+            && trigger.payload.action === "completed"), false);
         await scheduler.closeIdle();
     } finally {
         server.closeAllConnections();
@@ -514,11 +518,11 @@ test("Supervisor 断开后 Worker 用本地检查点完成已授权工具并在�
         }
         if (restartedStores !== undefined) {
             await restartedStores.scheduler.detachAll().catch(() => undefined);
-            restartedStores.deliveries.close();
+            restartedStores.triggers.close();
             await restartedStores.owner.close().catch(() => undefined);
         } else if (!oldStoresClosed) {
             await scheduler.detachAll().catch(() => undefined);
-            deliveries.close();
+            triggers.close();
             await owner.close().catch(() => undefined);
         }
         await rm(root, { recursive: true, force: true });

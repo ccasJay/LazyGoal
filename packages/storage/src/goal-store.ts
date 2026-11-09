@@ -176,22 +176,22 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
      * 以可核对的创建意图创建 Goal 快照。
      *
      * @remarks
-     * 调用方必须先持久化投递与同一完整 Goal 创建意图。快照先作为持久化暂存文件
+     * 调用方必须先持久化 Trigger 与同一完整 Goal 创建意图。快照先作为持久化暂存文件
      * 保存，再通过不覆盖的硬链接发布；重试以 inode 确认目标确由该意图创建。占用
      * 身份的旧文件即使内容相同也不会被认作本次创建。成功后暂存文件保留，直至
-     * 调用方完成收据与队列事务并调用 `releaseCreationIntent`。
+     * 调用方完成队列与 Trigger 路由事务并调用 `releaseCreationIntent`。
      *
-     * @param deliveryId - 已持久化的稳定投递身份。
+     * @param triggerId - 已持久化的稳定 Trigger 身份。
      * @param goal - 此意图冻结的完整 Goal，重试时必须完全一致。
      * @returns 成功创建或确认之前已创建时为 true；目标被其他文件占用时为 false。
-     * @throws 同一投递的意图内容冲突或底层存储失败时抛出。
+     * @throws 同一 Trigger 的意图内容冲突或底层存储失败时抛出。
      */
-    async createForDelivery(deliveryId: string, goal: Goal): Promise<boolean> {
-        if (!deliveryId.trim()) throw new Error("Invalid delivery identity");
+    async createForTrigger(triggerId: string, goal: Goal): Promise<boolean> {
+        if (!triggerId.trim()) throw new Error("Invalid Trigger identity");
         const snapshot = goalSnapshotCodec.encode(goal);
         return createJsonFileWithIntent({
             directory: this.directory,
-            deliveryId,
+            triggerId,
             targetPath: this.filePath(snapshot.id),
             value: snapshot,
             operations: this.fileOperations,
@@ -199,15 +199,15 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
     }
 
     /**
-     * 清理已完成收据和排队事务的创建意图文件。
-     * @param deliveryId - 已结算投递的稳定身份。
+     * 清理已完成队列与 Trigger 路由事务的创建意图文件。
+     * @param triggerId - 已完成路由的稳定 Trigger 身份。
      * @throws 底层删除失败时抛出；不存在时视为已清理。
      */
-    async releaseCreationIntent(deliveryId: string): Promise<void> {
-        if (!deliveryId.trim()) throw new Error("Invalid delivery identity");
+    async releaseCreationIntent(triggerId: string): Promise<void> {
+        if (!triggerId.trim()) throw new Error("Invalid Trigger identity");
         await releaseJsonFileCreationIntent({
             directory: this.directory,
-            deliveryId,
+            triggerId,
             operations: this.fileOperations,
         });
     }

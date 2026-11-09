@@ -1212,6 +1212,7 @@ export type BrowserCreateSessionResult =
         readonly ok: false;
         readonly error:
             | "goal_id_conflict"
+            | "input_conflict"
             | "goal_busy"
             | "model_not_selectable"
             | "model_catalog_unavailable"

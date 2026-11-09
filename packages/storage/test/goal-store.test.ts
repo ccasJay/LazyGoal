@@ -1484,12 +1484,12 @@ test("JsonFileGoalStore creates atomically without replacing occupied or unreada
         const first = new JsonFileGoalStore(directory);
         const second = new JsonFileGoalStore(directory);
         const goal = createSnapshot();
-        const results = await Promise.all([first.createForDelivery("first", goal), second.createForDelivery("second", goal)]);
+        const results = await Promise.all([first.createForTrigger("trigger-first", goal), second.createForTrigger("trigger-second", goal)]);
         assert.deepEqual([...results].sort(), [false, true]);
         assert.equal((await first.restore(goal.id))?.id, goal.id);
         const path = snapshotPath(directory, goal.id);
         await writeFile(path, "unreadable old data", "utf8");
-        assert.equal(await first.createForDelivery("third", goal), false);
+        assert.equal(await first.createForTrigger("trigger-third", goal), false);
         assert.equal(await readFile(path, "utf8"), "unreadable old data");
     } finally { await rm(directory, { recursive: true, force: true }); }
 });
@@ -1500,12 +1500,12 @@ test("JsonFileGoalStore removes its temporary file when exclusive creation fails
         const store = new JsonFileGoalStore(directory, {
             link: async () => { throw new Error("injected link failure"); },
         });
-        await assert.rejects(store.createForDelivery("delivery", createSnapshot()), /injected link failure/);
+        await assert.rejects(store.createForTrigger("trigger", createSnapshot()), /injected link failure/);
         assert.deepEqual(await readdir(directory), []);
     } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
-test("delivery creation verifies an interrupted publication by file identity", async () => {
+test("Trigger creation verifies an interrupted publication by file identity", async () => {
     const directory = await mkdtemp(join(tmpdir(), "goal-create-recovery-"));
     try {
         const goal = createSnapshot();
@@ -1518,12 +1518,12 @@ test("delivery creation verifies an interrupted publication by file identity", a
                 if (count === 2) throw new Error("response lost after publication");
             },
         });
-        await assert.rejects(interrupted.createForDelivery("delivery-1", goal), /response lost/);
+        await assert.rejects(interrupted.createForTrigger("trigger-1", goal), /response lost/);
         const recovered = new JsonFileGoalStore(directory);
-        assert.equal(await recovered.createForDelivery("delivery-1", goal), true);
+        assert.equal(await recovered.createForTrigger("trigger-1", goal), true);
         assert.equal((await recovered.restore(goal.id))?.id, goal.id);
-        assert.equal(await recovered.createForDelivery("delivery-2", goal), false);
-        await recovered.releaseCreationIntent("delivery-1");
-        await recovered.releaseCreationIntent("delivery-2");
+        assert.equal(await recovered.createForTrigger("trigger-2", goal), false);
+        await recovered.releaseCreationIntent("trigger-1");
+        await recovered.releaseCreationIntent("trigger-2");
     } finally { await rm(directory, { recursive: true, force: true }); }
 });

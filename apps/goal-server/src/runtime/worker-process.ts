@@ -6,9 +6,9 @@ import type { GoalProgressResult } from "../../../../packages/runtime/src/goal-c
 import { isRecord } from "../../../../packages/contracts/src/index";
 import { goalSnapshotCodec, type GoalSnapshotV1 } from "../../../../packages/storage/src/index";
 import { JsonFileGoalStore } from "../../../../packages/storage/src/goal-store";
-import { TriggerDeliveryStore } from "../../../../packages/storage/src/trigger-delivery-store";
+import { TriggerStore } from "../../../../packages/storage/src/trigger-store";
 import { SupervisorOwnership } from "../../../../packages/storage/src/supervisor-ownership";
-import type { TriggerDeliveryFile } from "../../../../packages/storage/src/trigger-delivery-file";
+import type { Trigger } from "../../../../packages/runtime/src/trigger";
 import type { WorkerOfflineProgress, WorkerProcessRegistration } from "./worker-process-registry";
 
 type WorkerMessage =
@@ -28,8 +28,8 @@ type WorkerCommand =
     | { readonly kind: "probe"; readonly requestId: string }
     | { readonly kind: "advance"; readonly requestId: string; readonly goalId: string; readonly runId: string }
     | { readonly kind: "cancel"; readonly requestId: string; readonly interruptId: string; readonly goalId: string; readonly runId: string }
-    | { readonly kind: "permission-response"; readonly requestId: string; readonly delivery: TriggerDeliveryFile }
-    | { readonly kind: "interaction-response"; readonly requestId: string; readonly delivery: TriggerDeliveryFile }
+    | { readonly kind: "permission-response"; readonly requestId: string; readonly trigger: Trigger }
+    | { readonly kind: "interaction-response"; readonly requestId: string; readonly trigger: Trigger }
     | { readonly kind: "replay-offline"; readonly requestId: string }
     | { readonly kind: "worker-ack"; readonly requestId: string }
     | { readonly kind: "detach"; readonly requestId: string }
@@ -86,7 +86,7 @@ export interface SupervisorWorkerProcessOptions {
     /** Worker 构造同一模型供应商与 Home 配置所需的宿主环境快照。 */
     readonly env?: NodeJS.ProcessEnv;
     readonly owner: SupervisorOwnership;
-    readonly deliveries: TriggerDeliveryStore;
+    readonly triggers: TriggerStore;
     readonly goals: JsonFileGoalStore;
 }
 
@@ -375,7 +375,7 @@ export class SupervisorWorkerProcess {
      */
     async advance(goalId: string): Promise<WorkerProgress> {
         if (this.closed || this.busy || this.cancelling) throw new Error("Worker is unavailable");
-        const claim = this.options.deliveries.workerClaim(this.options.workerId, this.options.generation);
+        const claim = this.options.triggers.workerClaim(this.options.workerId, this.options.generation);
         if (claim !== goalId) throw new Error("Worker Goal does not match its durable assignment");
         if (this.goalId !== undefined && this.goalId !== goalId) throw new Error("Worker still owns another Goal");
         this.goalId = goalId;
@@ -437,21 +437,21 @@ export class SupervisorWorkerProcess {
     }
 
     /**
-     * 将已认证并持久化的权限回复交给当前 Worker Runtime。
+     * 将已认证并持久化的权限回复 Trigger 交给当前 Worker Runtime。
      *
      * @remarks Supervisor 已按关联请求核对 Goal、Run、Action 与 Snapshot 修订；Worker
      * 再按当前 Goal、Run 和待审批 Action 核验决定。只有 Runtime 结算结果返回后，Supervisor 才能结算权限 Trigger。
-     * @param delivery - 已通过 Supervisor 认证的权限回复投递。
+     * @param trigger - 已通过 Supervisor 认证并持久化的权限回复 Trigger。
      * @returns Runtime 恢复后的等待、终态或稳定拒绝。
-     * @throws Worker 已断开、目标不匹配或 IPC 失败时拒绝，持久投递保持待处理。
+     * @throws Worker 已断开、目标不匹配或 IPC 失败时拒绝，Trigger 保持未路由。
      * @example
      * ```ts
-     * const progress = await worker.respondActionPermission(replyDelivery);
+     * const progress = await worker.respondActionPermission(replyTrigger);
      * ```
      */
-    async respondActionPermission(delivery: TriggerDeliveryFile): Promise<WorkerProgress> {
-        const goalId = "goalId" in delivery.trigger ? delivery.trigger.goalId : undefined;
-        if (delivery.trigger.type !== "permission" || delivery.trigger.payload.action !== "decided"
+    async respondActionPermission(trigger: Trigger): Promise<WorkerProgress> {
+        const goalId = "goalId" in trigger ? trigger.goalId : undefined;
+        if (trigger.type !== "permission" || trigger.payload.action !== "decided"
             || goalId === undefined || this.closed || this.busy || this.cancelling || this.goalId !== goalId) {
             throw new Error("Worker does not own the permission target");
         }
@@ -460,7 +460,7 @@ export class SupervisorWorkerProcess {
         const commandSent = new Promise<void>((resolve) => { markCommandSent = resolve; });
         this.advanceCommandSent = commandSent;
         try {
-            const response = this.request({ kind: "permission-response", requestId: randomUUID(), delivery });
+            const response = this.request({ kind: "permission-response", requestId: randomUUID(), trigger });
             markCommandSent();
             const result = await response;
             if (result.kind !== "permission-result") throw new Error("Unexpected Worker permission response");
@@ -476,18 +476,18 @@ export class SupervisorWorkerProcess {
      * 将已认证并持久化的结构化交互 Trigger 交给当前 Worker Runtime。
      *
      * @remarks Worker 按当前 Goal、Run 和等待核验回应；若 `GoalUserAction` 携带请求或 Action 身份，
-     * Worker 会与当前等待核对。只有恢复进度经 Supervisor 持久化后，交互投递才会结算。
-     * @param delivery - 已通过 Supervisor 认证的 Goal 交互投递。
+     * Worker 会与当前等待核对。只有恢复进度经 Supervisor 持久化后，Trigger 才标记为已路由。
+     * @param trigger - 已通过 Supervisor 认证并持久化的 Goal 交互 Trigger。
      * @returns Runtime 恢复后的等待、终态或稳定拒绝。
-     * @throws Worker 已断开、目标不匹配或 IPC 失败时拒绝，持久投递保持待处理。
+     * @throws Worker 已断开、目标不匹配或 IPC 失败时拒绝，Trigger 保持未路由。
      * @example
      * ```ts
-     * const progress = await worker.respondInteraction(delivery);
+     * const progress = await worker.respondInteraction(interactionTrigger);
      * ```
      */
-    async respondInteraction(delivery: TriggerDeliveryFile): Promise<WorkerProgress> {
-        const goalId = "goalId" in delivery.trigger ? delivery.trigger.goalId : undefined;
-        if (delivery.trigger.type !== "interaction" || delivery.trigger.payload.action !== "answered"
+    async respondInteraction(trigger: Trigger): Promise<WorkerProgress> {
+        const goalId = "goalId" in trigger ? trigger.goalId : undefined;
+        if (trigger.type !== "interaction" || trigger.payload.action !== "answered"
             || goalId === undefined || this.closed || this.busy || this.cancelling || this.goalId !== goalId) {
             throw new Error("Worker does not own the interaction target");
         }
@@ -496,7 +496,7 @@ export class SupervisorWorkerProcess {
         const commandSent = new Promise<void>((resolve) => { markCommandSent = resolve; });
         this.advanceCommandSent = commandSent;
         try {
-            const response = await this.request({ kind: "interaction-response", requestId: randomUUID(), delivery });
+            const response = await this.request({ kind: "interaction-response", requestId: randomUUID(), trigger });
             if (response.kind !== "interaction-result") throw new Error("Unexpected Worker interaction response");
             return response.result;
         } finally {
@@ -564,7 +564,7 @@ export class SupervisorWorkerProcess {
         const sendReply = (reply: WorkerCommand): void => { void this.writeCommand(reply).catch(() => undefined); };
         if (message.workerId !== this.options.workerId || message.generation !== this.options.generation
             || message.goalId !== this.goalId
-            || this.options.deliveries.workerClaim(this.options.workerId, this.options.generation) !== message.goalId) {
+            || this.options.triggers.workerClaim(this.options.workerId, this.options.generation) !== message.goalId) {
             sendReply({ kind: "store-reply", requestId: message.requestId, ok: false });
             return;
         }
@@ -597,7 +597,7 @@ export class SupervisorWorkerProcess {
 
     private async saveWorkerSnapshot(goalId: string, input: unknown): Promise<GoalSnapshotV1> {
         return this.options.owner.runExclusive(JSON.stringify(["worker-save", this.options.workerId, goalId]), async () => {
-            if (this.options.deliveries.workerClaim(this.options.workerId, this.options.generation) !== goalId) {
+            if (this.options.triggers.workerClaim(this.options.workerId, this.options.generation) !== goalId) {
                 throw new Error("Worker assignment changed");
             }
             const goal = goalSnapshotCodec.decode(input);

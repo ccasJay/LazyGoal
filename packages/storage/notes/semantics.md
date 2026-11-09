@@ -5,7 +5,7 @@
 | 概念 | 简明含义 | 归属模块 | 权威说明 |
 | --- | --- | --- | --- |
 | Supervisor 所有权锁 | 同一路径由单个存活进程持有；已关闭所有者拒绝新操作。 | [持久化实现](../README.md) | [锁实现](../src/supervisor-ownership.ts) |
-| Trigger 投递收据 | SQLite 事务保存已通过 `runtime.trigger` 生成绑定校验的 Trigger、投递结果、FIFO Worker 绑定、权限请求结算和显式恢复记录；Worker 离线 outbox 归 Worker 进程日志所有。 | [持久化实现](../README.md) | [Trigger 契约](../../runtime/src/trigger.ts)、[投递存储](../src/trigger-delivery-store.ts)、[Worker 进程日志](../../../apps/goal-server/src/worker-process-entry.ts) |
+| Trigger 事件与路由状态 | SQLite 直接保存经 `runtime.trigger` 生成绑定校验的不可变 Trigger；唯一 ID 冲突拒绝，独立路由标记与 FIFO Worker 绑定、权限请求结算和恢复状态分别持久化。Worker 离线 outbox 归 Worker 进程日志所有。 | [持久化实现](../README.md) | [Trigger 契约](../../runtime/src/trigger.ts)、[TriggerStore](../src/trigger-store.ts)、[Worker 进程日志](../../../apps/goal-server/src/worker-process-entry.ts) |
 | Snapshot | Goal 最新完整持久化状态。 | [持久化实现](../README.md) | [模块说明](./overview.md) |
 | 动态模型执行快照 | Goal 选择保存 API 协议、容量与推理/视觉/工具选择能力，不保存端点或凭据。 | [持久化实现](../README.md) | [Snapshot Schema](../src/goal-snapshot.ts) |
 | 输入账本快照 | 每条已受理输入的稳定身份、载荷摘要、受理序号与状态；不复制正文。 | [持久化实现](../README.md) | [Snapshot Schema](../src/goal-snapshot.ts) |
@@ -28,6 +28,6 @@
 | 按键串行队列 | 同一 key 的进程内 FIFO 执行、失败隔离、簿记释放与 `drain` 读己之写。 | [持久化实现](../README.md) | [串行队列](../src/keyed-serial-queue.ts) |
 | 缺失目录阶段语义 | 原子替换默认逐阶段抛出 `ENOENT`；只有调用点显式声明时才缩小静默范围。 | [持久化实现](../README.md) | [模块说明](./overview.md) |
 | 轨迹查询索引 | 单 Run 的 SQLite 元数据索引：事件顺序、JSONL 字节位置与 Action/ModelCall/Program 关联；可删除并从 JSONL 重建。 | [持久化实现](../README.md) | [轨迹索引](../src/trajectory-index.ts) |
-| TriggerDeliveryStore | 按独立投递身份保存不可变 Trigger、准入待重试原因、接受收据、FIFO Worker 状态、等待态进度与待确认恢复；Runtime 应用决定后原子结算权限请求与回复。 | [持久化实现](../README.md) | [Trigger 契约](../../runtime/src/trigger.ts)、[投递存储](../src/trigger-delivery-store.ts) |
+| TriggerStore | 按 Trigger ID 保存不可变事件；分别持久化路由位、准入失败分类、冻结 Goal 创建意图、FIFO Worker 状态与恢复记录，权限请求与已应用回复可原子标记路由。 | [持久化实现](../README.md) | [Trigger 契约](../../runtime/src/trigger.ts)、[TriggerStore](../src/trigger-store.ts) |
 | Action 权限 Trigger | `permission.requested` 携带 Run、Action、交互与提交修订，Worker 身份位于 source；`permission.decided` 仅携带决定并通过 `goalId`/`replyTo` 关联请求。失败原因留在待处理请求上。 | [持久化实现](../README.md) | [Trigger 契约](../../runtime/src/trigger.ts)、[权限投影 Codec](../src/trigger-permission-codec.ts) |
 | GoalTriggerContext 快照 | 随 Goal 保存创建它的 Trigger ID 和可信宿主冻结的动作权限上限。 | [Runtime](../../runtime/README.md) | [Snapshot DTO](../src/goal-snapshot.ts)、[领域契约](../../runtime/src/domain.ts) |

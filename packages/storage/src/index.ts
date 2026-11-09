@@ -48,12 +48,13 @@ export type {
     GoalSnapshotWorkflowV1,
     SnapshotJsonValue,
 } from "./goal-snapshot";
-export { TriggerDeliveryStore } from "./trigger-delivery-store";
+export { TriggerStore } from "./trigger-store";
 export type {
     TriggerActionPermissionFailureReason,
-    TriggerDeliveryResult,
+    TriggerAdmissionFailureReason,
     TriggerGoalQueueRecord,
-} from "./trigger-delivery-store";
+    TriggerWorkerRecoveryRecord,
+} from "./trigger-store";
 export {
     decodeTriggerActionPermissionReply,
     decodeTriggerActionPermissionRequest,
@@ -63,9 +64,10 @@ export type {
     TriggerActionPermissionRequest,
 } from "./trigger-permission";
 export { SupervisorOwnership } from "./supervisor-ownership";
-export type { TriggerDeliveryFile, TriggerDeliveryOutcome, TriggerWireRequest } from "./trigger-delivery-file";
-export { receiveAuthorizedTrigger } from "./trigger-delivery-ingress";
-export type { TriggerIngressPrincipal } from "./trigger-delivery-ingress";
+export type { TriggerWireRequest } from "./trigger-wire";
+export { readTrigger, readTriggerWireRequest } from "./trigger-wire";
+export { receiveAuthorizedTrigger } from "./trigger-ingress";
+export type { TriggerIngressPrincipal } from "./trigger-ingress";
 export {
     DefaultGoalSnapshotCodec,
     goalSnapshotCodec,

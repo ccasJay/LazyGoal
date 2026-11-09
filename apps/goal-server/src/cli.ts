@@ -28,9 +28,10 @@ import {
     RuntimeLifecycleUnavailableError,
     type GoalModelSelection,
 } from "../../../packages/runtime/src/index";
+import { createGoal, type GoalTriggerContext } from "../../../packages/runtime/src/domain";
 import { JsonFileGoalStore } from "../../../packages/storage/src/goal-store";
 import { SupervisorOwnership } from "../../../packages/storage/src/supervisor-ownership";
-import { TriggerDeliveryStore } from "../../../packages/storage/src/trigger-delivery-store";
+import { TriggerStore } from "../../../packages/storage/src/trigger-store";
 import { JsonFileModelPreferenceStore } from "../../../packages/storage/src/index";
 import {
     isSupportedLlmProvider,
@@ -59,7 +60,7 @@ import {
     type CompositionRoot,
     type CompositionRootOptions,
 } from "./composition-root";
-import { WorkerScheduler } from "./runtime/index";
+import { allocateGoalWorkspace, resumeUnroutedWorkTriggers, WorkerScheduler } from "./runtime/index";
 import { createTriggerBrowserSessionPort } from "./browser-session-port";
 
 /** 把目录领域描述映射为 Web 投影允许接收的非敏感字段。 */
@@ -197,11 +198,11 @@ export async function runServerSession(
     try {
         await mkdir(root.dataDirectory, { recursive: true, mode: 0o700 });
         const triggerOwner = new SupervisorOwnership(join(root.dataDirectory, "supervisor-owner.db"));
-        const triggerDeliveries = new TriggerDeliveryStore(join(root.dataDirectory, "trigger-deliveries.db"));
+        const triggerStore = new TriggerStore(join(root.dataDirectory, "triggers.db"));
         const supervisorGoals = new JsonFileGoalStore(root.goalsDirectory);
         const workerScheduler = new WorkerScheduler({
             owner: triggerOwner,
-            deliveries: triggerDeliveries,
+            triggers: triggerStore,
             goals: supervisorGoals,
             cwd: root.workspaceRoot,
             dataDirectory: root.dataDirectory,
@@ -211,10 +212,39 @@ export async function runServerSession(
         root.resources.register({ close: async () => {
             try { await workerScheduler.detachAll(); }
             finally {
-                triggerDeliveries.close();
+                triggerStore.close();
                 await triggerOwner.close();
             }
         } });
+        const createRecoveredGoal = async (
+            intent: string,
+            reservedGoalId: string | undefined,
+            workspaceMode: "shared" | "worktree",
+        ) => {
+            const goalId = reservedGoalId ?? root.goalIdGenerator();
+            const workspace = await allocateGoalWorkspace(root.workspaceRoot, root.dataDirectory, goalId, workspaceMode);
+            const goal = createGoal({
+                id: goalId,
+                intent,
+                profile: root.profile,
+                runId: root.runIdGenerator(),
+                promptBundleVersion: 1,
+                memoryProtocol: { kind: "structured", version: 1 },
+                modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+                contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
+                modelSelection: root.defaultModelSelection,
+            });
+            const authorization: GoalTriggerContext["authorization"] = {
+                workspace,
+                toolIds: root.profile.toolIds.filter((toolId) => root.toolRegistry.get(toolId) !== undefined),
+                sandbox: { extraFiles: [], network: "none" },
+            };
+            return { goal, authorization };
+        };
+        for (const queued of triggerStore.goalQueueRecords()) {
+            await supervisorGoals.releaseCreationIntent(queued.triggerId);
+        }
+        await resumeUnroutedWorkTriggers(triggerOwner, triggerStore, supervisorGoals, root.adapter, createRecoveredGoal);
         await workerScheduler.pump();
         const staticDirectory = process.env.LAZYGOAL_STATIC_DIR
             ? resolve(process.env.LAZYGOAL_STATIC_DIR)
@@ -344,8 +374,8 @@ export async function runServerSession(
         const hasExecutionOwner = (goalId: string): boolean => workerScheduler.assignments()
             .some((assignment) => assignment.goalId === goalId);
         const executionStateFor = (goalId: string): BrowserExecutionState => {
-            if (triggerDeliveries.workerRecovery(goalId)?.status === "pending") return "recoverable";
-            const queued = triggerDeliveries.queueRecord(goalId);
+            if (triggerStore.workerRecovery(goalId)?.status === "pending") return "recoverable";
+            const queued = triggerStore.queueRecord(goalId);
             if (hasExecutionOwner(goalId) || queued?.status === "queued" || queued?.status === "claimed" || queued?.status === "waiting") return "active";
             return "inactive";
         };
@@ -380,7 +410,7 @@ export async function runServerSession(
             externalId: access.externalId,
             root,
             owner: triggerOwner,
-            deliveries: triggerDeliveries,
+            triggers: triggerStore,
             scheduler: workerScheduler,
             goals: supervisorGoals,
             resolveModelSelection: async (command) => {
