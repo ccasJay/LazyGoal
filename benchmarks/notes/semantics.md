@@ -6,6 +6,7 @@
 | --- | --- | --- | --- |
 | HeadlessCompositionRoot | 单任务装配及显式多阶段 Goal 会话。 | [共享评测框架](../README.md) | [模块说明](./overview.md) |
 | Attempt | 一次评测尝试的独立事实。 | [共享评测框架](../README.md) | [模块说明](./overview.md) |
+| Prompt Evaluation execution gate | `lazygoal eval prompt` 明确返回不支持，不解析请求、不启动 Worker、不回退旧执行链；独立评分与只读检查由各自命令提供。 | [共享评测框架](../README.md) | [Prompt Evaluation execution](./overview.md#prompt-evaluation-execution)、[CLI 入口](../src/prompt-evaluation/cli.ts) |
 
 | Benchmark task source | 工程任务来源、环境和独立评分端口。 | [共享评测层](../README.md) | [来源契约](../src/task-source.ts) |
 | Filesystem archive | 停止 Agent 后的完整可导入容器镜像工件。 | [共享评测层](../README.md) | [归档契约](../src/filesystem-archive.ts) |

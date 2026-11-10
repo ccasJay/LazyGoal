@@ -1,5 +1,5 @@
 import { realpath, stat } from "node:fs/promises";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
 /**
  * 单个文件的沙箱越界访问申请意图。
@@ -113,6 +113,40 @@ export interface EffectiveSandboxScope {
     readonly extraFiles: readonly EffectiveExtraFile[];
     /** 内核实际可强制的网络范围：none 或 all_outbound。 */
     readonly network: "none" | "all_outbound";
+}
+
+/**
+ * 判断 Action 实际申请的沙箱能力是否完全处于 Goal 冻结的能力上限内。
+ *
+ * @remarks
+ * 网络范围只能保持或收窄；额外文件范围必须由相同访问方向的授权文件或目录树覆盖。
+ * 此判断不代替宿主权限、有效 Grant 或内核沙箱执行。
+ *
+ * @param requested - 当前 Action 解析后的真实能力范围。
+ * @param ceiling - 可信宿主为当前 Goal 冻结的能力上限。
+ * @returns 每项请求都被上限覆盖时返回 `true`。
+ * @example
+ * ```ts
+ * const allowed = isEffectiveSandboxScopeWithin(
+ *   { extraFiles: [], network: "none" },
+ *   { extraFiles: [], network: "all_outbound" },
+ * );
+ * ```
+ */
+export function isEffectiveSandboxScopeWithin(
+    requested: EffectiveSandboxScope,
+    ceiling: EffectiveSandboxScope,
+): boolean {
+    if (requested.network === "all_outbound" && ceiling.network !== "all_outbound") return false;
+    return requested.extraFiles.every((item) => ceiling.extraFiles.some((limit) => {
+        if (item.access !== limit.access) return false;
+        if (limit.kind === "file") return item.kind === "file" && item.canonicalPath === limit.canonicalPath;
+        const pathWithinDirectory = relative(limit.canonicalPath, item.canonicalPath);
+        return pathWithinDirectory === ""
+            || (pathWithinDirectory !== ".."
+                && !pathWithinDirectory.startsWith(`..${sep}`)
+                && !isAbsolute(pathWithinDirectory));
+    }));
 }
 
 /**

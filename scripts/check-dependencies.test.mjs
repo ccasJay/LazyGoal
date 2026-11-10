@@ -1035,7 +1035,7 @@ test("包依赖方向逐包拒绝未允许的出站边", async () => {
 test("app 依赖方向逐 app 拒绝未允许的包", async () => {
     for (const [sourceApp, targetPackage] of [
         ["goal-board", "agent"],
-        ["goal-server", "sandbox"],
+        ["goal-server", "acp"],
     ]) {
         const root = await fixtureProject({
             [`apps/${sourceApp}/src/index.ts`]:

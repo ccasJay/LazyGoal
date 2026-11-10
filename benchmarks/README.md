@@ -1,6 +1,6 @@
 # 共享评测框架
 
-Headless Composition Root、隔离 Worker、Attempt 和 Prompt Evaluation 协议。
+Headless Composition Root、隔离 Worker、Attempt 和 Prompt Evaluation 协议。`lazygoal eval prompt` 当前明确返回不支持；独立 benchmark、评分和只读检查入口保持各自边界。
 
 阅读 [模块说明](./notes/overview.md)、[语义表](./notes/semantics.md)。
 

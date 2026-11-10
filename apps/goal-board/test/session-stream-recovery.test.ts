@@ -60,21 +60,3 @@ test("切换 Goal 后旧目标的迟到回调不能写入新视图", async () =>
   assert.equal(ownsViewEvent("goal-1", "goal-2"), false);
   assert.equal(ownsViewEvent("goal-1", null), false);
 });
-
-test("状态过期时仍允许通过唯一主按钮安全暂停当前 Run", async () => {
-  const React = await import("react");
-  const { renderToStaticMarkup } = await import("react-dom/server");
-  const { MessageComposer } = await import("../src/components/MessageComposer");
-
-  const stale = renderToStaticMarkup(React.createElement(MessageComposer, {
-    busy: false,
-    running: true,
-    placeholder: "Queue a message for the next Run…",
-    onSubmit: async () => true,
-    onInterrupt: async () => undefined,
-    footerControls: null,
-  } as any));
-  assert.match(stale, /aria-label="Pause Run"/);
-  assert.equal((stale.match(/<button\b/g) ?? []).length, 1);
-  assert.doesNotMatch(stale, /aria-label="Stop run"|aria-label="Steer the current Run with this message"/);
-});

@@ -5,6 +5,8 @@
 
 `@lazygoal/sandbox` 提供工作区路径边界、业务 Tool 的 macOS Seatbelt 范围、受限命令与专用 Git 执行底座，以及 PTC 专用的独立 Node.js 计算进程。它不决定 Goal 状态、Profile 授权或工具审批；PTC worker 只能通过宿主控制的管道请求业务 Tool。
 
+`isEffectiveSandboxScopeWithin` 比较已解析的 Action 能力与可信 Goal 上限：网络范围不能扩大，额外文件必须由相同访问方向的授权文件或目录树覆盖。它只判断集合包含关系，不替代 Permission Grant 或 Seatbelt 强制执行。
+
 ## 受限进程与 Git 执行底座
 
 - **受限命令与进程组终止**：[restricted-process](../src/restricted-process.ts) 提取统一的受限子进程启动原语（`spawnRestrictedCommand`）。所有长进程与命令执行置于独立 POSIX 进程组（`detached: true`），两阶段终止机制（`killProcessGroup`：先发 SIGTERM，在宽限期到达后升级为 SIGKILL）确保不留孤儿僵尸进程；宽限到期后的升级信号是尽力而为，实际终止以子进程退出事件确认。受管进程的会话归属、停止请求与结算由 [进程会话运行时](../../process-runtime/README.md) 拥有。

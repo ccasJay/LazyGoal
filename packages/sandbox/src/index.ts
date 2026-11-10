@@ -61,6 +61,7 @@ export {
 
 export {
     resolveEffectiveSandboxScope,
+    isEffectiveSandboxScopeWithin,
     type DerivedSandboxAccess,
     type EffectiveExtraFile,
     type EffectiveSandboxScope,

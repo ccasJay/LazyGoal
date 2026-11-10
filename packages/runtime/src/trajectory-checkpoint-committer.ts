@@ -115,7 +115,22 @@ export interface TrajectoryCheckpointCommitRequest {
     readonly control?: ExecutionControl;
 }
 
-function withLatestSessionState(goal: Goal, latest: Goal): Goal {
+/**
+ * 将最新快照的输入账本和消息队列复制到候选 Goal。
+ *
+ * @remarks
+ * 其它执行状态仍由候选 Goal 决定。只有已读取最新快照并声明会话状态写入权威的
+ * 调用方才应使用此函数；快照提交修订由提交边界重新计算。
+ *
+ * @param goal - 本次业务转换后的候选 Goal。
+ * @param latest - 同一 Goal 的最新已保存快照。
+ * @returns 保留候选执行状态并携带最新会话输入状态的副本。
+ * @example
+ * ```ts
+ * const candidate = withLatestSessionState(failedGoal, latestGoal);
+ * ```
+ */
+export function withLatestSessionState(goal: Goal, latest: Goal): Goal {
     const { inputLedger: _inputLedger, messageQueue: _messageQueue, commitRevision: _commitRevision, ...rest } = goal.state;
     return {
         ...goal,

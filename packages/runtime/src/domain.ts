@@ -502,7 +502,42 @@ export type GoalMessage = UserMessage | AssistantMessage;
  * };
  * ```
  */
+/**
+ * 由可信 Supervisor 冻结的 Goal 来源关联与动作权限范围。
+ *
+ * @remarks
+ * `triggerId` 指向持久化 Trigger 请求；`authorization` 仅是当前 Goal 的动作上限，不能替代宿主约束、有效授权或沙箱强制执行。
+ *
+ * @example
+ * ```ts
+ * const context: GoalTriggerContext = {
+ *   triggerId: "work-1",
+ *   authorization: {
+ *     workspace: { mode: "shared", projectRoot: "/project", executionRoot: "/project" },
+ *     toolIds: [], sandbox: { extraFiles: [], network: "none" },
+ *   },
+ * };
+ * ```
+ */
+export interface GoalTriggerContext {
+    readonly triggerId: string;
+    readonly authorization: {
+        readonly workspace: {
+            readonly mode: "shared" | "worktree";
+            readonly projectRoot: string;
+            readonly executionRoot: string;
+            readonly branch?: string;
+            readonly baseBranch?: string;
+            readonly baseCommit?: string;
+        };
+        readonly toolIds: readonly string[];
+        readonly sandbox: EffectiveSandboxScope;
+    };
+}
+
 export interface GoalDefinition {
+    /** Trigger 创建的 Goal 所冻结的来源与权限上限。 */
+    readonly triggerContext?: GoalTriggerContext;
     readonly intent: string;
     /** 恢复时必须继续使用的当前 Prompt Bundle 版本。 */
     readonly promptBundleVersion: 1;
@@ -905,6 +940,53 @@ export interface RunState {
 }
 
 /**
+ * waiting Run 对调用方公开的等待原因。
+ *
+ * @remarks
+ * `blocked` 表示没有待处理交互或 Action 的 Agent 主动等待；该分类只投影 Run 状态，
+ * 不写入 Snapshot。
+ *
+ * @example
+ * ```ts
+ * const waitingFor: RunWaitingFor = "action_approval";
+ * ```
+ */
+export type RunWaitingFor =
+    | "ask_user"
+    | "task_approval"
+    | "action_approval"
+    | "action_recovery"
+    | "blocked";
+
+/**
+ * 从 waiting Run 派生稳定的等待原因。
+ *
+ * @remarks
+ * 调用方须先确认 Run 状态为 `waiting`。持久化 Snapshot 校验负责确保交互与 Action
+ * 互斥，并确保没有 pending 项的 waiting Run 对应已提交的 `wait` 决策。
+ *
+ * @param run - 当前已验证的 Run 状态。
+ * @returns 当前等待原因；Agent 主动等待且没有 pending 项时返回 `blocked`。
+ * @example
+ * ```ts
+ * const waitingFor = resolveWaitingFor(run);
+ * ```
+ */
+export function resolveWaitingFor(run: RunState): RunWaitingFor {
+    if (run.pendingInteraction !== undefined) return run.pendingInteraction.kind;
+
+    switch (run.pendingAction?.status) {
+        case "awaiting_approval":
+            return "action_approval";
+        case "outcome_unknown":
+            return "action_recovery";
+        case "approved":
+        case undefined:
+            return "blocked";
+    }
+}
+
+/**
  * 当前 Run 的持久化 Steer 受理记录。
  *
  * @remarks
@@ -1096,6 +1178,18 @@ export interface GoalState {
     readonly notes?: readonly RuntimeContextNote[];
 }
 
+/** Run 生命周期结束时可能出现的状态；`waiting` 不属于此集合。 */
+export const RUN_END_STATUSES = Object.freeze([
+    "completed",
+    "failed",
+    "cancelled",
+] as const);
+
+/** 已结束 Run 的状态；不包含仍可恢复的 `waiting`。 */
+export type RunEndStatus = typeof RUN_END_STATUSES[number];
+
+const RUN_END_STATUS_SET: ReadonlySet<string> = new Set(RUN_END_STATUSES);
+
 /**
  * 已归档终态 Run 的跨会话历史摘要。
  *
@@ -1114,7 +1208,7 @@ export interface CompletedRunRecord {
     /** 已归档 Run 的稳定 ID。 */
     readonly runId: string;
     /** 归档时的终态，保留失败 Run 的真实状态。 */
-    readonly status: "completed" | "failed" | "cancelled";
+    readonly status: RunEndStatus;
     /** 归档时的 Step 数量。 */
     readonly stepCount: number;
     /** 该 Run Snapshot 最后纳入的局部 Trajectory sequence。 */
@@ -1182,14 +1276,25 @@ export interface RunExecutionOptions {
     readonly sandboxExecutionPlan?: SandboxExecutionPlan;
 }
 
-/** Run 生命周期状态；completed、failed、cancelled 是终态。 */
-export type RunStatus =
-    | "created"
-    | "running"
-    | "waiting"
-    | "completed"
-    | "failed"
-    | "cancelled";
+/** Run 生命周期状态；`waiting` 可恢复，`RunEndStatus` 表示当前 Run 已结束。 */
+export type RunStatus = "created" | "running" | "waiting" | RunEndStatus;
+
+/**
+ * 判断 Run 当前状态是否已结束。
+ *
+ * @remarks
+ * `completed`、`failed` 和 `cancelled` 结束当前 Run；`waiting` 仍可恢复。
+ * 此判断不修改 Run 状态。
+ * @param status - 当前 Run 生命周期状态。
+ * @returns Run 已结束时为 `true`，仍可执行或恢复时为 `false`。
+ * @example
+ * ```ts
+ * const ended = isRunEnded("failed");
+ * ```
+ */
+export function isRunEnded(status: RunStatus): status is RunEndStatus {
+    return RUN_END_STATUS_SET.has(status);
+}
 
 /**
  * 传给 transition 的显式状态转换输入。

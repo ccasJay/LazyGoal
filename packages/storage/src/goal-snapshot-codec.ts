@@ -529,6 +529,7 @@ function encodeSnapshot(goal: Goal): GoalSnapshotV1 {
         id: goal.id,
         metadata: { schemaVersion: 1 as const },
         definition: {
+            ...(goal.definition.triggerContext === undefined ? {} : { triggerContext: structuredClone(goal.definition.triggerContext) }),
             intent: goal.definition.intent,
             promptBundleVersion: 1 as const,
             memoryProtocol: { kind: "structured" as const, version: 1 as const },
@@ -1110,6 +1111,7 @@ function decodeSnapshot(snapshot: GoalSnapshotV1): Goal {
     return {
         id: snapshot.id,
         definition: {
+            ...(snapshot.definition.triggerContext === undefined ? {} : { triggerContext: structuredClone(snapshot.definition.triggerContext) }),
             intent: snapshot.definition.intent,
             promptBundleVersion: 1,
             memoryProtocol: { kind: "structured", version: 1 },

@@ -110,7 +110,7 @@ const AGENT_ENTRY_EXPORT_SOURCES = ["./create-agent-executor"];
 /** 每个 app 允许的出站目标 package。 */
 const ALLOWED_APP_DEPENDENCIES = {
     "goal-board": ["web-contracts", "slash-command"],
-    "goal-server": ["runtime", "storage", "agent", "llm", "llm-core", "model-catalog", "config", "tools", "contracts", "slash-command", "execution-stream", "session-metrics", "http", "browser", "permission", "context-retrieval", "web-contracts", "tool-core", "working-memory", "process-runtime", "context-budget", "model-view", "model-context", "prompt-renderer", "prompt-bundle", "model-request", "model-response", "model-call", "model-execution"],
+    "goal-server": ["runtime", "storage", "agent", "llm", "llm-core", "model-contracts", "model-catalog", "config", "tools", "contracts", "slash-command", "execution-stream", "session-metrics", "http", "browser", "permission", "sandbox", "context-retrieval", "web-contracts", "tool-core", "working-memory", "process-runtime", "context-budget", "model-view", "model-context", "prompt-renderer", "prompt-bundle", "model-request", "model-response", "model-call", "model-execution"],
 };
 
 const APPS = Object.keys(ALLOWED_APP_DEPENDENCIES);

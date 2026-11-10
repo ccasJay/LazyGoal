@@ -1,7 +1,11 @@
 import type { ModelContextFrameForStage, PublicTextBlock } from "./step-executor";
 import {
+    applyPendingSessionInputs,
+    clearPendingSessionInputs,
     findSessionInputRecord,
     nextSessionInputSequence,
+    pauseQueuedMessagesForTerminalRun,
+    removeQueuedMessage,
     withQueuePause,
     type SessionInputDigest,
     type SessionInputRecord,
@@ -91,6 +95,7 @@ import type { ToolPolicy } from "./tool";
 import { resolveAuthorizedToolDefinitions } from "./tool";
 import {
     isSeatbeltSupported,
+    isEffectiveSandboxScopeWithin,
     resolveEffectiveSandboxScope,
     type DerivedSandboxAccess,
     type EffectiveSandboxScope,
@@ -194,6 +199,7 @@ import {
 import type { CommittedEvidenceIndex } from "./evidence-gate";
 import {
     TrajectoryCheckpointCommitter,
+    withLatestSessionState,
     type AcceptedMemoryPatchInput,
     type TrajectoryCheckpointCommitResult,
     type TrajectoryCheckpointCommitterPort,
@@ -637,6 +643,14 @@ function prepareToolAction(
         throw new RunnerExecutionError(
             "TOOL_NOT_AUTHORIZED",
             `Tool "${action.toolId}" is not authorized by the frozen Profile`,
+        );
+    }
+
+    const goalAuthorization = goal.definition.triggerContext?.authorization;
+    if (goalAuthorization !== undefined && !goalAuthorization.toolIds.includes(action.toolId)) {
+        throw new RunnerExecutionError(
+            "TOOL_NOT_AUTHORIZED",
+            `Tool "${action.toolId}" is outside the frozen Goal authorization`,
         );
     }
 
@@ -1373,9 +1387,10 @@ class RunExecutor {
 
             const queueBinding = ledger?.queueBinding;
             const queue = goal.state.messageQueue ?? { revision: 0, items: [] };
-            const queuedMessage = queueBinding === undefined
+            const queueRemoval = queueBinding === undefined
                 ? undefined
-                : queue.items.find((item) => item.inputId === queueBinding.messageId);
+                : removeQueuedMessage(queue, queueBinding.messageId);
+            const queuedMessage = queueRemoval?.item;
             if (queueBinding !== undefined && queue.revision !== queueBinding.queueRevision) {
                 return { ok: false, error: "QUEUE_REVISION_MISMATCH" };
             }
@@ -1403,12 +1418,12 @@ class RunExecutor {
                     admittedAtRevision: (goal.state.commitRevision ?? 0) + 1,
                     targetRunId: run.id,
                 };
-            const inputLedger = (goal.state.inputLedger ?? []).map((record) =>
-                queueBinding !== undefined
-                    && record.inputId === queueBinding.messageId
-                    && record.status === "pending"
-                    ? { ...record, status: "cleared" as const }
-                    : record);
+            const inputLedger = queueBinding === undefined
+                ? goal.state.inputLedger ?? []
+                : clearPendingSessionInputs(
+                    goal.state.inputLedger ?? [],
+                    new Set([queueBinding.messageId]),
+                ) ?? [];
             const nextInputLedger = queueBinding === undefined && ledgerEntry === undefined
                 ? undefined
                 : [...inputLedger, ...(ledgerEntry === undefined ? [] : [ledgerEntry])];
@@ -1417,15 +1432,7 @@ class RunExecutor {
                 state: {
                     ...goal.state,
                     run: { ...run, steerInputs },
-                    ...(queueBinding === undefined || queuedMessage === undefined
-                        ? {}
-                        : {
-                            messageQueue: {
-                                revision: queue.revision + 1,
-                                items: queue.items.filter((item) => item.inputId !== queueBinding.messageId),
-                                ...(queue.pause === undefined ? {} : { pause: queue.pause }),
-                            },
-                        }),
+                    ...(queueRemoval === undefined ? {} : { messageQueue: queueRemoval.queue }),
                     ...(nextInputLedger === undefined ? {} : { inputLedger: nextInputLedger }),
                 },
             };
@@ -2602,10 +2609,12 @@ class RunExecutor {
         },
         expectedStageKey?: string,
     ): Promise<Goal> {
+        const terminalSessionState = goal.state.run.status === "failed" || goal.state.run.status === "cancelled";
         return withGoalMutationGate(this.store, goal.id, async () => {
             const result = await this.checkpointCommitter.commit(goal, {
                 facts,
                 ...(acceptedPatch === undefined ? {} : { acceptedPatch }),
+                ...(terminalSessionState ? { sessionState: "caller" as const } : {}),
                 prepare: (latest) => {
                     const latestForRun = latest?.state.run.id === goal.state.run.id
                         ? latest
@@ -2622,7 +2631,16 @@ class RunExecutor {
                         && (latestForRun.state.run.steerInputs ?? []).some(input => input.status === "pending")) {
                         throw new PendingSteerAcceptedError();
                     }
-                    return goal;
+                    if (!terminalSessionState || latest === undefined) return goal;
+                    const latestSessionGoal = withLatestSessionState(goal, latest);
+                    if (latestForRun === undefined) return latestSessionGoal;
+                    const messageQueue = pauseQueuedMessagesForTerminalRun(
+                        latestForRun.state.messageQueue,
+                        goal.state.run,
+                    );
+                    return messageQueue === undefined
+                        ? latestSessionGoal
+                        : { ...latestSessionGoal, state: { ...latestSessionGoal.state, messageQueue } };
                 },
                 ...(control === undefined ? {} : { control }),
                 ...(modelContextFrame === undefined ? {} : { modelContextFrame }),
@@ -2772,16 +2790,14 @@ class RunExecutor {
                 });
             }
             // 统一账本同步标记为已应用；没有账本条目的旧路径不凭空创建收据。
-            const inputLedger = latest.state.inputLedger?.map((record) => {
-                const messageIndex = appliedPositions.get(record.inputId);
-                if (messageIndex === undefined || record.status !== "pending") return record;
-                return {
-                    ...record,
-                    status: "applied" as const,
+            const inputLedger = applyPendingSessionInputs(
+                latest.state.inputLedger,
+                [...appliedPositions].map(([inputId, messageIndex]) => ({
+                    inputId,
                     appliedRunId: latest.state.run.id,
                     messageIndex,
-                };
-            });
+                })),
+            );
             const nextState: GoalState = {
                 ...latest.state,
                 messages,
@@ -6704,6 +6720,14 @@ class RunExecutor {
             effectiveSandboxScope = await resolveEffectiveSandboxScope(
                 this.workspaceRoot,
                 sandboxAccessRequest,
+            );
+        }
+        const goalSandboxCeiling = goal.definition.triggerContext?.authorization.sandbox;
+        if (goalSandboxCeiling !== undefined
+            && !isEffectiveSandboxScopeWithin(effectiveSandboxScope, goalSandboxCeiling)) {
+            throw new RunnerExecutionError(
+                "TOOL_NOT_AUTHORIZED",
+                `Action "${validated.action.actionId}" exceeds the frozen Goal sandbox authorization`,
             );
         }
         const sandboxDecision = evaluateSandboxAuthorization({

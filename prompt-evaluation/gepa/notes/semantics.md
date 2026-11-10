@@ -6,3 +6,4 @@
 | --- | --- | --- | --- |
 | GEPA run | 冻结模型和任务身份的优化运行。 | [GEPA 优化](../README.md) | [模块说明](./overview.md) |
 | Candidate | 由优化器评测的 Prompt 组件组合。 | [GEPA 优化](../README.md) | [模块说明](./overview.md) |
+| GEPA execution gate | `start`、`resume` 和 `worker` 明确返回不支持；现有生命周期记录查询与独立辅助命令保留。 | [GEPA 优化](../README.md) | [模块说明](./overview.md#当前执行边界)、[Python CLI](../src/lazygoal_gepa/cli.py) |

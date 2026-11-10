@@ -1,9 +1,11 @@
+import { isRunEnded } from "./domain";
 import type { Goal } from "./domain";
 import type { GoalStore } from "./goal-store";
 import { withGoalMutationGate } from "./goal-mutation-gate";
 import type { TrajectoryCheckpointCommitterPort } from "./trajectory-checkpoint-committer";
 import {
     appendQueuedMessage,
+    clearPendingSessionInputs,
     clearQueuedMessages,
     computeSessionInputDigest,
     findSessionInputRecord,
@@ -11,6 +13,7 @@ import {
     MAX_PENDING_SESSION_INPUT_TEXT_LENGTH,
     measurePendingInputUsage,
     nextSessionInputSequence,
+    removeQueuedMessage,
     SessionInputAdmissionError,
     toSessionInputReceipt,
     validateSessionInputShape,
@@ -214,8 +217,7 @@ export class SessionInputAdmission {
                 if (quota !== undefined) return { planned: false, result: quota };
                 const queue = goal.state.messageQueue;
                 const status = goal.state.run.status;
-                const startsFreshRun = (status === "completed" || status === "failed" || status === "cancelled")
-                    && (queue?.items.length ?? 0) === 0;
+                const startsFreshRun = isRunEnded(status) && (queue?.items.length ?? 0) === 0;
                 const nextGoal: Goal = {
                     ...goal,
                     state: {
@@ -266,37 +268,30 @@ export class SessionInputAdmission {
                 }
 
                 if (input.action === "remove") {
-                    const queuedMessage = queue.items.find((item) => item.inputId === input.messageId);
-                    if (queuedMessage === undefined) {
+                    const removal = removeQueuedMessage(queue, input.messageId!);
+                    if (removal === undefined) {
                         return {
                             planned: false,
                             result: rejection("QUEUED_MESSAGE_NOT_FOUND", `Queued message "${input.messageId}" was not found`),
                         };
                     }
-                    const ledger = (goal.state.inputLedger ?? []).map((record) =>
-                        record.inputId === queuedMessage.inputId && record.status === "pending"
-                            ? { ...record, status: "cleared" as const }
-                            : record);
+                    const ledger = clearPendingSessionInputs(
+                        goal.state.inputLedger,
+                        new Set([removal.item.inputId]),
+                    ) ?? [];
                     const nextGoal: Goal = {
                         ...goal,
                         state: {
                             ...goal.state,
                             inputLedger: [...ledger, controlRecord],
-                            messageQueue: {
-                                revision: queue.revision + 1,
-                                items: queue.items.filter((item) => item.inputId !== queuedMessage.inputId),
-                                ...(queue.pause === undefined ? {} : { pause: queue.pause }),
-                            },
+                            messageQueue: removal.queue,
                         },
                     };
                     return { planned: true, goal: nextGoal, record: controlRecord };
                 }
 
                 const cleared = new Set(queue.items.map((item) => item.inputId));
-                const ledger = (goal.state.inputLedger ?? []).map((record) =>
-                    record.status === "pending" && cleared.has(record.inputId)
-                        ? { ...record, status: "cleared" as const }
-                        : record);
+                const ledger = clearPendingSessionInputs(goal.state.inputLedger, cleared) ?? [];
                 const nextGoal: Goal = {
                     ...goal,
                     state: {

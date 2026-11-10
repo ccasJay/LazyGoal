@@ -873,8 +873,7 @@ class LifecycleControllerTests(unittest.TestCase):
     # 7. CLI 端到端与单行 JSON 契约测试
     # -------------------------------------------------------------------------
     def test_cli_stdout_stderr_contract(self) -> None:
-        """测试 Python CLI 的命令行参数解析、单行合法 JSON 输出与错误码。"""
-        # 7.1 preflight: 成功输出单行合法 JSON
+        """只读预检和生命周期控制保留；执行命令明确失败且不创建 Worker。"""
         stdout_buf = io.StringIO()
         stderr_buf = io.StringIO()
         with patch("sys.stdout", stdout_buf), patch("sys.stderr", stderr_buf):
@@ -888,9 +887,7 @@ class LifecycleControllerTests(unittest.TestCase):
                 str(self.runs_dir),
             ])
         self.assertEqual(code, 0)
-        lines = [line for line in stdout_buf.getvalue().splitlines() if line.strip()]
-        self.assertEqual(len(lines), 1, "stdout must contain exactly one line of JSON")
-        preflight_obj = json.loads(lines[0])
+        preflight_obj = json.loads(stdout_buf.getvalue())
         self.assertTrue(preflight_obj["valid"])
         self.assertEqual(preflight_obj["benchmark"], "alfworld")
 
@@ -909,149 +906,35 @@ class LifecycleControllerTests(unittest.TestCase):
         resume_preflight.preflight_resume.assert_called_once_with("run-tua")
         self.assertEqual(json.loads(stdout_buf.getvalue())["runId"], "run-tua")
 
-        confirmed_controller = MagicMock()
-        confirmed_controller.start.return_value = {"runId": "run-tua", "lifecycleStatus": "starting"}
-        with patch("lazygoal_gepa.cli.LifecycleController", return_value=confirmed_controller):
-            with patch("sys.stdout", io.StringIO()):
-                self.assertEqual(cli_main([
-                    "start",
-                    "--request",
-                    str(self.request_path),
-                    "--yes",
-                    "--confirm-digest",
-                    "reviewed-digest",
-                ]), 0)
-        confirmed_controller.start.assert_called_once_with(
-            str(self.request_path),
-            yes=True,
-            confirmation_digest="reviewed-digest",
-        )
+        for command in (
+            ["start", "--request", str(self.request_path), "--yes"],
+            ["resume", "--run", "run-tua", "--yes"],
+            ["worker", "--run-dir", str(self.runs_dir)],
+        ):
+            stdout_buf = io.StringIO()
+            stderr_buf = io.StringIO()
+            with patch("lazygoal_gepa.cli.LifecycleController") as controller:
+                with patch("sys.stdout", stdout_buf), patch("sys.stderr", stderr_buf):
+                    self.assertEqual(cli_main(command), 1)
+                controller.assert_not_called()
+            self.assertEqual(stdout_buf.getvalue(), "")
+            self.assertIn("Unsupported: GEPA execution", stderr_buf.getvalue())
 
-        resume_controller = MagicMock()
-        resume_controller.resume.return_value = {
-            "runId": "run-tua",
-            "lifecycleStatus": "starting",
-        }
-        with patch("lazygoal_gepa.cli.LifecycleController", return_value=resume_controller):
-            with patch("sys.stdout", io.StringIO()):
-                self.assertEqual(cli_main([
-                    "resume",
-                    "--run",
-                    "run-tua",
-                    "--yes",
-                    "--confirm-digest",
-                    "reviewed-resume-digest",
-                ]), 0)
-        resume_controller.resume.assert_called_once_with(
-            "run-tua",
-            yes=True,
-            confirmation_digest="reviewed-resume-digest",
-        )
-
-        custom_profile_path = self.profile_dir / "cli-custom.json"
-        custom_profile_data = dict(self.profile_data)
-        custom_profile_data["id"] = "cli-custom-profile"
-        custom_profile_path.write_text(
-            json.dumps(custom_profile_data, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        run_id = "run-cli-control"
+        self.store.initialize_run(self._create_helper_manifest(run_id))
         stdout_buf = io.StringIO()
-        stderr_buf = io.StringIO()
-        with patch("sys.stdout", stdout_buf), patch("sys.stderr", stderr_buf):
-            code = cli_main([
-                "preflight",
-                "--request",
-                str(self.request_path),
-                "--workspace-root",
-                str(self.workspace_root),
-                "--runs-dir",
-                str(self.runs_dir),
-                "--profile-path",
-                str(custom_profile_path),
-            ])
-        self.assertEqual(code, 0)
-        custom_preflight = json.loads(stdout_buf.getvalue())
-        self.assertEqual(
-            custom_preflight["targetProfile"]["profileId"],
-            "cli-custom-profile",
-        )
-        self.assertEqual(
-            custom_preflight["targetProfile"]["profilePath"],
-            str(custom_profile_path.resolve()),
-        )
+        with patch("sys.stdout", stdout_buf):
+            self.assertEqual(cli_main([
+                "status", "--run", run_id, "--runs-dir", str(self.runs_dir),
+            ]), 0)
+        self.assertEqual(json.loads(stdout_buf.getvalue())["runId"], run_id)
 
-        # 7.2 start 缺少 --yes: exit code 1, stderr 诊断, stdout 无 JSON
         stdout_buf = io.StringIO()
-        stderr_buf = io.StringIO()
-        with patch("sys.stdout", stdout_buf), patch("sys.stderr", stderr_buf):
-            code = cli_main([
-                "start",
-                "--request",
-                str(self.request_path),
-                "--workspace-root",
-                str(self.workspace_root),
-                "--runs-dir",
-                str(self.runs_dir),
-            ])
-        self.assertEqual(code, 1)
-        self.assertEqual(stdout_buf.getvalue(), "")
-        self.assertIn("ConfirmationRequiredError", stderr_buf.getvalue())
-
-        # 7.3 start 携带 --yes: exit code 0, stdout 单行 JSON
-        stdout_buf = io.StringIO()
-        stderr_buf = io.StringIO()
-        with patch("sys.stdout", stdout_buf), patch("sys.stderr", stderr_buf):
-            code = cli_main([
-                "start",
-                "--request",
-                str(self.request_path),
-                "--yes",
-                "--workspace-root",
-                str(self.workspace_root),
-                "--runs-dir",
-                str(self.runs_dir),
-            ])
-        self.assertEqual(code, 0)
-        start_lines = [line for line in stdout_buf.getvalue().splitlines() if line.strip()]
-        self.assertEqual(len(start_lines), 1)
-        start_obj = json.loads(start_lines[0])
-        run_id = start_obj["runId"]
-        self._track_pid(start_obj["workerPid"])
-        self.assertEqual(start_obj["lifecycleStatus"], "starting")
-
-        # 7.4 status: exit code 0, stdout 单行 JSON
-        stdout_buf = io.StringIO()
-        stderr_buf = io.StringIO()
-        with patch("sys.stdout", stdout_buf), patch("sys.stderr", stderr_buf):
-            code = cli_main([
-                "status",
-                "--run",
-                run_id,
-                "--runs-dir",
-                str(self.runs_dir),
-            ])
-        self.assertEqual(code, 0)
-        status_lines = [line for line in stdout_buf.getvalue().splitlines() if line.strip()]
-        self.assertEqual(len(status_lines), 1)
-        status_obj = json.loads(status_lines[0])
-        self.assertEqual(status_obj["runId"], run_id)
-
-        # 7.5 stop: exit code 0, stdout 单行 JSON
-        stdout_buf = io.StringIO()
-        stderr_buf = io.StringIO()
-        with patch("sys.stdout", stdout_buf), patch("sys.stderr", stderr_buf):
-            code = cli_main([
-                "stop",
-                "--run",
-                run_id,
-                "--runs-dir",
-                str(self.runs_dir),
-            ])
-        self.assertEqual(code, 0)
-        stop_lines = [line for line in stdout_buf.getvalue().splitlines() if line.strip()]
-        self.assertEqual(len(stop_lines), 1)
-        stop_obj = json.loads(stop_lines[0])
-        self.assertTrue(stop_obj["stopRequested"])
+        with patch("sys.stdout", stdout_buf):
+            self.assertEqual(cli_main([
+                "stop", "--run", run_id, "--runs-dir", str(self.runs_dir),
+            ]), 0)
+        self.assertTrue(json.loads(stdout_buf.getvalue())["stopRequested"])
 
     def test_terminal_state_stop_invariant_and_corrupted_manifest_uniform_contract(self) -> None:
         """Verify terminal state invariant during stop and uniform RunStoreError(corrupted) on broken run.json."""

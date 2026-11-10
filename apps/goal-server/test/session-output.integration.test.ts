@@ -28,7 +28,7 @@ async function withTimeout<T>(promise: Promise<T>, message: string): Promise<T> 
     }
 }
 
-test("正式装配：候选预览先于正式答复，消息查询按稳定身份返回原文", async () => {
+test("正式装配：SSE 发布提交失效通知，Activity 与消息查询读取已保存结果", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "lazygoal-session-output-"));
     await writeFile(join(workspace, "notes.txt"), "配置说明\n", "utf8");
     const access = createBrowserSessionAccess();
@@ -148,10 +148,18 @@ test("正式装配：候选预览先于正式答复，消息查询按稳定身�
         await collect.catch(() => undefined);
 
         const payload = observed.join("\n");
-        // 候选预览只公开顶层 summary，不公开参数对象其它字段。
-        assert.equal(payload.includes("candidate_preview"), true);
-        assert.equal(payload.includes("正式答复正文"), true);
+        const events = observed.map((event) => JSON.parse(event) as Record<string, any>);
+        // 事件流只发送状态同步和提交失效范围；结果正文由有界查询端点返回。
+        assert.equal(events.some((event) => event.type === "state_sync"), true);
+        assert.equal(events.some((event) => event.type === "state_committed"
+            && event.changed?.includes("activity") === true), true);
+        assert.equal(payload.includes("正式答复正文"), false);
         assert.equal(payload.includes("completionEvidence"), false);
+
+        const activity = await request("/api/goals/goal-session-output/activity?limit=100", "GET");
+        assert.equal(activity.status, 200);
+        assert.equal(activity.body.goalId, "goal-session-output");
+        assert.equal(Array.isArray(activity.body.items), true);
 
         // 正式答复已保存，并带有稳定身份、用途与来源。
         const messages = await request("/api/goals/goal-session-output/messages?limit=50", "GET");
@@ -175,9 +183,9 @@ test("正式装配：候选预览先于正式答复，消息查询按稳定身�
         const missing = await request("/api/goals/goal-session-output/messages/msg-unknown", "GET");
         assert.equal(missing.status, 404);
 
-        // 正式消息通知按稳定身份关联被替换的预览来源。
-        assert.equal(payload.includes("message_committed"), true);
-        assert.equal(payload.includes(answer.messageId), true);
+        // 会话提交通知只声明状态变化，正文按稳定身份单独读取。
+        assert.equal(events.some((event) => event.type === "state_committed"
+            && event.changed?.includes("session") === true), true);
     } finally {
         await root?.shutdownCoordinator.shutdown();
         await rm(workspace, { recursive: true, force: true });

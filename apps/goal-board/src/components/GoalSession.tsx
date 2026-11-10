@@ -1,7 +1,16 @@
-import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "./ui/collapsible";
 import { Checkbox } from "./ui/checkbox";
 import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 import { Button } from "./ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./ui/alert-dialog";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -13,10 +22,7 @@ import {
   AlertCircle,
   ArrowDown,
   Check,
-  ChevronRight,
   CircleHelp,
-  CornerUpRight,
-  Trash2,
   X,
 } from "lucide-react";
 import type { BrowserGoalListItem, BrowserToolGrantSummary } from "../../../../packages/web-contracts/src/index";
@@ -126,14 +132,7 @@ export function GoalSession({
     draftGoalBusy,
     setCommandError,
     stoppingRunId,
-    canSendText,
-    queuedInputs,
-    queuePaused,
-    onContinueQueue,
-    onRemoveQueuedInput,
-    onSubmitMessage,
     onSubmitDraftMessage,
-    onSubmitSteer,
     onInterrupt,
     onSubmitResume,
     onVerifyIntent,
@@ -148,7 +147,7 @@ export function GoalSession({
     connected: streamConnected,
     stale: stateStale,
     sessionUnreadable: sessionError !== null,
-    canSendText,
+    canSendText: false,
     stopping: session !== null && stoppingRunId === session.currentRunId,
   });
   const unverifiedActions = selectUnverifiedWorkbenchActions(control.state.intents);
@@ -161,10 +160,9 @@ export function GoalSession({
   const programmaticTop = useRef<number | undefined>(undefined);
   const followFrame = useRef<number | null>(null);
   const currentRun = activityPage?.runs.find((run) => run.current);
-  const pendingSteers = session?.pendingSteers ?? [];
-  const queueRevision = session?.queue?.revision ?? 0;
   const [draftNoticeDismissed, setDraftNoticeDismissed] = useState(false);
   const [decisionSummaries, setDecisionSummaries] = useState<readonly AcceptedDecisionSummary[]>([]);
+  const [confirmUnknownEffects, setConfirmUnknownEffects] = useState(false);
 
   const projectionGoalKey = session?.goalId ?? null;
   useEffect(() => {
@@ -174,6 +172,7 @@ export function GoalSession({
   // 切换 Goal 时清空页面级决定摘要：新会话不复用旧请求的决定记录。
   useEffect(() => {
     setDecisionSummaries([]);
+    setConfirmUnknownEffects(false);
   }, [projectionGoalKey]);
 
   useEffect(() => () => {
@@ -541,8 +540,6 @@ export function GoalSession({
                         }}
                         onLoadEarlier={() => void loadEarlierActivity()}
                         onLoadNewer={() => void loadNewerActivity()}
-                        onContinueFailed={session.runStatus === "failed" ? () => void onSubmitMessage("Please continue the original task. Review the previous failure and proceed with the available context.") : undefined}
-                        continueDisabled={!workbench.send_message.available}
                         olderItemCount={activityWindow.page?.gaps
                           .filter((gap) => gap.direction === "older")
                           .reduce((total, gap) => total + gap.itemCount, 0) ?? 0}
@@ -586,19 +583,9 @@ export function GoalSession({
             </div>
           )}
 
-          {sessionTab === "Trajectory" && canSendText && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="trajectory-message-link"
-              onClick={() => setSessionTab("Activity")}
-            >
-              Message this Goal from Activity <ChevronRight size={14} />
-            </Button>
-          )}
-
           {sessionTab !== "Board" && sessionTab !== "Trajectory" && (
             <div className="composer-area">
+              <div className="composer-extra-controls">{renderPermissionControl(true)}</div>
               {sessionTab === "Activity" && decisionSummaries.length > 0 && (
                 <div className="decision-summaries" aria-label="Saved interaction decisions">
                   {decisionSummaries.map((entry) => (
@@ -608,303 +595,116 @@ export function GoalSession({
                   ))}
                 </div>
               )}
-              {(queuedInputs.length > 0 || pendingSteers.length > 0 || queuePaused) && (
-                <Collapsible className="queued-input-status" aria-label="Queued input status">
-                  <CollapsibleTrigger>
-                    <span className={`queue-status-dot${queuePaused ? " is-paused" : ""}`} aria-hidden="true" />
-                    <strong>{queuePaused ? "Queue paused" : "Queue"}</strong>
-                    <span className="queue-status-count">
-                      {queuedInputs.length} queued{pendingSteers.length > 0 ? `, ${pendingSteers.length} Steer waiting` : ""}
-                    </span>
-                    {queuedInputs[0] !== undefined && (
-                      <span className="queue-status-preview">{queuedInputs[0].content}</span>
-                    )}
-                    <ChevronRight className="queue-status-chevron" size={13} aria-hidden="true" />
-                  </CollapsibleTrigger><CollapsibleContent>
-                  <div className="queued-input-status-body">
-                    {queuedInputs.map((item, index) => (
-                      <article className="queued-input-item" key={item.messageId}>
-                        <div className="queued-input-item-heading">
-                          <span>Queued for Next Run</span>
-                          <span className="queued-input-actions">
-                            <Button variant="ghost" size="sm"
-                              type="button"
-                              aria-label={`Steer queued message ${index + 1} into the current Run`}
-                              title={workbench.steer.available ? "Steer this message into the current Run" : workbenchReasonText(workbench.steer.reason)}
-                              disabled={!workbench.steer.available}
-                              onClick={() => void onSubmitSteer(item.content, {
-                                messageId: item.messageId,
-                                queueRevision,
-                              })}
-                            >
-                              <CornerUpRight size={13} /> Steer
-                            </Button>
-                            <Button variant="ghost" size="sm"
-                              type="button"
-                              className="queued-input-delete"
-                              aria-label={`Delete queued message ${index + 1}`}
-                              title="Delete this queued message"
-                              disabled={commandBusy || sessionError !== null}
-                              onClick={() => void onRemoveQueuedInput(item.messageId)}
-                            >
-                              <Trash2 size={13} />
-                            </Button>
-                          </span>
-                        </div>
-                        <p>{item.content}</p>
-                      </article>
-                    ))}
-                    {pendingSteers.map((item) => (
-                      <article className="queued-input-item is-steer" key={item.messageId}>
-                        <div className="queued-input-item-heading">
-                          <span>Steer: Waiting for next model call</span>
-                        </div>
-                        <p>{item.content}</p>
-                      </article>
-                    ))}
-                    {queuePaused && (
-                      <div className="queue-paused">
-                        <span>Queue is paused.</span>
-                        <Button variant="ghost" size="sm"
-                          type="button"
-                          disabled={commandBusy || sessionError !== null}
-                          onClick={() => void onContinueQueue()}
-                        >
-                          Continue
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                </CollapsibleContent></Collapsible>
-              )}
               {unverifiedActions.length > 0 && (
                 <div className="unverified-submissions" aria-label="Unconfirmed submissions">
                   {unverifiedActions.map((item) => (
                     <div className="unverified-submission" key={item.intentId} data-intent-id={item.intentId}>
-                      <span>
-                        {item.label} result is unknown. Verify it before continuing.
-                      </span>
-                      <Button variant="ghost" size="sm"
-                        type="button"
-                        disabled={commandBusy}
-                        onClick={() => void onVerifyIntent(item.intentId)}
-                      >
-                        Verify
-                      </Button>
-                      <Button variant="ghost" size="sm"
-                        type="button"
-                        disabled={commandBusy}
-                        onClick={() => void onRetryIntent(item.intentId)}
-                      >
-                        Retry same identity
-                      </Button>
+                      <span>{item.label} result is unknown. Verify it before retrying.</span>
+                      <Button variant="ghost" size="sm" type="button" disabled={commandBusy}
+                        onClick={() => void onVerifyIntent(item.intentId)}>Verify</Button>
+                      <Button variant="ghost" size="sm" type="button" disabled={commandBusy}
+                        onClick={() => void onRetryIntent(item.intentId)}>Retry same identity</Button>
                       <Button variant="ghost" size="sm" type="button" onClick={() => onDiscardIntent(item.intentId)}>Discard</Button>
                     </div>
                   ))}
                 </div>
               )}
-              {session.runStatus === "waiting" &&
-                (session.interaction !== undefined || session.pendingAction !== undefined ? (
-                  <>
-                    <div className="composer-extra-controls">
-                      {renderPermissionControl(true)}
-                      <CurrentModelControl
-                        label={currentModelName}
-                        enabled={canSwitchCurrentModel && !commandBusy && sessionError === null}
-                        onClick={() =>
-                          setModelPickerTarget({
-                            kind: "goal",
-                            goalId: session.goalId,
-                            runId: session.currentRunId,
-                          })
-                        }
-                      />
-                    </div>
-                    <WaitingInteraction
-                      session={session}
-                      busy={commandBusy || !connection.allowsNewDecisions || (!draftSessionOpen && sessionError !== null)}
-                      stopping={
-                        stoppingRunId === session.currentRunId ||
-                        (session.interruption !== undefined && session.interruption.status !== "finished")
-                      }
-                      control={control}
-                      onInterrupt={onInterrupt}
-                      onRefreshSession={refreshSelectedSession}
-                      onDecisionAccepted={(summary) => {
-                        setDecisionSummaries((current) =>
-                          current.some((entry) => entry.interactionId === summary.interactionId && entry.runId === summary.runId)
-                            ? current
-                            : [...current, summary]);
-                      }}
+              {session.runStatus === "waiting" && (session.interaction !== undefined || session.pendingAction !== undefined) && (
+                <>
+                  <div className="composer-extra-controls">
+                    <CurrentModelControl
+                      label={currentModelName}
+                      enabled={canSwitchCurrentModel && !commandBusy && sessionError === null}
+                      onClick={() => setModelPickerTarget({ kind: "goal", goalId: session.goalId, runId: session.currentRunId })}
                     />
-                    {session.interaction !== undefined && (
-                      <div className="queue-composer">
-                        <p className="queue-note" id="queue-next-task-note">
-                          Messages sent while this request is waiting are queued as the next task. They do not answer the
-                          current request.
-                        </p>
-                        <MessageComposer
-                          key={`${session.currentRunId}:queue`}
-                          primaryActions={workbench}
-                          textareaLabel="Queue next task"
-                          describedBy="queue-next-task-note"
-                          showHint={true}
-                          placeholder="Queue next task…"
-                          busy={commandBusy || (!draftSessionOpen && sessionError !== null)}
-                          onSubmit={onSubmitMessage}
-                        />
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <MessageComposer
-                    key={session.currentRunId}
-                    primaryActions={workbench}
-                    showHint={false}
-                    busy={commandBusy || (!draftSessionOpen && sessionError !== null)}
-                    placeholder="Give direction or ask a question…"
-                    footerControls={
-                      <>
-                        {renderPermissionControl(true)}
-                        <CurrentModelControl
-                          label={currentModelName}
-                          enabled={canSwitchCurrentModel && !commandBusy && sessionError === null}
-                          onClick={() =>
-                            setModelPickerTarget({
-                              kind: "goal",
-                              goalId: session.goalId,
-                              runId: session.currentRunId,
-                            })
-                          }
-                        />
-                      </>
-                    }
-                    onSubmit={onSubmitMessage}
+                  </div>
+                  <WaitingInteraction
+                    session={session}
+                    busy={commandBusy || !connection.allowsNewDecisions || (!draftSessionOpen && sessionError !== null)}
+                    stopping={stoppingRunId === session.currentRunId ||
+                      (session.interruption !== undefined && session.interruption.status !== "finished")}
+                    control={control}
+                    onInterrupt={onInterrupt}
+                    onRefreshSession={refreshSelectedSession}
+                    onDecisionAccepted={(summary) => {
+                      setDecisionSummaries((current) =>
+                        current.some((entry) => entry.interactionId === summary.interactionId && entry.runId === summary.runId)
+                          ? current
+                          : [...current, summary]);
+                    }}
                   />
-                ))}
-              {(session.runStatus === "completed" ||
-                session.runStatus === "failed" ||
-                session.runStatus === "cancelled") &&
-                session.interaction === undefined &&
-                session.pendingAction === undefined && (
-                  <MessageComposer
-                    key={`${session.currentRunId}:continue`}
-                    primaryActions={workbench}
-                    showHint={false}
-                    busy={commandBusy || (!draftSessionOpen && sessionError !== null)}
-                    placeholder={
-                      session.runStatus === "failed" || session.runStatus === "cancelled"
-                        ? "Send a message to continue in a new Run…"
-                        : "Continue this Goal with a new task…"
-                    }
-                    footerControls={
-                      <>
-                        {renderPermissionControl(true)}
-                        <CurrentModelControl
-                          label={currentModelName}
-                          enabled={canSwitchCurrentModel && !commandBusy && sessionError === null}
-                          onClick={() =>
-                            setModelPickerTarget({
-                              kind: "goal",
-                              goalId: session.goalId,
-                              runId: session.currentRunId,
-                            })
-                          }
-                        />
-                      </>
-                    }
-                    onSubmit={onSubmitMessage}
-                  />
-                )}
-              {session.runStatus === "running" && (
-                <MessageComposer
-                  key={session.currentRunId}
-                  primaryActions={workbench}
-                  showHint={false}
-                  busy={commandBusy || (!draftSessionOpen && sessionError !== null)}
-                  running={session.execution?.state !== "recoverable"}
-                  recoverable={session.execution?.state === "recoverable"}
-                  recoveryActionLabel={
-                    session.interruption !== undefined && session.interruption.status !== "finished"
-                      ? "Finish stopping"
-                      : "Resume Run"
-                  }
-                  placeholder="Queue a message for the next Run…"
-                  onInterrupt={onInterrupt}
-                  onResume={onSubmitResume}
-                  stopping={
-                    stoppingRunId === session.currentRunId ||
-                    (session.execution?.state !== "recoverable" &&
-                      session.interruption !== undefined &&
-                      session.interruption.status !== "finished")
-                  }
-                  footerControls={
-                    <>
-                      {renderPermissionControl(true)}
-                      <CurrentModelControl
-                        label={currentModelName}
-                        enabled={false}
-                        onClick={() => undefined}
-                      />
-                    </>
-                  }
-                  onSubmit={onSubmitMessage}
-                />
+                </>
               )}
-              {session.runStatus === "created" &&
-                (session.execution?.state === "recoverable" ? (
-                  <div className="composer-recover-row">
-                    <div className="composer-extra-controls">
-                      {renderPermissionControl(true)}
-                      <CurrentModelControl
-                        label={currentModelName}
-                        enabled={false}
-                        onClick={() => undefined}
-                      />
-                    </div>
+              {session.runStatus === "waiting" && session.interaction === undefined && session.pendingAction === undefined && (
+                <div className="composer-note">This Goal is waiting for runtime processing.</div>
+              )}
+              {session.runStatus === "running" && (
+                <>
+                  <div className="composer-extra-controls">
+                    <CurrentModelControl label={currentModelName} enabled={false} onClick={() => undefined} />
+                  </div>
+                  {session.execution?.state === "recoverable" ? (
                     <div className="composer-recover-actions">
-                      <span className="composer-note">Run not yet active in this process.</span>
-                      <Button variant="ghost" size="sm"
-                        type="button"
-                        className="primary"
-                        disabled={!workbench.resume.available}
-                        title={workbench.resume.available ? "Resume Run" : workbenchReasonText(workbench.resume.reason)}
-                        onClick={() => void onSubmitResume()}
-                      >
+                      <span className="composer-note">The previous Worker stopped while this Run was active. Its last action may have had external effects.</span>
+                      <Button variant="ghost" size="sm" type="button" className="primary"
+                        disabled={!workbench.resume.available || commandBusy}
+                        title={workbench.resume.available ? "Review and resume this Run" : workbenchReasonText(workbench.resume.reason)}
+                        onClick={() => setConfirmUnknownEffects(true)}>
                         {commandBusy ? "Resuming…" : "Resume Run"}
                       </Button>
                     </div>
+                  ) : (
+                    <div className="composer-recover-actions">
+                      <span className="composer-note">This Goal is running in a Worker.</span>
+                      <Button variant="outline" size="sm" type="button"
+                        disabled={!workbench.stop.available || commandBusy}
+                        title={workbench.stop.available ? "Stop this Run" : workbenchReasonText(workbench.stop.reason)}
+                        onClick={() => void onInterrupt()}>
+                        {stoppingRunId === session.currentRunId ? "Stopping…" : "Stop Run"}
+                      </Button>
+                    </div>
+                  )}
+                </>
+              )}
+              {session.runStatus === "created" && (session.execution?.state === "recoverable" ? (
+                <div className="composer-recover-row">
+                  <div className="composer-extra-controls">
+                    <CurrentModelControl label={currentModelName} enabled={false} onClick={() => undefined} />
                   </div>
-                ) : (
-                  <>
-                    <div className="composer-extra-controls">
-                      {renderPermissionControl(true)}
-                      <CurrentModelControl
-                        label={currentModelName}
-                        enabled={false}
-                        onClick={() => undefined}
-                      />
-                    </div>
-                    <div className="composer-note">The Runtime is starting this Goal.</div>
-                  </>
-                ))}
-              {session.runStatus === "waiting" &&
-                session.interaction === undefined &&
-                session.pendingAction !== undefined &&
-                session.pendingAction.status === "approved" && (
-                  <>
-                    <div className="composer-extra-controls">
-                      {renderPermissionControl(true)}
-                      <CurrentModelControl
-                        label={currentModelName}
-                        enabled={false}
-                        onClick={() => undefined}
-                      />
-                    </div>
-                    <div className="composer-note">The approved action is being recorded.</div>
-                  </>
+                  <div className="composer-recover-actions">
+                    <span className="composer-note">This Goal has not started in the current Worker.</span>
+                    <Button variant="ghost" size="sm" type="button" className="primary"
+                      disabled={!workbench.resume.available || commandBusy}
+                      title={workbench.resume.available ? "Resume Run" : workbenchReasonText(workbench.resume.reason)}
+                      onClick={() => void onSubmitResume(false)}>
+                      {commandBusy ? "Resuming…" : "Resume Run"}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="composer-note">The Runtime is starting this Goal.</div>
+              ))}
+              {session.runStatus === "waiting" && session.interaction === undefined
+                && session.pendingAction?.status === "approved" && (
+                  <div className="composer-note">The approved action is being recorded.</div>
                 )}
               <SessionMetricsBar state={metricsByGoal[session.goalId]} runStatus={session.runStatus} />
+              <AlertDialog open={confirmUnknownEffects} onOpenChange={setConfirmUnknownEffects}>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Resume this Run?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      The previous Worker stopped while the Run was active. The saved checkpoint may not show whether its last action took effect. Continuing could repeat an external action.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction disabled={commandBusy} onClick={() => void onSubmitResume(true)}>
+                      Resume and accept the risk
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
           )}
         </>

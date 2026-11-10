@@ -42,18 +42,17 @@
 | 重连与权威恢复 | 两条流结束后由既有 800ms 循环重新订阅；不发送 `Last-Event-ID`、不请求补发，以新连接的 `state_sync` 快照或最新指标快照替换旧值与旧临时正文。 | [Goal Board](../README.md) | [useRunStream](../src/hooks/useRunStream.ts)、[useGoals](../src/hooks/useGoals.ts) |
 | 临时正文来源索引 | 流式正文按来源身份独立累积并有界：换源时旧来源保留已到达内容，新来源单独累积；结算边界立即提交待合并尾部，不丢字也不复活旧帧。 | [Goal Board](../README.md) | [流式渲染状态](../src/streaming-render.ts)、[帧合并](../src/live-text-batch.ts) |
 | 安全 Markdown | 正文与 Think 输出共用同一安全 GFM 渲染：原始 HTML 与脚本不进入 DOM，模型图片与嵌入降级为链接，代码与表格只在自身区域横向滚动。 | [Goal Board](../README.md) | [AssistantMarkdown](../src/components/AssistantMarkdown.tsx) |
-| 观察同步与过期 | 订阅按 Goal 建立并先消费权威同步；单纯断开或读取失败只标记内容可能过期，保留最后确认的正式内容与当前草稿，并限制 Steer 与 Resume 一类依赖最新状态的决定。 | [Goal Board](../README.md) | [观察恢复语义](../src/session-stream-recovery.ts) |
+| 观察同步与过期 | 订阅按 Goal 建立并先消费权威同步；断开或读取失败保留最后确认内容并标记可能过期，依赖最新状态的决定在重连并同步前不可用。 | [Goal Board](../README.md) | [观察恢复语义](../src/session-stream-recovery.ts) |
 | 统一 SSE 分帧 | metrics 与 Goal 事件共用一个 `eventsource-parser` 入口，只产出事件名与 `data`；未知命名事件忽略，已接受事件的无效 JSON 或无效 DTO 结束本次生成器。 | [Goal Board](../README.md) | [SSE 分帧](../src/sse.ts)、[API 映射](../src/api.ts) |
 | 重连与权威恢复 | 两条流结束后由既有 800ms 循环重新订阅；不发送 `Last-Event-ID`、不请求补发，以新连接的 `state_sync` 或最新指标快照替换旧值与旧临时正文。 | [Goal Board](../README.md) | [useRunStream](../src/hooks/useRunStream.ts)、[useGoals](../src/hooks/useGoals.ts) |
 | 观察释放 | 卸载视图或切换 Goal 只回收浏览器本地的订阅、请求与合并帧；不发送 Interrupt，不撤销已受理输入，也不关闭宿主 Runtime。 | [Goal Board](../README.md) | [观察恢复语义](../src/session-stream-recovery.ts) |
 | GoalSessionContext | 局部持有 Goal 窄状态、固定 Activity 页、按需完整会话及视图状态。 | [Goal Board](../README.md) | [上下文契约](../src/context/GoalSessionContext.tsx) |
-| RunControlContext | 隔离指令分发、客户端排队有限状态机与原子单飞防重锁的局部上下文。 | [Goal Board](../README.md) | [模块说明](./overview.md) |
-| 已受理队列投影 | Runtime Snapshot 中的待处理普通消息、队列修订与暂停原因；页面只读取该投影，不再镜像本地任务或由前端 effect 启动后继 Run。 | [Goal Board](../README.md) | [Session Projection](../../../packages/browser/src/browser-projection.ts) |
-| 本地草稿 | 仅保存在输入框的未提交文本；提交中、拒绝与结果不明时保留，受理成功后由服务端收据接管。 | [Goal Board](../README.md) | [MessageComposer](../src/components/MessageComposer.tsx) |
+| RunControlContext | 隔离支持的命令分发、控制意图状态与原子单飞防重锁；不持有普通消息队列。 | [Goal Board](../README.md) | [模块说明](./overview.md) |
+| New Goal 草稿 | 仅保存在页面状态的未提交首个意图；提交结果不明时保留原身份，受理成功后由服务端 Goal 与 Trigger 收据接管。 | [Goal Board](../README.md) | [MessageComposer](../src/components/MessageComposer.tsx) |
+| 新 Goal 输入 | 输入框只创建 Goal 并提交首个意图；已有 Goal 不提供普通续聊、Steer 或队列操作。 | [Goal Board](../README.md) | [输入区](../src/components/MessageComposer.tsx)、[会话视图](../src/components/GoalSession.tsx) |
+| Worker 状态与恢复 | 已运行 Goal 显示所属 Worker；只有 Supervisor 明确记录的待恢复 Worker 退出可继续，恢复运行中检查点要求承认未知外部效果。 | [Goal Board](../README.md) | [会话视图](../src/components/GoalSession.tsx)、[Trigger 浏览器端口](../../goal-server/src/browser-session-port.ts) |
 | 会话渐进加载 | 固定水位 Activity 页支持双向翻页：更早与更新的页按稳定身份并入当前窗口，缺口明确提示；历史页缓存至多三页，正文分段至多三段；阅读锚点按可见项身份恢复。 | [Goal Board](../README.md) | [Activity 窗口](../src/activity-page-window.ts)、[SessionTimeline](../src/components/SessionTimeline.tsx) |
 | 会话输出消费 | 页面消费同一条 Goal SSE：保存不明的候选保持待核验；正式 Activity 以同一展示 key 替换候选；确定作废后立即移除临时正文并保留有限身份标记以忽略迟到片段。 | [Goal Board](../README.md) | [会话输出归约](../src/session-output-consumer.ts) |
-| 运行中输入与主按钮 | Enter 排队普通消息、Shift+Enter 换行；唯一主按钮在有正文时排队发送，空输入时受理 Interrupt 并暂停当前 Run。动态运行提示位于 Activity 时间线；暂停后由可恢复 Run 状态提供 Resume。 | [Goal Board](../README.md) | [输入区](../src/components/MessageComposer.tsx)、[Activity 时间线](../src/components/SessionTimeline.tsx)、[运行命令](../src/hooks/useRunCommands.ts) |
-| 可折叠队列状态框 | 汇总 Runtime 队列与待应用 Steer；每条普通消息可单独删除，或按观察到的队列修订原子转为当前 Run 的 Steer。暂停队列显式继续。 | [Goal Board](../README.md) | [会话视图](../src/components/GoalSession.tsx)、[队列控制](../src/hooks/useQueue.ts) |
 | 不确定提交核验 | 受理结果不明时保留原 `inputId` 与冻结载荷，由统一核验按收据或资源身份结算；只有未应用允许原身份重试。 | [Goal Board](../README.md) | [控制核验](../src/control/verify.ts)、[运行命令](../src/hooks/useRunCommands.ts) |
 | 渲染错误边界 | 会话与轨迹视图的渲染异常被边界捕获，显示错误卡与重载入口，不整页白屏。 | [Goal Board](../README.md) | [SessionBoundary](../src/components/error-boundary.tsx) |
 | liveText 帧合并 | 打字机增量按帧合并后提交渲染，跟随滚动以帧节流，流结束不丢字。 | [Goal Board](../README.md) | [live-text-batch](../src/live-text-batch.ts) |

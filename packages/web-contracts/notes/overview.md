@@ -8,6 +8,8 @@
 
 统一输入命令中的 `queue_control.remove` 必须携带观察到的队列修订与目标消息身份；排队消息转为当前 Run 的 Steer 时，`steer.queueBinding` 携带同一来源绑定。wire parser 校验这两个边界字段，Runtime 再按持久化状态拒绝过期修订或不匹配的消息。
 
+`BrowserSessionInputCommand.resume.acknowledgeUnknownEffects` 用于用户确认已知 Worker 退出后恢复运行中检查点时，最后一个动作可能已经产生外部效果；恢复运行中的 Goal 必须带 `true` 才会重新排队。默认 Goal Server Browser Session Port 只接受结构化回答、取消与显式恢复，不支持普通消息、Steer 或队列控制；wire 类型保留的其他输入形状不表示该入口当前提供这些操作。
+
 Activity 助手消息必须携带 `process`、`answer` 或 `notice` 用途；用户消息不带助手用途。正式完成候选答复可带稳定 `previewId`，仅用于关联先前公开预览，不包含候选正文；wire guard 只接受非空且有界的助手答复关联。只有 `run_stage_declared` 事实可以携带最多 1,000 字符的 `stageTarget`，值只来自已提交声明。wire guard 拒绝缺失或无效的助手用途，以及放在其他事件类型上的阶段目标。
 
 ## 共享合同与校验分层

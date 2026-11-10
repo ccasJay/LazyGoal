@@ -107,7 +107,7 @@ test("browser provider models API consumes the generated binding against a local
             diagnostics: [["[goal-board] response has unknown fields", {
                 contractId: "web.providers.models.success",
                 version: 1,
-                paths: ["/privateResponseDetail", "/models/0/privateModelDetail"],
+                paths: ["/*", "/models/0/*"],
                 truncated: false,
             }]],
         });

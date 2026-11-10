@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import { canonicalJson } from "../../contracts/src/index";
 import type { AskUserAnswer } from "../../model-contracts/src/index";
-import type { Goal, JsonValue } from "./domain";
+import type { Goal, JsonValue, RunState } from "./domain";
 
 /** 单条会话输入正文允许的最大 UTF-16 code unit 数。 */
 export const MAX_SESSION_INPUT_TEXT_LENGTH = 64_000;
@@ -623,6 +623,69 @@ export function nextSessionInputSequence(goal: Goal): number {
 }
 
 /**
+ * 将指定的待处理账本记录标记为已应用。
+ *
+ * @remarks
+ * 只转换匹配身份且仍为 `pending` 的记录；已结束状态和缺少收据的旧执行路径保持
+ * 不变。消息位置只在实际应用正文时提供。
+ *
+ * @param ledger - 当前输入账本；省略时仍返回 `undefined`。
+ * @param applications - 实际应用的输入身份、Run 与可选消息位置。
+ * @returns 更新后的账本副本；未匹配记录保持原样。
+ * @example
+ * ```ts
+ * const ledger = applyPendingSessionInputs(goal.state.inputLedger, [
+ *   { inputId: "input-1", appliedRunId: "run-2", messageIndex: 4 },
+ * ]);
+ * ```
+ */
+export function applyPendingSessionInputs(
+    ledger: readonly SessionInputRecord[] | undefined,
+    applications: readonly {
+        readonly inputId: string;
+        readonly appliedRunId: string;
+        readonly messageIndex?: number;
+    }[],
+): readonly SessionInputRecord[] | undefined {
+    if (ledger === undefined || applications.length === 0) return ledger;
+    const byInputId = new Map(applications.map((application) => [application.inputId, application]));
+    return ledger.map((record) => {
+        const application = byInputId.get(record.inputId);
+        if (record.status !== "pending" || application === undefined) return record;
+        return {
+            ...record,
+            status: "applied",
+            appliedRunId: application.appliedRunId,
+            ...(application.messageIndex === undefined ? {} : { messageIndex: application.messageIndex }),
+        };
+    });
+}
+
+/**
+ * 将指定的待处理账本记录标记为已清除。
+ *
+ * @remarks
+ * 只转换调用方明确列出的 pending 身份；不移除收据，也不改变已应用或已清除记录。
+ *
+ * @param ledger - 当前输入账本；省略时仍返回 `undefined`。
+ * @param inputIds - 已从对应队列或执行来源中清除的输入身份。
+ * @returns 更新后的账本副本；未匹配记录保持原样。
+ * @example
+ * ```ts
+ * const ledger = clearPendingSessionInputs(goal.state.inputLedger, new Set(["input-1"]));
+ * ```
+ */
+export function clearPendingSessionInputs(
+    ledger: readonly SessionInputRecord[] | undefined,
+    inputIds: ReadonlySet<string>,
+): readonly SessionInputRecord[] | undefined {
+    if (ledger === undefined || inputIds.size === 0) return ledger;
+    return ledger.map((record) => record.status === "pending" && inputIds.has(record.inputId)
+        ? { ...record, status: "cleared" }
+        : record);
+}
+
+/**
  * 追加一条待应用普通消息并推进队列修订。
  *
  * @param queue - 当前队列；省略时按空队列处理。
@@ -643,6 +706,60 @@ export function appendQueuedMessage(
         items: [...current.items, item],
         ...(current.pause === undefined ? {} : { pause: current.pause }),
     };
+}
+
+function removeQueuedItemAt(
+    queue: SessionMessageQueue,
+    index: number,
+): { readonly item: SessionMessageQueueItem; readonly queue: SessionMessageQueue } {
+    const item = queue.items[index]!;
+    return {
+        item,
+        queue: {
+            revision: queue.revision + 1,
+            items: [...queue.items.slice(0, index), ...queue.items.slice(index + 1)],
+            ...(queue.pause === undefined ? {} : { pause: queue.pause }),
+        },
+    };
+}
+
+/**
+ * 按输入身份删除一条待处理普通消息并推进队列修订。
+ *
+ * @param queue - 当前队列；省略时表示没有可删除项。
+ * @param inputId - 要删除的消息身份。
+ * @returns 被删除的队列项及更新队列；未找到时返回 `undefined`。
+ * @example
+ * ```ts
+ * const removal = removeQueuedMessage(goal.state.messageQueue, "input-1");
+ * ```
+ */
+export function removeQueuedMessage(
+    queue: SessionMessageQueue | undefined,
+    inputId: string,
+): { readonly item: SessionMessageQueueItem; readonly queue: SessionMessageQueue } | undefined {
+    if (queue === undefined) return undefined;
+    const index = queue.items.findIndex((item) => item.inputId === inputId);
+    return index < 0 ? undefined : removeQueuedItemAt(queue, index);
+}
+
+/**
+ * 仅当预期身份仍是队首时将其出队并推进队列修订。
+ *
+ * @param queue - 当前队列；省略时表示没有可出队项。
+ * @param expectedInputId - 本次消费所绑定的队首身份。
+ * @returns 被消费的队首项及更新队列；队首失配时返回 `undefined`。
+ * @example
+ * ```ts
+ * const dequeued = dequeueQueuedMessage(goal.state.messageQueue, "input-1");
+ * ```
+ */
+export function dequeueQueuedMessage(
+    queue: SessionMessageQueue | undefined,
+    expectedInputId: string,
+): { readonly item: SessionMessageQueueItem; readonly queue: SessionMessageQueue } | undefined {
+    if (queue?.items[0]?.inputId !== expectedInputId) return undefined;
+    return removeQueuedItemAt(queue, 0);
 }
 
 /**
@@ -702,4 +819,36 @@ export function withoutQueuePause(queue: SessionMessageQueue | undefined): Sessi
     const current: SessionMessageQueue = queue ?? { revision: 0, items: [] };
     if (current.pause === undefined) return current;
     return { revision: current.revision + 1, items: [...current.items] };
+}
+
+/**
+ * 在失败或取消的 Run 结束时记录队列暂停。
+ *
+ * @remarks
+ * 仅处理 `failed`／`cancelled` 且尚未暂停的状态；即使队列为空也保留暂停事实，
+ * 以便后续新消息按既有生命周期解除暂停。已有暂停原因优先保留；Run 带有
+ * Interrupt 记录时原因是 `user_interrupt`，否则为 `run_failed`。
+ *
+ * @param queue - 最新的普通消息队列；省略时按空队列处理。
+ * @param run - 已提交的终态 Run。
+ * @returns 终态对应的暂停队列；非终态或已有暂停时返回原队列。
+ * @example
+ * ```ts
+ * const queue = pauseQueuedMessagesForTerminalRun(goal.state.messageQueue, goal.state.run);
+ * ```
+ */
+export function pauseQueuedMessagesForTerminalRun(
+    queue: SessionMessageQueue | undefined,
+    run: Pick<RunState, "id" | "status" | "interruption">,
+): SessionMessageQueue | undefined {
+    if (
+        (run.status !== "failed" && run.status !== "cancelled")
+        || queue?.pause !== undefined
+    ) {
+        return queue;
+    }
+    return withQueuePause(queue, {
+        reason: run.interruption === undefined ? "run_failed" : "user_interrupt",
+        runId: run.id,
+    });
 }

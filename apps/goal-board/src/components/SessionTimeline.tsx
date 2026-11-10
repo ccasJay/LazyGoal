@@ -112,10 +112,6 @@ export interface SessionTimelineProps {
   readonly onLoadEarlier?: () => void;
   /** 读取更新一页；只读，不恢复执行。 */
   readonly onLoadNewer?: () => void;
-  /** 对当前失败 Run 提交继续消息，启动新的 Run。 */
-  readonly onContinueFailed?: () => void;
-  /** 继续请求正在提交或不可用。 */
-  readonly continueDisabled?: boolean;
   /** 当前页之前尚未读取的项数。 */
   readonly olderItemCount?: number;
   /** 当前页之后尚未读取的项数。 */
@@ -191,8 +187,6 @@ export function SessionTimeline({
   onOpenTrajectory,
   onLoadEarlier,
   onLoadNewer,
-  onContinueFailed,
-  continueDisabled = false,
   olderItemCount = 0,
   newerItemCount = 0,
   unreadCount = 0,
@@ -238,7 +232,7 @@ export function SessionTimeline({
     streamConnected, showExecutionFacts, brandMark, expandedGroups, progressByItem,
     latestProgressId: progress.at(-1)?.id,
     onToggleGroup: toggleGroup, onOpenTrajectory, laterAnswers, onLoadEarlier, onLoadNewer,
-    olderAvailable, newerItemCount, onContinueFailed, continueDisabled,
+    olderAvailable, newerItemCount,
   };
   const runs = projection.items.filter((item): item is Extract<SessionTimelineEntry, { kind: "run" }> => item.kind === "run");
   const stageProgress = (projection.currentPlanRoute?.stages ?? projection.stages.filter(stage => stage.runId === currentRunId && stage.target !== undefined))
@@ -371,8 +365,6 @@ type TimelineRenderOptions = {
     readonly onLoadNewer: SessionTimelineProps["onLoadNewer"];
     readonly olderAvailable: boolean;
     readonly newerItemCount: number;
-    readonly onContinueFailed: SessionTimelineProps["onContinueFailed"];
-    readonly continueDisabled: boolean;
 };
 
 
@@ -674,10 +666,6 @@ function renderEntry(item: SessionTimelineEntry, options: TimelineRenderOptions)
             {item.detail.code !== undefined && <code>{item.detail.code}: </code>}
             {item.detail.message}
           </p>}
-          {item.status === "failed" && item.runId === options.currentRunId && options.onContinueFailed !== undefined && <>
-            {item.detail?.code === "INVALID_AGENT_DECISION" && <p className="timeline-terminal-detail">The model returned an invalid response. You can continue the Goal in a new Run.</p>}
-            <Button variant="outline" size="sm" type="button" disabled={options.continueDisabled} onClick={options.onContinueFailed}>Continue Goal</Button>
-          </>}
         </div>
       </div>
     );

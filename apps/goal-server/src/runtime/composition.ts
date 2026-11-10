@@ -17,9 +17,7 @@ import {
     readTrajectoryAtSnapshot,
     launch,
     SessionManager,
-    RuntimeSubagentSpawner,
     type SessionManagerDependencies,
-    type SubagentSpawner,
     type GoalInteractionView,
     type InteractionHandlerAttachOptions,
     type InteractionHandlerAttachResult,
@@ -267,11 +265,30 @@ function configuredModelAdapterConfig(config: LLMConfig): LLMConfig {
     };
 }
 
+/**
+ * 创建 Runtime 装配时由宿主提供的工作区与资源边界。
+ *
+ * @remarks
+ * `cwd` 是实际工具与沙箱执行目录；使用 Git worktree 时，`workspaceIdentityRoot`
+ * 仍指向其所属项目根，用于解析项目级权限及工作区数据。注入的 GoalStore 仍由宿主拥有。
+ *
+ * @example
+ * ```ts
+ * const options: RuntimeCompositionOptions = {
+ *   cwd: "/var/lib/lazygoal/worktrees/goal-1",
+ *   workspaceIdentityRoot: "/workspace/project",
+ * };
+ * ```
+ */
 export interface RuntimeCompositionOptions {
     readonly cwd?: string;
+    /** 将执行工作目录映射回拥有权限账本的项目根目录。 */
+    readonly workspaceIdentityRoot?: string;
     readonly dataDirectory?: string;
     readonly env?: NodeJS.ProcessEnv;
     readonly adapter?: LLMAdapter;
+    /** 由 Supervisor 持有的 Goal 快照 Port；注入后本实例不直接写 Goal 文件。 */
+    readonly goalStore?: GoalStore;
     readonly thinkAdapter?: LLMAdapter;
     readonly profile?: AgentProfile;
     readonly toolRegistry?: InMemoryToolRegistry;
@@ -570,7 +587,8 @@ async function assembleRuntimeComposition(
     const modelCapabilities = readModelCapabilities(env, configuredEstimator);
     const modelInputEstimator = modelCapabilities?.tokenEstimator ?? configuredEstimator;
     const workspaceRoot = await resolveWorkspaceRoot(options.cwd ?? process.cwd());
-    const workspaceHomePaths = await resolveWorkspaceHomePaths(homePaths, workspaceRoot);
+    const workspaceIdentityRoot = await resolveWorkspaceRoot(options.workspaceIdentityRoot ?? workspaceRoot);
+    const workspaceHomePaths = await resolveWorkspaceHomePaths(homePaths, workspaceIdentityRoot);
     const dataDirectory = options.dataDirectory !== undefined
         ? resolve(options.dataDirectory)
         : workspaceHomePaths.workspaceDirectory;
@@ -636,16 +654,6 @@ async function assembleRuntimeComposition(
         resources,
     });
 
-    let runtimeSubagentSpawner: SubagentSpawner | undefined;
-    const deferredSubagentSpawner: SubagentSpawner = {
-        spawn(input, context, control) {
-            if (runtimeSubagentSpawner === undefined) {
-                throw new Error("Subagent spawner is not initialized");
-            }
-            return runtimeSubagentSpawner.spawn(input, context, control);
-        },
-    };
-
     let toolRegistry: InMemoryToolRegistry;
     let readFileTool: ReadFileTool | undefined;
     if (options.toolRegistry !== undefined) {
@@ -656,7 +664,6 @@ async function assembleRuntimeComposition(
         toolRegistry = new InMemoryToolRegistry(createDefaultToolRegistrations(workspaceRoot, {
             processManager,
             processSessionStore,
-            subagentSpawner: deferredSubagentSpawner,
         }));
     }
 
@@ -704,7 +711,17 @@ async function assembleRuntimeComposition(
 
     // Web Composition Root 直接使用正式工作区 GoalStore 与 TrajectoryStore，不使用终端 AggregatedStore
     const primaryGoalStore = new JsonFileGoalStore(goalsDirectory);
-    const store = primaryGoalStore;
+    const store: GoalStore & GoalCatalog = options.goalStore === undefined
+        ? primaryGoalStore
+        : {
+            save: (goal) => options.goalStore!.save(goal),
+            restore: (goalId) => options.goalStore!.restore(goalId),
+            ...(options.goalStore.readRevision === undefined
+                ? {}
+                : { readRevision: (goalId: string) => options.goalStore!.readRevision!(goalId) }),
+            listResumable: () => primaryGoalStore.listResumable(),
+            listHistory: () => primaryGoalStore.listHistory(),
+        };
     const metricsStore = new JsonFileMetricsStore(metricsDirectory);
     const sessionMetricsService = new SessionMetricsService(store, metricsStore, metricsStore);
     const metricsAwareGoalStore: GoalStore = {
@@ -949,7 +966,6 @@ async function assembleRuntimeComposition(
         },
     };
     const sessions = new SessionManager(sessionDependencies);
-    runtimeSubagentSpawner = new RuntimeSubagentSpawner(checkpointStore, sessionDependencies);
     resources.register({
         close: () => sessions.close({ timeoutMs: 5000 }),
     });

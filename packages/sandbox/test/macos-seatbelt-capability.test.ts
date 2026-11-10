@@ -13,6 +13,7 @@ import {
     createPrivateTmpDir,
     filterSandboxEnvironment,
     isSeatbeltSupported,
+    isEffectiveSandboxScopeWithin,
     resolveEffectiveSandboxScope,
     SANDBOX_EXEC_PATH,
 } from "../src/index";
@@ -20,6 +21,28 @@ import {
 const execFileAsync = promisify(execFile);
 
 describe("macOS Seatbelt Capability & Scope Resolution", () => {
+    it("将 Action 的真实文件与网络能力限制在 Goal 上限内", () => {
+        const ceiling = {
+            extraFiles: [{ canonicalPath: "/workspace/cache", access: "write" as const, kind: "directory_tree" as const }],
+            network: "all_outbound" as const,
+        };
+        assert.equal(isEffectiveSandboxScopeWithin({
+            extraFiles: [{ canonicalPath: "/workspace/cache/output.txt", access: "write", kind: "file" }],
+            network: "none",
+        }, ceiling), true);
+        assert.equal(isEffectiveSandboxScopeWithin({
+            extraFiles: [{ canonicalPath: "/workspace/cache/output.txt", access: "read", kind: "file" }],
+            network: "none",
+        }, ceiling), false);
+        assert.equal(isEffectiveSandboxScopeWithin({ extraFiles: [], network: "all_outbound" }, {
+            extraFiles: [], network: "none",
+        }), false);
+        assert.equal(isEffectiveSandboxScopeWithin({
+            extraFiles: [{ canonicalPath: "/workspace/cache-other/out.txt", access: "write", kind: "file" }],
+            network: "none",
+        }, ceiling), false);
+    });
+
     it("规范化解析额外文件与网络能力并拒绝内部状态", async () => {
         const tempRoot = await mkdtemp(join(tmpdir(), "scope-test-"));
 

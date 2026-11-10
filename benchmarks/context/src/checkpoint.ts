@@ -3,7 +3,7 @@ import { validateFilesystemArchive, type FilesystemArchive } from "../../src/fil
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { JsonFileGoalStore } from "../../../packages/storage/src/index.js";
-import { getCommittedRunBoundaries } from "../../../packages/runtime/src/index.js";
+import { getCommittedRunBoundaries, isRunEnded } from "../../../packages/runtime/src/index.js";
 import { JsonFileBenchmarkPersistenceAdapter } from "../../src/file-persistence-adapter.js";
 import type { WorkerIdentity } from "../../src/worker-builder.js";
 import type { ContextScenario } from "./scenario.js";
@@ -33,7 +33,8 @@ export async function validateRuntime(directory: string, boundary: ScriptBoundar
     const base = join(directory, "state", Buffer.from("context").toString("base64url"), Buffer.from("session").toString("base64url"));
     const goal = await new JsonFileGoalStore(join(base, "goals")).restore(boundary.goalId);
     if (goal === undefined || goal.state.run.id !== boundary.runId || goal.state.run.status !== boundary.status ||
-        goal.state.run.committedThroughSequence !== boundary.sequence || !["waiting", "failed", "completed", "cancelled"].includes(goal.state.run.status)) throw new Error("Checkpoint Snapshot boundary mismatch");
+        goal.state.run.committedThroughSequence !== boundary.sequence ||
+        (!isRunEnded(goal.state.run.status) && goal.state.run.status !== "waiting")) throw new Error("Checkpoint Snapshot boundary mismatch");
     if (identity(goal.definition.profile) !== identity(scenario.profile) || goal.definition.executionPolicy.maxSteps !== scenario.budget.maxSteps ||
         goal.definition.promptBundleVersion !== 1 || goal.definition.memoryProtocol.kind !== "structured" ||
         goal.definition.modelContextProtocol.kind !== "trajectory-layered" || goal.definition.contextRetrievalProtocol.kind !== "bm25-lite") throw new Error("Checkpoint Profile or protocol mismatch");

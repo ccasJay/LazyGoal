@@ -1,6 +1,8 @@
 import { encodePathSegment } from "./path-segment";
 import {
     mkdir,
+    link,
+    lstat,
     open,
     readFile,
     readdir,
@@ -11,6 +13,7 @@ import {
 } from "node:fs/promises";
 import { join } from "node:path";
 
+import { isRunEnded } from "../../runtime/src/index";
 import type {
     Goal,
     GoalCatalog,
@@ -23,12 +26,14 @@ import type { GoalSnapshotV1 } from "./goal-snapshot";
 import { GoalSnapshotProtocolError } from "./goal-snapshot";
 import {
     atomicWriteJson,
+    createJsonFileWithIntent,
+    releaseJsonFileCreationIntent,
     TRANSIENT_FILE_ERROR_CODES,
     WRITE_RETRY_THREE_ATTEMPTS,
 } from "./json-file-write";
 import { KeyedSerialQueue } from "./keyed-serial-queue";
 
-type GoalFileOperations = Partial<Pick<typeof import("node:fs/promises"), "mkdir" | "open" | "readFile" | "rename" | "unlink">>;
+type GoalFileOperations = Partial<Pick<typeof import("node:fs/promises"), "mkdir" | "link" | "lstat" | "open" | "readFile" | "rename" | "unlink">>;
 
 interface GoalRevisionHint {
     readonly revision: number;
@@ -61,10 +66,6 @@ const RUN_STATUSES: ReadonlySet<string> = new Set([
     "failed",
     "cancelled",
 ]);
-
-function isTerminalRunStatus(status: GoalCatalogEntry["runStatus"]): boolean {
-    return status === "completed" || status === "failed" || status === "cancelled";
-}
 
 /** @returns 结构完整的摘要；任何字段非法时返回 `undefined`。 */
 function parseCatalogSummary(value: unknown): GoalCatalogSummary | undefined {
@@ -158,12 +159,54 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
         this.directory = directory;
         this.fileOperations = {
             mkdir,
+            link,
+            lstat,
             open,
             readFile,
             rename,
             unlink,
             ...fileOperations,
         };
+    }
+
+    /**
+     * 以可核对的创建意图创建 Goal 快照。
+     *
+     * @remarks
+     * 调用方必须先持久化 Trigger 与同一完整 Goal 创建意图。快照先作为持久化暂存文件
+     * 保存，再通过不覆盖的硬链接发布；重试以 inode 确认目标确由该意图创建。占用
+     * 身份的旧文件即使内容相同也不会被认作本次创建。成功后暂存文件保留，直至
+     * 调用方完成队列与 Trigger 路由事务并调用 `releaseCreationIntent`。
+     *
+     * @param triggerId - 已持久化的稳定 Trigger 身份。
+     * @param goal - 此意图冻结的完整 Goal，重试时必须完全一致。
+     * @returns 成功创建或确认之前已创建时为 true；目标被其他文件占用时为 false。
+     * @throws 同一 Trigger 的意图内容冲突或底层存储失败时抛出。
+     */
+    async createForTrigger(triggerId: string, goal: Goal): Promise<boolean> {
+        if (!triggerId.trim()) throw new Error("Invalid Trigger identity");
+        const snapshot = goalSnapshotCodec.encode(goal);
+        return createJsonFileWithIntent({
+            directory: this.directory,
+            triggerId,
+            targetPath: this.filePath(snapshot.id),
+            value: snapshot,
+            operations: this.fileOperations,
+        });
+    }
+
+    /**
+     * 清理已完成队列与 Trigger 路由事务的创建意图文件。
+     * @param triggerId - 已完成路由的稳定 Trigger 身份。
+     * @throws 底层删除失败时抛出；不存在时视为已清理。
+     */
+    async releaseCreationIntent(triggerId: string): Promise<void> {
+        if (!triggerId.trim()) throw new Error("Invalid Trigger identity");
+        await releaseJsonFileCreationIntent({
+            directory: this.directory,
+            triggerId,
+            operations: this.fileOperations,
+        });
     }
 
     /**
@@ -199,7 +242,7 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
         });
 
         const status = goal.state.run.status;
-        if (status !== "completed" && status !== "failed" && status !== "cancelled") {
+        if (!isRunEnded(status)) {
             await this.removeArchiveMarkerWithRetry(this.archivePath(goal.id));
         }
 
@@ -298,7 +341,7 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
         const goal = await this.restore(goalId);
         if (goal === undefined) return false;
         const status = goal.state.run.status;
-        if (status !== "completed" && status !== "failed" && status !== "cancelled") return false;
+        if (!isRunEnded(status)) return false;
         if (archived) await writeFile(this.archivePath(goalId), "", { flag: "w", mode: 0o600 });
         else await unlink(this.archivePath(goalId)).catch((error: NodeJS.ErrnoException) => {
             if (error.code !== "ENOENT") throw error;
@@ -321,7 +364,7 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
         const goal = await this.restore(goalId);
         if (goal === undefined) return false;
         const status = goal.state.run.status;
-        if (status !== "completed" && status !== "failed" && status !== "cancelled") throw new Error("goal_not_terminal");
+        if (!isRunEnded(status)) throw new Error("goal_not_terminal");
         await unlink(this.archivePath(goalId)).catch((error: NodeJS.ErrnoException) => {
             if (error.code !== "ENOENT") throw error;
         });
@@ -390,7 +433,7 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
 
             if (entry === undefined) continue;
 
-            if (!includeTerminal && isTerminalRunStatus(entry.runStatus)) continue;
+            if (!includeTerminal && isRunEnded(entry.runStatus)) continue;
 
             candidates.push({ entry, mtimeMs: fileStats.mtimeMs });
         }

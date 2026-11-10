@@ -11,6 +11,16 @@ import { createHttpService } from "../../http/src/index";
 
 const git = promisify(execFile);
 
+test("browser session capability exposes a stable opaque external Actor identity", () => {
+    const first = createBrowserSessionAccess();
+    const second = createBrowserSessionAccess();
+    first.bindOrigin("http://127.0.0.1:43127");
+    const capability = new URL(first.createLaunchUrl("http://127.0.0.1:43127")).hash.slice(1);
+    assert.match(first.externalId, /^[a-f0-9]{64}$/);
+    assert.notEqual(first.externalId, capability);
+    assert.notEqual(first.externalId, second.externalId);
+});
+
 test("workspace route reads a linked worktree and distinguishes detached HEAD", async () => {
     const directory = await realpath(await mkdtemp(join(tmpdir(), "lazygoal-workspace-")));
     const repository = join(directory, "repository");

@@ -79,16 +79,15 @@ test("consecutive corrections group only when their execution unit is known and 
   assert.doesNotMatch(render([correction(1, "one"), correction(2, "two")]), /2 attempts recorded/);
 });
 
-test("failed current run offers continuation and explains model format failure", () => {
+test("failed current run shows its recorded error without offering ordinary continuation", () => {
   const items: SessionTimelineEntry[] = [
     { kind: "run", itemId: "run:run-1", runId: "run-1", status: "failed", position: position(0) },
     { kind: "terminal", itemId: "terminal", runId: "run-1", status: "failed", detail: { code: "INVALID_AGENT_DECISION", message: "Invalid response" }, position: position(1) },
   ];
   const html = renderToStaticMarkup(<SessionTimeline projection={{ items, stages: [], actionGroups: [], currentPlanRoute: undefined }}
     currentRunId="run-1" runStatus="failed" olderAvailable={false} showExecutionFacts={false} liveActivity={null}
-    streamConnected brandMark="/logo.svg" onContinueFailed={() => {}} />);
-  assert.match(html, /Continue Goal/);
-  assert.match(html, /The model returned an invalid response/);
+    streamConnected brandMark="/logo.svg" />);
+  assert.doesNotMatch(html, /Continue Goal/);
   assert.match(html, /INVALID_AGENT_DECISION/);
 });
 

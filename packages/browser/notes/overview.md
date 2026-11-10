@@ -13,7 +13,7 @@
 
 ## 入口与访问边界
 
-`lazygoal` 与 `lazygoal web` 都由独立 `apps/goal-server` 启动 Web 服务。服务创建随机能力令牌，将其放入页面 URL fragment，并在同源 HTTP Host 上提供 API、SSE 与已构建的 Goal Board 静态资源。服务监听 `127.0.0.1` 上的操作系统分配端口；静态页面根文档、favicon 和 `/assets/` 可不带令牌读取。其他请求须匹配精确 Host、同源约束和 Bearer 令牌。静态响应限制来源、禁止 referrer 并禁用缓存。
+`lazygoal` 与 `lazygoal web` 都由独立 `apps/goal-server` 启动 Web 服务。服务创建随机能力令牌，将其放入页面 URL fragment，并从同一令牌派生不含凭据的稳定 `externalId`，供 Goal Server 把通过 Bearer 校验的浏览器连接映射为 Trigger Actor；同源 HTTP Host 上提供 API、SSE 与已构建的 Goal Board 静态资源。服务监听 `127.0.0.1` 上的操作系统分配端口；静态页面根文档、favicon 和 `/assets/` 可不带令牌读取。其他请求须匹配精确 Host、同源约束和 Bearer 令牌。静态响应限制来源、禁止 referrer 并禁用缓存。
 
 授权后，`GET /api/goals` 从正式工作区 Catalog 返回真实 Goal 摘要，并同时给出 `unreadableCount`：无法解码的旧版本快照按条跳过并计数，看板据此说明列表不完整，而不是把不可读数据当作不存在；只有目录级读取失败才返回 `goal_list_unavailable`。`GET /api/goals/:goalId` 从正式 Snapshot 和各 Run 的 Trajectory 返回完整会话投影。`GET /api/goals/:goalId?view=state` 返回 Snapshot-only 窄状态，不内嵌消息、步骤和阶段历史；当前失败 Run 的错误摘要从 Snapshot stopReason 投影到 `currentRunTerminalDetail`，无需读取 Trajectory；它保留当前 Run、等待与 Action、队列、中断、GoalPlan、Plan 路线及当前会话摘要。看板读取使用 Composition Root 暴露的正式工作区 Store 与 Trajectory 读取器，不经过含 Benchmark 的聚合目录。
 

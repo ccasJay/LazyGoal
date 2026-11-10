@@ -1,0 +1,23 @@
+{
+  "contractId": "model.supervisor-permission-decision",
+  "version": 1,
+  "schemaDialect": "http://json-schema.org/draft-07/schema#",
+  "source": {
+    "path": "packages/model-contracts/src/trigger-permission-decision.ts#SupervisorPermissionDecisionWire",
+    "sha256": "2405a19e691ccea4ce5dabc142d45b297a02a6d650696bbdb2c27fa9f0debd31"
+  },
+  "generator": {
+    "name": "ts-json-schema-generator",
+    "version": "2.9.0",
+    "typescriptVersion": "5.9.3"
+  },
+  "validator": {
+    "name": "Ajv standalone",
+    "version": "8.20.0"
+  },
+  "bundler": {
+    "name": "esbuild",
+    "version": "0.28.1",
+    "format": "esm"
+  }
+}

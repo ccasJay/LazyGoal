@@ -1,10 +1,10 @@
 {
-  "contractId": "tool.spawn_subagent.input",
+  "contractId": "model.supervisor-trigger-admission",
   "version": 1,
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
-    "path": "packages/tools/src/spawn-subagent.ts#SpawnSubagentToolInput",
-    "sha256": "4e72b77560440174d1525e2314dd9fa8d042c2952e383bb151212c984318f6e1"
+    "path": "packages/model-contracts/src/trigger-admission.ts#TriggerAdmissionDecision",
+    "sha256": "0cde02fb5e7ff61b951943c400882da989deebec7dc721c93f5541fe9d0860fa"
   },
   "generator": {
     "name": "ts-json-schema-generator",

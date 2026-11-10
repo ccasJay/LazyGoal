@@ -4,9 +4,12 @@ export {
     DEFAULT_GOAL_MODEL_SELECTION,
     GOAL_PROTOCOL_ERROR_CODE,
     GoalProtocolError,
+    RUN_END_STATUSES,
+    isRunEnded,
     isModelContextProtocol,
     isContextRetrievalProtocol,
 } from "./domain";
+export type { Trigger, TriggerActor, TriggerTarget } from "./trigger";
 export {
     createInitialRunStage,
     reviseRunStage,
@@ -152,8 +155,10 @@ export type {
     RunRef,
     RunState,
     RunSteerInput,
+    RunWaitingFor,
     RunInterruption,
     RunStopReason,
+    RunEndStatus,
     RunStatus,
     Observation,
     PendingAction,
@@ -627,15 +632,3 @@ export type {
 
 export type { ModelInputMessage, ModelInputRecord, ModelInputStore } from "./model-input";
 export type { ModelPreference, ModelPreferenceStore } from "./model-preference";
-
-export {
-    SUBAGENT_INTENT_PREFIX,
-    RuntimeSubagentSpawner,
-    createChildProfileRegistry,
-    SPAWN_SUBAGENT_TOOL_ID,
-} from "./subagent-spawner";
-export type {
-    SpawnSubagentInput,
-    SpawnSubagentOutput,
-    SubagentSpawner,
-} from "./subagent-spawner";

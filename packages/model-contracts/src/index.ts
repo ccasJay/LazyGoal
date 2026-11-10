@@ -53,6 +53,7 @@ export type { ModelOutputBundle } from "./model-output/bundle";
 export type { ModelContractDecodeOptions } from "./model-output/decode-options";
 
 export {
+    normalizeProjectionSchema,
     createBoundBusinessToolDeclaration,
     createBoundCheckpointToolDeclarations,
     createBoundCompletionReviewDeclaration,
@@ -75,6 +76,9 @@ export type {
 
 export { modelOutputBindings } from "./model-output/generated-bindings";
 
+export type { TriggerNameSummary } from "./trigger-name-summary";
+export { triggerNameSummaryBinding } from "./generated/trigger-name-summary-binding";
+
 export { decodeBoundAgentDecision } from "./model-output/decision-validation";
 
 export {
@@ -89,3 +93,4 @@ export type {
 export type { RunStageToolContext } from "./model-output/system-tool-specs";
 
 export * from "./model-conversation";
+export type { SupervisorPermissionDecision, SupervisorPermissionDecisionWire } from "./trigger-permission-decision";

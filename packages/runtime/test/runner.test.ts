@@ -608,6 +608,49 @@ test("Runner rejects a direct call to an unexposed Tool before Registry preparat
     assert.equal(executeCalls, 0);
 });
 
+test("Worker Goal 不会因 Profile 暴露默认工具而越过冻结的 Tool ID 上限", async () => {
+    const created = createInitialGoal("goal-scope-run", "goal-scope", toolProfile, [], 3);
+    const initial: Goal = {
+        ...created,
+        definition: {
+            ...created.definition,
+            triggerContext: {
+                triggerId: "work-trigger",
+                authorization: {
+                    workspace: { mode: "shared", projectRoot: "/project", executionRoot: "/project" },
+                    toolIds: [],
+                    sandbox: { extraFiles: [], network: "none" },
+                },
+            },
+        },
+    };
+    const store = new InMemoryGoalStore();
+    await store.save(initial);
+    let prepareCalls = 0;
+    let executeCalls = 0;
+    const tool = createRunnerTool(async () => {
+        executeCalls += 1;
+        return { kind: "success", output: "unexpected", summary: "unexpected" };
+    }, () => {
+        prepareCalls += 1;
+        return { ok: true };
+    });
+    const runner = new Runner({
+        store,
+        trajectoryStore: trajectoryStoreFor(store),
+        executor: new FakeDecisionExecutor({
+            kind: "tool_call",
+            action: { actionId: "out-of-scope-tool", toolId: "read_file", input: { path: "README.md" } },
+        }),
+        toolRegistry: { get: () => registerTool(tool) },
+    });
+
+    const result = requireSuccessfulState(await runner.runUntilBlocked(createRef(initial)));
+    assert.equal(result.status, "failed");
+    assert.equal(prepareCalls, 0);
+    assert.equal(executeCalls, 0);
+});
+
 test("retries only typed transient model failures and caps the model call sequence at three", async () => {
     const initial = createInitialGoal("retry-run", "retry-goal", profile);
     const store = new InMemoryGoalStore();

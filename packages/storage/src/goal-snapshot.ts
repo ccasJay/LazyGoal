@@ -35,6 +35,25 @@ export interface GoalSnapshotProfileV1 {
 
 /** Snapshot 中冻结的 Goal 协议组合与执行策略。 */
 export interface GoalSnapshotDefinitionV1 {
+    /** Snapshot 中创建 Goal 的 Trigger 关联与冻结动作权限范围。 */
+    readonly triggerContext?: {
+        readonly triggerId: string;
+        readonly authorization: {
+            readonly workspace: {
+                readonly mode: "shared" | "worktree";
+                readonly projectRoot: string;
+                readonly executionRoot: string;
+                readonly branch?: string;
+                readonly baseBranch?: string;
+                readonly baseCommit?: string;
+            };
+            readonly toolIds: readonly string[];
+            readonly sandbox: {
+                readonly extraFiles: readonly { readonly canonicalPath: string; readonly access: "read" | "write"; readonly kind: "file" | "directory_tree" }[];
+                readonly network: "none" | "all_outbound";
+            };
+        };
+    };
     readonly intent: string;
     readonly promptBundleVersion: 1;
     readonly memoryProtocol: { readonly kind: "structured"; readonly version: 1 };
@@ -2000,6 +2019,20 @@ export function assertGoalSnapshotSemantics(goal: GoalSnapshotV1): void {
     };
     validateSnapshotInvariants(goal, context);
     validateSnapshotFieldRefinements(goal, context);
+    const workspace = goal.definition.triggerContext?.authorization.workspace;
+    if (workspace !== undefined) {
+        const workspacePath = ["definition", "triggerContext", "authorization", "workspace"] as const;
+        if (!workspace.projectRoot.trim() || !workspace.executionRoot.trim()) {
+            context.addIssue({ message: "Goal workspace roots must not be empty", path: workspacePath });
+        }
+        if (workspace.mode === "shared" && (workspace.branch !== undefined || workspace.baseBranch !== undefined || workspace.baseCommit !== undefined)) {
+            context.addIssue({ message: "Shared Goal workspace cannot carry worktree branch metadata", path: workspacePath });
+        }
+        if (workspace.mode === "worktree" && (!workspace.branch?.trim() || !workspace.baseBranch?.trim()
+            || workspace.baseCommit === undefined || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(workspace.baseCommit))) {
+            context.addIssue({ message: "Worktree Goal workspace requires its branch and base commit", path: workspacePath });
+        }
+    }
 
     const first = issues[0];
     if (first !== undefined) {

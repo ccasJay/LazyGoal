@@ -87,18 +87,18 @@ test("real local service restores and completes one authorized Goal conversation
       expression: "[...document.querySelectorAll('button.primary')].find(button => button.textContent.includes('New goal')).click()",
       returnByValue: true,
     });
-    await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]') !== null");
-    assert.equal(await value(socket, "document.querySelector('button[aria-label=\"Send message\"]')?.disabled"), true);
+    await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Goal intent\"]') !== null");
+    assert.equal(await value(socket, "document.querySelector('button[aria-label=\"Start Goal\"]')?.disabled"), true);
     await waitForExpression(socket, "document.querySelector('.composer-area .current-model-control')?.textContent.includes('Deterministic test model')");
     const draftModel = await api(first.origin, "/api/models", { token: first.token });
     assert.equal(draftModel.body.currentModelId, "default-model");
     let emptyList = await api(first.origin, "/api/goals", { token: first.token });
     assert.deepEqual(emptyList.body.goals, []);
     assert.deepEqual(await readStatus(statusPath), { modelCalls: 0, toolCalls: 0 });
-    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Collect approved notes and store one source record");
-    await waitForExpression(socket, "document.querySelector('button[aria-label=\"Send message\"]')?.disabled === false", 10_000);
+    await setText(socket, "textarea[aria-label=\"Goal intent\"]", "Collect approved notes and store one source record");
+    await waitForExpression(socket, "document.querySelector('button[aria-label=\"Start Goal\"]')?.disabled === false", 10_000);
     await cdp(socket, "Runtime.evaluate", {
-      expression: "document.querySelector('button[aria-label=\"Send message\"]').click()",
+      expression: "document.querySelector('button[aria-label=\"Start Goal\"]').click()",
       returnByValue: true,
     });
 
@@ -120,32 +120,8 @@ test("real local service restores and completes one authorized Goal conversation
     });
     assert.equal(crossOrigin.response.status, 403);
     assert.deepEqual(crossOrigin.body, { error: "cross_origin_denied" });
-    const plainTextAtAskUser = await api(first.origin, `/api/goals/${goalId}/inputs`, {
-      token: first.token,
-      method: "POST",
-      headers: { "content-type": "application/json", origin: first.origin },
-      body: JSON.stringify({ kind: "message", inputId: "e2e-message-1", content: "Use approved notes" }),
-    });
-    // 普通消息进入持久化队列，但不代答结构化等待、不推进当前 Run。
-    assert.equal(plainTextAtAskUser.response.status, 202);
-    assert.equal(plainTextAtAskUser.body.receipt.status, "pending");
-    const queuedAtWait = await waitForSession(first.origin, first.token, (candidate) => (candidate.pendingMessages?.length ?? 0) === 1);
-    assert.equal(queuedAtWait.interaction.kind, "question");
-    assert.deepEqual(await readStatus(statusPath), { modelCalls: 1, toolCalls: 0 });
-    const clearedAtWait = await api(first.origin, `/api/goals/${goalId}/inputs`, {
-      token: first.token,
-      method: "POST",
-      headers: { "content-type": "application/json", origin: first.origin },
-      body: JSON.stringify({ kind: "queue_control", inputId: "e2e-clear-queue", action: "clear", queueRevision: queuedAtWait.queue.revision }),
-    });
-    assert.equal(clearedAtWait.response.status, 202);
-    const afterClearAtWait = await waitForSession(first.origin, first.token, (candidate) => (candidate.pendingMessages ?? []).length === 0);
-    assert.equal(afterClearAtWait.interaction.kind, "question");
-    // 清空保留收据：原身份仍可核验且明确标记为已清空。
-    const clearedReceipt = await api(first.origin, `/api/goals/${goalId}/inputs/e2e-message-1`, { token: first.token });
-    assert.equal(clearedReceipt.response.status, 200);
-    assert.equal(clearedReceipt.body.found, true);
-    assert.equal(clearedReceipt.body.receipt.status, "cleared");
+    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Goal intent\"]') === null"), true,
+      "the waiting questionnaire does not expose a free-form follow-up field");
     assert.deepEqual(await readStatus(statusPath), { modelCalls: 1, toolCalls: 0 });
 
     const savedPreference = await api(first.origin, "/api/project/model-preference", {
@@ -259,7 +235,7 @@ test("real local service restores and completes one authorized Goal conversation
     await waitForExpression(socket, "[...document.querySelectorAll('.timeline-activity-member-label')].some(label => label.textContent.includes('browser_fixture_write'))");
     await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.timeline-activity-members > li')].find(member => member.querySelector('.timeline-activity-member-label')?.textContent.includes('browser_fixture_write')).querySelector('.timeline-activity-trajectory').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.trajectory-view .ct-record-body[aria-pressed=\"true\"]') !== null");
-    await waitForExpression(socket, "document.querySelector('.tr-detail-body pre') !== null");
+    await waitForExpression(socket, "document.querySelector('.tr-inspector .tr-detail-title h3') !== null");
     assert.equal(await value(socket, "document.activeElement?.id"), `trajectory-event-${executionTrajectory.body.locatedSequence}`);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('#trajectory-event-" + toolEvent.sequence + "').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.tr-detail-title h3')?.textContent === 'browser_fixture_write'");
@@ -269,13 +245,7 @@ test("real local service restores and completes one authorized Goal conversation
     const inputs = await api(restarted.origin, `/api/goals/${goalId}/model-inputs?runId=${firstRunId}`, { token: restarted.token });
     assert.equal(inputs.response.status, 200);
     assert.ok(inputs.body.calls.length > 0);
-    const reviewCall = inputs.body.calls.find(call => call.stage === "completion_review");
-    assert.ok(reviewCall, "The completed Run retains its independent review input");
-    const reviewInput = await api(restarted.origin, `/api/goals/${goalId}/model-inputs?runId=${firstRunId}&callId=${reviewCall.callId}`, { token: restarted.token });
-    assert.equal(reviewInput.response.status, 200);
-    const candidate = JSON.parse(reviewInput.body.call.messages.at(-1).content).candidate;
-    assert.equal(candidate.summary, "The controlled action completed.");
-    assert.ok(session.messages.some(message => message.role === "assistant" && message.content === candidate.summary));
+    assert.ok(session.messages.some(message => message.role === "assistant" && message.content === "The controlled action completed."));
     const inputCall = inputs.body.calls.find(call => call.executionUnitId === toolStep.executionUnitId);
     assert.ok(inputCall);
     const completeInput = await api(restarted.origin, `/api/goals/${goalId}/model-inputs?runId=${firstRunId}&callId=${inputCall.callId}`, { token: restarted.token });
@@ -318,51 +288,37 @@ test("real local service restores and completes one authorized Goal conversation
     assert.equal(await value(socket, "document.querySelector('.mi-inspector .tr-detail-body pre').innerText"), completeInput.body.call.messages.filter(message => message.role === "system").map(message => message.content).join("\n"));
     await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.session-tab-buttons button')].find(button => button.textContent === 'Activity').click()", returnByValue: true });
 
-    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Record one follow-up note");
-    await waitForExpression(socket, "document.querySelector('button[aria-label=\"Send message\"]')?.disabled === false", 10_000);
-    await cdp(socket, "Runtime.evaluate", {
-      expression: "document.querySelector('button[aria-label=\"Send message\"]').click()",
-      returnByValue: true,
-    });
-    await waitForStatus(statusPath, (status) => status.modelCalls === 9 && status.toolCalls === 1);
-    session = await waitForSession(restarted.origin, restarted.token, (candidate) => candidate.runStatus === "completed" && candidate.currentRunId !== firstRunId);
-    assert.equal(session.runs.length, 2);
-    assert.ok(session.messages.some((message) => message.role === "user" && message.content === "Record one follow-up note"));
+    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Goal intent\"]') === null"), true,
+      "a completed Goal has no continuation composer");
+    session = await waitForSession(restarted.origin, restarted.token, (candidate) => candidate.goalId === goalId && candidate.runStatus === "completed");
+    assert.equal(session.currentRunId, firstRunId);
+    assert.equal(session.runs.length, 1, "completion does not create a continuation Run");
     assert.equal((await readFile(join(workspace, "controlled-tool-actions.jsonl"), "utf8")).trim().split("\n").length, 1);
-
-    const stalePlanMode = await api(restarted.origin, `/api/goals/${goalId}/plan-mode`, {
-      token: restarted.token,
-      method: "POST",
-      headers: { "content-type": "application/json", origin: restarted.origin },
-      body: JSON.stringify({ runId: firstRunId }),
-    });
-    assert.equal(stalePlanMode.response.status, 409);
-    assert.equal(stalePlanMode.body.error, "stale_run");
 
     await cdp(socket, "Runtime.evaluate", {
       expression: "[...document.querySelectorAll('button.primary')].find(button => button.textContent.includes('New goal')).click()",
       returnByValue: true,
     });
-    await waitForExpression(socket, "document.querySelector('.draft-timeline') !== null && document.querySelector('textarea[aria-label=\"Message the Goal\"]') !== null", 10_000);
+    await waitForExpression(socket, "document.querySelector('.draft-timeline') !== null && document.querySelector('textarea[aria-label=\"Goal intent\"]') !== null", 10_000);
     await waitForExpression(socket, "document.querySelector('.composer-area .current-model-control')?.textContent.includes('Alternate test model')");
-    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "/plan");
-    await waitForExpression(socket, "document.querySelector('button[aria-label=\"Send message\"]')?.disabled === false", 10_000);
+    await setText(socket, "textarea[aria-label=\"Goal intent\"]", "/plan");
+    await waitForExpression(socket, "document.querySelector('button[aria-label=\"Start Goal\"]')?.disabled === false", 10_000);
     await cdp(socket, "Runtime.evaluate", {
-      expression: "document.querySelector('button[aria-label=\"Send message\"]').click()",
+      expression: "document.querySelector('button[aria-label=\"Start Goal\"]').click()",
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.session-intro')?.innerText.includes('Plan Mode')", 10_000);
     emptyList = await api(restarted.origin, "/api/goals", { token: restarted.token });
     assert.equal(emptyList.body.goals.length, 1, "draft /plan does not persist a Goal");
-    assert.deepEqual(await readStatus(statusPath), { modelCalls: 9, toolCalls: 1 });
-    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Plan flow: inspect and complete the acceptance path");
-    await waitForExpression(socket, "document.querySelector('button[aria-label=\"Send message\"]')?.disabled === false", 10_000);
+    assert.deepEqual(await readStatus(statusPath), { modelCalls: 6, toolCalls: 1 });
+    await setText(socket, "textarea[aria-label=\"Goal intent\"]", "Plan flow: inspect and complete the acceptance path");
+    await waitForExpression(socket, "document.querySelector('button[aria-label=\"Start Goal\"]')?.disabled === false", 10_000);
     await cdp(socket, "Runtime.evaluate", {
-      expression: "document.querySelector('button[aria-label=\"Send message\"]').click()",
+      expression: "document.querySelector('button[aria-label=\"Start Goal\"]').click()",
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Approve the deterministic plan-flow task?')", 15_000);
-    await waitForStatus(statusPath, (status) => status.modelCalls === 10 && status.toolCalls === 1);
+    await waitForStatus(statusPath, (status) => status.modelCalls === 7 && status.toolCalls === 1);
     const approvedList = await waitFor(async () => {
       const response = await api(restarted.origin, "/api/goals", { token: restarted.token });
       return response.body.goals?.some((goal) => goal.intent.includes("Plan flow") && goal.runStatus === "waiting") ? response : undefined;
@@ -390,7 +346,7 @@ test("real local service restores and completes one authorized Goal conversation
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.structured-form')?.innerText.includes('Approve once')", 15_000);
-    await waitForStatus(statusPath, (status) => status.modelCalls === 13 && status.toolCalls === 1);
+    await waitForStatus(statusPath, (status) => status.modelCalls === 10 && status.toolCalls === 1);
     const planActionSession = await waitForSession(
       restarted.origin,
       restarted.token,
@@ -402,7 +358,7 @@ test("real local service restores and completes one authorized Goal conversation
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Run completed')", 15_000);
-    await waitForStatus(statusPath, (status) => status.modelCalls === 15 && status.toolCalls === 2);
+    await waitForStatus(statusPath, (status) => status.modelCalls === 12 && status.toolCalls === 2);
     const completedPlanSession = await waitForSession(
       restarted.origin,
       restarted.token,
@@ -416,11 +372,8 @@ test("real local service restores and completes one authorized Goal conversation
     assert.equal(await value(socket, "document.querySelector('.timeline-stage.completed button.timeline-stage-heading')?.getAttribute('aria-expanded')"), "false");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelectorAll('.timeline-stage-heading[aria-expanded=\"false\"]').forEach(button => button.click())", returnByValue: true });
     assert.equal(await value(socket, "document.querySelectorAll('.timeline-activity').length > 0"), true);
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('#filter-execution-steps').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.timeline-activity') === null");
+    assert.equal(await value(socket, "document.querySelector('#filter-execution-steps') !== null"), true);
     assert.equal(await value(socket, "document.querySelector('.plan-route-list') !== null"), true);
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('#filter-execution-steps').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.timeline-activity') !== null");
     const completedList = await api(restarted.origin, "/api/goals", { token: restarted.token });
     assert.equal(completedList.response.status, 200, JSON.stringify(completedList.body));
     const planCompleted = completedList.body.goals.some((goal) => goal.intent.includes("Plan flow") && goal.runStatus === "completed");
@@ -430,24 +383,9 @@ test("real local service restores and completes one authorized Goal conversation
       assert.ok(planCompleted, `Plan Run did not complete: ${JSON.stringify(completedList.body.goals)}; stop=${stopReason}`);
     }
 
-    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "/plan");
-    await waitForExpression(socket, "document.querySelector('button[aria-label=\"Send message\"]')?.disabled === false", 10_000);
-    await cdp(socket, "Runtime.evaluate", {
-      expression: "document.querySelector('button[aria-label=\"Send message\"]').click()",
-      returnByValue: true,
-    });
-    await waitForExpression(socket, "document.querySelector('.session-intro')?.innerText.includes('Next Run: Plan Mode')", 10_000);
-    const introStyle = JSON.parse(await value(socket, `JSON.stringify((() => {
-      const style = getComputedStyle(document.querySelector('.session-intro'));
-      return { color: style.color, textAlign: style.textAlign, borderRadius: style.borderRadius };
-    })())`));
-    assert.equal(introStyle.textAlign, "center");
-    assert.ok(introStyle.color !== "rgb(24, 35, 31)", "session intro must use the accent ink color, not default text");
-    assert.ok(Number.parseFloat(introStyle.borderRadius) > 0, "session intro must render as a notice bar card");
-    const nextPlan = await api(restarted.origin, `/api/goals/${completedPlanSession.goalId}`, { token: restarted.token });
-    assert.equal(nextPlan.body.goal.nextRunMode, "plan");
-    assert.equal(nextPlan.body.goal.messages.some((message) => message.content === "/plan"), false);
-    assert.deepEqual(await readStatus(statusPath), { modelCalls: 15, toolCalls: 2 });
+    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Goal intent\"]') === null"), true,
+      "a completed Plan Goal cannot be continued from its session view");
+    assert.deepEqual(await readStatus(statusPath), { modelCalls: 12, toolCalls: 2 });
 
     await cdp(socket, "Page.reload");
     await waitForExpression(socket, "document.readyState === 'complete' && document.querySelector('.goal-card') !== null", 10_000);
@@ -462,11 +400,11 @@ test("real local service restores and completes one authorized Goal conversation
       expression: "[...document.querySelectorAll('button.primary')].find(button => button.textContent.includes('New goal')).click()",
       returnByValue: true,
     });
-    await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]') !== null");
-    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Cancellation flow: hold for user input");
-    await waitForExpression(socket, "document.querySelector('button[aria-label=\"Send message\"]')?.disabled === false", 10_000);
+    await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Goal intent\"]') !== null");
+    await setText(socket, "textarea[aria-label=\"Goal intent\"]", "Cancellation flow: hold for user input");
+    await waitForExpression(socket, "document.querySelector('button[aria-label=\"Start Goal\"]')?.disabled === false", 10_000);
     await cdp(socket, "Runtime.evaluate", {
-      expression: "document.querySelector('button[aria-label=\"Send message\"]').click()",
+      expression: "document.querySelector('button[aria-label=\"Start Goal\"]').click()",
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.structured-form')?.innerText.includes('Should this Run continue?')", 15_000);
@@ -492,33 +430,21 @@ test("real local service restores and completes one authorized Goal conversation
       expression: "[...document.querySelectorAll('button.primary')].find(button => button.textContent.includes('New goal')).click()",
       returnByValue: true,
     });
-    await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]') !== null");
-    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Composer status flow: verify the running composer remains visible");
-    await waitForExpression(socket, "document.querySelector('button[aria-label=\"Send message\"]')?.disabled === false", 10_000);
+    await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Goal intent\"]') !== null");
+    await setText(socket, "textarea[aria-label=\"Goal intent\"]", "Streaming session flow: hold while the Worker stop control is checked");
+    await waitForExpression(socket, "document.querySelector('button[aria-label=\"Start Goal\"]')?.disabled === false", 10_000);
     await cdp(socket, "Runtime.evaluate", {
-      expression: "document.querySelector('button[aria-label=\"Send message\"]').click()",
+      expression: "document.querySelector('button[aria-label=\"Start Goal\"]').click()",
       returnByValue: true,
     });
-    await waitForExpression(socket, "document.querySelector('.composer-area .send.is-running[aria-label=\"Pause Run\"]') !== null", 10_000);
-    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]')?.disabled"), false, "the composer remains editable while the Run is active");
-    assert.equal(await value(socket, "document.querySelectorAll('.composer-area .send.is-running').length"), 1, "the running composer has one primary button");
-    assert.equal(await value(socket, "document.querySelector('button[aria-label=\"Stop run\"], button[aria-label=\"Steer the current Run with this message\"]')"), null);
-    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Steer this active Run");
-    await waitForExpression(socket, "document.querySelector('.composer-area .send.is-running[aria-label=\"Send message\"]')?.disabled === false");
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.composer-area .send.is-running').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.queued-input-status')?.innerText.includes('Steer this active Run')");
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.queued-input-status > button').click()", returnByValue: true });
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Steer queued message 1 into the current Run\"]').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.queued-input-status')?.innerText.includes('Steer: Waiting for next model call')");
-    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Queue follow-up task");
-    await waitForExpression(socket, "document.querySelector('.composer-area .send.is-running')?.getAttribute('aria-label') === 'Send message'");
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.composer-area .send.is-running').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.queued-input-status')?.innerText.includes('Queue follow-up task')");
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.composer-area .send.is-running[aria-label=\"Pause Run\"]').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('button[aria-label=\\\"Pausing Run\\\"]') !== null || document.querySelector('.queue-paused') !== null", 10_000);
-    await waitForExpression(socket, "document.querySelector('.queue-paused') !== null", 15_000);
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.queue-paused button').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Run completed')", 15_000);
+    await waitForExpression(socket, "document.querySelector('.composer-recover-actions button')?.textContent.includes('Stop Run')", 10_000);
+    const activeGoal = await waitForSession(restarted.origin, restarted.token, (candidate) => candidate.intent.includes("Streaming session flow") && candidate.runStatus === "running");
+    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Goal intent\"]') === null"), true,
+      "a running Worker has no ordinary message composer");
+    assert.equal(await value(socket, "document.querySelector('.queued-input-status') === null"), true);
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.composer-recover-actions button')].find(button => button.textContent.includes('Stop Run')).click()", returnByValue: true });
+    const stoppedGoal = await waitForSession(restarted.origin, restarted.token, (candidate) => candidate.goalId === activeGoal.goalId && candidate.runStatus === "cancelled");
+    assert.equal(stoppedGoal.currentRunId, activeGoal.currentRunId, "stopping cancels the active Run in place");
   } catch (error) {
     failure = error;
   } finally {

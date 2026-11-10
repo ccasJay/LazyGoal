@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from pathlib import Path
 from typing import Sequence
 
 from .controller import (
@@ -15,7 +14,6 @@ from .controller import (
     ReportNotReadyError,
 )
 from .errors import LazyGoalGEPAError
-from .worker import run_gepa_worker
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -82,13 +80,6 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _run_worker(run_dir_str: str, workspace_root_str: str | None = None) -> int:
-    """Internal entrypoint for background worker execution."""
-    run_dir = Path(run_dir_str).resolve()
-    workspace_root = Path(workspace_root_str).resolve() if workspace_root_str else None
-    return run_gepa_worker(run_dir, workspace_root=workspace_root)
-
-
 def main(argv: Sequence[str] | None = None) -> int:
     """Main CLI entrypoint. Emits exactly one single-line JSON on stdout on success."""
     parser = _build_parser()
@@ -98,8 +89,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return exc.code if isinstance(exc.code, int) else 2
 
     try:
-        if args.subcommand == "worker":
-            return _run_worker(args.run_dir, getattr(args, "workspace_root", None))
+        if args.subcommand in {"start", "resume", "worker"}:
+            sys.stderr.write("Unsupported: GEPA execution is currently unavailable in the Worker/Trigger runtime.\n")
+            sys.stderr.flush()
+            return 1
 
         controller = LifecycleController(
             workspace_root=getattr(args, "workspace_root", None),
@@ -113,22 +106,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if args.request is not None
                 else controller.preflight_resume(args.run)
             )
-        elif args.subcommand == "start":
-            result = controller.start(
-                args.request,
-                yes=args.yes,
-                confirmation_digest=args.confirm_digest,
-            )
         elif args.subcommand == "status":
             result = controller.status(args.run)
         elif args.subcommand == "stop":
             result = controller.stop(args.run)
-        elif args.subcommand == "resume":
-            result = controller.resume(
-                args.run,
-                yes=args.yes,
-                confirmation_digest=args.confirm_digest,
-            )
         elif args.subcommand == "report":
             result = controller.report(args.run)
         elif args.subcommand == "wait":

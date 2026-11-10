@@ -2291,68 +2291,6 @@
             "role": "boundary-root"
         },
         {
-            "key": "tools/src/spawn-subagent.ts#SpawnSubagentToolInput",
-            "declaration": "SpawnSubagentToolInput",
-            "source": {
-                "path": "packages/tools/src/spawn-subagent.ts",
-                "line": 31
-            },
-            "owner": "@lazygoal/tools",
-            "module": "tools",
-            "boundary": "model-tools",
-            "section": "工具输入 TS 契约",
-            "definition": "原生 TS",
-            "definitionKind": "native-ts",
-            "relations": [],
-            "consumers": [
-                "packages/tools/src/spawn-subagent.ts"
-            ],
-            "consumerNote": "生成绑定供 ToolRegistration.prepare 与模型声明消费。",
-            "protocol": {
-                "identity": {
-                    "state": "declared",
-                    "value": "tool.spawn_subagent.input"
-                },
-                "version": {
-                    "state": "declared",
-                    "value": 1
-                }
-            },
-            "generation": {
-                "state": "enabled",
-                "detail": "由 contracts/catalog.json 生成 Schema、校验器与 ContractBinding；工具注册与 prepare 消费。",
-                "strategy": "typescript-binding",
-                "rootType": "SpawnSubagentToolInput",
-                "declaredTypes": [
-                    "SpawnSubagentToolInput"
-                ],
-                "outputDirectory": "packages/tools/src/generated/spawn-subagent",
-                "artifacts": {
-                    "schemaModule": "schema.ts",
-                    "validator": "validator.mjs",
-                    "validatorTypes": "validator.d.mts",
-                    "manifest": "manifest.json",
-                    "binding": "binding.ts"
-                },
-                "binding": {
-                    "module": "../../../../contract-binding/src/index",
-                    "dataType": "SpawnSubagentToolInput",
-                    "dataTypeModule": "../../spawn-subagent",
-                    "exportName": "spawnSubagentInputBinding",
-                    "names": {
-                        "schema": "spawnSubagentInputSchema",
-                        "metadata": "spawnSubagentInputMetadata",
-                        "validator": "validateSpawnSubagentInput"
-                    }
-                }
-            },
-            "validation": {
-                "state": "runtime-schema",
-                "detail": "生成绑定在 ToolRegistration.prepare 读取；非法已知字段拒绝，未知字段剥离并返回有界诊断。"
-            },
-            "role": "boundary-root"
-        },
-        {
             "key": "benchmarks/alfworld/src/alfworld-tools.ts#AlfworldResetInput",
             "declaration": "AlfworldResetInput",
             "source": {
@@ -9569,6 +9507,262 @@
             "validation": {
                 "state": "runtime-schema",
                 "detail": "生成的 Schema 与 Ajv standalone 校验器；contract-binding 在 JSON 边界读取。"
+            },
+            "role": "boundary-root"
+        },
+        {
+            "key": "runtime/src/trigger#Trigger",
+            "declaration": "Trigger",
+            "source": {
+                "path": "packages/runtime/src/trigger.ts",
+                "line": 120
+            },
+            "owner": "runtime",
+            "module": "runtime",
+            "boundary": "ipc",
+            "section": "Trigger 进程边界",
+            "definition": "原生 TS 类型别名",
+            "definitionKind": "native-ts",
+            "relations": [],
+            "consumers": [
+                "packages/storage/src/trigger-wire.ts",
+                "packages/storage/src/trigger-ingress.ts",
+                "packages/storage/src/trigger-store.ts",
+                "apps/goal-server/src/runtime/trigger-wire-server.ts"
+            ],
+            "protocol": {
+                "identity": {
+                    "state": "declared",
+                    "value": "runtime.trigger"
+                },
+                "version": {
+                    "state": "declared",
+                    "value": 1,
+                    "detail": "version: 1"
+                }
+            },
+            "generation": {
+                "state": "enabled",
+                "detail": "Trigger 消息与封闭 payload 的结构 Schema、校验器与绑定。",
+                "strategy": "typescript-binding",
+                "rootType": "Trigger",
+                "declaredTypes": [
+                    "Trigger",
+                    "TriggerActor",
+                    "TriggerTarget",
+                    "GoalUserAction",
+                    "GoalActionJsonValue"
+                ],
+                "outputDirectory": "packages/storage/src/generated",
+                "artifacts": {
+                    "schemaModule": "trigger-schema.ts",
+                    "validator": "trigger-validator.mjs",
+                    "validatorTypes": "trigger-validator.d.mts",
+                    "manifest": "trigger-manifest.json",
+                    "binding": "trigger-binding.ts"
+                },
+                "binding": {
+                    "module": "../../../contract-binding/src/index",
+                    "dataType": "Trigger",
+                    "dataTypeModule": "../../../runtime/src/trigger",
+                    "exportName": "triggerBinding",
+                    "names": {
+                        "schema": "triggerSchema",
+                        "metadata": "triggerMetadata",
+                        "validator": "validateTrigger"
+                    }
+                }
+            },
+            "validation": {
+                "state": "generated-reader",
+                "detail": "生成绑定拒绝额外字段并校验 type/action 分支；来源认证与关联由接收边界核验。"
+            },
+            "role": "boundary-root"
+        },
+
+        {
+            "key": "model-contracts/src/trigger-admission#TriggerAdmissionDecision",
+            "declaration": "TriggerAdmissionDecision",
+            "source": {
+                "path": "packages/model-contracts/src/trigger-admission.ts",
+                "line": 13
+            },
+            "owner": "model-contracts",
+            "module": "model-contracts",
+            "boundary": "model-output",
+            "section": "Supervisor 准入模型输出",
+            "definition": "原生 TS 接口",
+            "definitionKind": "native-ts",
+            "relations": [],
+            "consumers": [
+                "apps/goal-server/src/runtime/trigger-admission.ts"
+            ],
+            "protocol": {
+                "identity": {
+                    "state": "declared",
+                    "value": "model.supervisor-trigger-admission"
+                },
+                "version": {
+                    "state": "declared",
+                    "value": 1,
+                    "detail": "version: 1"
+                }
+            },
+            "generation": {
+                "state": "enabled",
+                "detail": "Supervisor 准入结果的结构 Schema、校验器与绑定。",
+                "strategy": "typescript-binding",
+                "rootType": "TriggerAdmissionDecision",
+                "declaredTypes": [
+                    "TriggerAdmissionDecision"
+                ],
+                "outputDirectory": "packages/model-contracts/src/generated",
+                "artifacts": {
+                    "schemaModule": "trigger-admission-schema.ts",
+                    "validator": "trigger-admission-validator.mjs",
+                    "validatorTypes": "trigger-admission-validator.d.mts",
+                    "manifest": "trigger-admission-manifest.json",
+                    "binding": "trigger-admission-binding.ts"
+                },
+                "binding": {
+                    "module": "../../../contract-binding/src/index",
+                    "dataType": "TriggerAdmissionDecision",
+                    "dataTypeModule": "../trigger-admission",
+                    "exportName": "triggerAdmissionBinding",
+                    "names": {
+                        "schema": "triggerAdmissionSchema",
+                        "metadata": "triggerAdmissionMetadata",
+                        "validator": "validateTriggerAdmission"
+                    }
+                }
+            },
+            "validation": {
+                "state": "generated-reader",
+                "detail": "生成绑定校验结构与封闭对象；文件级语义约束由 Store 执行。"
+            },
+            "role": "boundary-root"
+        },
+        {
+            "key": "model-contracts/src/trigger-name-summary#TriggerNameSummary",
+            "declaration": "TriggerNameSummary",
+            "source": {
+                "path": "packages/model-contracts/src/trigger-name-summary.ts",
+                "line": 13
+            },
+            "owner": "model-contracts",
+            "module": "model-contracts",
+            "boundary": "model-output",
+            "section": "Trigger 名称摘要模型输出",
+            "definition": "原生 TS 接口",
+            "definitionKind": "native-ts",
+            "relations": [],
+            "consumers": [
+                "apps/goal-server/src/browser-session-port.ts"
+            ],
+            "protocol": {
+                "identity": {
+                    "state": "declared",
+                    "value": "model.supervisor-trigger-name-summary"
+                },
+                "version": {
+                    "state": "declared",
+                    "value": 1,
+                    "detail": "version: 1"
+                }
+            },
+            "generation": {
+                "state": "enabled",
+                "detail": "语义 Trigger 名称摘要的结构 Schema、校验器与绑定。",
+                "strategy": "typescript-binding",
+                "rootType": "TriggerNameSummary",
+                "declaredTypes": [
+                    "TriggerNameSummary"
+                ],
+                "outputDirectory": "packages/model-contracts/src/generated",
+                "artifacts": {
+                    "schemaModule": "trigger-name-summary-schema.ts",
+                    "validator": "trigger-name-summary-validator.mjs",
+                    "validatorTypes": "trigger-name-summary-validator.d.mts",
+                    "manifest": "trigger-name-summary-manifest.json",
+                    "binding": "trigger-name-summary-binding.ts"
+                },
+                "binding": {
+                    "module": "../../../contract-binding/src/index",
+                    "dataType": "TriggerNameSummary",
+                    "dataTypeModule": "../trigger-name-summary",
+                    "exportName": "triggerNameSummaryBinding",
+                    "names": {
+                        "schema": "triggerNameSummarySchema",
+                        "metadata": "triggerNameSummaryMetadata",
+                        "validator": "validateTriggerNameSummary"
+                    }
+                }
+            },
+            "validation": {
+                "state": "generated-reader",
+                "detail": "生成绑定拒绝额外字段与错误类型；消费端拒绝空白摘要，原始 material 仍是唯一工作来源。"
+            },
+            "role": "boundary-root"
+        },
+        {
+            "key": "model-contracts/src/trigger-permission-decision#SupervisorPermissionDecisionWire",
+            "declaration": "SupervisorPermissionDecisionWire",
+            "source": {
+                "path": "packages/model-contracts/src/trigger-permission-decision.ts",
+                "line": 10
+            },
+            "owner": "model-contracts",
+            "module": "model-contracts",
+            "boundary": "model-output",
+            "section": "Supervisor 权限决策模型输出",
+            "definition": "原生 TypeScript 类型契约",
+            "definitionKind": "native-ts",
+            "relations": [],
+            "consumers": [
+                "apps/goal-server/src/runtime/worker-permission.ts"
+            ],
+            "protocol": {
+                "identity": {
+                    "state": "declared",
+                    "value": "model.supervisor-permission-decision"
+                },
+                "version": {
+                    "state": "declared",
+                    "value": 1,
+                    "detail": "version: 1"
+                }
+            },
+            "generation": {
+                "state": "enabled",
+                "detail": "Supervisor 对单次 Action 权限判断的模型输出绑定。",
+                "strategy": "typescript-binding",
+                "rootType": "SupervisorPermissionDecisionWire",
+                "declaredTypes": [
+                    "SupervisorPermissionDecisionWire"
+                ],
+                "outputDirectory": "packages/model-contracts/src/generated",
+                "artifacts": {
+                    "schemaModule": "supervisor-permission-decision-schema.ts",
+                    "validator": "supervisor-permission-decision-validator.mjs",
+                    "validatorTypes": "supervisor-permission-decision-validator.d.mts",
+                    "manifest": "supervisor-permission-decision-manifest.json",
+                    "binding": "supervisor-permission-decision-binding.ts"
+                },
+                "binding": {
+                    "module": "../../../contract-binding/src/index",
+                    "dataType": "SupervisorPermissionDecisionWire",
+                    "dataTypeModule": "../trigger-permission-decision",
+                    "exportName": "supervisorPermissionDecisionBinding",
+                    "names": {
+                        "schema": "supervisorPermissionDecisionSchema",
+                        "metadata": "supervisorPermissionDecisionMetadata",
+                        "validator": "validateSupervisorPermissionDecisionWire"
+                    }
+                }
+            },
+            "validation": {
+                "state": "generated-reader",
+                "detail": "消费端使用生成 binding 校验 JSON 结构，并在入口核对目标身份与业务不变量。"
             },
             "role": "boundary-root"
         }

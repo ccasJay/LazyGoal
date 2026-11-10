@@ -204,7 +204,7 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.session .goal-card').click()", returnByValue: true });
     await waitForExpression(socket, "[...document.querySelectorAll('.session-tab-buttons button')].find(button => button.textContent === 'Activity')?.getAttribute('aria-pressed') === 'true'");
     assert.equal(await value(socket, "[...document.querySelectorAll('.session-tab-buttons button')].some(button => button.textContent === 'Plan')"), false);
-    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]') === null"), true);
+    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Goal intent\"]') === null"), true);
     assert.equal(await value(socket, "document.querySelector('.composer-area .current-model-control') !== null"), true);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.composer-area .current-model-control').focus(); document.querySelector('.composer-area .current-model-control').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.model-option') !== null");
@@ -244,9 +244,9 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     });
     await value(socket, "document.querySelector('.jump')?.click()");
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Run completed')");
-    await waitForExpression(socket, "document.querySelector('.composer-area .composer') !== null");
-    const inputBounds = await value(socket, "(() => { const box = document.querySelector('.composer-area .composer').getBoundingClientRect(); const column = document.querySelector('.composer-area').getBoundingClientRect(); const main = document.querySelector('.workspace-main').getBoundingClientRect(); return { width: box.width, columnGap: Math.abs((box.left + box.right - column.left - column.right) / 2), columnAligned: column.left >= main.left && column.right <= main.right && Math.abs((column.left + column.right - main.left - main.right) / 2) < 2, mainWithinViewport: main.left >= 0 && main.right <= window.innerWidth }; })()");
-    assert.ok(inputBounds.width <= 840 && inputBounds.columnGap < 2 && inputBounds.columnAligned && inputBounds.mainWithinViewport, JSON.stringify(inputBounds));
+    await waitForExpression(socket, "document.querySelector('.composer-area') !== null && document.querySelector('textarea[aria-label=\"Goal intent\"]') === null");
+    const controlBounds = await value(socket, "(() => { const controls = document.querySelector('.composer-area').getBoundingClientRect(); const main = document.querySelector('.workspace-main').getBoundingClientRect(); return { width: controls.width, centered: Math.abs((controls.left + controls.right - main.left - main.right) / 2) < 2, mainWithinViewport: main.left >= 0 && main.right <= window.innerWidth }; })()");
+    assert.ok(controlBounds.width <= 1100 && controlBounds.centered && controlBounds.mainWithinViewport, JSON.stringify(controlBounds));
     await waitForExpression(socket, "document.querySelector('.permission-trigger')?.textContent.includes('Ask when needed')");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.permission-trigger').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.permission-popover') !== null");
@@ -299,16 +299,17 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Which source should I use?')");
     assert.equal(await value(socket, "getComputedStyle(document.querySelector('.session')).position"), "relative");
     assert.equal(await value(socket, "document.documentElement.scrollWidth <= window.innerWidth"), true);
-    assert.equal(await value(socket, "document.querySelector('.session .timeline > *').getBoundingClientRect().width <= window.innerWidth - 32"), true);
+    assert.equal(await value(socket, "document.querySelector('.session .timeline > *').getBoundingClientRect().width <= document.querySelector('.session .timeline').clientWidth + 1"), true);
 
-    // 详情读取失败只限制当前请求：明确报告可重试，不把会话拖入 Failed，也不禁用无关输入。
+    // 详情读取失败只限制当前请求：明确报告可重试，不把会话拖入 Failed。
     mock.failNextInteractionDetails("interaction_details_unavailable");
     await navigate(socket, `${webUrl}/?session=details-unavailable#${token}`);
     await waitForExpression(socket, "document.querySelector('.goal-card') !== null");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.goal-card').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.interaction-region')?.innerText.includes('The request could not be loaded')");
     assert.equal(await value(socket, "document.querySelector('.task-state')?.textContent"), "Awaiting your response");
-    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Queue next task\"]')?.disabled"), false, "an unrelated queue input stays available");
+    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Goal intent\"]') === null"), true,
+      "a details read error does not create a follow-up composer");
     await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.interaction-region button')].find(button => button.textContent.includes('Retry loading')).click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.question-nav-item') !== null");
 
@@ -342,7 +343,7 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Action result needs review')");
-    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]') === null"), true);
+    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Goal intent\"]') === null"), true);
     assert.equal(await value(socket, "[...document.querySelectorAll('.approval button')].some(button => button.textContent.includes('Retry action'))"), true);
     assert.equal(await value(socket, "document.querySelector('.interaction-warning')?.innerText.includes('may already have run')"), true);
     assert.equal(await value(socket, "document.querySelector('.approval-scopes') === null"), true, "an unknown outcome never offers ongoing permission");
@@ -514,17 +515,17 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     assert.equal(await value(socket, "(() => { const tab = document.querySelector('.tr-detail-tabs [role=tab][data-state=active]'); const panel = tab && document.getElementById(tab.getAttribute('aria-controls')); return !!panel && panel.getAttribute('role') === 'tabpanel' && panel.getAttribute('aria-labelledby') === tab.id; })()"), true, "the active tab must own a matching tabpanel");
     assert.equal(await value(socket, "document.querySelector('.relationship') === null"), true);
     // 导航保持 Raw 偏好
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Previous trajectory event\"]').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #1')");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Next trajectory event\"]').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #2')");
     assert.equal(await value(socket, "document.querySelector('.tr-detail-tabs button.active')?.textContent"), "Raw");
     // 刻度点击保持 Raw 偏好
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Locate trajectory event 2\"]').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #2')");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Locate trajectory event 1\"]').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #1')");
     assert.equal(await value(socket, "document.querySelector('.tr-detail-tabs button.active')?.textContent"), "Raw");
     const unfilteredRead = mock.trajectoryReads() + 1;
     await cdp(socket, "Runtime.evaluate", { expression: "(() => { const select = document.querySelector('#trajectory-category-select'); select.value = 'All events'; select.dispatchEvent(new Event('change', { bubbles: true })); return true; })()", returnByValue: true });
     await waitForLocal(() => mock.trajectoryReads() >= unfilteredRead);
-    await waitForExpression(socket, "document.querySelector('.mi-input-status')?.textContent.includes('Historical model inputs not recorded.') && document.querySelectorAll('.ct-step-header').length === 2 && document.querySelector('#trajectory-event-1') !== null && !document.querySelector('.tr-coverage')?.textContent.includes('Loading')");
+    await waitForExpression(socket, "document.querySelector('.mi-input-status')?.textContent.includes('1–1 / 1 saved model inputs') && document.querySelectorAll('.ct-step-header').length === 3 && document.querySelector('#trajectory-event-1') !== null && !document.querySelector('.tr-coverage')?.textContent.includes('Loading')");
     // 列表行直接点击重置为 Summary，且焦点稳定停留在当前选中行
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('#trajectory-event-1').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.tr-detail-tabs button.active')?.textContent === 'Summary'");
@@ -537,10 +538,10 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     assert.equal(await value(socket, "document.querySelectorAll('.ct-step-header')[0]?.getAttribute('aria-expanded')"), "false");
     await waitForExpression(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #1')");
     assert.equal(await value(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #1')"), true);
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelectorAll('.ct-step-header')[1].click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelectorAll('.ct-step-header[aria-expanded=\"true\"]').forEach(button => button.click())", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.tr-empty-guidance')?.textContent.includes('All steps are collapsed. Expand a step to see its events.')");
     assert.equal(await value(socket, "document.querySelector('.tr-empty-guidance p')?.textContent"), "All steps are collapsed. Expand a step to see its events.");
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelectorAll('.ct-step-header')[0].click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelectorAll('.ct-step-header[aria-expanded=\"false\"]').forEach(button => button.click())", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #1')");
     assert.equal(await value(socket, "document.querySelector('.tr-inspector header')?.textContent.includes('Event #1')"), true);
 
@@ -606,56 +607,57 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     });
     await waitForExpression(socket, "document.querySelector('.timeline-terminal.failed') !== null");
     assert.match(await value(socket, "document.querySelector('.timeline-terminal.failed').innerText"), /Run failed/);
-    await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]') !== null");
-    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "/unknown");
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Send message\"]').click()", returnByValue: true });
+    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Goal intent\"]') === null"), true,
+      "a failed Goal cannot receive an ordinary follow-up message");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"New goal\"]').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.draft-timeline') !== null");
+    await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Goal intent\"]') !== null");
+    await setText(socket, "textarea[aria-label=\"Goal intent\"]", "/unknown");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Start Goal\"]').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.command-error')?.innerText.includes('Unknown slash command')");
-    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]').value"), "/unknown");
+    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Goal intent\"]').value"), "/unknown");
     assert.equal(mock.lastMessage, undefined);
-    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "/plan extra");
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Send message\"]').click()", returnByValue: true });
+    await setText(socket, "textarea[aria-label=\"Goal intent\"]", "/plan extra");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Start Goal\"]').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.command-error')?.innerText.includes('does not accept')");
-    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]').value"), "/plan extra");
+    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Goal intent\"]').value"), "/plan extra");
     assert.equal(mock.planModeRequests, 0);
-    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "/p");
+    await setText(socket, "textarea[aria-label=\"Goal intent\"]", "/p");
     await waitForExpression(socket, "document.querySelector('.command-candidate')?.textContent.includes('/plan')");
     await cdp(socket, "Runtime.evaluate", {
-      expression: "document.querySelector('textarea[aria-label=\"Message the Goal\"]').focus()",
+      expression: "document.querySelector('textarea[aria-label=\"Goal intent\"]').focus()",
       returnByValue: true,
     });
     await cdp(socket, "Input.dispatchKeyEvent", { type: "rawKeyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
     assert.equal(await value(socket, "document.querySelector('.command-candidates') === null"), true);
-    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]').value"), "/p");
-    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "/pl");
+    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Goal intent\"]').value"), "/p");
+    await setText(socket, "textarea[aria-label=\"Goal intent\"]", "/pl");
     await waitForExpression(socket, "document.querySelectorAll('.command-candidate').length === 1 && !document.querySelector('.command-candidate').disabled");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.command-candidate').click()", returnByValue: true });
-    await waitForLocal(() => mock.planModeRequests === 1);
-    assert.deepEqual(mock.lastPlanMode, { runId: "run-1" });
-    assert.equal(mock.lastMessage, undefined, "command selection does not submit a Goal message");
-    await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]')?.disabled === false");
-    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "/p");
+    await waitForExpression(socket, "document.querySelector('.session-intro')?.textContent === 'Plan Mode'");
+    assert.equal(mock.planModeRequests, 0, "Plan Mode is part of the new Goal request");
+    assert.equal(mock.lastMessage, undefined, "command selection does not submit a follow-up message");
+    await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Goal intent\"]')?.disabled === false");
+    await setText(socket, "textarea[aria-label=\"Goal intent\"]", "/p");
     await waitForExpression(socket, "document.querySelectorAll('.command-candidate').length === 1 && !document.querySelector('.command-candidate').disabled");
     await cdp(socket, "Runtime.evaluate", {
-      expression: "document.querySelector('textarea[aria-label=\"Message the Goal\"]').focus()",
+      expression: "document.querySelector('textarea[aria-label=\"Goal intent\"]').focus()",
       returnByValue: true,
     });
     await cdp(socket, "Input.dispatchKeyEvent", { type: "rawKeyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
-    await waitForLocal(() => mock.planModeRequests === 2);
-    await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]')?.disabled === false");
-    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "/mod");
+    await waitForExpression(socket, "document.querySelector('.session-intro')?.textContent === 'Plan Mode'");
+    assert.equal(mock.planModeRequests, 0, "keyboard selection also stays within the new Goal draft");
+    await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Goal intent\"]')?.disabled === false");
+    await setText(socket, "textarea[aria-label=\"Goal intent\"]", "/mod");
     await waitForExpression(socket, "document.querySelector('.command-candidate')?.textContent.includes('/model')");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.command-candidate').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.model-option') !== null");
-    mock.failNextDefaultSave();
+    const priorRunModelSelection = mock.lastModelSelection;
     await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.model-option')].find(button => button.textContent.includes('Selected Model')).click()", returnByValue: true });
-    await waitForLocal(() => mock.lastModelSelection?.modelId === "model-selected");
     await waitForExpression(socket, "document.querySelector('.model-picker') === null");
-    await waitForExpression(socket, "document.querySelector('.command-error')?.textContent.includes('default was not saved')");
-    assert.equal(mock.preferredModelId, "model-default", "committed Goal switch does not claim a failed preference write");
-    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.command-error button')].find(button => button.textContent.includes('Retry saving default')).click()", returnByValue: true });
-    await waitForLocal(() => mock.preferredModelId === "model-selected");
-    assert.equal(mock.lastMessage, undefined, "model command does not submit a Goal message");
-    mock.delayNextModelCatalog();
+    assert.equal(mock.preferredModelId, "model-selected", "draft model selection updates the next Goal preference");
+    assert.deepEqual(mock.lastModelSelection, priorRunModelSelection, "draft model selection does not target the completed Run");
+    mock.delayNextDraftCatalog();
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.composer-area .current-model-control').focus(); document.querySelector('.composer-area .current-model-control').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.model-picker') !== null");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Close model picker\"]').click()", returnByValue: true });
@@ -664,29 +666,33 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await delay(250);
     assert.equal(await value(socket, "document.querySelector('.model-picker')?.innerText.includes('Stale Model')"), false);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Close model picker\"]').click()", returnByValue: true });
-    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Try again with the saved history");
+    await setText(socket, "textarea[aria-label=\"Goal intent\"]", "Try again with the saved history");
     await cdp(socket, "Runtime.evaluate", {
-      expression: "document.querySelector('button[aria-label=\"Send message\"]').click()",
+      expression: "document.querySelector('button[aria-label=\"Start Goal\"]').click()",
       returnByValue: true,
     });
-    await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Try again with the saved history')");
-    assert.equal(typeof mock.lastMessage.inputId, "string");
-    assert.equal(mock.lastMessage.content, "Try again with the saved history");
-    assert.equal("runId" in mock.lastMessage, false, "ordinary messages target the Goal queue, not a Run");
+    await waitForLocal(() => mock.lastCreate?.intent === "Try again with the saved history");
+    assert.equal(mock.lastCreate.mode, "plan", "the selected Plan Mode is carried by the new Goal");
+    assert.equal(mock.lastMessage, undefined, "starting a Goal does not queue a follow-up message");
     mock.resetToFailed();
     await navigate(socket, `${webUrl}/?session=escaped#${token}`);
     await waitForExpression(socket, "document.querySelector('.goal-card') !== null");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.goal-card').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]') !== null");
-    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "//plan");
-    assert.equal(await value(socket, "document.querySelector('.command-candidates') === null"), true);
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Send message\"]').click()", returnByValue: true });
-    await waitForLocal(() => mock.lastMessage?.content === "/plan");
-    assert.equal(mock.planModeRequests, 2, "escaped text does not execute a command");
+    await waitForExpression(socket, "document.querySelector('.timeline-terminal.failed') !== null");
+    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Goal intent\"]') === null"), true);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"New goal\"]').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.draft-timeline') !== null");
-    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "/model");
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Send message\"]').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Goal intent\"]') !== null");
+    await setText(socket, "textarea[aria-label=\"Goal intent\"]", "//plan");
+    assert.equal(await value(socket, "document.querySelector('.command-candidates') === null"), true);
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Start Goal\"]').click()", returnByValue: true });
+    await waitForLocal(() => mock.lastCreate?.intent === "/plan");
+    assert.equal(mock.planModeRequests, 0, "escaped text starts a normal Goal");
+    assert.equal(mock.lastMessage, undefined, "escaped text does not create a follow-up message");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"New goal\"]').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.draft-timeline') !== null");
+    await setText(socket, "textarea[aria-label=\"Goal intent\"]", "/model");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Start Goal\"]').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.model-option') !== null");
     await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.model-option')].find(button => button.textContent.includes('Selected Model')).click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.model-picker') === null");
@@ -699,9 +705,9 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await waitForExpression(socket, "document.querySelector('.model-picker') === null");
     await delay(220);
     await waitForExpression(socket, "document.querySelector('.composer-area .current-model-control')?.textContent.includes('Selected Model')");
-    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Inspect the current workspace");
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Send message\"]').click()", returnByValue: true });
-    await waitForLocal(() => mock.lastCreate?.modelId === "model-selected");
+    await setText(socket, "textarea[aria-label=\"Goal intent\"]", "Inspect the current workspace");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Start Goal\"]').click()", returnByValue: true });
+    await waitForLocal(() => mock.lastCreate?.intent === "Inspect the current workspace" && mock.lastCreate.modelId === "model-selected");
     assert.equal(mock.lastCreate.intent, "Inspect the current workspace");
     mock.resetToFailed();
     await navigate(socket, `${webUrl}/?session=management#${token}`);
@@ -762,8 +768,8 @@ test("a blocked new Goal keeps its draft while the user inspects running Goals",
     await waitForExpression(socket, "document.querySelector('button[aria-label=\"New goal\"]') !== null");
     await value(socket, "document.querySelector('button[aria-label=\"New goal\"]').click()");
     await waitForExpression(socket, "document.querySelector('.composer-area .current-model-control')?.textContent.includes('Default Model')");
-    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Inspect the current workspace");
-    await value(socket, "document.querySelector('button[aria-label=\"Send message\"]').click()");
+    await setText(socket, "textarea[aria-label=\"Goal intent\"]", "Inspect the current workspace");
+    await value(socket, "document.querySelector('button[aria-label=\"Start Goal\"]').click()");
     await waitForExpression(socket, "document.querySelector('.command-error')?.innerText.includes('Another Goal is active')");
     const blockedInputId = mock.lastCreate.inputId;
     await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 320, height: 900, deviceScaleFactor: 1, mobile: true });
@@ -777,15 +783,15 @@ test("a blocked new Goal keeps its draft while the user inspects running Goals",
     await waitForExpression(socket, "document.querySelector('.session .timeline-run-summary') !== null");
     await value(socket, "document.querySelector('button[aria-label=\"New goal\"]').click()");
     await waitForExpression(socket, "document.querySelector('.draft-timeline') !== null");
-    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]').value"), "Inspect the current workspace");
+    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Goal intent\"]').value"), "Inspect the current workspace");
     await waitForExpression(socket, "document.querySelector('.composer-area .send:not(:disabled)') !== null");
-    await value(socket, "document.querySelector('button[aria-label=\"Send message\"]').click()");
+    await value(socket, "document.querySelector('button[aria-label=\"Start Goal\"]').click()");
     await waitForLocal(() => mock.lastCreate?.inputId !== blockedInputId);
     assert.equal(mock.lastCreate.intent, "Inspect the current workspace");
     await waitForExpression(socket, "document.querySelector('.draft-timeline') === null");
     await value(socket, "document.querySelector('button[aria-label=\"New goal\"]').click()");
     await waitForExpression(socket, "document.querySelector('.draft-timeline') !== null");
-    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]').value"), "", "successful creation clears the saved draft");
+    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Goal intent\"]').value"), "", "successful creation clears the saved draft");
   } finally {
     socket?.close();
     if (chrome !== undefined && chrome.exitCode === null) {
@@ -800,7 +806,7 @@ test("a blocked new Goal keeps its draft while the user inspects running Goals",
   }
 });
 
-test("activity width and compact composer remain usable and persist", { timeout: 60_000 }, async () => {
+test("activity width and structured interaction area remain usable and persist", { timeout: 60_000 }, async () => {
   const pageUrl = "http://127.0.0.1:4177";
   const newPortUrl = "http://127.0.0.1:4178";
   const mock = createMockApi();
@@ -828,33 +834,25 @@ test("activity width and compact composer remain usable and persist", { timeout:
     await navigate(socket, `${pageUrl}/?session=width#${token}`);
     await waitForExpression(socket, "document.querySelector('.goal-card') !== null");
     await value(socket, "document.querySelector('.goal-card').click()");
-    await waitForExpression(socket, "document.querySelector('.session-timeline-feed') !== null && document.querySelector('.composer textarea') !== null");
+    await waitForExpression(socket, "document.querySelector('.session-timeline-feed') !== null && document.querySelector('.composer-area') !== null");
     const bounds = () => value(socket, `(() => {
       const feed = document.querySelector('.session-timeline-feed').getBoundingClientRect();
       const item = document.querySelector('.session-timeline-feed > *').getBoundingClientRect();
       const filter = document.querySelector('.activity-filter-content').getBoundingClientRect();
-      const form = document.querySelector('.composer-area form').getBoundingClientRect();
-      const text = document.querySelector('.composer textarea').getBoundingClientRect();
-      const tools = document.querySelector('.composer-tools').getBoundingClientRect();
-      return { feedWidth: feed.width, itemWidth: item.width, filterWidth: filter.width, formWidth: form.width,
-        leftGap: Math.abs(feed.left - form.left), filterLeftGap: Math.abs(filter.left - form.left),
-        textHeight: text.height, sameRow: text.top < tools.bottom && tools.top < text.bottom };
+      const controls = document.querySelector('.composer-area').getBoundingClientRect();
+      return { feedWidth: feed.width, itemWidth: item.width, filterWidth: filter.width, controlsWidth: controls.width,
+        hasOrdinaryInput: document.querySelector('.composer-area textarea[aria-label="Goal intent"]') !== null,
+        permissionVisible: document.querySelector('.composer-area .permission-trigger') !== null };
     })()`);
     const standard = await bounds();
-    assert.ok(standard.feedWidth <= 840 && standard.formWidth <= 840);
-    assert.ok(standard.leftGap < 1 && standard.filterLeftGap < 1 && Math.abs(standard.feedWidth - standard.formWidth) < 1);
-    assert.ok(Math.abs(standard.itemWidth - standard.formWidth) < 1 && Math.abs(standard.filterWidth - standard.formWidth) < 1);
-    assert.equal(standard.sameRow, true, "the textarea and controls share a row on desktop");
-    await value(socket, "document.querySelector('.composer textarea').focus()");
-    assert.equal(await value(socket, "getComputedStyle(document.querySelector('.composer textarea')).outlineStyle"), "none");
-    assert.match(await value(socket, "getComputedStyle(document.querySelector('.composer textarea')).boxShadow"), /^(none|(?:rgba\(0, 0, 0, 0\) 0px 0px 0px 0px)(?:, rgba\(0, 0, 0, 0\) 0px 0px 0px 0px)*)$/);
-    await setText(socket, ".composer textarea", "First line\nSecond line\nThird line");
-    await waitForExpression(socket, "document.querySelector('.composer textarea').getBoundingClientRect().height > 50");
+    assert.ok(standard.feedWidth <= 840, JSON.stringify(standard));
+    assert.ok(Math.abs(standard.itemWidth - standard.feedWidth) < 1 && Math.abs(standard.filterWidth - standard.feedWidth) < 1);
+    assert.equal(standard.hasOrdinaryInput, false, "the waiting Goal does not show an ordinary message input");
+    assert.equal(standard.permissionVisible, true, "permission controls remain available while the Goal waits");
 
     await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 916, height: 900, deviceScaleFactor: 1, mobile: false });
     const mediumStandard = await bounds();
-    assert.ok(mediumStandard.leftGap < 1 && mediumStandard.filterLeftGap < 1);
-    assert.ok(Math.abs(mediumStandard.itemWidth - mediumStandard.formWidth) < 1 && Math.abs(mediumStandard.filterWidth - mediumStandard.formWidth) < 1);
+    assert.ok(Math.abs(mediumStandard.itemWidth - mediumStandard.feedWidth) < 1 && Math.abs(mediumStandard.filterWidth - mediumStandard.feedWidth) < 1);
     await value(socket, "document.querySelector('.workspace-settings').click()");
     await waitForExpression(socket, "[...document.querySelectorAll('[role=tab]')].some(tab => tab.textContent === 'Appearance')");
     await value(socket, "[...document.querySelectorAll('[role=tab]')].find(tab => tab.textContent === 'Appearance').focus()");
@@ -865,21 +863,18 @@ test("activity width and compact composer remain usable and persist", { timeout:
     await waitForExpression(socket, "document.querySelector('.workspace-shell').dataset.activityWidth === 'wide'");
     await value(socket, "document.querySelector('.settings-back').click()");
     await waitForExpression(socket, "document.querySelector('.session-timeline-feed')?.checkVisibility()");
+    await waitForExpression(socket, `document.querySelector('.session-timeline-feed')?.getBoundingClientRect().width > ${mediumStandard.feedWidth + 60}`);
     const mediumWide = await bounds();
     assert.ok(mediumWide.feedWidth > mediumStandard.feedWidth + 60, "wide remains visibly wider at a 916px viewport");
-    assert.ok(mediumWide.formWidth > mediumStandard.formWidth + 60);
-    assert.ok(mediumWide.leftGap < 1 && mediumWide.filterLeftGap < 1);
-    assert.ok(Math.abs(mediumWide.itemWidth - mediumWide.formWidth) < 1 && Math.abs(mediumWide.filterWidth - mediumWide.formWidth) < 1);
+    assert.ok(Math.abs(mediumWide.itemWidth - mediumWide.feedWidth) < 1 && Math.abs(mediumWide.filterWidth - mediumWide.feedWidth) < 1);
     await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
     const wide = await bounds();
     assert.ok(wide.feedWidth > standard.feedWidth + 100, "wide fills the available activity area");
-    assert.ok(wide.leftGap < 1 && wide.filterLeftGap < 1 && Math.abs(wide.feedWidth - wide.formWidth) < 1);
+    assert.ok(Math.abs(wide.itemWidth - wide.feedWidth) < 1 && Math.abs(wide.filterWidth - wide.feedWidth) < 1);
 
     await navigate(socket, `${newPortUrl}/?session=width#${token}`);
     await waitForExpression(socket, "document.querySelector('.workspace-shell')?.dataset.activityWidth === 'wide'");
-    await waitForExpression(socket, "document.querySelector('.goal-card') !== null");
-    await value(socket, "document.querySelector('.goal-card').click()");
-    await waitForExpression(socket, "document.querySelector('.session-timeline-feed') !== null && document.querySelector('.composer textarea') !== null");
+    await waitForExpression(socket, "document.querySelector('.session-timeline-feed') !== null && document.querySelector('.composer-area') !== null");
     await value(socket, "document.querySelector('.workspace-settings').click()");
     await waitForExpression(socket, "[...document.querySelectorAll('[role=tab]')].some(tab => tab.textContent === 'Appearance')");
     await value(socket, "[...document.querySelectorAll('[role=tab]')].find(tab => tab.textContent === 'Appearance').focus()");
@@ -892,19 +887,19 @@ test("activity width and compact composer remain usable and persist", { timeout:
     await value(socket, "document.querySelector('.settings-back').click()");
     await waitForExpression(socket, "document.querySelector('.session-timeline-feed')?.checkVisibility()");
     const restored = await bounds();
-    assert.ok(Math.abs(restored.feedWidth - standard.feedWidth) < 1 && Math.abs(restored.formWidth - standard.formWidth) < 1);
+    assert.ok(Math.abs(restored.feedWidth - standard.feedWidth) < 1 && Math.abs(restored.itemWidth - standard.itemWidth) < 1);
     await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 320, height: 900, deviceScaleFactor: 1, mobile: true });
-    await waitForExpression(socket, "document.querySelector('.composer').getBoundingClientRect().width <= 320");
+    await waitForExpression(socket, "document.querySelector('.composer-area').getBoundingClientRect().width <= 320");
     const narrow = await bounds();
-    assert.ok(narrow.leftGap < 1 && narrow.filterLeftGap < 1 && Math.abs(narrow.itemWidth - narrow.formWidth) < 1);
+    assert.ok(Math.abs(narrow.itemWidth - narrow.feedWidth) < 1 && Math.abs(narrow.filterWidth - narrow.feedWidth) < 1);
     assert.ok(await value(socket, "document.documentElement.scrollWidth - innerWidth") <= 1);
     assert.equal(await value(socket, `(() => {
-      const composer = document.querySelector('.composer').getBoundingClientRect();
-      return [...document.querySelectorAll('.composer textarea, .composer button')].every(element => {
+      const composer = document.querySelector('.composer-area').getBoundingClientRect();
+      return [...document.querySelectorAll('.composer-area button')].every(element => {
         const bounds = element.getBoundingClientRect();
         return bounds.left >= composer.left - 1 && bounds.right <= composer.right + 1 && bounds.width > 0;
       });
-    })()`), true, "the input and controls fit a narrow viewport");
+    })()`), true, "the available controls fit a narrow viewport");
 
     await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
     await waitForExpression(socket, "document.querySelector('.workspace-settings')?.checkVisibility()");
@@ -1043,6 +1038,7 @@ function createMockApi() {
   let rejectNextCreate = false;
   let selectedModelId = "model-default";
   let preferredModelId = "model-default";
+  let grantRevoked = false;
   let delayNextDraftCatalog = false;
   let failNextDefaultSave = false;
   let rejectNextSelection = false;
@@ -1188,6 +1184,15 @@ function createMockApi() {
     authorizedRequestCount += 1;
     if (request.url === "/api/project/permission-mode" && request.method === "GET") {
       json(response, { ok: true, mode: permissionMode, revision: permissionRevision, workspaceId: "workspace-1" });
+      return;
+    }
+    if (request.url === "/api/project/workspace" && request.method === "GET") {
+      if (request.headers.referer?.includes("session=width")) {
+        json(response, { workspaceRoot: "/tmp/lazygoal-board-e2e-workspace", worktreeRoot: null, branch: "test" });
+      } else {
+        response.writeHead(404, { "content-type": "application/json" });
+        response.end(JSON.stringify({ error: "workspace_unavailable" }));
+      }
       return;
     }
     if (request.url === "/api/project/permission-mode" && request.method === "POST") {
@@ -1398,10 +1403,11 @@ function createMockApi() {
       return;
     }
     if (request.url === "/api/goals/goal-1/grants?runId=run-1" && request.method === "GET") {
-      json(response, { ok: true, goalId: "goal-1", runId: "run-1", grants: [{ grantId: "grant-1", scope: "workspace", toolId: "write_file", status: "active", targetPath: "src/file.ts" }] });
+      json(response, { ok: true, goalId: "goal-1", runId: "run-1", grants: grantRevoked ? [] : [{ grantId: "grant-1", scope: "workspace", toolId: "write_file", status: "active", targetPath: "src/file.ts" }] });
       return;
     }
     if (request.url === "/api/goals/goal-1/grants/grant-1" && request.method === "DELETE") {
+      grantRevoked = true;
       json(response, { ok: true, goalId: "goal-1", runId: "run-1", grants: [] });
       return;
     }
@@ -1567,6 +1573,7 @@ function createMockApi() {
           return;
         }
         case "grant_revoke":
+          grantRevoked = true;
           accept({ ok: true, goalId: intent.goalId, runId: intent.runId, grants: [] });
           return;
         case "goal_archive":
@@ -1723,6 +1730,7 @@ function createMockApi() {
     },
     resetGrants() {
       session = interactionSession();
+      grantRevoked = false;
       currentListItem = listItem("waiting");
       liveTransitionSent = true;
     },

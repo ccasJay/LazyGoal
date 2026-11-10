@@ -14,7 +14,7 @@ sidecar、专用 Tool 和机器可读报告。共享 ACP、进程、Worker 构�
 ## Entry point
 
 `bin/lazygoal.cjs` 在参数前缀严格为 `eval alfworld`、`eval swebench`、`eval gaia` 或
-`eval prompt` 时分别转发到
+`eval prompt` 时转发到拒绝执行的兼容入口；
 对应 benchmark CLI（`grade` 和 `load` 亦按相同前缀分发）；其余普通启动参数进入
 [`apps/goal-server`](../../apps/goal-server/README.md)。评测入口要求固定
 Manifest：
@@ -24,8 +24,9 @@ lazygoal eval alfworld --manifest <path> [--profile alfworld-profile]
   [--report <path>] [--min-success-rate <0..1>]
   [--max-infrastructure-retries <n>]
 lazygoal eval gaia --manifest <path> [--output <dir>]
-lazygoal eval prompt --request <request.json>
 ```
+
+`lazygoal eval prompt --request <request.json>` 当前立即报告 Worker/Trigger Runtime 不支持并返回退出码 `1`；它不读取请求、不启动 Worker，也不回退到旧执行链。`lazygoal eval alfworld|gaia|swebench` 与相应的独立评分命令不受此限制。
 
 GAIA 与 SWE-bench 只保留机器可调用的 Headless/ACP 评测入口；已移除 `--tui`、Ink
 渲染和交互式单题会话。Benchmark 命令按 Profile、Manifest 与环境配置完成预检后运行
@@ -90,63 +91,11 @@ Runner 的 `max_steps_exceeded` 记录为 `task_not_won`，Tool/协议执行错�
 应实现通用 adapter，并将 task 映射到自己的持久化 namespace；不应复制 Storage 编解码
 或 Runtime 提交语义。
 
-## Prompt Evaluation
+## Prompt Evaluation execution
 
-[`runPromptEvaluationCli`](../src/prompt-evaluation/cli.ts) 接受当前版本的单候选
-JSON 请求。候选可覆盖 benchmark 基准 Profile 的 `systemPrompt` 与 `instructions`，并可通过可选
-`templateOverrides` 覆盖 [`MUTABLE_PROMPT_TEMPLATE_IDS`](../src/prompt-evaluation/template-overrides.ts)
-白名单内的 5 个 `.njk` 框架模板（`global-overview@1`、`agent-decision@1`、`agent-think@1`、
-`authorized-tools@1`、`run-mode@1`）；公共层在启动容器前使用 Golden Fixture 试渲染校验所有必需插值与协议锚点，
-ALFWorld、GAIA、SWE-bench 和 TUA Worker 在创建 Headless Root 前再次校验同一 Profile 与模板覆盖。
-TUA Worker 的 ACP metadata 也可携带成对的基准与候选 Profile，并在创建 Headless Root 前
-以其内置 Profile 重验 Prompt 字段和冻结的身份、展示字段及工具白名单。注册的 TUA Prompt
-Evaluation adapter 通过单任务 Manifest 和统一隔离容器执行 Agent，并在 Agent 结束后运行 verifier。
-评分前隔离层比较宿主进程快照；Agent 阶段的新增进程仍存活、评分素材残留或无法检查时，评测失败且不返回分数。
-外部调用方不参与 ACP Session，ACP 与 LLM RPC 仍只存在于宿主和隔离 Worker 之间。
+Prompt Evaluation 的 `prompt-evaluation@1` 协议、benchmark adapter 与 Python 优化器代码仍在仓库中，但 `runPromptEvaluationCli` 当前只输出不支持原因并返回 `1`；不会解析请求、创建 Attempt、启动隔离 Worker 或调用旧 Runtime 执行链。GEPA 与 Harness2 的 `start`、`resume` 和内部 `worker` 命令也明确拒绝执行。
 
-CLI 组合根的 adapter factory registry 是 benchmark 支持范围的唯一来源：请求解析使用其
-ID 集合，且只实例化请求指定的 factory。协议与结果持久化将 benchmark ID 视为非空稳定
-字符串，不枚举领域类型；新增 benchmark 只需实现并注册 TypeScript adapter factory。
-
-[`PromptEvaluationRunner`](../src/prompt-evaluation/runner.ts) 按 Manifest 顺序为每个
-任务创建独立输出目录，并由 benchmark adapter 返回领域判定。ALFWorld 只信任 `won`，GAIA
-只信任答案评分，TUA 保留有限官方 reward；模型完成文本和进度事件不参与判定。领域失败属于有效评测结果并返回退出码
-`0`，基础设施失败、请求校验失败和取消分别返回 `1`、`2`、`130`。
-TUA 单任务清单包含 `repoRoot` 和一个 `taskId`，任务定义由 TUA 仓库 Manifest 加载。
-Agent 工作区不会收到验证器与评分目录；宿主进程快照证明 Agent 新增进程退出后，adapter 才在临时目录暂存并以配置用户运行 verifier。
-缺失或无效 reward、非零 verifier 退出和进程隔离失败不产生 `metricScore`。
-
-每个任务原子提交带候选哈希与模型身份的 Attempt；整次评测在
-`<outputDirectory>/evaluations/<evaluationId>/result.json` 原子提交汇总。stdout JSON Lines 事件
-明确标记为非权威，终态事件只在汇总提交后携带 `resultPath`。显式
-`prompt-evaluation:smoke` 使用确定性模型替身验证 CLI、容器、ACP、LLM RPC、领域评分和产物
-回收，不进入默认回归。
-
-[`prompt-evaluation/gepa`](../../prompt-evaluation/gepa) 通过官方 `gepa==0.1.4` 实现外部
-优化适配。GEPA 负责候选搜索与反思；Python adapter 只校验通用单任务 Manifest 外层结构、
-候选组件和跨进程结果身份，不枚举 benchmark ID，也不解释领域 Manifest 或 Profile。
-benchmark 专用校验由 TypeScript adapter 或请求创建入口拥有。Python adapter 按 batch
-顺序以无 shell 子进程调用 `lazygoal eval prompt`，只从受限输出目录内的权威 `result.json`
-取值。TUA 使用有限官方 `metricScore` 原值（包含零与部分分）；其他 benchmark 的领域
-`passed/failed` 分别映射为 `1.0/0.0`。协议、基础设施和取消错误不计分并立即停止后续样本。
-TUA 反思只接收任务族、官方 reward、完成状态和有界通用阶段诊断，不暴露任务标识、答案、
-验证器内容、错误原文或产物路径；其他 benchmark 的反思轨迹保留有界结果投影和产物路径。
-两者都不读取完整 Diagnostic Trace；进程输出有大小上限，持久化前会脱敏继承环境中的凭据值。
-adapter 的确定性测试进入根回归，真实
-GEPA 生命周期 smoke 需显式运行且可能消耗 Working LM、Reflection LM 和容器额度。
-TUA GEPA Worker 将官方 GEPA 选择器固定为 `all`，让一次提案覆盖 seed 中的 `system_prompt`
-和全部 `instruction_NNN` 组件；其他 benchmark 保持 `round_robin`。每个 TUA 候选在评测前
-经 TUA Inspector 对显式训练与验证任务做字面泄漏审计，安全结果保存在 Run 的
-`candidate-audits/`。终态报告只输出命中任务、Prompt 组件和类别；最佳候选命中或缺少审计
-都会阻断正向结论。审计不读取 holdout，也不声称排除语义层面的任务过拟合。
-GAIA GEPA 的数据校验只接受 validation Level 1/2；任务可声明附件，但每个附件必须是
-`dataRoot` 内存在的相对文件，随后由 GAIA Environment 挂载到隔离容器。Level 3、test
-split 和自动发现不进入该生命周期。
-
-[`prompt-evaluation/harness2`](../../prompt-evaluation/harness2/README.md) 提供并列的
-`Propose–Probe–Compose` 双轨优化控制面（`lazygoal harness2`），通过 `lazygoal eval prompt`
-在 SWE-bench 上读取完整已提交 JSONL Trajectory 与 Runtime 错误率指标，协同优化 5 个可调
-`.njk` 框架模板与 AgentProfile。
+只读或独立工具仍由各自入口提供：`lazygoal gepa reflect`、`resolve-models`、`inspect-tua`、`audit-tua-candidate`，以及 GEPA/Harness2 对现有产物的 `status`、`report` 等查询；`lazygoal grade ...` 继续读取已有结果并评分。Python adapter 与 Harness2 的单元测试继续检查协议逻辑，但不证明 Prompt Evaluation Worker 可执行。
 
 ## Persistent Headless sessions
 

@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from pathlib import Path
 from typing import Sequence
 
 from .loop import Harness2Controller
@@ -92,27 +91,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         return exc.code if isinstance(exc.code, int) else 2
 
     try:
+        if args.subcommand in {"start", "resume", "worker"}:
+            sys.stderr.write("Unsupported: Harness2 execution is currently unavailable in the Worker/Trigger runtime.\n")
+            sys.stderr.flush()
+            return 1
+
         controller = Harness2Controller(
             workspace_root=getattr(args, "workspace_root", None),
             runs_dir=getattr(args, "runs_dir", None),
         )
-        if args.subcommand == "worker":
-            result = controller.execute_run_dir(Path(args.run_dir))
-        elif args.subcommand == "preflight":
+        if args.subcommand == "preflight":
             result = controller.preflight(args.request)
-        elif args.subcommand == "start":
-            result = controller.start(
-                args.request,
-                mode=args.mode,
-                concurrency=args.concurrency,
-                foreground=not args.detach,
-            )
         elif args.subcommand == "status":
             result = controller.status(args.run)
         elif args.subcommand == "stop":
             result = controller.stop(args.run)
-        elif args.subcommand == "resume":
-            result = controller.resume(args.run, foreground=not args.detach)
         elif args.subcommand == "report":
             result = controller.report(args.run)
         elif args.subcommand == "wait":

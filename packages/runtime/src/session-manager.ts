@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 
 import type { AgentProfileRegistry } from "./agent-profile";
-import type { GoalModelSelection, Goal, JsonValue, RunMode } from "./domain";
+import { isRunEnded } from "./domain";
+import type { GoalModelSelection, Goal, JsonValue, RunEndStatus, RunMode } from "./domain";
 import type { GoalStore } from "./goal-store";
 import type { GoalCoordinator } from "./goal-coordinator";
 import type { GoalProtocolValidator } from "./domain";
@@ -50,9 +51,9 @@ import {
     computeSessionInputDigest,
     findSessionInputRecord,
     nextSessionInputSequence,
+    pauseQueuedMessagesForTerminalRun,
     toSessionInputReceipt,
     validateSessionInputShape,
-    withQueuePause,
     type SessionInputDigest,
     type SessionInputReceipt,
     type SessionInputRecord,
@@ -282,7 +283,7 @@ export type SessionQueryResult =
         readonly session: Session;
         readonly receipt: SessionInputReceipt;
         readonly runId: string;
-        readonly outcome: "completed" | "failed" | "cancelled" | "waiting";
+        readonly outcome: RunEndStatus | "waiting";
         readonly state: GoalSessionState;
     }
     | {
@@ -1012,8 +1013,7 @@ export class SessionManager implements SessionHandlePort {
                 message: "The Goal message queue is paused; continue it explicitly with queue_control",
             };
         }
-        if (status !== "created" && status !== "running" && status !== "completed"
-            && status !== "failed" && status !== "cancelled") {
+        if (status !== "created" && status !== "running" && !isRunEnded(status)) {
             return {
                 ok: false,
                 code: "RUN_NOT_RESUMABLE",
@@ -1511,8 +1511,7 @@ export class SessionManager implements SessionHandlePort {
             session: created.session,
             receipt: created.receipt,
             runId,
-            outcome: state.runStatus === "completed" || state.runStatus === "failed"
-                || state.runStatus === "cancelled" || state.runStatus === "waiting"
+            outcome: isRunEnded(state.runStatus) || state.runStatus === "waiting"
                 ? state.runStatus
                 : "waiting",
             state,
@@ -1577,8 +1576,7 @@ export class SessionManager implements SessionHandlePort {
                     return;
                 }
                 if (state.runId === runId) {
-                    if (state.runStatus === "waiting" || state.runStatus === "completed"
-                        || state.runStatus === "failed" || state.runStatus === "cancelled") {
+                    if (state.runStatus === "waiting" || isRunEnded(state.runStatus)) {
                         finish(state);
                     }
                     return;
@@ -1837,7 +1835,7 @@ export class SessionManager implements SessionHandlePort {
         const queue = goal.state.messageQueue;
         if (queue?.pause !== undefined && !explicitContinuation) return;
         if ((queue?.items.length ?? 0) === 0) return;
-        if (status !== "completed" && status !== "failed" && status !== "cancelled") return;
+        if (!isRunEnded(status)) return;
         if (this.executions.has(goalId)) return;
         if (this.activeGoalId !== undefined && this.activeGoalId !== goalId) return;
         // 终态上的新受理消息或显式继续已通过持久化暂停门禁，允许创建后继 Run。
@@ -1929,7 +1927,7 @@ export class SessionManager implements SessionHandlePort {
         return true;
     }
 
-    /** 在失败或取消的终态上持久化队列暂停，保留尚未应用的消息。 */
+    /** 为缺少暂停标记的失败或取消终态快照幂等补齐队列暂停。 */
     private async pauseQueueAfterTerminalRun(goalId: string): Promise<void> {
         try {
             await withGoalMutationGate(this.store, goalId, async () => {
@@ -1937,16 +1935,16 @@ export class SessionManager implements SessionHandlePort {
                 if (latest === undefined) return;
                 const status = latest.state.run.status;
                 if (status !== "failed" && status !== "cancelled") return;
-                if (latest.state.messageQueue?.pause !== undefined) return;
-                const reason = latest.state.run.interruption !== undefined ? "user_interrupt" : "run_failed";
+                const messageQueue = pauseQueuedMessagesForTerminalRun(
+                    latest.state.messageQueue,
+                    latest.state.run,
+                );
+                if (messageQueue === latest.state.messageQueue) return;
                 const paused: Goal = {
                     ...latest,
                     state: {
                         ...latest.state,
-                        messageQueue: withQueuePause(latest.state.messageQueue, {
-                            reason,
-                            runId: latest.state.run.id,
-                        }),
+                        ...(messageQueue === undefined ? {} : { messageQueue }),
                     },
                 };
                 await this.committer.commit(paused, { sessionState: "caller" });

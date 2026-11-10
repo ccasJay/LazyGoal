@@ -8,7 +8,7 @@ import type { JsonValue } from "../../../packages/contracts/src/index";
 import { createTestBinding, objectInputSchema } from "../../../packages/tool-core/test/binding-fixtures";
 import type { LLMAdapter, LLMRequest, LLMResponse } from "../../../packages/llm-core/src/index";
 import { toolCallResponse } from "../../../packages/llm-core/test/response-fixtures";
-import type { AgentProfile } from "../../../packages/runtime/src/index";
+import type { AgentProfile, SessionInput, SessionInputAdmissionResult } from "../../../packages/runtime/src/index";
 import { isSeatbeltSupported } from "../../../packages/sandbox/src/index";
 import {
     createToolRegistration,
@@ -35,8 +35,10 @@ interface Harness {
     readonly token: string;
     readonly events: Record<string, any>[];
     readonly stop: () => Promise<void>;
-    /** 经正式会话端口创建 Goal 并受理首条输入。 */
+    /** 经 Runtime 会话管理器创建 Goal 并受理首条输入。 */
     readonly createGoal: (goalId: string, inputId: string, content: string) => Promise<void>;
+    /** 直接向此集成夹具中的 Runtime 会话提交结构化决定。 */
+    readonly respond: (goalId: string, input: Extract<SessionInput, { readonly kind: "respond" }>) => Promise<SessionInputAdmissionResult>;
     /** 经无界面宿主端口读取当前规范交互视图。 */
     readonly readInteraction: (goalId: string) => Promise<Record<string, any> | undefined>;
     /** 经 Trajectory 读取该 Run 的已提交事实。 */
@@ -144,6 +146,7 @@ async function startHarness(options: {
         stop,
         request,
         createGoal,
+        respond: (goalId, input) => composition.sessions.sendSessionInput(goalId, input),
         readInteraction: async (goalId: string) => {
             const view = await composition.interactions.read(goalId);
             return view as Record<string, any> | undefined;
@@ -358,13 +361,14 @@ test("集成：审批等待按 action_approval 领域身份发布，修订后按
             // 复核一：审批等待按 action_approval 领域身份发布，引用指向真实 Action。
             const required = await waitForEvent(
                 harness,
-                (event) => event.type === "interaction_opened",
+                (event) => event.type === "state_sync" && event.state?.waitingFor === "action_approval",
                 "the action approval wait",
             );
-            assert.equal(required.kind, "action_approval");
-            assert.match(required.interactionId, /^action_approval:.+/);
-            const actionId = required.interactionId.slice("action_approval:".length);
-            const runId = required.runId;
+            const interaction = required.state.interaction;
+            assert.equal(interaction.kind, "action_approval");
+            assert.match(interaction.interactionId, /^action_approval:.+/);
+            const actionId = interaction.interactionId.slice("action_approval:".length);
+            const runId = required.state.runId;
 
             // 复核二：只读预检给出原请求与最终参数的关联，且不产生执行授权。
             const review = await harness.request(`/api/goals/${goalId}/action-reviews`, "POST", {
@@ -380,11 +384,10 @@ test("集成：审批等待按 action_approval 领域身份发布，修订后按
             assert.deepEqual(executed, []);
 
             // 提交修订决定：绑定审阅引用，最终参数与授权由 A 拥有。
-            const responded = await harness.request(`/api/goals/${goalId}/inputs`, "POST", {
+            const responded = await harness.respond(goalId, {
                 kind: "respond",
                 inputId: "input-integration-revision-approve",
                 runId,
-                // 浏览器与无界面宿主对 Action 类决定使用当前 Action 身份作为请求引用。
                 requestId: actionId,
                 response: {
                     kind: "approve_action_revision",
@@ -393,41 +396,18 @@ test("集成：审批等待按 action_approval 领域身份发布，修订后按
                     reviewRef: review.body.review.reviewRef,
                 },
             });
-            assert.equal(responded.status, 202);
+            assert.equal(responded.ok, true, JSON.stringify(responded));
 
             // 实际执行使用最终参数；原请求参数未被执行。
             await waitFor(() => executed.length > 0, "the controlled tool to run");
             assert.deepEqual(executed, [{ value: "revised" }]);
 
-            // 复核三：工具活动按子操作自身身份发布。
-            const toolStarted = await waitForEvent(
-                harness,
-                (event) => event.type === "activity" && event.activity?.kind === "tool_started",
-                "the tool activity",
-            );
-            assert.equal(toolStarted.activity.toolId, "controlled_write");
-            assert.equal(toolStarted.activity.actionId, actionId);
-
-            // 复核四：候选预览先于正式答复，正式消息按稳定身份结算并关联预览来源。
-            await waitForEvent(
-                harness,
-                (event) => event.type === "activity" && event.activity?.kind === "candidate_preview",
-                "the candidate preview",
-            );
-            // 同一候选可能被后续调用替换：正式消息关联的是最后一次有效预览。
-            const preview = [...harness.events]
-                .reverse()
-                .find((event) => event.type === "activity" && event.activity?.kind === "candidate_preview");
-            assert.ok(preview !== undefined);
-            assert.equal(preview.activity.text, "最终答复正文");
-            const committed = await waitForEvent(
-                harness,
-                (event) => event.type === "message_committed",
-                "the committed answer message",
-            );
-            assert.equal(committed.message.purpose, "answer");
-            assert.equal(typeof committed.message.messageId, "string");
-            assert.equal(committed.message.previewId, preview.activity.candidateId);
+            // 复核三：执行事实进入轨迹；SSE 通知客户端刷新 Activity。
+            await waitFor(async () => (await harness.readTrajectory(goalId, runId))
+                .some((event) => event.eventType === "tool_started" && event.actionId === actionId),
+            "the committed tool activity");
+            assert.equal(harness.events.some((event) => event.type === "state_committed"
+                && event.changed?.includes("activity") === true), true);
 
             // 正式消息按稳定身份可查，来源指向被接受的完成候选。
             const messages = await harness.request(`/api/goals/${goalId}/messages?limit=50`, "GET");
@@ -505,35 +485,35 @@ test("集成：结果未知按 action_recovery 领域身份发布，恢复引用
         try {
             const required = await waitForEvent(
                 harness,
-                (event) => event.type === "interaction_opened",
+                (event) => event.type === "state_sync" && event.state?.waitingFor === "action_approval",
                 "the action approval wait",
             );
-            assert.equal(required.kind, "action_approval");
-            const actionId = required.interactionId.slice("action_approval:".length);
-            const runId = required.runId;
+            const interaction = required.state.interaction;
+            assert.equal(interaction.kind, "action_approval");
+            const actionId = interaction.interactionId.slice("action_approval:".length);
+            const runId = required.state.runId;
 
-            const responded = await harness.request(`/api/goals/${goalId}/inputs`, "POST", {
+            const responded = await harness.respond(goalId, {
                 kind: "respond",
                 inputId: "input-integration-recovery-approve",
                 runId,
-                // 浏览器与无界面宿主对 Action 类决定使用当前 Action 身份作为请求引用。
                 requestId: actionId,
                 response: { kind: "approve_action", actionId },
             });
-            assert.equal(responded.status, 202);
+            assert.equal(responded.ok, true, JSON.stringify(responded));
 
             // 复核：结果未知的等待按 action_recovery 领域身份发布，引用稳定。
             const recovery = await waitForEvent(
                 harness,
-                (event) => event.type === "interaction_opened" && event.kind === "action_recovery",
+                (event) => event.type === "state_sync" && event.state?.waitingFor === "action_recovery",
                 "the unknown outcome wait",
             );
-            assert.equal(recovery.interactionId, `action_recovery:${actionId}`);
-            assert.equal(recovery.runId, runId);
+            assert.equal(recovery.state.interaction.interactionId, `action_recovery:${actionId}`);
+            assert.equal(recovery.state.runId, runId);
 
             // 恢复引用只能来自当前等待视图。
             const details = await harness.request(
-                `/api/goals/${goalId}/interaction-details?runId=${runId}&interactionId=${encodeURIComponent(recovery.interactionId)}`,
+                `/api/goals/${goalId}/interaction-details?runId=${runId}&interactionId=${encodeURIComponent(recovery.state.interaction.interactionId)}`,
                 "GET",
             );
             assert.equal(details.status, 200);
@@ -542,25 +522,25 @@ test("集成：结果未知按 action_recovery 领域身份发布，恢复引用
             assert.equal(typeof recoveryRef, "string");
 
             // 过期恢复引用不被接受。
-            const staleRef = await harness.request(`/api/goals/${goalId}/inputs`, "POST", {
+            const staleRef = await harness.respond(goalId, {
                 kind: "respond",
                 inputId: "input-integration-recovery-stale",
                 runId,
                 requestId: actionId,
                 response: { kind: "retry_unknown_action", actionId, recoveryRef: "recovery-not-current" },
             });
-            assert.equal(staleRef.status, 409);
-            assert.equal(staleRef.body.error, "INTERACTION_MISMATCH");
+            assert.equal(staleRef.ok, false);
+            assert.equal(staleRef.code, "INTERACTION_MISMATCH");
 
             // 复核：独立重执行决定使用当前恢复引用，并真正重跑该 Action。
-            const retried = await harness.request(`/api/goals/${goalId}/inputs`, "POST", {
+            const retried = await harness.respond(goalId, {
                 kind: "respond",
                 inputId: "input-integration-recovery-retry",
                 runId,
                 requestId: actionId,
                 response: { kind: "retry_unknown_action", actionId, recoveryRef },
             });
-            assert.equal(retried.status, 202);
+            assert.equal(retried.ok, true, JSON.stringify(retried));
             await waitFor(() => executed.length > 1, "the independent re-execution");
             assert.deepEqual(executed, [{ value: "original" }, { value: "original" }]);
         } finally {
@@ -660,12 +640,13 @@ test("集成：PTC 子操作工具活动保留子操作身份，父程序身份�
             // 复核：PTC 子操作的审批等待按子操作自身身份发布。
             const required = await waitForEvent(
                 harness,
-                (event) => event.type === "interaction_opened",
+                (event) => event.type === "state_sync" && event.state?.waitingFor === "action_approval",
                 "the PTC child approval wait",
             );
-            assert.equal(required.kind, "action_approval");
-            const childActionId = required.interactionId.slice("action_approval:".length);
-            const runId = required.runId;
+            const interaction = required.state.interaction;
+            assert.equal(interaction.kind, "action_approval");
+            const childActionId = interaction.interactionId.slice("action_approval:".length);
+            const runId = required.state.runId;
             assert.notEqual(childActionId, "");
             // 子操作身份由父程序身份与调用序号派生，不与父程序 Action 混同。
             assert.equal(childActionId.includes(":"), true);
@@ -680,7 +661,7 @@ test("集成：PTC 子操作工具活动保留子操作身份，父程序身份�
 
             // 复核：浏览器 wire 能按 PTC 子操作身份寻址交互详情，并给出父程序身份。
             const details = await harness.request(
-                `/api/goals/${goalId}/interaction-details?runId=${runId}&interactionId=${encodeURIComponent(required.interactionId)}`,
+                `/api/goals/${goalId}/interaction-details?runId=${runId}&interactionId=${encodeURIComponent(interaction.interactionId)}`,
                 "GET",
             );
             assert.equal(details.status, 200);
@@ -711,25 +692,21 @@ test("集成：PTC 子操作工具活动保留子操作身份，父程序身份�
             assert.ok(parentStaged !== undefined);
 
             // 复核：子操作工具活动携带子操作自身的 Action 身份。
-            const responded = await harness.request(`/api/goals/${goalId}/inputs`, "POST", {
+            const responded = await harness.respond(goalId, {
                 kind: "respond",
                 inputId: "input-integration-ptc-approve",
                 runId,
                 requestId: childActionId,
                 response: { kind: "approve_action", actionId: childActionId },
             });
-            assert.equal(responded.status, 202);
+            assert.equal(responded.ok, true, JSON.stringify(responded));
             await waitFor(() => executed.length > 0, "the PTC child write");
             assert.deepEqual(executed, [{ path: "a.txt", content: "original" }]);
 
-            // 复核：会话输出中的工具活动使用子操作自身的 Action 身份。
-            const toolStarted = await waitForEvent(
-                harness,
-                (event) => event.type === "activity" && event.activity?.kind === "tool_started",
-                "the PTC child tool activity",
-            );
-            assert.equal(toolStarted.activity.toolId, "write_file");
-            assert.equal(toolStarted.activity.actionId, childActionId);
+            // Activity 失效通知后，已提交轨迹保留子 Action 的 Tool 身份。
+            await waitFor(async () => (await harness.readTrajectory(goalId, runId))
+                .some((event) => event.eventType === "tool_started" && event.actionId === childActionId),
+            "the committed PTC child tool activity");
         } finally {
             await unsubscribe();
         }

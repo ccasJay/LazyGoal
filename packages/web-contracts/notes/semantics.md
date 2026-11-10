@@ -11,7 +11,7 @@
 | UTF-16 文本上限 | wire 文本按 UTF-16 code unit 计数的唯一实现。 | [Web 传输契约](../README.md) | [utf16.ts](../src/invariants/utf16.ts) |
 | BrowserGoalList | Goal 列表响应信封：可读取摘要与无法读取的历史 Goal 数量。 | [Web 传输契约](../README.md) | [Session DTO](../src/session.ts) |
 | BrowserGoalSessionState | 只含当前 Run 状态的窄会话 DTO；消息、步骤和阶段历史明确由 Activity 提供。 | [Web 传输契约](../README.md) | [Session DTO](../src/session.ts) |
-| BrowserSessionInputCommand | 统一输入 wire 命令；队列删除与 Steer 来源转换均绑定客户端读取的队列修订，Runtime 负责最终原子校验。 | [Web 传输契约](../README.md) | [输入命令 DTO](../src/session-input.ts)、[入站解析](../../browser/src/browser-goal-routes.ts) |
+| BrowserSessionInputCommand | 会话输入 wire 命令；恢复可携带未知副作用确认，队列删除与 Steer 来源转换绑定客户端读取的队列修订。具体 Web 入口可限制支持的命令子集。 | [Web 传输契约](../README.md) | [输入命令 DTO](../src/session-input.ts)、[Goal Server Trigger 端口](../../../apps/goal-server/src/browser-session-port.ts) |
 | BrowserActivityPage | 固定水位的白名单 Activity 页；含最多 100 个原子项、双向 cursor 和未加载首尾范围。 | [Web 传输契约](../README.md) | [Activity DTO](../src/activity.ts) |
 | BrowserActivityMessageItem.purpose | 必填的助手消息用途：过程、最终答复或公开通知；用户消息省略。 | [Web 传输契约](../README.md) | [Activity DTO](../src/activity.ts) |
 | BrowserActivityMessageItem.previewId | 已保存完成候选答复关联的公开候选身份；不包含临时预览正文。 | [Web 传输契约](../README.md) | [Activity DTO](../src/activity.ts) |

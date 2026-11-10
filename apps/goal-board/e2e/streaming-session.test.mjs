@@ -10,8 +10,8 @@ import { test } from "node:test";
 const repositoryRoot = resolve(import.meta.dirname, "../../..");
 const serviceEntry = join(repositoryRoot, "apps/goal-board/e2e/test-service.ts");
 
-test("streaming session keeps one runtime queue across Steer, Interrupt, tabs and restart", { timeout: 180_000 }, async () => {
-  const temporaryRoot = await mkdtemp(join(tmpdir(), "lazygoal-streaming-session-"));
+test("existing Goal status and stop controls do not expose a follow-up composer", { timeout: 120_000 }, async () => {
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "lazygoal-worker-session-ui-"));
   const workspace = join(temporaryRoot, "workspace");
   const data = join(temporaryRoot, "data");
   const home = join(temporaryRoot, "home");
@@ -22,11 +22,21 @@ test("streaming session keeps one runtime queue across Steer, Interrupt, tabs an
   let service;
   let chrome;
   let socket;
-  let secondSocket;
-
   try {
     service = await startService({ workspace, data, home, statusPath, runOffset: 0, modelOffset: 0, delayModel: true });
-    const first = await service.ready;
+    const ready = await service.ready;
+    const created = await api(ready.origin, "/api/goals", {
+      token: ready.token,
+      method: "POST",
+      headers: { "content-type": "application/json", origin: ready.origin },
+      body: JSON.stringify({
+        goalId: "goal-worker-session-ui",
+        inputId: "input-worker-session-ui",
+        intent: "Streaming session flow: hold while the Worker stop control is checked",
+      }),
+    });
+    assert.equal(created.response.status, 202, JSON.stringify(created.body));
+    const running = await waitForSession(ready.origin, ready.token, (candidate) => candidate.goalId === "goal-worker-session-ui" && candidate.runStatus === "running");
 
     chrome = spawn(findChrome(), [
       "--headless=new",
@@ -45,179 +55,40 @@ test("streaming session keeps one runtime queue across Steer, Interrupt, tabs an
     socket = await connectCdp(target.webSocketDebuggerUrl);
     await cdp(socket, "Page.enable");
     await cdp(socket, "Runtime.enable");
-    // 显式桌面布局视口：headless 默认宽度会触发移动布局。
     await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
-
-    await navigate(socket, first.launchUrl);
-    await waitForExpression(socket, "document.querySelector('button.primary') !== null", 15_000);
-    await cdp(socket, "Runtime.evaluate", {
-      expression: "[...document.querySelectorAll('button.primary')].find(button => button.textContent.includes('New goal')).click()",
-      returnByValue: true,
-    });
-    await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]') !== null", 15_000);
-    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Streaming session flow: stream one long running goal");
-    await waitForExpression(socket, "document.querySelector('button[aria-label=\"Send message\"]')?.disabled === false", 15_000);
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Send message\"]').click()", returnByValue: true });
-    let session = await waitForSession(first.origin, first.token, (candidate) => candidate.runStatus === "running" || candidate.runStatus === "waiting");
-    const goalId = session.goalId;
-    const firstRunId = session.currentRunId;
-    await waitForExpression(socket, "document.querySelector('.composer-area') !== null", 15_000);
-
-    // 运行中默认 Queue：Enter 直接排队，只持久化受理，不取消在途调用。
-    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Queued while running");
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('textarea[aria-label=\\\"Message the Goal\\\"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.queued-input-status')?.innerText.includes('Queued while running')", 15_000);
-    session = await waitForSession(first.origin, first.token, (candidate) => (candidate.pendingMessages?.length ?? 0) === 1);
-    assert.equal(session.currentRunId, firstRunId);
-    assert.equal(session.queue.paused, false);
-    const queueRevision = session.queue.revision;
-
-    // 排队项可在活动状态框中原子转为当前 Run 的 Steer。
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.queued-input-status > button').click()", returnByValue: true });
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\\\"Steer queued message 1 into the current Run\\\"]').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.queued-input-status')?.innerText.includes('Steer: Waiting for next model call')", 15_000);
-    session = await waitForSession(first.origin, first.token, (candidate) => (candidate.pendingSteers?.length ?? 0) === 1);
-    assert.equal(session.currentRunId, firstRunId);
-    assert.equal(session.pendingSteers[0].content, "Queued while running");
-
-    // 折叠队列支持删除单条消息，删除后队列中的 Steer 仍保留。
-    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Delete this queued task");
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.composer-area .send.is-running').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.queued-input-status')?.innerText.includes('Delete this queued task')", 15_000);
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\\\"Delete queued message 1\\\"]').click()", returnByValue: true });
-    session = await waitForSession(first.origin, first.token, (candidate) => (candidate.pendingMessages?.length ?? 0) === 0);
-    assert.equal(session.pendingSteers?.[0]?.content, "Queued while running");
-
-    // 在 Steer 之后继续排队一条普通消息，确认暂停时该项会保留。
-    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Queue follow-up task");
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.composer-area .send.is-running').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.queued-input-status')?.innerText.includes('Queue follow-up task')", 15_000);
-
-    // 空输入时唯一发送按钮暂停当前 Run，并暂停后继队列。
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.composer-area .send.is-running[aria-label=\"Pause Run\"]').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('button[aria-label=\"Pausing Run\"]') !== null || document.querySelector('.queue-paused') !== null", 10_000);
-    const paused = await waitForSession(first.origin, first.token, (candidate) => candidate.queue?.paused === true);
-    assert.equal(paused.queue.pauseReason, "user_interrupt");
-    assert.equal((paused.pendingMessages ?? []).length, 1, "queued message stays pending while paused");
-    const cancelled = await waitForSession(first.origin, first.token, (candidate) => candidate.runStatus === "cancelled");
-    assert.equal(cancelled.currentRunId, firstRunId);
-    // 已受理但未应用的 Steer 保留可核验身份，且不能出现在对话中。
-    assert.deepEqual((cancelled.pendingSteers ?? []).map((item) => item.content), ["Queued while running"]);
-    assert.equal(cancelled.messages.some((message) => message.role === "user" && message.content === "Queued while running"), false, "a cancelled Run never applies its pending Steer");
-    // 取消结算后不再产生新的模型调用。
-    const cancelledCalls = (await readStatus(statusPath)).modelCalls;
-    await delay(1_500);
-    assert.equal((await readStatus(statusPath)).modelCalls, cancelledCalls, "a cancelled Run makes no further model call");
-
-    // 刷新与第二个标签页：队列、暂停与修订都来自服务端，旧本地队列不再被导入。
-    await cdp(socket, "Runtime.evaluate", {
-      expression: `localStorage.setItem(${JSON.stringify(`lazygoal.queue.${goalId}`)}, JSON.stringify({ items: [{ messageId: "legacy-local-task", content: "Legacy local task" }], paused: false }))`,
-      returnByValue: true,
-    });
-    await cdp(socket, "Page.reload");
-    await waitForExpression(socket, "document.readyState === 'complete' && document.querySelector('.goal-card') !== null", 15_000);
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelectorAll('.goal-card')[0].click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.queued-input-status')?.innerText.includes('Queue follow-up task')", 15_000);
-    assert.equal(await value(socket, "document.querySelector('.queued-input-status').innerText.includes('Legacy local task')"), false, "the legacy local queue is never imported");
-    await waitForExpression(socket, "document.querySelector('.queued-input-status .queue-status-dot.is-paused') !== null", 15_000);
-    session = await sessionDetail(first.origin, first.token, goalId);
-    assert.deepEqual((session.pendingMessages ?? []).map((item) => item.content), ["Queue follow-up task"], "refresh only restores Runtime-accepted items");
-    assert.equal(session.queue.paused, true, "the legacy paused flag is not imported");
-    const secondTarget = await (await fetch(`http://127.0.0.1:${devtools.port}/json/new?${encodeURIComponent(first.launchUrl)}`, { method: "PUT" })).json();
-    secondSocket = await connectCdp(secondTarget.webSocketDebuggerUrl);
-    await cdp(secondSocket, "Page.enable");
-    await cdp(secondSocket, "Runtime.enable");
-    await cdp(secondSocket, "Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
-    await waitForExpression(secondSocket, "document.querySelector('.goal-card') !== null", 20_000);
-    await cdp(secondSocket, "Runtime.evaluate", { expression: "document.querySelectorAll('.goal-card')[0].click()", returnByValue: true });
-    await waitForExpression(secondSocket, "document.querySelector('.queued-input-status')?.innerText.includes('Queue follow-up task')", 20_000);
-    session = await sessionDetail(first.origin, first.token, goalId);
-    assert.equal((session.pendingMessages ?? []).length, 1, "both tabs read the same single accepted item");
-
-    // 拒绝保留草稿：过期修订的队列控制被拒绝且不清空输入框。
-    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Draft that must survive rejection");
-    const staleControl = await api(first.origin, `/api/goals/${goalId}/inputs`, {
-      token: first.token,
-      method: "POST",
-      headers: { "content-type": "application/json", origin: first.origin },
-      body: JSON.stringify({ kind: "queue_control", inputId: "stale-revision", action: "clear", queueRevision: queueRevision + 99 }),
-    });
-    assert.equal(staleControl.response.status, 409);
-    assert.equal(staleControl.body.error, "QUEUE_REVISION_MISMATCH");
-    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\\\"Message the Goal\\\"]')?.value"), "Draft that must survive rejection");
-    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "");
-
-    // 丢响应重试复用身份：同一 inputId 重试返回既有收据，不重复入队。
-    const firstAttempt = await api(first.origin, `/api/goals/${goalId}/inputs`, {
-      token: first.token,
-      method: "POST",
-      headers: { "content-type": "application/json", origin: first.origin },
-      body: JSON.stringify({ kind: "message", inputId: "retry-identity", content: "Retry once" }),
-    });
-    assert.equal(firstAttempt.response.status, 202);
-    const retried = await api(first.origin, `/api/goals/${goalId}/inputs`, {
-      token: first.token,
-      method: "POST",
-      headers: { "content-type": "application/json", origin: first.origin },
-      body: JSON.stringify({ kind: "message", inputId: "retry-identity", content: "Retry once" }),
-    });
-    assert.equal(retried.response.status, 200);
-    assert.equal(retried.body.existing, true);
-    assert.equal(retried.body.receipt.sequence, firstAttempt.body.receipt.sequence);
-    session = await waitForSession(first.origin, first.token, (candidate) => (candidate.pendingMessages?.length ?? 0) === 2);
-    assert.equal(session.pendingMessages.filter((item) => item.content === "Retry once").length, 1, "identity retry does not duplicate the queued item");
-
-    // 显式继续队列：从原队首启动后继 Run，页面刷新后只看到服务端顺序。
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.queued-input-status > button[aria-expanded=false]')?.click()", returnByValue: true });
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.queue-paused button').click()", returnByValue: true });
-    session = await waitForSession(first.origin, first.token, (candidate) => candidate.currentRunId !== firstRunId && candidate.queue?.paused === false);
-    assert.notEqual(session.currentRunId, firstRunId);
-    assert.deepEqual((session.pendingMessages ?? []).map((item) => item.content), ["Retry once"], "the original queue head is applied before the newer item");
-
-    // 清空队列只影响尚未应用的普通消息，并保留收据。
-    const clearable = await waitForSession(first.origin, first.token, (candidate) => (candidate.pendingMessages?.length ?? 0) === 1);
-    const cleared = await api(first.origin, `/api/goals/${goalId}/inputs`, {
-      token: first.token,
-      method: "POST",
-      headers: { "content-type": "application/json", origin: first.origin },
-      body: JSON.stringify({ kind: "queue_control", inputId: "clear-queue", action: "clear", queueRevision: clearable.queue.revision }),
-    });
-    assert.equal(cleared.response.status, 202);
-    const afterClear = await waitForSession(first.origin, first.token, (candidate) => (candidate.pendingMessages ?? []).length === 0);
-    assert.equal(afterClear.queue.paused, false);
-    const receipt = await api(first.origin, `/api/goals/${goalId}/inputs/retry-identity`, { token: first.token });
-    assert.equal(receipt.body.found, true);
-    assert.equal(receipt.body.receipt.status, "cleared");
-
-    // 重启：页面只显示待恢复状态，不发起模型调用，已受理身份与当前 Run 保持不变。
-    const beforeRestart = await sessionDetail(first.origin, first.token, goalId);
-    await stopService(service);
-    service = await startService({ workspace, data, home, statusPath, runOffset: 20, modelOffset: 60, delayModel: true });
-    const restarted = await service.ready;
-    await cdp(socket, "Page.navigate", { url: restarted.launchUrl });
+    await navigate(socket, ready.launchUrl);
     await waitForExpression(socket, "document.querySelector('.goal-card') !== null", 20_000);
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelectorAll('.goal-card')[0].click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.composer-area .send[aria-label=\"Resume Run\"]:not(:disabled)') !== null", 20_000);
-    assert.equal((await readStatus(statusPath)).modelCalls, 60, "restart performs no automatic model call");
-    const recovered = await sessionDetail(restarted.origin, restarted.token, goalId);
-    assert.equal(recovered.currentRunId, beforeRestart.currentRunId, "restart keeps the accepted Run identity");
-    assert.notEqual(recovered.execution.state, "active");
-    const restoredReceipt = await api(restarted.origin, `/api/goals/${goalId}/inputs/retry-identity`, { token: restarted.token });
-    assert.equal(restoredReceipt.response.status, 200);
-    assert.equal(restoredReceipt.body.found, true);
-    assert.equal(restoredReceipt.body.receipt.status, "cleared", "accepted input identities survive the restart");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.goal-card').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.composer-recover-actions button')?.textContent.includes('Stop Run')", 20_000);
+    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Goal intent\"]') === null"), true);
+    assert.equal(await value(socket, "document.querySelector('.queued-input-status') === null"), true);
+    assert.equal(await value(socket, "[...document.querySelectorAll('.composer-area button')].some(button => /steer|queue|continue/i.test(button.textContent + ' ' + button.getAttribute('aria-label')))"), false);
 
+    await cdp(socket, "Runtime.evaluate", { expression: "localStorage.setItem('lazygoal.queue.goal-worker-session-ui', JSON.stringify({ items: [{ messageId: 'legacy-item', content: 'legacy queue entry' }], paused: false }))", returnByValue: true });
+    await cdp(socket, "Page.reload");
+    await waitForExpression(socket, "document.readyState === 'complete' && document.querySelector('.goal-card') !== null", 20_000);
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.goal-card').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.composer-recover-actions button')?.textContent.includes('Stop Run')", 20_000);
+    assert.equal(await value(socket, "document.querySelector('.queued-input-status') === null"), true, "legacy browser queue state is ignored");
+    assert.equal(await value(socket, "document.body.innerText.includes('legacy queue entry')"), false);
+
+    await cdp(socket, "Runtime.evaluate", {
+      expression: "[...document.querySelectorAll('.composer-recover-actions button')].find(button => button.textContent.includes('Stop Run')).click()",
+      returnByValue: true,
+    });
+    const stopped = await waitForSession(ready.origin, ready.token, (candidate) => candidate.goalId === running.goalId && candidate.runStatus === "cancelled");
+    assert.equal(stopped.currentRunId, running.currentRunId, "stop settles the existing Run");
+    assert.equal(stopped.messages.some((message) => message.role === "user" && message.content.includes("follow-up")), false);
   } finally {
     socket?.close();
-    secondSocket?.close();
     if (chrome !== undefined) await stopProcess(chrome, "SIGKILL", 5_000);
     if (service !== undefined) await stopService(service);
     await rm(temporaryRoot, { recursive: true, force: true });
   }
 });
 
-test("a recoverable Run reuses the composer to resume and pause", { timeout: 120_000 }, async () => {
-  const temporaryRoot = await mkdtemp(join(tmpdir(), "lazygoal-recoverable-composer-"));
+test("recoverable Worker progress requires explicit unknown-effect confirmation", { timeout: 120_000 }, async () => {
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "lazygoal-recoverable-worker-"));
   const workspace = join(temporaryRoot, "workspace");
   const data = join(temporaryRoot, "data");
   const home = join(temporaryRoot, "home");
@@ -229,26 +100,26 @@ test("a recoverable Run reuses the composer to resume and pause", { timeout: 120
   let chrome;
   let socket;
   try {
-    service = await startService({ workspace, data, home, statusPath, runOffset: 0, modelOffset: 0 });
+    service = await startService({ workspace, data, home, statusPath, runOffset: 0, modelOffset: 0, delayModel: true });
     const first = await service.ready;
     const created = await api(first.origin, "/api/goals", {
       token: first.token,
       method: "POST",
       headers: { "content-type": "application/json", origin: first.origin },
       body: JSON.stringify({
-        goalId: "goal-recoverable-stop",
-        inputId: "input-recoverable-stop",
-        intent: "Streaming session flow: hold this Run for recovery-stop verification",
+        goalId: "goal-recoverable-worker",
+        inputId: "input-recoverable-worker",
+        intent: "Streaming session flow: hold this Run for explicit recovery verification",
       }),
     });
     assert.equal(created.response.status, 202, JSON.stringify(created.body));
     const running = await waitForSession(first.origin, first.token, (candidate) => candidate.runStatus === "running");
     await waitFor(async () => (await readStatus(statusPath)).modelCalls > 0, "the active model call", 15_000);
 
-    // 模型响应仍在等待时重启宿主，创建一个真实的 recoverable Run。
     await stopService(service);
     service = await startService({ workspace, data, home, statusPath, runOffset: 20, modelOffset: 20, delayModel: true });
     const restarted = await service.ready;
+    const beforeResumeCalls = (await readStatus(statusPath)).modelCalls;
 
     chrome = spawn(findChrome(), [
       "--headless=new",
@@ -271,46 +142,39 @@ test("a recoverable Run reuses the composer to resume and pause", { timeout: 120
     await navigate(socket, restarted.launchUrl);
     await waitForExpression(socket, "document.querySelector('.goal-card') !== null", 20_000);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.goal-card').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.composer-area .send[aria-label=\"Resume Run\"]:not(:disabled)') !== null", 20_000);
+    await waitForExpression(socket, "document.querySelector('.composer-recover-actions button')?.textContent.includes('Resume Run')", 20_000);
 
     const recoverable = await sessionDetail(restarted.origin, restarted.token, running.goalId);
     assert.equal(recoverable.currentRunId, running.currentRunId);
     assert.equal(recoverable.runStatus, "running");
     assert.equal(recoverable.execution.state, "recoverable");
-    assert.equal(await value(socket, "document.querySelector('.composer-area textarea[aria-label=\\\"Message the Goal\\\"]') !== null"), true);
-    assert.equal(await value(socket, "document.querySelector('.composer-recover-actions button') === null"), true, "recoverable Run has no separate recovery action row");
-    await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]') !== null", 10_000);
-    await setText(socket, "textarea[aria-label=\"Message the Goal\"]", "Queue a message while the Run is recoverable");
-    await waitForExpression(socket, "document.querySelector('button[aria-label=\"Send message\"]')?.disabled === false", 10_000);
-    await cdp(socket, "Runtime.evaluate", {
-      expression: "document.querySelector('button[aria-label=\\\"Send message\\\"]')?.click()",
-      returnByValue: true,
-    });
-    const queued = await waitForSession(
-      restarted.origin,
-      restarted.token,
-      (candidate) => candidate.pendingMessages?.some((message) => message.content === "Queue a message while the Run is recoverable") === true,
-    );
-    assert.equal(queued.currentRunId, running.currentRunId, "queued input does not replace the recoverable Run");
+    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Goal intent\"]') === null"), true);
+    assert.equal(await value(socket, "document.querySelector('.composer-recover-actions button').disabled"), false);
+    assert.equal((await readStatus(statusPath)).modelCalls, beforeResumeCalls, "loading a recoverable Goal does not resume it");
 
     await cdp(socket, "Runtime.evaluate", {
-      expression: "document.querySelector('.composer-area .send[aria-label=\\\"Resume Run\\\"]')?.click()",
+      expression: "document.querySelector('.composer-recover-actions button').click()",
       returnByValue: true,
     });
-    await waitForExpression(socket, "document.querySelector('.composer-area .send.is-running[aria-label=\"Pause Run\"]') !== null", 20_000);
+    await waitForExpression(socket, "document.querySelector('[role=alertdialog]')?.innerText.includes('Resume and accept the risk')", 10_000);
+    assert.match(await value(socket, "document.querySelector('[role=alertdialog]').innerText"), /may not show whether its last action took effect/);
+    assert.equal((await readStatus(statusPath)).modelCalls, beforeResumeCalls, "opening the confirmation has no execution side effect");
     await cdp(socket, "Runtime.evaluate", {
-      expression: "document.querySelector('.composer-area .send.is-running[aria-label=\\\"Pause Run\\\"]')?.click()",
+      expression: "[...document.querySelectorAll('[role=alertdialog] button')].find(button => button.textContent.includes('Resume and accept the risk')).click()",
       returnByValue: true,
     });
 
-    const stopped = await waitForSession(restarted.origin, restarted.token, (candidate) => candidate.runStatus === "cancelled");
+    await waitForExpression(socket, "document.querySelector('.composer-recover-actions button')?.textContent.includes('Stop Run')", 20_000);
+    const resumed = await waitForSession(restarted.origin, restarted.token, (candidate) => candidate.goalId === running.goalId && candidate.runStatus === "running" && candidate.execution?.state === "active");
+    assert.equal(resumed.currentRunId, running.currentRunId, "recovery continues the existing Run");
+    assert.ok((await readStatus(statusPath)).modelCalls > beforeResumeCalls, "explicit recovery resumes model execution");
+    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Goal intent\"]') === null"), true);
+    await cdp(socket, "Runtime.evaluate", {
+      expression: "[...document.querySelectorAll('.composer-recover-actions button')].find(button => button.textContent.includes('Stop Run')).click()",
+      returnByValue: true,
+    });
+    const stopped = await waitForSession(restarted.origin, restarted.token, (candidate) => candidate.goalId === running.goalId && candidate.runStatus === "cancelled");
     assert.equal(stopped.currentRunId, running.currentRunId, "stop cancels the recovered Run in place");
-    assert.equal(stopped.queue.paused, true, "stopping keeps any queued follow-up work paused");
-    assert.equal(
-      stopped.pendingMessages?.some((message) => message.content === "Queue a message while the Run is recoverable"),
-      true,
-      "queued input remains available after stopping the Run",
-    );
   } finally {
     socket?.close();
     if (chrome !== undefined) await stopProcess(chrome, "SIGKILL", 5_000);

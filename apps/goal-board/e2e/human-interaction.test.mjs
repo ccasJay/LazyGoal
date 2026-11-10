@@ -10,7 +10,7 @@ import { test } from "node:test";
 const repositoryRoot = resolve(import.meta.dirname, "../../..");
 const serviceEntry = join(repositoryRoot, "apps/goal-board/e2e/test-service.ts");
 
-test("human interaction questionnaire: navigation, review, queue, overall reply and skip", { timeout: 240_000 }, async () => {
+test("human interaction questionnaire: navigation, review, overall reply and skip", { timeout: 240_000 }, async () => {
   const fixture = await startHarness("human-interaction-questionnaire");
   const { socket, service } = fixture;
   const { origin, token, launchUrl } = await service.ready;
@@ -25,8 +25,8 @@ test("human interaction questionnaire: navigation, review, queue, overall reply 
     assert.match(await value(socket, "document.querySelector('.question-nav-progress').textContent"), /Answered 0 of 2/);
     assert.match(await value(socket, "document.querySelector('.interaction-review').innerText"), /Not answered/);
     assert.equal(await value(socket, "document.querySelectorAll('.question-nav-item').length"), 2);
-    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Queue next task\"]') !== null"), true);
-    assert.match(await value(socket, "document.querySelector('.queue-note').textContent"), /queued as the next task/);
+    assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Goal intent\"]') !== null"), false,
+      "a waiting Goal has no ordinary follow-up composer");
     assert.match(await value(socket, "document.querySelector('.interaction-region .approval-heading').innerText"), /Your answer is needed/);
 
     await clickLabel(socket, "label.answer-option", "Approved notes");
@@ -71,7 +71,7 @@ test("human interaction questionnaire: navigation, review, queue, overall reply 
     const skipMessage = skipped.messages.find((message) => message.role === "user" && message.content.includes("did not answer"));
     assert.equal(skipMessage?.runId, skipGoal.runId, "skip continues the same Run");
     assert.equal(skipped.messages.some((message) => message.content.includes("Answer:")), false, "skip never fills default answers");
-    // 整体回复流程：模式切换保留两种草稿，等待期间的普通输入只排队。
+    // 整体回复流程：模式切换保留两种草稿，且只提交当前选中的结构化答复。
     const replyGoal = await createGoal(socket, origin, token, "Human interaction flow: reply", fixture.statusPath);
     await waitForExpression(socket, "document.querySelector('.interaction-region.question-region') !== null", 20_000);
     await clickLabel(socket, "label.answer-option", "All notes");
@@ -82,17 +82,8 @@ test("human interaction questionnaire: navigation, review, queue, overall reply 
     await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.interaction-mode-switch label')].find(label => label.innerText.includes('Answer each question')).querySelector('[role=radio], [role=checkbox]').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.question-nav-progress').textContent.includes('Answered 1 of 2')");
     assert.equal(await checked(socket, "label.answer-option", "All notes"), true, "per-question draft survives the mode switch");
-    await setText(socket, "textarea[aria-label=\"Queue next task\"]", "Queue this follow-up task");
-    await waitForExpression(socket, "document.querySelector('button[aria-label=\"Send message\"]')?.disabled === false");
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Send message\"]').click()", returnByValue: true });
-    const queuedGoal = await waitFor(async () => {
-      const candidate = await sessionDetail(origin, token, replyGoal.goalId);
-      return (candidate.pendingMessages ?? []).length === 1 ? candidate : undefined;
-    }, "the queued follow-up task", 20_000);
-    assert.equal(queuedGoal.pendingMessages[0].content, "Queue this follow-up task");
-    assert.equal(await value(socket, "document.querySelector('.queued-input-status')?.innerText.includes('Queue this follow-up task')"), true);
     await waitForExpression(socket, "document.querySelector('.question-nav-item.answered') !== null");
-    assert.equal(await checked(socket, "label.answer-option", "All notes"), true, "queueing keeps the questionnaire draft");
+    assert.equal(await checked(socket, "label.answer-option", "All notes"), true, "switching modes keeps the questionnaire draft");
 
     // 切回整体回复：两份草稿都在，只提交当前方式。
     await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.interaction-mode-switch label')].find(label => label.innerText.includes('Reply instead')).querySelector('[role=radio], [role=checkbox]').click()", returnByValue: true });
@@ -103,13 +94,9 @@ test("human interaction questionnaire: navigation, review, queue, overall reply 
     const replyMessage = replied.messages.find((message) => message.role === "user" && message.content === "Handle this my own way");
     assert.equal(replyMessage?.runId, replyGoal.runId, "an overall reply continues the same Run");
     assert.equal(replied.messages.some((message) => message.content.includes("Answer: All notes")), false, "the reply never applies the per-question draft");
-    // 队列输入在下一 Run 生效，应答的是“后续任务”而不是当前请求。
-    const queuedApplied = await waitFor(async () => {
-      const candidate = await sessionDetail(origin, token, replyGoal.goalId);
-      const applied = candidate.messages.find((message) => message.role === "user" && message.content === "Queue this follow-up task");
-      return applied === undefined ? undefined : candidate;
-    }, "the queued follow-up task applied to a later Run", 30_000);
-    assert.notEqual(queuedApplied.messages.find((message) => message.content === "Queue this follow-up task").runId, replyGoal.runId, "the queued task runs after the answered Run");
+    const noFollowup = await sessionDetail(origin, token, replyGoal.goalId);
+    assert.equal(noFollowup.currentRunId, replyGoal.runId, "the structured reply settles the original Run");
+    assert.equal(noFollowup.messages.some((message) => message.role === "user" && message.content.includes("follow-up")), false);
 
   } finally {
     await fixture.stop();
@@ -380,10 +367,10 @@ async function createGoal(socket, origin, token, intent, statusPath) {
     expression: "[...document.querySelectorAll('button.primary')].find(button => button.textContent.includes('New goal')).click()",
     returnByValue: true,
   });
-  await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Message the Goal\"]') !== null", 20_000);
-  await setText(socket, "textarea[aria-label=\"Message the Goal\"]", intent);
-  await waitForExpression(socket, "document.querySelector('button[aria-label=\"Send message\"]')?.disabled === false", 20_000);
-  await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Send message\"]').click()", returnByValue: true });
+  await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Goal intent\"]') !== null", 20_000);
+  await setText(socket, "textarea[aria-label=\"Goal intent\"]", intent);
+  await waitForExpression(socket, "document.querySelector('button[aria-label=\"Start Goal\"]')?.disabled === false", 20_000);
+  await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Start Goal\"]').click()", returnByValue: true });
   const waiting = await waitForSession(origin, token, (candidate) => candidate.intent === intent && candidate.runStatus === "waiting");
   const status = await readStatus(statusPath);
   return { goalId: waiting.goalId, runId: waiting.currentRunId, modelCallsAtWait: status.modelCalls };

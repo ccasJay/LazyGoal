@@ -112,7 +112,7 @@ test("browser provider profile test consumes the generated binding against a loc
             diagnostics: [["[goal-board] response has unknown fields", {
                 contractId: "web.providers.profile_test_result",
                 version: 1,
-                paths: ["/privateResultDetail"],
+                paths: ["/*"],
                 truncated: false,
             }]],
         });
@@ -133,7 +133,7 @@ test("browser provider profile test consumes the generated binding against a loc
             diagnostics: [["[goal-board] response has unknown fields", {
                 contractId: "web.providers.profile_test_result",
                 version: 1,
-                paths: ["/error", "/privateResultDetail"],
+                paths: ["/*", "/*"],
                 truncated: false,
             }]],
         });
@@ -145,7 +145,7 @@ test("browser provider profile test consumes the generated binding against a loc
             diagnostics: [["[goal-board] response has unknown fields", {
                 contractId: "web.providers.profile_test_result",
                 version: 1,
-                paths: ["/modelCount", "/privateResultDetail"],
+                paths: ["/*", "/*"],
                 truncated: false,
             }]],
         });

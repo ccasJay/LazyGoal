@@ -713,7 +713,7 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
             if (result.ok) return context.json(result, result.existing ? 200 : 202);
             const status = result.error === "create_failed" || result.error === "goal_unreadable" ? 500
                 : result.error === "model_catalog_unavailable" || result.error === "service_shutting_down" ? 503
-                    : result.error === "goal_busy" || result.error === "goal_id_conflict" ? 409
+                    : result.error === "goal_busy" || result.error === "goal_id_conflict" || result.error === "input_conflict" ? 409
                         : result.error === "profile_not_found" ? 500
                             : 400;
             return context.json({ error: result.error }, status);
