@@ -4,14 +4,13 @@ import { createServer } from "node:http";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createGoal } from "../../../packages/runtime/src/domain";
 import { projectInteractionView } from "../../../packages/runtime/src/interaction-view";
-import { currentProtocols } from "../../../packages/runtime/test/current-fixtures";
 import { externalTestActor, interactionAnswerTrigger, workTrigger } from "../../../packages/runtime/test/trigger-fixtures";
 import type { GoalUserAction } from "../../../packages/runtime/src/trigger";
 import { JsonFileGoalStore } from "../../../packages/storage/src/goal-store";
 import { SupervisorOwnership } from "../../../packages/storage/src/supervisor-ownership";
 import { TriggerStore } from "../../../packages/storage/src/trigger-store";
+import { receiveAuthorizedTrigger } from "../../../packages/storage/src/trigger-ingress";
 import { admitTrigger } from "../src/runtime/trigger-admission";
 import { WorkerScheduler } from "../src/runtime/worker-scheduler";
 
@@ -36,7 +35,7 @@ async function waitFor(predicate: () => boolean, timeoutMs = 15000): Promise<voi
     }
 }
 
-test("interaction.answered crosses the Worker process and resumes only its current Goal wait", { timeout: 30000 }, async () => {
+test("an unrouted interaction answer survives Supervisor reattachment and completes only its current Goal wait", { timeout: 30000 }, async () => {
     const root = await mkdtemp(join(tmpdir(), "lg-worker-interaction-"));
     const workspace = join(root, "workspace");
     const home = join(root, "home");
@@ -65,11 +64,15 @@ test("interaction.answered crosses the Worker process and resumes only its curre
                 return;
             }
             runCalls += 1;
+            const messages = Array.isArray(body.messages) ? body.messages : [];
+            const evidenceMatches = [...JSON.stringify(messages).matchAll(/Valid committed evidence sequences: ([0-9, ]+)/g)];
+            const evidenceSequences = evidenceMatches.at(-1)?.[1]?.split(",").map((value) => Number(value.trim()))
+                .filter(Number.isSafeInteger) ?? [];
             const scripted = runCalls === 1
                 ? ["ask_user", { questions: [{ header: "Choice", question: "Which option should I use?",
                     options: [{ label: "Option A" }, { label: "Option B" }], multiSelect: false }] }]
                 : runCalls === 2
-                    ? ["system_wait_for_input", { reason: "Wait after applying the answer" }]
+                    ? ["system_complete_task", { summary: "I will use Option A.", evidenceSequences }]
                     : undefined;
             if (scripted === undefined) {
                 response.writeHead(500);
@@ -97,33 +100,56 @@ test("interaction.answered crosses the Worker process and resumes only its curre
         LLM_MAX_OUTPUT_TOKENS: "4096",
         LLM_TOKENIZER_ENCODING: "cl100k_base",
     } as NodeJS.ProcessEnv;
-    const owner = new SupervisorOwnership(join(dataDirectory, "owner.db"));
-    const triggers = new TriggerStore(join(dataDirectory, "triggers.db"));
+    let owner = new SupervisorOwnership(join(dataDirectory, "owner.db"));
+    let triggers = new TriggerStore(join(dataDirectory, "triggers.db"));
     const goals = new JsonFileGoalStore(join(dataDirectory, "goals"));
     const never = { structuredOutputMode: "prompt_only" as const, async generate() { throw new Error("No permission decision is expected"); } };
-    const scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, permissionAdapter: never });
+    let scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, permissionAdapter: never });
+    let storesOpen = true;
+    let workerPids: number[] = [];
     const principal = { role: "user", externalId: "test-actor", mayCreateGoal: true, goalIds: [] } as const;
     const work = workTrigger("worker-interaction-work", "Ask a question and wait for an answer");
     let goalId: string | undefined;
     try {
-        const admission = await admitTrigger(owner, triggers, goals, never, work, principal, async (intent, reservedGoalId) => ({
-            goal: createGoal({ ...currentProtocols, id: reservedGoalId ?? "worker-interaction-goal", runId: "worker-interaction-run", intent,
-                promptBundleVersion: 1,
+        assert.deepEqual(work.payload, {
+            action: "submitted", material: { kind: "text", text: "Ask a question and wait for an answer" },
+        });
+        const admission = await admitTrigger(owner, triggers, goals, never, work, principal, async (intent, reservedGoalId, workspaceMode) => {
+            const authorizedWorkspace = { mode: workspaceMode, projectRoot: workspace, executionRoot: workspace } as const;
+            const goal = await scheduler.createGoal({
+                goalId: reservedGoalId ?? "worker-interaction-goal",
+                intent,
+                mode: "normal",
                 modelSelection: { provider: "openai-compatible", modelId: "test-model", contextWindowTokens: 16000,
                     maxOutputTokens: 4096, inputEstimator: { kind: "character-v1" } },
-                profile: { id: "default", systemPrompt: "Test", instructions: ["Follow the requested interaction."], toolIds: [] } }),
-            authorization: { workspace: { mode: "shared" as const, projectRoot: workspace, executionRoot: workspace },
-                toolIds: [], sandbox: { extraFiles: [], network: "none" as const } },
-        }));
+            }, authorizedWorkspace);
+            return {
+                goal,
+                authorization: { workspace: authorizedWorkspace, toolIds: [], sandbox: { extraFiles: [], network: "none" as const } },
+            };
+        });
         if (admission.kind !== "accepted") throw new Error("Expected Trigger admission to accept the Goal");
         goalId = admission.goalId;
+        const creationResponse = triggers.listGoalTriggers(goalId).find((trigger) => trigger.type === "response"
+            && trigger.payload.action === "goal_created");
+        assert.ok(creationResponse !== undefined && creationResponse.type === "response");
+        assert.equal(creationResponse.replyTo, work.id);
+        assert.equal(triggers.queueRecord(goalId)?.triggerId, work.id);
         await scheduler.pump();
         await waitFor(() => triggers.queueRecord(goalId!)?.status === "waiting");
         const waitingGoal = await goals.restore(goalId);
         assert.ok(waitingGoal !== undefined);
         assert.equal(waitingGoal.state.run.status, "waiting");
         assert.equal(triggers.queueRecord(goalId)?.workerId !== undefined, true);
+        assert.equal(waitingGoal.definition.profile.name, "Test");
+        assert.equal(waitingGoal.definition.profile.systemPrompt, "Ask the user one question, then wait for input.");
+        assert.equal(waitingGoal.definition.promptBundleVersion, 1);
+        assert.deepEqual(waitingGoal.definition.memoryProtocol, { kind: "structured", version: 1 });
+        assert.deepEqual(waitingGoal.definition.modelContextProtocol, { kind: "trajectory-layered", version: 1 });
+        assert.deepEqual(waitingGoal.definition.contextRetrievalProtocol, { kind: "bm25-lite", version: 1 });
+        assert.deepEqual(waitingGoal.definition.executionPolicy, { maxSteps: 0 });
         const workerProcesses = await scheduler.processIds();
+        workerPids = workerProcesses.map((worker) => worker.pid);
         assert.equal(workerProcesses.length, 1);
         assert.notEqual(workerProcesses[0]?.pid, process.pid);
         const pending = waitingGoal.state.run.pendingInteraction;
@@ -153,30 +179,57 @@ test("interaction.answered crosses the Worker process and resumes only its curre
         assert.equal(interaction.goalId, goalId);
         assert.equal(interaction.replyTo, work.id);
 
-        const result = await scheduler.handleInteractionTrigger(interaction, interactionPrincipal);
-        assert.deepEqual(result, { kind: "handled", progress: { kind: "waiting", waitingFor: "blocked" } });
-        assert.equal(triggers.routeStatus(interaction.id), "routed");
+        receiveAuthorizedTrigger(triggers, interaction, interactionPrincipal);
+        assert.equal(triggers.routeStatus(interaction.id), "unrouted");
+
+        await scheduler.detachAll();
+        triggers.close();
+        await owner.close();
+        storesOpen = false;
+
+        owner = new SupervisorOwnership(join(dataDirectory, "owner.db"));
+        triggers = new TriggerStore(join(dataDirectory, "triggers.db"));
+        storesOpen = true;
+        scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, permissionAdapter: never });
+        await scheduler.pump();
+        await waitFor(() => triggers.routeStatus(interaction.id) === "routed" && triggers.queueRecord(goalId!)?.status === "terminal");
+
+        const recoveredProcesses = await scheduler.processIds();
+        assert.deepEqual(recoveredProcesses, workerProcesses);
+        assert.equal(triggers.routeStatus(staleInteraction.id), "unrouted");
         const updatedGoal = await goals.restore(goalId);
         assert.ok(updatedGoal !== undefined);
         assert.equal(updatedGoal.state.run.id, waitingGoal.state.run.id);
-        assert.equal(updatedGoal.state.run.status, "waiting");
+        assert.equal(updatedGoal.state.run.status, "completed");
         assert.equal(updatedGoal.state.run.pendingInteraction, undefined);
-        const currentInteraction = projectInteractionView(updatedGoal);
-        assert.equal(currentInteraction, undefined);
-        assert.equal(triggers.queueRecord(goalId)?.status, "waiting");
+        assert.equal(projectInteractionView(updatedGoal), undefined);
+        assert.equal(triggers.queueRecord(goalId)?.status, "terminal");
+
         const waitingReports = triggers.listGoalTriggers(goalId).filter((trigger) => trigger.type === "response"
             && trigger.payload.action === "progress" && trigger.payload.status === "waiting");
         const latestWaitingReport = waitingReports.at(-1);
         assert.ok(latestWaitingReport !== undefined && latestWaitingReport.type === "response"
             && latestWaitingReport.payload.action === "progress");
         assert.deepEqual(latestWaitingReport.payload, {
-            action: "progress", runId: waitingGoal.state.run.id, status: "waiting", waitingFor: "blocked",
+            action: "progress", runId: waitingGoal.state.run.id, status: "waiting", waitingFor: "ask_user",
         });
         assert.equal(latestWaitingReport.replyTo, work.id);
         assert.equal(triggers.routeStatus(latestWaitingReport.id), "routed");
+
+        const answerMessage = updatedGoal.state.messages.find((message) => message.role === "assistant"
+            && message.runId === updatedGoal.state.run.id && message.purpose === "answer");
+        assert.ok(answerMessage !== undefined);
+        const completedReport = triggers.listGoalTriggers(goalId).find((trigger) => trigger.type === "response"
+            && trigger.payload.action === "completed");
+        assert.ok(completedReport !== undefined && completedReport.type === "response");
+        assert.deepEqual(completedReport.payload, {
+            action: "completed", runId: updatedGoal.state.run.id, answer: answerMessage.content,
+        });
+        assert.equal(completedReport.replyTo, work.id);
+        assert.equal(triggers.routeStatus(completedReport.id), "routed");
         assert.equal(runCalls, 2);
     } finally {
-        if (goalId !== undefined && triggers.queueRecord(goalId)?.status !== "terminal") {
+        if (storesOpen && goalId !== undefined && triggers.queueRecord(goalId)?.status !== "terminal") {
             const current = await goals.restore(goalId).catch(() => undefined);
             if (current !== undefined) {
                 const cancel = {
@@ -194,10 +247,15 @@ test("interaction.answered crosses the Worker process and resumes only its curre
         }
         server.closeAllConnections();
         await new Promise<void>((resolve) => server.close(() => resolve()));
-        for (const worker of await scheduler.processIds().catch(() => [])) process.kill(worker.pid, "SIGKILL");
+        const activeWorkers = await scheduler.processIds().catch(() => []);
+        for (const pid of new Set([...workerPids, ...activeWorkers.map((worker) => worker.pid)])) {
+            try { process.kill(pid, "SIGKILL"); } catch { /* Worker already exited. */ }
+        }
         await scheduler.closeIdle().catch(() => undefined);
-        triggers.close();
-        await owner.close();
+        if (storesOpen) {
+            triggers.close();
+            await owner.close();
+        }
         await rm(root, { recursive: true, force: true });
     }
 });

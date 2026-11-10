@@ -190,4 +190,4 @@ Decide 返回值可以是 `decision`、`request_think`、`assistant_message` 或
 
 失败预算分两类、各自含首次最多三次、互不占用：`attemptsStarted` 覆盖契约、Tool 选择、Tool 输入与证据类失败；`continuationsStarted` 覆盖零调用正文与无可用结果。`latestFailureClass` 决定下一次调用计入哪个预算，有效 `request_think` 结束当前链时两者一并归零。零调用正文在提交为 Goal 消息后按不推进类预算继续；预算用尽时保留每次原因与该次正文并明确失败。
 
-由 Trigger 准入创建的 Goal 在定义中携带创建 Trigger ID，以及 Supervisor 冻结的项目根与执行工作区映射、工具和沙箱能力上限；Runtime 的执行授权仍须结合宿主约束、有效授权与沙箱执行。
+work Trigger payload 中的 material 只承载原始文本，不配置 GoalDefinition 的 Profile、Prompt Bundle 版本、Memory/Model Context/检索协议、执行策略或权限上限。Worker Runtime 使用自身配置构造 Goal；Supervisor 再将来源 Trigger ID 与冻结的工作区、工具和沙箱能力上限写入 Goal 定义。该快照上限不等于授权，Runtime 执行仍须结合宿主约束、有效授权与沙箱执行。

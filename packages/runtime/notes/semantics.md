@@ -5,6 +5,7 @@
 | 概念 | 简明含义 | 归属模块 | 权威说明 |
 | --- | --- | --- | --- |
 | Goal | 可恢复的会话聚合。 | [Goal Runtime](../README.md) | [模块说明](./overview.md) |
+| Work Trigger material | `work.submitted` 的 `material` 只承载原始文本；Goal 配置与权限上限由 Worker Runtime 和 Supervisor 分别提供，不从 Trigger payload 注入。 | [Goal Runtime](../README.md) | [Trigger 契约](../src/trigger.ts)、[Goal 定义](../src/domain.ts)、[Worker Goal 构造](../../../apps/goal-server/src/runtime/worker-process.ts) |
 | Goal 目录扫描 | 正式快照目录的摘要边界：历史扫描返回可解码摘要与不可解码快照数量，可恢复扫描保持损坏即拒绝。 | [Goal Runtime](../README.md) | [Goal Store 端口](../src/goal-store.ts) |
 | Run | Goal 内的一次执行边界。 | [Goal Runtime](../README.md) | [模块说明](./overview.md) |
 | 正式消息身份 | 每条已保存消息有稳定 `messageId`、所属 `runId` 和持久化 `position`；同源提交重试复用身份与位置，不从正文推导。 | [Goal Runtime](../README.md) | [消息身份与来源](../src/goal-message.ts) |

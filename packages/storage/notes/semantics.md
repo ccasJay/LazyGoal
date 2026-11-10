@@ -6,6 +6,7 @@
 | --- | --- | --- | --- |
 | Supervisor 所有权锁 | 同一路径由单个存活进程持有；已关闭所有者拒绝新操作。 | [持久化实现](../README.md) | [锁实现](../src/supervisor-ownership.ts) |
 | Trigger 事件与路由状态 | SQLite 直接保存经 `runtime.trigger` 生成绑定校验的不可变 Trigger；唯一 ID 冲突拒绝，独立路由标记与 FIFO Worker 绑定、权限请求结算和恢复状态分别持久化。Worker 离线 outbox 归 Worker 进程日志所有。 | [持久化实现](../README.md) | [Trigger 契约](../../runtime/src/trigger.ts)、[TriggerStore](../src/trigger-store.ts)、[Worker 进程日志](../../../apps/goal-server/src/worker-process-entry.ts) |
+| Trigger ingress validation | `validateAuthorizedTrigger` 严格校验消息、Actor 和 Goal 访问权但不写入；`receiveAuthorizedTrigger` 才在校验后持久接收。当前 Run 身份核对属于 Goal Server 路由，不属于 Storage。 | [持久化实现](../README.md) | [认证与接收](../src/trigger-ingress.ts)、[取消路由](../../../apps/goal-server/src/runtime/worker-scheduler.ts) |
 | Snapshot | Goal 最新完整持久化状态。 | [持久化实现](../README.md) | [模块说明](./overview.md) |
 | 动态模型执行快照 | Goal 选择保存 API 协议、容量与推理/视觉/工具选择能力，不保存端点或凭据。 | [持久化实现](../README.md) | [Snapshot Schema](../src/goal-snapshot.ts) |
 | 输入账本快照 | 每条已受理输入的稳定身份、载荷摘要、受理序号与状态；不复制正文。 | [持久化实现](../README.md) | [Snapshot Schema](../src/goal-snapshot.ts) |

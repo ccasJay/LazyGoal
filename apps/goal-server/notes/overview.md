@@ -2,7 +2,7 @@
 
 本机 Web Composition Root，连接 Browser、HTTP、Supervisor、Trigger 持久化与独立 Worker。本文描述当前实现、使用边界与限制；[公开入口](../src/index.ts)。
 
-默认 `lazygoal web` 入口把 Goal Board 的创建与控制命令交给 [Trigger Browser Session Port](../src/browser-session-port.ts)。浏览器 Bearer 能力映射为认证 `externalId`；Supervisor 在持久化前校验 Trigger.source 与连接 Actor。所有 Worker-target 消息先经 Supervisor；当前支持的取消、交互与权限决定由 WorkerScheduler 按 Goal 路由，Worker 之间没有直接连接。`collaboration.requested/result` 仅保留动作标签；payload 与处理行为未定义，Supervisor 不解释额外内容。Supervisor 独占 Goal Store 写入权，并用 SQLite 直接保存不可变 Trigger、独立路由状态和 FIFO 派发队列；重复 Trigger ID 冲突，不回放旧准入结果。Goal Snapshot 发布后，队列插入与 Trigger 路由完成在同一 SQLite 事务提交。启动时清理已排队 Goal 的残留创建意图，并从存储的未路由 work Trigger 继续准入，不等待来源重交；已有冻结 Goal 创建意图优先于当前配置。未冻结的工作在恢复时重新执行模型准入，因为持久化 Actor 不能区分 Browser user 与 external。Worker 重新接管后，Supervisor 还会尝试原样路由当前状态允许的取消、交互、权限决定和 checkpoint resume；不适用的事件保留未路由，协作 payload 仍不解释。独立 Worker 进程推进获派 Goal，检查点、进度、交互、取消和生命周期报告经 Trigger 与 Supervisor 协调。列表、会话状态及实时流都按 Goal 查询，不把单个活动 Goal 当作全局状态。
+默认 `lazygoal web` 入口把 Goal Board 的创建与控制命令交给 [Trigger Browser Session Port](../src/browser-session-port.ts)。浏览器 Bearer 能力映射为认证 `externalId`；Supervisor 在持久化前校验 Trigger.source 与连接 Actor。所有 Worker-target 消息先经 Supervisor；当前支持的取消、交互与权限决定由 WorkerScheduler 按 Goal 路由，Worker 之间没有直接连接。取消 Trigger 在持久接收前匹配当前 Run，并在路由时复核；过期 Run 保持未路由。`collaboration.requested/result` 仅保留动作标签；payload 与处理行为未定义，Supervisor 不解释额外内容。Supervisor 独占 Goal Store 写入权，并用 SQLite 直接保存不可变 Trigger、独立路由状态和 FIFO 派发队列；重复 Trigger ID 冲突，不回放旧准入结果。Goal Snapshot 发布后，队列插入与 Trigger 路由完成在同一 SQLite 事务提交。启动时清理已排队 Goal 的残留创建意图，并从存储的未路由 work Trigger 继续准入，不等待来源重交；已有冻结 Goal 创建意图优先于当前配置。未冻结的工作在恢复时重新执行模型准入，因为持久化 Actor 不能区分 Browser user 与 external。Worker 重新接管后，Supervisor 还会尝试原样路由当前状态允许的取消、交互、权限决定和 checkpoint resume；交互回答须匹配 Goal、replyTo 与当前等待，并在 Runtime 应用且 Snapshot 保存后标记路由。checkpoint resume 以 replyTo 关联已记录的 lifecycle.exited，并要求显式确认未知副作用。不适用的事件保留未路由，协作 payload 仍不解释。独立 Worker 进程推进获派 Goal，检查点、进度、交互、取消和生命周期报告经 Trigger 与 Supervisor 协调。列表、会话状态及实时流都按 Goal 查询，不把单个活动 Goal 当作全局状态。
 
 Web 创建 work Trigger 前，Supervisor Adapter 将原始文本摘要为简短 `name`；该名称只用于识别，不替代 `{ kind: "text", text }` material。摘要失败或为空时不会持久化 Trigger，同一来源创建命令仍可重试。控制事件使用由程序确定的名称；Trigger 只记录创建时的 `sentAt`，不另存接收或完成时间。
 
@@ -66,7 +66,7 @@ flowchart LR
 1. Web 创建命令校验模型选择并提交以 Trigger ID 标识的工作事件。Supervisor 对显式用户工作走确定性 Fast path；其他来源由 Supervisor 模型决定接受或忽略并选择工作区策略，不得改写 Trigger 中的原始工作文本。
 2. 对已接受的工作 Trigger，Worker Runtime 使用原始 material 和自己的 Profile、Prompt Bundle、上下文协议及执行策略构造 Goal。Supervisor 加入来源与授权上限，持久化 Goal Snapshot 后再写入 FIFO Worker 队列、标记原 Trigger 已路由并发布 `response.goal_created`。准入故障保留未路由 Trigger 及失败分类；Goal ID 冲突不会覆盖现有快照。
 3. WorkerScheduler 按派发顺序为 Goal 选择匹配的空闲 Worker，或启动独立进程；不同 Goal 可并行。Supervisor 是 Goal Snapshot 的唯一写入者，Worker Snapshot 经 Supervisor 持久化；Run 的 `running` 进度在对应 Snapshot 保存后发布，`waiting` 与终态响应在 Worker 报告且 Snapshot 核对后发布。所有 Run 响应以 `replyTo` 关联创建该 Goal 的 work Trigger；完成响应的 `answer` 取自已持久化的最终助手答复，失败与取消响应只暴露 `runId`。
-4. 结构化回答、取消、权限请求与恢复决定都绑定 Goal、Run、请求身份及必要的 Worker generation，经 Trigger 往返。未知工具副作用只有用户明确确认恢复后才可能重试。
+4. 结构化回答、取消、权限请求与恢复决定都绑定 Goal、Run、请求身份及必要的 Worker generation，经 Trigger 往返。取消在接收和路由时核对当前 Run；checkpoint resume 绑定对应的 Worker 退出 Trigger。未知工具副作用只有用户明确确认恢复后才可能重试。
 5. Supervisor 重启时先清理已入队 Goal 的残留创建意图、补发缺失的创建响应，并重试存储中的未路由新 Goal work Trigger；这不依赖来源重新提交。随后核对所有权和存活 Worker、处理离线积压，再尝试路由仍适用于当前 Goal/Worker 状态的已存储控制 Trigger；不凭 PID 或超时重派未知动作，只有确认退出的 Worker 才形成显式恢复记录。
 6. Browser 从 Supervisor 保存的 Goal 与 Trigger 状态构造列表和详情，Goal SSE 初始发送 `state_sync`，后续按提交修订刷新；断线后重新连接会重新读取权威状态。
 7. Benchmark 仍有自己的 Headless Composition Root；Prompt Evaluation 执行、GEPA 与 Harness2 的优化执行入口明确返回不支持，不回退旧执行链。
