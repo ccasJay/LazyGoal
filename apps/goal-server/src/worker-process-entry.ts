@@ -3,15 +3,17 @@ import { chmodSync, closeSync, fsyncSync, mkdirSync, openSync, readFileSync, ren
 import { dirname } from "node:path";
 import { createServer, type Server, type Socket } from "node:net";
 import { createRuntimeComposition, decodeWorkerInteractionPayload, type WorkerProgress } from "./runtime/index";
+import { isRecord } from "../../../packages/contracts/src/index";
 import { projectInteractionView } from "../../../packages/runtime/src/interaction-view";
 import type { GoalStore } from "../../../packages/runtime/src/goal-store";
-import type { Goal } from "../../../packages/runtime/src/domain";
+import { createGoal, type Goal, type GoalModelSelection, type RunMode } from "../../../packages/runtime/src/domain";
 import { goalSnapshotCodec, type GoalSnapshotV1 } from "../../../packages/storage/src/index";
 import { readTrigger } from "../../../packages/storage/src/trigger-wire";
 import type { Trigger } from "../../../packages/runtime/src/trigger";
 
 type ParentMessage =
     | { readonly kind: "probe"; readonly requestId: string }
+    | { readonly kind: "create-goal"; readonly requestId: string; readonly goalId: string; readonly intent: string; readonly mode: RunMode; readonly modelSelection?: GoalModelSelection }
     | { readonly kind: "advance"; readonly requestId: string; readonly goalId: string; readonly runId: string }
     | { readonly kind: "cancel"; readonly requestId: string; readonly interruptId: string; readonly goalId: string; readonly runId: string }
     | { readonly kind: "permission-response"; readonly requestId: string; readonly trigger: Trigger }
@@ -34,6 +36,8 @@ type DurableChildMessage =
 type ChildMessage =
     | { readonly kind: "ready"; readonly workerId: string; readonly generation: string; readonly pid: number; readonly proof?: string; readonly assignedGoalId?: string; readonly operationActive?: boolean }
     | { readonly kind: "probe-result"; readonly requestId: string; readonly pid: number; readonly workerId: string; readonly generation: string }
+    | { readonly kind: "create-goal-result"; readonly requestId: string; readonly ok: true; readonly snapshot: GoalSnapshotV1 }
+    | { readonly kind: "create-goal-result"; readonly requestId: string; readonly ok: false; readonly reason: "worker-busy" | "creation-failed" }
     | DurableChildMessage
     | { readonly kind: "replay-complete"; readonly requestId: string }
     | { readonly kind: "closed" }
@@ -225,6 +229,18 @@ async function handle(message: ParentMessage): Promise<void> {
         send({ kind: "probe-result", requestId: message.requestId, pid: process.pid, workerId, generation });
         return;
     }
+    if (message.kind === "create-goal") {
+        if (operationActive || assignedGoalId !== undefined) {
+            send({ kind: "create-goal-result", requestId: message.requestId, ok: false, reason: "worker-busy" });
+            return;
+        }
+        operationActive = true;
+        const operation = executeGoalCreation(message);
+        activeAdvance = operation;
+        await operation;
+        if (activeAdvance === operation) activeAdvance = undefined;
+        return;
+    }
     if (message.kind === "advance") {
         if (operationActive || (assignedGoalId !== undefined && assignedGoalId !== message.goalId)) {
             await persistAndSend({ kind: "advance-result", requestId: message.requestId, goalId: message.goalId,
@@ -279,6 +295,29 @@ async function handle(message: ParentMessage): Promise<void> {
     if (message.kind === "close") {
         if (operationActive || assignedGoalId !== undefined) return;
         await shutdownWorker();
+    }
+}
+
+async function executeGoalCreation(message: Extract<ParentMessage, { readonly kind: "create-goal" }>): Promise<void> {
+    try {
+        const currentRuntime = await ensureRuntime();
+        const goal = createGoal({
+            id: message.goalId,
+            intent: message.intent,
+            promptBundleVersion: 1,
+            memoryProtocol: { kind: "structured", version: 1 },
+            modelContextProtocol: { kind: "trajectory-layered", version: 1 },
+            contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
+            profile: currentRuntime.profile,
+            runId: currentRuntime.runIdGenerator(),
+            mode: message.mode,
+            modelSelection: message.modelSelection ?? currentRuntime.defaultModelSelection,
+        });
+        send({ kind: "create-goal-result", requestId: message.requestId, ok: true, snapshot: goalSnapshotCodec.encode(goal) });
+    } catch {
+        send({ kind: "create-goal-result", requestId: message.requestId, ok: false, reason: "creation-failed" });
+    } finally {
+        operationActive = false;
     }
 }
 
@@ -488,6 +527,15 @@ function parseAttachRequest(value: unknown): { readonly workerId: string; readon
 function parseParentMessage(value: unknown): ParentMessage | undefined {
     if (typeof value !== "object" || value === null || !("kind" in value) || typeof value.kind !== "string") return undefined;
     if (value.kind === "probe" && "requestId" in value && typeof value.requestId === "string") return value as ParentMessage;
+    if (value.kind === "create-goal" && hasExactKeys(value, ["kind", "requestId", "goalId", "intent", "mode"], ["modelSelection"])
+        && typeof value.requestId === "string" && typeof value.goalId === "string" && typeof value.intent === "string"
+        && (value.mode === "normal" || value.mode === "plan")
+        && (value.modelSelection === undefined || isGoalModelSelection(value.modelSelection))) {
+        return {
+            kind: "create-goal", requestId: value.requestId, goalId: value.goalId, intent: value.intent, mode: value.mode,
+            ...(value.modelSelection === undefined ? {} : { modelSelection: value.modelSelection as GoalModelSelection }),
+        };
+    }
     if (value.kind === "advance" && "requestId" in value && typeof value.requestId === "string"
         && "goalId" in value && typeof value.goalId === "string" && "runId" in value && typeof value.runId === "string") return value as ParentMessage;
     if (value.kind === "cancel" && "requestId" in value && typeof value.requestId === "string"
@@ -511,6 +559,35 @@ function parseParentMessage(value: unknown): ParentMessage | undefined {
     if (value.kind === "detach" && "requestId" in value && typeof value.requestId === "string") return value as ParentMessage;
     if (value.kind === "close") return value as ParentMessage;
     return undefined;
+}
+
+function hasExactKeys(
+    value: Record<string, unknown>,
+    required: readonly string[],
+    optional: readonly string[] = [],
+): boolean {
+    const keys = Object.keys(value);
+    return required.every((key) => key in value) && keys.every((key) => required.includes(key) || optional.includes(key));
+}
+
+function isGoalModelSelection(value: unknown): value is GoalModelSelection {
+    if (!isRecord(value) || !hasExactKeys(value, ["provider", "modelId", "inputEstimator"], [
+        "profileId", "executionApi", "structuredOutputMode", "contextWindowTokens", "maxOutputTokens",
+        "reasoning", "vision", "supportsRequiredToolChoice",
+    ])) return false;
+    if (typeof value.provider !== "string" || !value.provider.trim()
+        || typeof value.modelId !== "string" || !value.modelId.trim()) return false;
+    if ("profileId" in value && (typeof value.profileId !== "string" || !value.profileId.trim())) return false;
+    if ("executionApi" in value && value.executionApi !== "openai-completions") return false;
+    if ("structuredOutputMode" in value && !["strict", "prompt_only", "two_stage"].includes(String(value.structuredOutputMode))) return false;
+    if (["contextWindowTokens", "maxOutputTokens"].some((key) => key in value
+        && (!Number.isSafeInteger(value[key]) || Number(value[key]) <= 0))) return false;
+    if (["reasoning", "vision", "supportsRequiredToolChoice"].some((key) => key in value && typeof value[key] !== "boolean")) return false;
+    if (!isRecord(value.inputEstimator)) return false;
+    if (value.inputEstimator.kind === "character-v1") return hasExactKeys(value.inputEstimator, ["kind"]);
+    return value.inputEstimator.kind === "token-encoding"
+        && hasExactKeys(value.inputEstimator, ["kind", "encoding"])
+        && (value.inputEstimator.encoding === "cl100k_base" || value.inputEstimator.encoding === "o200k_base");
 }
 
 function loadJournal(): WorkerJournal {

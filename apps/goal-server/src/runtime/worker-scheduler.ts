@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { canonicalJson } from "../../../../packages/contracts/src/index";
 import type { LLMAdapter } from "../../../../packages/llm-core/src/index";
-import type { Goal } from "../../../../packages/runtime/src/domain";
+import type { Goal, GoalTriggerContext } from "../../../../packages/runtime/src/domain";
 import type { Trigger } from "../../../../packages/runtime/src/trigger";
 import { projectInteractionView } from "../../../../packages/runtime/src/interaction-view";
 import { JsonFileGoalStore } from "../../../../packages/storage/src/goal-store";
@@ -16,7 +16,7 @@ import type { TriggerActionPermissionFailureReason } from "../../../../packages/
 import type { TriggerActionPermissionReply, TriggerActionPermissionRequest } from "../../../../packages/storage/src/trigger-permission";
 import { decodeWorkerInteractionPayload } from "./worker-interaction";
 import { decideWorkerActionPermission } from "./worker-permission";
-import { SupervisorWorkerProcess, type WorkerProcessExit, type WorkerProgress } from "./worker-process";
+import { SupervisorWorkerProcess, type WorkerGoalCreationRequest, type WorkerProcessExit, type WorkerProgress } from "./worker-process";
 import {
     createWorkerProcessRegistration,
     listWorkerProcessRegistrations,
@@ -127,6 +127,34 @@ export class WorkerScheduler {
         /** Supervisor 直接调用的默认权限判断模型。 */
         readonly permissionAdapter: LLMAdapter;
     }) {}
+
+    /**
+     * 在独立 Worker Runtime 中构造尚未持久化的 Goal 候选。
+     *
+     * @remarks Worker 从自身 Profile、协议与默认配置构造 Goal；Supervisor 仍负责补齐来源授权、保存 Snapshot、写入队列并发布创建响应。
+     * @param request - Goal 身份、原始意图与首个 Run 配置。
+     * @param workspace - 已由 Supervisor 决定并准备的项目与执行工作区。
+     * @returns Worker 构造的 Goal 候选；本方法不保存 Goal 或改变 Trigger 队列。
+     * @throws Worker 启动、配置解析、Goal 构造或进程通信失败时拒绝。
+     * @example
+     * ```ts
+     * const goal = await scheduler.createGoal({ goalId: "goal-1", intent: "检查测试", mode: "normal" }, workspace);
+     * ```
+     */
+    async createGoal(request: WorkerGoalCreationRequest, workspace: GoalTriggerContext["authorization"]["workspace"]): Promise<Goal> {
+        if (!workspace.projectRoot.trim() || !workspace.executionRoot.trim()) throw new Error("Worker Goal creation requires an authorized workspace");
+        const workerId = `worker-creation-${randomUUID()}`;
+        const generation = randomUUID();
+        const registration = await createWorkerProcessRegistration(this.options.dataDirectory, workerId, generation, workspace);
+        let process: SupervisorWorkerProcess | undefined;
+        try {
+            process = await SupervisorWorkerProcess.start(this.workerOptions(registration));
+            return await process.createGoal(request);
+        } finally {
+            if (process !== undefined) await process.close().catch(() => undefined);
+            await removeWorkerProcessRegistration(this.options.dataDirectory, workerId);
+        }
+    }
 
     /**
      * 派发当前所有可处理的队列项，不等待 Worker 完成。

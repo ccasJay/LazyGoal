@@ -8,6 +8,7 @@ import { goalSnapshotCodec, type GoalSnapshotV1 } from "../../../../packages/sto
 import { JsonFileGoalStore } from "../../../../packages/storage/src/goal-store";
 import { TriggerStore } from "../../../../packages/storage/src/trigger-store";
 import { SupervisorOwnership } from "../../../../packages/storage/src/supervisor-ownership";
+import type { Goal, GoalModelSelection, RunMode } from "../../../../packages/runtime/src/domain";
 import type { Trigger } from "../../../../packages/runtime/src/trigger";
 import type { WorkerOfflineProgress, WorkerProcessRegistration } from "./worker-process-registry";
 
@@ -20,12 +21,15 @@ type WorkerMessage =
     | { readonly kind: "cancel-result"; readonly requestId: string; readonly goalId: string; readonly result: WorkerProgress }
     | { readonly kind: "permission-result"; readonly requestId: string; readonly goalId: string; readonly result: WorkerProgress }
     | { readonly kind: "interaction-result"; readonly requestId: string; readonly goalId: string; readonly result: WorkerProgress }
+    | { readonly kind: "create-goal-result"; readonly requestId: string; readonly ok: true; readonly snapshot: unknown }
+    | { readonly kind: "create-goal-result"; readonly requestId: string; readonly ok: false; readonly reason: "worker-busy" | "creation-failed" }
     | { readonly kind: "replay-complete"; readonly requestId: string }
     | { readonly kind: "closed" }
     | { readonly kind: "detached"; readonly requestId: string };
 
 type WorkerCommand =
     | { readonly kind: "probe"; readonly requestId: string }
+    | { readonly kind: "create-goal"; readonly requestId: string; readonly goalId: string; readonly intent: string; readonly mode: RunMode; readonly modelSelection?: GoalModelSelection }
     | { readonly kind: "advance"; readonly requestId: string; readonly goalId: string; readonly runId: string }
     | { readonly kind: "cancel"; readonly requestId: string; readonly interruptId: string; readonly goalId: string; readonly runId: string }
     | { readonly kind: "permission-response"; readonly requestId: string; readonly trigger: Trigger }
@@ -42,6 +46,24 @@ export type WorkerProgress =
     | { readonly kind: "waiting"; readonly waitingFor: Extract<GoalProgressResult, { ok: true; kind: "waiting" }>['waitingFor'] }
     | { readonly kind: "terminal"; readonly status: "completed" | "failed" | "cancelled" }
     | { readonly kind: "rejected"; readonly code: string; readonly message: string };
+
+/**
+ * Worker Runtime 构造新 Goal 所需的最小来源输入。
+ *
+ * @remarks
+ * Profile、Prompt Bundle、Working Memory、模型上下文、检索协议与执行策略由 Worker 自身配置决定；调用方只能提供原始意图、身份、首个 Run 模式及已解析的模型选择。返回的 Goal 尚未持久化，持久写入与队列受理由 Supervisor 完成。
+ *
+ * @example
+ * ```ts
+ * const request: WorkerGoalCreationRequest = { goalId: "goal-1", intent: "检查失败测试", mode: "normal" };
+ * ```
+ */
+export interface WorkerGoalCreationRequest {
+    readonly goalId: string;
+    readonly intent: string;
+    readonly mode: RunMode;
+    readonly modelSelection?: GoalModelSelection;
+}
 
 /**
  * Supervisor 直接子进程收到的 Worker 退出观察。
@@ -363,6 +385,32 @@ export class SupervisorWorkerProcess {
     }
 
     /**
+     * 要求 Worker Runtime 从原始意图和本地配置构造 Goal 候选。
+     *
+     * @param input - Goal 身份、原始意图与首个 Run 配置；不包含 Profile、协议或执行策略。
+     * @returns Worker 构造但尚未持久化的 Goal；调用方必须交由 Supervisor 的创建事务保存与入队。
+     * @throws Worker 已执行操作、已绑定 Goal、创建配置无效或 IPC 失败时拒绝。
+     * @example
+     * ```ts
+     * const goal = await worker.createGoal({ goalId: "goal-1", intent: "检查失败测试", mode: "normal" });
+     * ```
+     */
+    async createGoal(input: WorkerGoalCreationRequest): Promise<Goal> {
+        if (this.closed || this.busy || this.cancelling || this.goalId !== undefined) {
+            throw new Error("Worker is unavailable for Goal creation");
+        }
+        this.busy = true;
+        try {
+            const response = await this.request({ kind: "create-goal", requestId: randomUUID(), ...input });
+            if (response.kind !== "create-goal-result") throw new Error("Unexpected Worker response");
+            if (!response.ok) throw new Error(`Worker Goal creation failed: ${response.reason}`);
+            return goalSnapshotCodec.decode(response.snapshot);
+        } finally {
+            this.busy = false;
+        }
+    }
+
+    /**
      * 要求 Worker 用其 Runtime 推进已由 Supervisor 绑定的 Goal 一次。
      *
      * @param goalId - 该 Worker 当前唯一获派的 Goal。
@@ -615,6 +663,10 @@ function parseWorkerMessage(value: unknown): WorkerMessage | undefined {
         && (value.assignedGoalId === undefined || typeof value.assignedGoalId === "string")
         && (value.operationActive === undefined || typeof value.operationActive === "boolean")) return value as unknown as WorkerMessage;
     if (value.kind === "probe-result" && typeof value.requestId === "string" && typeof value.pid === "number" && typeof value.workerId === "string" && typeof value.generation === "string") return value as unknown as WorkerMessage;
+    if (value.kind === "create-goal-result" && typeof value.requestId === "string") {
+        if (value.ok === true && "snapshot" in value) return value as unknown as WorkerMessage;
+        if (value.ok === false && (value.reason === "worker-busy" || value.reason === "creation-failed")) return value as unknown as WorkerMessage;
+    }
     if ((value.kind === "store-read" || value.kind === "store-save") && typeof value.requestId === "string" && typeof value.workerId === "string" && typeof value.generation === "string" && typeof value.goalId === "string"
         && (value.kind !== "store-save" || "snapshot" in value)) return value as unknown as WorkerMessage;
     if ((value.kind === "advance-result" || value.kind === "cancel-result" || value.kind === "permission-result" || value.kind === "interaction-result")

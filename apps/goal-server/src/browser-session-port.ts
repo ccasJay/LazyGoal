@@ -4,7 +4,6 @@ import {
     queryGoalMessages,
     readGoalMessageBody,
     projectInteractionView,
-    createGoal,
     type Goal,
     type GoalModelSelection,
     type SessionMessageQuery,
@@ -264,21 +263,15 @@ export function createTriggerBrowserSessionPort(dependencies: TriggerBrowserSess
                 admission = await admitTrigger(owner, triggers, goals, root.adapter, trigger, browserPrincipal, async (intent, reservedGoalId, workspaceMode) => {
                     const id = reservedGoalId ?? command.goalId;
                     const workspace = await allocateGoalWorkspace(root.workspaceRoot, root.dataDirectory, id, workspaceMode);
-                    const goal = createGoal({
-                        id,
+                    const goal = await scheduler.createGoal({
+                        goalId: id,
                         intent,
-                        profile: root.profile,
-                        runId: root.runIdGenerator(),
-                        promptBundleVersion: 1,
-                        memoryProtocol: { kind: "structured", version: 1 },
-                        modelContextProtocol: { kind: "trajectory-layered", version: 1 },
-                        contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
                         mode: command.mode ?? "normal",
                         modelSelection: resolved.selection,
-                    });
+                    }, workspace);
                     const authorization: GoalTriggerContext["authorization"] = {
                         workspace,
-                        toolIds: root.profile.toolIds.filter((toolId) => root.toolRegistry.get(toolId) !== undefined),
+                        toolIds: goal.definition.profile.toolIds.filter((toolId) => root.toolRegistry.get(toolId) !== undefined),
                         sandbox: { extraFiles: [], network: "none" },
                     };
                     return { goal, authorization };

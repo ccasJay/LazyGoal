@@ -78,6 +78,72 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: s
     }
 }
 
+test("work Trigger 的原始文本由 Worker Runtime 构造 Goal，Supervisor 持久化后发布创建响应", async () => {
+    const root = await mkdtemp(join(tmpdir(), "lg-worker-goal-creation-"));
+    const workspace = join(root, "workspace");
+    const home = join(root, "home");
+    const dataDirectory = join(root, "data");
+    await Promise.all([mkdir(workspace, { recursive: true }), mkdir(join(home, "agent-profiles"), { recursive: true }), mkdir(dataDirectory, { recursive: true })]);
+    await writeFile(join(home, "agent-profiles", "default.json"), JSON.stringify({
+        schemaVersion: 1,
+        id: "default",
+        name: "Worker-owned profile",
+        description: "Profile loaded by Worker Runtime",
+        systemPrompt: "Constructed inside Worker",
+        instructions: ["Use worker configuration"],
+        toolIds: [],
+    }));
+    const env = { LAZYGOAL_HOME: home, LLM_PROVIDER: "openai", LLM_MODEL: "gpt-4o-mini", LLM_API_KEY: "test" } as NodeJS.ProcessEnv;
+    const owner = new SupervisorOwnership(join(dataDirectory, "owner.db"));
+    const triggers = new TriggerStore(join(dataDirectory, "triggers.db"));
+    const goals = new JsonFileGoalStore(join(dataDirectory, "goals"));
+    const scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, permissionAdapter: never });
+    const intent = "Run this exact text:\n- preserve the original material";
+    const work = workTrigger("worker-created-work", intent);
+    const goalId = "goal-constructed-by-worker";
+    try {
+        const admission = await admitTrigger(owner, triggers, goals, never, work, principal, async (intent, reserved, workspaceMode) => {
+            const authorizedWorkspace = { mode: workspaceMode, projectRoot: workspace, executionRoot: workspace } as const;
+            const goal = await scheduler.createGoal({
+                goalId: reserved ?? goalId,
+                intent,
+                mode: "plan",
+                modelSelection: { provider: "openai", modelId: "gpt-4o-mini", inputEstimator: { kind: "character-v1" } },
+            }, authorizedWorkspace);
+            return {
+                goal,
+                authorization: { workspace: authorizedWorkspace, toolIds: [], sandbox: { extraFiles: [], network: "none" as const } },
+            };
+        });
+        assert.deepEqual(admission, { kind: "accepted", goalId });
+        const savedGoal = await goals.restore(goalId);
+        assert.ok(savedGoal !== undefined);
+        assert.equal(savedGoal.definition.intent, intent);
+        assert.equal(savedGoal.definition.profile.name, "Worker-owned profile");
+        assert.equal(savedGoal.definition.profile.systemPrompt, "Constructed inside Worker");
+        assert.equal(savedGoal.definition.promptBundleVersion, 1);
+        assert.deepEqual(savedGoal.definition.memoryProtocol, { kind: "structured", version: 1 });
+        assert.deepEqual(savedGoal.definition.modelContextProtocol, { kind: "trajectory-layered", version: 1 });
+        assert.deepEqual(savedGoal.definition.contextRetrievalProtocol, { kind: "bm25-lite", version: 1 });
+        assert.deepEqual(savedGoal.definition.executionPolicy, { maxSteps: 0 });
+        assert.equal(savedGoal.state.run.mode, "plan");
+        assert.equal(triggers.queueRecord(goalId)?.triggerId, work.id);
+        const created = triggers.listGoalTriggers(goalId).find((trigger) => trigger.type === "response"
+            && trigger.payload.action === "goal_created");
+        assert.ok(created !== undefined && created.type === "response");
+        assert.deepEqual(created.payload, { action: "goal_created" });
+        assert.equal(created.goalId, goalId);
+        assert.equal(created.replyTo, work.id);
+        assert.equal(triggers.routeStatus(created.id), "routed");
+        assert.equal(scheduler.assignments().length, 0);
+    } finally {
+        await scheduler.closeIdle().catch(() => undefined);
+        triggers.close();
+        await owner.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("FIFO 派发让不同 Goal 并行，等待绑定保留，终态后复用匹配 Worker", async () => {
     const root = await mkdtemp(join(tmpdir(), "lg-worker-scheduler-"));
     const workspace = join(root, "workspace");

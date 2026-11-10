@@ -9,7 +9,7 @@ export type {
 } from "./composition";
 export { createExecutionComponents } from "./execution-composition";
 export { SupervisorWorkerProcess } from "./worker-process";
-export type { SupervisorWorkerProcessOptions, WorkerProgress } from "./worker-process";
+export type { SupervisorWorkerProcessOptions, WorkerGoalCreationRequest, WorkerProgress } from "./worker-process";
 export { WorkerScheduler } from "./worker-scheduler";
 export { admitTrigger, resumeUnroutedWorkTriggers } from "./trigger-admission";
 export type { TriggerAdmissionResult } from "./trigger-admission";

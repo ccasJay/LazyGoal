@@ -28,7 +28,7 @@ import {
     RuntimeLifecycleUnavailableError,
     type GoalModelSelection,
 } from "../../../packages/runtime/src/index";
-import { createGoal, type GoalTriggerContext } from "../../../packages/runtime/src/domain";
+import type { GoalTriggerContext } from "../../../packages/runtime/src/domain";
 import { JsonFileGoalStore } from "../../../packages/storage/src/goal-store";
 import { SupervisorOwnership } from "../../../packages/storage/src/supervisor-ownership";
 import { TriggerStore } from "../../../packages/storage/src/trigger-store";
@@ -223,20 +223,15 @@ export async function runServerSession(
         ) => {
             const goalId = reservedGoalId ?? root.goalIdGenerator();
             const workspace = await allocateGoalWorkspace(root.workspaceRoot, root.dataDirectory, goalId, workspaceMode);
-            const goal = createGoal({
-                id: goalId,
+            const goal = await workerScheduler.createGoal({
+                goalId,
                 intent,
-                profile: root.profile,
-                runId: root.runIdGenerator(),
-                promptBundleVersion: 1,
-                memoryProtocol: { kind: "structured", version: 1 },
-                modelContextProtocol: { kind: "trajectory-layered", version: 1 },
-                contextRetrievalProtocol: { kind: "bm25-lite", version: 1 },
+                mode: "normal",
                 modelSelection: root.defaultModelSelection,
-            });
+            }, workspace);
             const authorization: GoalTriggerContext["authorization"] = {
                 workspace,
-                toolIds: root.profile.toolIds.filter((toolId) => root.toolRegistry.get(toolId) !== undefined),
+                toolIds: goal.definition.profile.toolIds.filter((toolId) => root.toolRegistry.get(toolId) !== undefined),
                 sandbox: { extraFiles: [], network: "none" },
             };
             return { goal, authorization };

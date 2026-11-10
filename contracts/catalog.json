@@ -9591,7 +9591,7 @@
             "module": "model-contracts",
             "boundary": "model-output",
             "section": "Supervisor 准入模型输出",
-            "definition": "原生 TS 类型别名",
+            "definition": "原生 TS 接口",
             "definitionKind": "native-ts",
             "relations": [],
             "consumers": [
@@ -9610,7 +9610,7 @@
             },
             "generation": {
                 "state": "enabled",
-                "detail": "Trigger 投递边界的结构 Schema、校验器与绑定。",
+                "detail": "Supervisor 准入结果的结构 Schema、校验器与绑定。",
                 "strategy": "typescript-binding",
                 "rootType": "TriggerAdmissionDecision",
                 "declaredTypes": [

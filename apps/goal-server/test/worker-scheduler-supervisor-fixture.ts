@@ -24,7 +24,7 @@ const goals = new JsonFileGoalStore(join(dataDirectory, "goals"));
 const admissionAdapter: LLMAdapter = {
     structuredOutputMode: "prompt_only",
     async generate() {
-        return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({ kind: "accept", intent: "reconnect", workspaceMode: "shared" }) }] };
+        return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({ kind: "accept", workspaceMode: "shared" }) }] };
     },
 };
 const permissionAdapter: LLMAdapter = {

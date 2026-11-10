@@ -4,7 +4,7 @@
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
     "path": "packages/model-contracts/src/trigger-admission.ts#TriggerAdmissionDecision",
-    "sha256": "f30d431bcbf5e57032edc3ddfed1257ac8754603fe555773891d659cf752810d"
+    "sha256": "0cde02fb5e7ff61b951943c400882da989deebec7dc721c93f5541fe9d0860fa"
   },
   "generator": {
     "name": "ts-json-schema-generator",

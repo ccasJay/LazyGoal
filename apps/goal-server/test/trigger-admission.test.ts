@@ -44,7 +44,7 @@ test("explicit user work is accepted and control Trigger admission does not crea
         });
 
         const isolated = workTrigger("work-worktree", "change");
-        const worktreeAdapter = mockAdapter(async () => ({ blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({ kind: "accept", intent: "change", workspaceMode: "worktree" }) }] }), "strict");
+        const worktreeAdapter = mockAdapter(async () => ({ blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({ kind: "accept", workspaceMode: "worktree" }) }] }), "strict");
         assert.deepEqual(await admitTrigger(owner, triggers, goals, worktreeAdapter, isolated, external, factory), { kind: "accepted", goalId: "goal-change" });
         assert.deepEqual((await goals.restore("goal-change"))?.definition.triggerContext?.authorization.workspace, {
             mode: "worktree", projectRoot: "/workspace", executionRoot: "/workspace/.worktrees/goal",
@@ -72,7 +72,7 @@ test("the Supervisor model can ignore or accept separate work Triggers in comple
             assert.ok(request.structuredOutput);
             const body = String(request.messages[1]?.content);
             if (body.includes("slow")) await wait;
-            const decision = body.includes("ignore") ? { kind: "ignore", intent: "" } : { kind: "accept", intent: body.includes("slow") ? "slow" : "fast", workspaceMode: "shared" };
+            const decision = body.includes("ignore") ? { kind: "ignore", workspaceMode: null } : { kind: "accept", workspaceMode: "shared" };
             return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify(decision) }] };
         }, "strict");
         const trigger = (id: string) => workTrigger(`work-${id}`, id);
@@ -111,10 +111,10 @@ test("failed admissions remain unrouted across restart while distinct Trigger ID
         assert.equal(triggers.routeStatus(failedTrigger.id), "unrouted");
         assert.deepEqual(triggers.unroutedTriggers(), [failedTrigger]);
         const invalidTrigger = workTrigger("work-invalid", "invalid", { role: "external", externalId: "test-actor" });
-        const invalid = mockAdapter(async () => ({ blocks: [{ index: 0, type: "text", format: "plain", text: '{"kind":"accept","intent":""}' }] }));
+        const invalid = mockAdapter(async () => ({ blocks: [{ index: 0, type: "text", format: "plain", text: '{"kind":"accept","workspaceMode":"shared","intent":"rewritten work"}' }] }));
         assert.deepEqual(await admitTrigger(owner, triggers, goals, invalid, invalidTrigger, external, factory), { kind: "pending", reason: "invalid-model-result" });
         const successTrigger = workTrigger("work-success", "recover", { role: "external", externalId: "test-actor" });
-        const success = mockAdapter(async () => ({ blocks: [{ index: 0, type: "text", format: "plain", text: '{"kind":"accept","intent":"recover","workspaceMode":"shared"}' }] }));
+        const success = mockAdapter(async () => ({ blocks: [{ index: 0, type: "text", format: "plain", text: '{"kind":"accept","workspaceMode":"shared"}' }] }));
         assert.deepEqual(await admitTrigger(owner, triggers, goals, success, successTrigger, external, factory), { kind: "accepted", goalId: "goal-recover" });
         assert.equal(triggers.routeStatus(successTrigger.id), "routed");
         assert.deepEqual(triggers.queuedGoalIds(), ["goal-recover"]);
