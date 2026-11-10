@@ -1,5 +1,6 @@
 import { isRecord } from "../../contracts/src/index";
 import type { ExecutionStreamEvent } from "../../execution-stream/src/index";
+import type { RunEndStatus } from "./domain";
 import type { GoalSessionState } from "./session";
 import type { SessionInputOutcome } from "./session-stream";
 
@@ -246,7 +247,7 @@ export type SessionRunStatusEvent =
  */
 export interface SessionRunResultEvent {
     /** 终态分类。 */
-    readonly kind: "completed" | "failed" | "cancelled";
+    readonly kind: RunEndStatus;
     /** 来源信封。 */
     readonly source: SessionEventSource;
     /** 结算 Run 身份。 */

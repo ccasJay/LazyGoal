@@ -17,8 +17,16 @@ import {
     type AgentProfile,
     type Goal,
     type GoalStore,
+    type SessionInputRecord,
     type StepExecutor,
 } from "../src/index";
+import {
+    applyPendingSessionInputs,
+    clearPendingSessionInputs,
+    dequeueQueuedMessage,
+    pauseQueuedMessagesForTerminalRun,
+    removeQueuedMessage,
+} from "../src/session-input";
 import { InMemoryGoalStore, JsonFileGoalStore } from "../../storage/src/index";
 import { BaseTestStepExecutor, currentProtocols, InMemoryTrajectoryStore, messageOutline, trajectoryStoreFor } from "./current-fixtures";
 
@@ -52,6 +60,117 @@ function createAdmission(store: GoalStore, trajectory = new InMemoryTrajectorySt
         admission: new SessionInputAdmission({ store, committer }),
     };
 }
+
+test("ledger transitions only move selected pending receipts forward", () => {
+    const ledger: readonly SessionInputRecord[] = [
+        {
+            inputId: "apply-me",
+            kind: "message",
+            digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            sequence: 1,
+            status: "pending",
+            admittedAtRevision: 1,
+        },
+        {
+            inputId: "clear-me",
+            kind: "message",
+            digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            sequence: 2,
+            status: "pending",
+            admittedAtRevision: 2,
+        },
+        {
+            inputId: "already-applied",
+            kind: "message",
+            digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            sequence: 3,
+            status: "applied",
+            admittedAtRevision: 3,
+            appliedRunId: "run-original",
+            messageIndex: 0,
+        },
+        {
+            inputId: "already-cleared",
+            kind: "message",
+            digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            sequence: 4,
+            status: "cleared",
+            admittedAtRevision: 4,
+        },
+    ];
+
+    const applied = applyPendingSessionInputs(ledger, [
+        { inputId: "apply-me", appliedRunId: "run-2", messageIndex: 5 },
+        { inputId: "already-applied", appliedRunId: "run-overwrite", messageIndex: 9 },
+    ]);
+    const cleared = clearPendingSessionInputs(applied, new Set(["clear-me", "already-cleared"]));
+
+    assert.equal(cleared?.[0]?.status, "applied");
+    assert.equal(cleared?.[0]?.appliedRunId, "run-2");
+    assert.equal(cleared?.[0]?.messageIndex, 5);
+    assert.equal(cleared?.[1]?.status, "cleared");
+    assert.equal(cleared?.[2]?.appliedRunId, "run-original");
+    assert.equal(cleared?.[2]?.messageIndex, 0);
+    assert.equal(cleared?.[3]?.status, "cleared");
+    assert.equal(ledger[0]?.status, "pending");
+    assert.equal(ledger[1]?.status, "pending");
+});
+
+test("queue item changes preserve pause metadata and advance one revision", () => {
+    const queue = {
+        revision: 4,
+        items: [
+            { inputId: "input-1", content: "First", sequence: 1 },
+            { inputId: "input-2", content: "Second", sequence: 2 },
+        ],
+        pause: { reason: "run_failed" as const, runId: "run-1" },
+    };
+
+    const removal = removeQueuedMessage(queue, "input-2");
+    assert.ok(removal);
+    assert.equal(removal.queue.revision, 5);
+    assert.deepEqual(removal.queue.items.map((item) => item.inputId), ["input-1"]);
+    assert.deepEqual(removal.queue.pause, queue.pause);
+
+    const dequeued = dequeueQueuedMessage(removal.queue, "input-1");
+    assert.ok(dequeued);
+    assert.equal(dequeued.queue.revision, 6);
+    assert.deepEqual(dequeued.queue.items, []);
+    assert.deepEqual(dequeued.queue.pause, queue.pause);
+    assert.equal(dequeueQueuedMessage(dequeued.queue, "input-1"), undefined);
+
+    const pendingQueue = { revision: 1, items: [{ inputId: "queued", content: "Next", sequence: 1 }] };
+    const failedRunPause = pauseQueuedMessagesForTerminalRun(
+        pendingQueue,
+        { id: "run-2", status: "failed" },
+    );
+    assert.deepEqual(failedRunPause, {
+        revision: 2,
+        items: [{ inputId: "queued", content: "Next", sequence: 1 }],
+        pause: { reason: "run_failed", runId: "run-2" },
+    });
+    assert.deepEqual(
+        pauseQueuedMessagesForTerminalRun(pendingQueue, {
+            id: "run-3",
+            status: "cancelled",
+            interruption: { requestId: "interrupt-3", status: "requested" },
+        }),
+        {
+            revision: 2,
+            items: pendingQueue.items,
+            pause: { reason: "user_interrupt", runId: "run-3" },
+        },
+    );
+    assert.deepEqual(pauseQueuedMessagesForTerminalRun(undefined, { id: "run-4", status: "failed" }), {
+        revision: 1,
+        items: [],
+        pause: { reason: "run_failed", runId: "run-4" },
+    });
+    assert.equal(
+        pauseQueuedMessagesForTerminalRun(failedRunPause, { id: "run-5", status: "failed" }),
+        failedRunPause,
+    );
+});
 
 test("an accepted message is persisted with a stable receipt that survives a rebuilt Store", async () => {
     const directory = await mkdtemp(join(tmpdir(), "lazygoal-session-input-"));
@@ -403,22 +522,38 @@ test("queue controls require the observed revision and a paused queue", async ()
     assert.equal(saved?.state.inputLedger?.length, 1);
 });
 
-test("remove deletes one queued message and rejects a stale queue revision", async () => {
+test("remove deletes one queued message, preserves a pause, and rejects a stale queue revision", async () => {
     const store = new InMemoryGoalStore();
     const goal = createSessionGoal();
     await store.save(goal);
-    const { admission } = createAdmission(store);
+    const { admission, trajectory } = createAdmission(store);
 
     for (const [inputId, content] of [["input-1", "保留一"], ["input-2", "删除这条"], ["input-3", "保留三"]] as const) {
         assert.equal((await admission.admit(goal.id, { kind: "message", inputId, content })).ok, true);
     }
+
+    const runner = new Runner({
+        store,
+        trajectoryStore: trajectory,
+        executor: new class extends BaseTestStepExecutor {
+            async execute(): Promise<AgentDecision> {
+                return { kind: "fail", error: "queued run failure" };
+            }
+        }(),
+    });
+    const failed = await runner.runUntilBlocked({ goalId: goal.id, runId: goal.state.run.id });
+    assert.equal(failed.ok, true);
+    const paused = (await store.restore(goal.id))!;
+    assert.equal(paused.state.run.status, "failed");
+    assert.equal(paused.state.messageQueue?.pause?.reason, "run_failed");
+    const pausedQueue = paused.state.messageQueue!;
 
     const stale = await admission.admit(goal.id, {
         kind: "queue_control",
         inputId: "remove-stale",
         action: "remove",
         messageId: "input-2",
-        queueRevision: 2,
+        queueRevision: pausedQueue.revision - 1,
     });
     assert.equal(stale.ok, false);
     assert.equal(stale.ok === false && stale.code, "QUEUE_REVISION_MISMATCH");
@@ -428,11 +563,12 @@ test("remove deletes one queued message and rejects a stale queue revision", asy
         inputId: "remove-input-2",
         action: "remove",
         messageId: "input-2",
-        queueRevision: 3,
+        queueRevision: pausedQueue.revision,
     });
     assert.equal(removed.ok, true);
     const saved = (await store.restore(goal.id))!;
-    assert.equal(saved.state.messageQueue?.revision, 4);
+    assert.equal(saved.state.messageQueue?.revision, pausedQueue.revision + 1);
+    assert.deepEqual(saved.state.messageQueue?.pause, pausedQueue.pause);
     assert.deepEqual(saved.state.messageQueue?.items.map((item) => item.inputId), ["input-1", "input-3"]);
     assert.deepEqual(
         saved.state.inputLedger?.map((record) => [record.inputId, record.status]),

@@ -367,7 +367,7 @@ test("launch validates intent and maxSteps before all dependencies", async () =>
     ]) {
         const profiles = new FakeProfileRegistry([createProfile()]);
         const store = new RecordingGoalStore();
-        const coordinator = new FakeCoordinator(unusedResult);
+        const coordinator: FakeCoordinator = new FakeCoordinator(unusedResult);
         let generatorCalls = 0;
 
         const result = await launch(request, {

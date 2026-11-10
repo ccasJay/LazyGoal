@@ -10,10 +10,11 @@ import type {
     PendingInteractionAskUser,
     RunRef,
     RunState,
+    RunWaitingFor,
     AskUserAnswer,
     AskUserQuestion,
 } from "./domain";
-import { createRun } from "./domain";
+import { createRun, isRunEnded, resolveWaitingFor } from "./domain";
 import type { GoalUserAction } from "./trigger";
 export type { GoalUserAction } from "./trigger";
 import type { GoalStore } from "./goal-store";
@@ -59,7 +60,12 @@ import {
     type SandboxAccessRequest,
 } from "../../sandbox/src/index";
 import { evaluateSandboxAuthorization } from "../../permission/src/index";
-import type { SessionInputDigest, SessionInputRecord, SessionMessageQueue } from "./session-input";
+import {
+    applyPendingSessionInputs,
+    dequeueQueuedMessage,
+    type SessionInputDigest,
+    type SessionMessageQueue,
+} from "./session-input";
 import {
     type DiagnosticTraceSink,
     type TrajectoryEventDraft,
@@ -241,12 +247,7 @@ export type GoalProgressResult =
         readonly ok: true;
         readonly kind: "waiting";
         readonly phase: "executing";
-        readonly waitingFor:
-            | "ask_user"
-            | "task_approval"
-            | "action_approval"
-            | "action_recovery"
-            | "blocked";
+        readonly waitingFor: RunWaitingFor;
         readonly goal: Goal;
     }
     | {
@@ -723,11 +724,7 @@ export class GoalCoordinator {
             return this.executingWaitingResult(goal);
         }
 
-        if (
-            goal.state.run.status === "completed"
-            || goal.state.run.status === "failed"
-            || goal.state.run.status === "cancelled"
-        ) {
+        if (isRunEnded(goal.state.run.status)) {
             return {
                 ok: true,
                 kind: "terminal",
@@ -795,15 +792,13 @@ export class GoalCoordinator {
                     if (goal === undefined) return { progress: this.runNotFound(ref) };
                     this.validateGoalProtocol(goal);
 
-                    if (goal.state.run.status !== "completed" && goal.state.run.status !== "failed"
-                        && goal.state.run.status !== "cancelled") {
+                    if (!isRunEnded(goal.state.run.status)) {
                         return { progress: this.goalNotCompleted(ref) };
                     }
 
                     let queueState:
                         | {
                             readonly inputId: string;
-                            readonly ledger: readonly SessionInputRecord[];
                             readonly queue: SessionMessageQueue;
                         }
                         | undefined;
@@ -839,17 +834,21 @@ export class GoalCoordinator {
                                 ),
                             };
                         }
+                        const dequeued = dequeueQueuedMessage(queue, head.inputId);
+                        if (dequeued === undefined) {
+                            return {
+                                progress: {
+                                    ok: false,
+                                    error: {
+                                        code: "QUEUE_REVISION_MISMATCH",
+                                        message: `queued head does not match input "${queueBinding.inputId}"`,
+                                    },
+                                },
+                            };
+                        }
                         queueState = {
-                            inputId: head.inputId,
-                            ledger: (goal.state.inputLedger ?? []).map((record) =>
-                                record.inputId === head.inputId && record.status === "pending"
-                                    ? { ...record, status: "applied" as const }
-                                    : record),
-                            queue: {
-                                revision: queue.revision + 1,
-                                items: queue.items.slice(1),
-                                ...(queue.pause === undefined ? {} : { pause: queue.pause }),
-                            },
+                            inputId: dequeued.item.inputId,
+                            queue: dequeued.queue,
                         };
                     }
 
@@ -917,9 +916,11 @@ export class GoalCoordinator {
                             ...(queueState === undefined
                                 ? {}
                                 : {
-                                    inputLedger: queueState.ledger.map((record) => record.inputId === queueState.inputId
-                                        ? { ...record, appliedRunId: runId, messageIndex }
-                                        : record),
+                                    inputLedger: applyPendingSessionInputs(goal.state.inputLedger ?? [], [{
+                                        inputId: queueState.inputId,
+                                        appliedRunId: runId,
+                                        messageIndex,
+                                    }]) ?? [],
                                     messageQueue: queueState.queue,
                                 }),
                         },
@@ -2585,11 +2586,7 @@ export class GoalCoordinator {
             return this.executingWaitingResult(latestGoal);
         }
 
-        if (
-            latestGoal.state.run.status === "completed"
-            || latestGoal.state.run.status === "failed"
-            || latestGoal.state.run.status === "cancelled"
-        ) {
+        if (isRunEnded(latestGoal.state.run.status)) {
             return {
                 ok: true,
                 kind: "terminal",
@@ -2608,25 +2605,11 @@ export class GoalCoordinator {
     }
 
     private executingWaitingResult(goal: Goal): GoalProgressResult {
-        const pendingInteraction = goal.state.run.pendingInteraction;
-        const pendingAction = goal.state.run.pendingAction;
-
-        let waitingFor: "ask_user" | "task_approval" | "action_approval" | "action_recovery" | "blocked";
-        if (pendingInteraction !== undefined) {
-            waitingFor = pendingInteraction.kind === "ask_user" ? "ask_user" : "task_approval";
-        } else if (pendingAction?.status === "awaiting_approval") {
-            waitingFor = "action_approval";
-        } else if (pendingAction?.status === "outcome_unknown") {
-            waitingFor = "action_recovery";
-        } else {
-            waitingFor = "blocked";
-        }
-
         return {
             ok: true,
             kind: "waiting",
             phase: "executing",
-            waitingFor,
+            waitingFor: resolveWaitingFor(goal.state.run),
             goal,
         };
     }

@@ -74,7 +74,7 @@ test("listHistory reads catalog summaries without opening snapshots", async () =
         const store = new JsonFileGoalStore(directory, {
             readFile: (async (path: Parameters<typeof readFile>[0], options?: Parameters<typeof readFile>[1]) => {
                 reads.push(String(path));
-                return readFile(path, options);
+                return options === undefined ? readFile(path) : readFile(path, options);
             }) as typeof readFile,
         });
         await store.save(goalWithId("goal-1"));

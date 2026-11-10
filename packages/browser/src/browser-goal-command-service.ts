@@ -7,6 +7,7 @@ import type {
     JsonValue,
 } from "../../runtime/src/index";
 import {
+    isRunEnded,
     readInteractionDetail,
     type ActionApprovalReviewErrorCode,
     type InteractionDetail,
@@ -166,7 +167,7 @@ export class BrowserGoalCommandService {
         const goal = await this.dependencies.store.restore(goalId);
         if (goal === undefined) return "goal_not_found";
         const status = goal.state.run.status;
-        if (status !== "completed" && status !== "failed" && status !== "cancelled") return "goal_not_terminal";
+        if (!isRunEnded(status)) return "goal_not_terminal";
         if (this.dependencies.readActiveGoalId?.() === goalId) return "goal_not_terminal";
         if (this.isShuttingDown()) return "service_shutting_down";
         await operation();

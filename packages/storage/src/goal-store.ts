@@ -13,6 +13,7 @@ import {
 } from "node:fs/promises";
 import { join } from "node:path";
 
+import { isRunEnded } from "../../runtime/src/index";
 import type {
     Goal,
     GoalCatalog,
@@ -65,10 +66,6 @@ const RUN_STATUSES: ReadonlySet<string> = new Set([
     "failed",
     "cancelled",
 ]);
-
-function isTerminalRunStatus(status: GoalCatalogEntry["runStatus"]): boolean {
-    return status === "completed" || status === "failed" || status === "cancelled";
-}
 
 /** @returns 结构完整的摘要；任何字段非法时返回 `undefined`。 */
 function parseCatalogSummary(value: unknown): GoalCatalogSummary | undefined {
@@ -245,7 +242,7 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
         });
 
         const status = goal.state.run.status;
-        if (status !== "completed" && status !== "failed" && status !== "cancelled") {
+        if (!isRunEnded(status)) {
             await this.removeArchiveMarkerWithRetry(this.archivePath(goal.id));
         }
 
@@ -344,7 +341,7 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
         const goal = await this.restore(goalId);
         if (goal === undefined) return false;
         const status = goal.state.run.status;
-        if (status !== "completed" && status !== "failed" && status !== "cancelled") return false;
+        if (!isRunEnded(status)) return false;
         if (archived) await writeFile(this.archivePath(goalId), "", { flag: "w", mode: 0o600 });
         else await unlink(this.archivePath(goalId)).catch((error: NodeJS.ErrnoException) => {
             if (error.code !== "ENOENT") throw error;
@@ -367,7 +364,7 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
         const goal = await this.restore(goalId);
         if (goal === undefined) return false;
         const status = goal.state.run.status;
-        if (status !== "completed" && status !== "failed" && status !== "cancelled") throw new Error("goal_not_terminal");
+        if (!isRunEnded(status)) throw new Error("goal_not_terminal");
         await unlink(this.archivePath(goalId)).catch((error: NodeJS.ErrnoException) => {
             if (error.code !== "ENOENT") throw error;
         });
@@ -436,7 +433,7 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
 
             if (entry === undefined) continue;
 
-            if (!includeTerminal && isTerminalRunStatus(entry.runStatus)) continue;
+            if (!includeTerminal && isRunEnded(entry.runStatus)) continue;
 
             candidates.push({ entry, mtimeMs: fileStats.mtimeMs });
         }

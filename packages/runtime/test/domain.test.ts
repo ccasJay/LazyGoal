@@ -6,8 +6,11 @@ import {
     createRun,
     DEFAULT_GOAL_MODEL_SELECTION,
     isContextRetrievalProtocol,
+    isRunEnded,
+    RUN_END_STATUSES,
 } from "../src/index";
-import type { AgentProfile, GoalMessage } from "../src/index";
+import type { AgentProfile, GoalMessage, RunState } from "../src/index";
+import { resolveWaitingFor } from "../src/domain";
 import { testAssistantMessage, testUserMessage } from "./current-fixtures";
 
 
@@ -28,6 +31,16 @@ const currentProtocols = {
     modelContextProtocol: { kind: "trajectory-layered" as const, version: 1 as const },
     contextRetrievalProtocol: { kind: "bm25-lite" as const, version: 1 as const },
 };
+
+test("Run end states identify only lifecycle-complete statuses", () => {
+    assert.deepEqual(RUN_END_STATUSES, ["completed", "failed", "cancelled"]);
+    assert.equal(isRunEnded("completed"), true);
+    assert.equal(isRunEnded("failed"), true);
+    assert.equal(isRunEnded("cancelled"), true);
+    assert.equal(isRunEnded("created"), false);
+    assert.equal(isRunEnded("running"), false);
+    assert.equal(isRunEnded("waiting"), false);
+});
 
 test("createGoal creates an initial executing snapshot with independent IDs", () => {
     const goal = createGoal({
@@ -203,6 +216,63 @@ test("a complete Goal with a frozen Prompt Bundle version supports a JSON round-
     });
 
     assert.deepEqual(JSON.parse(JSON.stringify(goal)), goal);
+});
+
+test("resolveWaitingFor derives all supported waiting reasons from Run state", () => {
+    const askUserRun: RunState = {
+        ...createRun("run-waiting-ask-user"),
+        status: "waiting",
+        pendingInteraction: {
+            kind: "ask_user",
+            requestId: "question-1",
+            mode: "execution",
+            questions: [],
+        },
+    };
+    const taskApprovalRun: RunState = {
+        ...createRun("run-waiting-task-approval", "plan"),
+        status: "waiting",
+        pendingInteraction: {
+            kind: "task_approval",
+            requestId: "proposal-1",
+            proposal: { objective: "完成任务", completionCriteria: [] },
+            planRouteCandidate: {
+                stages: [{ target: "执行任务", acceptanceCriteria: ["完成工作"] }],
+            },
+            approvalRequest: "请批准任务",
+        },
+    };
+    const actionApprovalRun: RunState = {
+        ...createRun("run-waiting-action-approval"),
+        status: "waiting",
+        pendingAction: {
+            action: { actionId: "action-1", toolId: "read", input: {} },
+            status: "awaiting_approval",
+        },
+    };
+    const actionRecoveryRun: RunState = {
+        ...createRun("run-waiting-action-recovery"),
+        status: "waiting",
+        pendingAction: {
+            action: { actionId: "action-2", toolId: "read", input: {} },
+            status: "outcome_unknown",
+            recoveryRef: "recovery-1",
+        },
+    };
+    const blockedRun: RunState = {
+        ...createRun("run-waiting-blocked"),
+        status: "waiting",
+        lastStep: {
+            kind: "decision",
+            result: { kind: "wait", reason: "需要外部确认" },
+        },
+    };
+
+    assert.equal(resolveWaitingFor(askUserRun), "ask_user");
+    assert.equal(resolveWaitingFor(taskApprovalRun), "task_approval");
+    assert.equal(resolveWaitingFor(actionApprovalRun), "action_approval");
+    assert.equal(resolveWaitingFor(actionRecoveryRun), "action_recovery");
+    assert.equal(resolveWaitingFor(blockedRun), "blocked");
 });
 
 test("createRun creates a deterministic core RunState", () => {

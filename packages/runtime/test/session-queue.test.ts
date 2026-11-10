@@ -399,8 +399,16 @@ test("a fresh message after an idle failed Run starts one successor, including a
     }
 });
 
-test("a failed Run pauses the queue, and only an explicit continue restarts from the old head", async () => {
-    const store = new InMemoryGoalStore();
+test("a failed Run commits its queue pause and only an explicit continue restarts from the old head", async () => {
+    const backingStore = new InMemoryGoalStore();
+    const checkpoints: Goal[] = [];
+    const store: GoalStore = {
+        save: async (goal) => {
+            checkpoints.push(structuredClone(goal));
+            await backingStore.save(goal);
+        },
+        restore: (goalId) => backingStore.restore(goalId),
+    };
     const entered = deferred();
     const release = deferred();
     const harness = createHarness({
@@ -431,6 +439,11 @@ test("a failed Run pauses the queue, and only an explicit continue restarts from
     assert.ok(failed);
     assert.equal(failed.state.run.status, "failed");
     assert.equal(failed.state.messageQueue?.pause?.reason, "run_failed");
+    const terminalCheckpoint = checkpoints.find((checkpoint) =>
+        checkpoint.id === "goal-failed-queue" && checkpoint.state.run.status === "failed");
+    assert.ok(terminalCheckpoint);
+    assert.equal(terminalCheckpoint.state.messageQueue?.pause?.reason, "run_failed");
+    assert.deepEqual(terminalCheckpoint.state.messageQueue?.items.map((item) => item.inputId), ["input-a", "input-b"]);
     assert.deepEqual(failed.state.messageQueue?.items.map((item) => item.inputId), ["input-a", "input-b"]);
     const pausedRevision = failed.state.messageQueue?.revision;
     assert.equal(harness.started(), 1);
