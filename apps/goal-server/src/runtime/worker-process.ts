@@ -110,6 +110,8 @@ export interface SupervisorWorkerProcessOptions {
     readonly owner: SupervisorOwnership;
     readonly triggers: TriggerStore;
     readonly goals: JsonFileGoalStore;
+    /** Worker Snapshot 写入 Supervisor Goal Store 后、响应 Worker 前同步调用；回调拒绝会使本次 store-save 失败，但不会回滚已保存的 Snapshot。 */
+    readonly onSnapshotSaved?: (goal: Goal) => Promise<void>;
 }
 
 /**
@@ -651,6 +653,7 @@ export class SupervisorWorkerProcess {
             const goal = goalSnapshotCodec.decode(input);
             if (goal.id !== goalId) throw new Error("Worker snapshot Goal identity mismatch");
             await this.options.goals.save(goal);
+            await this.options.onSnapshotSaved?.(goal);
             return goalSnapshotCodec.encode(goal);
         });
     }

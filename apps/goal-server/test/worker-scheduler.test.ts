@@ -184,8 +184,17 @@ test("FIFO 派发让不同 Goal 并行，等待绑定保留，终态后复用匹
         assert.equal((await goals.restore(acceptedIds[0]!))?.state.run.interruption?.status, "finished");
         const firstReports = triggers.listGoalTriggers(acceptedIds[0]!).filter((trigger) => trigger.type === "response"
             && trigger.payload.action === "progress");
-        assert.ok(firstReports.some((trigger) => trigger.type === "response" && trigger.payload.action === "progress"
-            && trigger.payload.status === "waiting" && triggers.routeStatus(trigger.id) === "routed"));
+        const firstWaitingReport = firstReports.find((trigger) => trigger.type === "response" && trigger.payload.action === "progress"
+            && trigger.payload.status === "waiting");
+        assert.ok(firstWaitingReport !== undefined && firstWaitingReport.type === "response");
+        assert.deepEqual(firstWaitingReport.payload, {
+            action: "progress",
+            runId: (await goals.restore(acceptedIds[0]!))!.state.run.id,
+            status: "waiting",
+            waitingFor: "blocked",
+        });
+        assert.equal(firstWaitingReport.replyTo, records[0]!.triggerId);
+        assert.equal(triggers.routeStatus(firstWaitingReport.id), "routed");
         assert.equal(scheduler.assignments().some((item) => item.goalId === acceptedIds[0]), false);
 
         const third = await admitTrigger(owner, triggers, goals, never, event("c"), principal, factory);
@@ -320,18 +329,99 @@ test("活动模型调用收到取消后等待 Runtime 结算，再持久化终�
         const goalId = acceptedGoalId(accepted);
         await scheduler.pump();
         await withTimeout(modelRequest, 5000, `Model request was not received; queue=${JSON.stringify(triggers.queueRecord(goalId))}`);
-        assert.equal((await goals.restore(goalId))?.state.run.status, "running");
+        const runningGoal = await goals.restore(goalId);
+        assert.equal(runningGoal?.state.run.status, "running");
+        const runningReport = triggers.listGoalTriggers(goalId).find((trigger) => trigger.type === "response"
+            && trigger.payload.action === "progress" && trigger.payload.status === "running");
+        assert.ok(runningReport !== undefined && runningReport.type === "response");
+        assert.deepEqual(runningReport.payload, { action: "progress", runId: runningGoal!.state.run.id, status: "running" });
+        assert.equal(runningReport.replyTo, input.id);
+        assert.equal(triggers.routeStatus(runningReport.id), "routed");
 
         const cancel = scheduler.handleCancelTrigger(cancelEvent("active-cancel-trigger", goalId),
             { ...principal, goalIds: [goalId] });
         const cancelResult = await withTimeout(cancel, 5000, "Cancellation did not settle");
         assert.deepEqual(cancelResult, { kind: "terminal", status: "cancelled" });
         await withTimeout(responseClosed, 5000, "Worker did not abort the active model request");
+        assert.equal(triggers.routeStatus("active-cancel-trigger"), "routed");
         assert.equal((await goals.restore(goalId))?.state.run.interruption?.status, "finished");
         assert.equal(triggers.queueRecord(goalId)?.status, "terminal");
-        assert.equal(triggers.routeStatus("active-cancel-trigger"), "routed");
-        assert.equal(triggers.listGoalTriggers(goalId).some((trigger) => trigger.type === "response"
-            && trigger.payload.action === "cancelled"), false);
+        const cancelledReport = triggers.listGoalTriggers(goalId).find((trigger) => trigger.type === "response"
+            && trigger.payload.action === "cancelled");
+        assert.ok(cancelledReport !== undefined && cancelledReport.type === "response");
+        assert.deepEqual(cancelledReport.payload, { action: "cancelled", runId: runningGoal!.state.run.id });
+        assert.equal(cancelledReport.replyTo, input.id);
+        assert.equal(triggers.routeStatus(cancelledReport.id), "routed");
+        await scheduler.closeIdle();
+    } finally {
+        server.closeAllConnections();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+        const pids = await scheduler.processIds().catch(() => []);
+        for (const worker of pids) process.kill(worker.pid, "SIGKILL");
+        await scheduler.closeIdle().catch(() => undefined);
+        triggers.close();
+        await owner.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("Runtime 执行失败发布仅含 Run 身份的 failed 响应", { timeout: 30000 }, async () => {
+    const root = await mkdtemp(join(tmpdir(), "lg-worker-failed-response-"));
+    const workspace = join(root, "workspace");
+    const home = join(root, "home");
+    const dataDirectory = join(root, "data");
+    await Promise.all([mkdir(workspace, { recursive: true }), mkdir(join(home, "agent-profiles"), { recursive: true }), mkdir(dataDirectory, { recursive: true })]);
+    await writeFile(join(home, "agent-profiles", "default.json"), JSON.stringify({ schemaVersion: 1, id: "default", name: "Test", description: "Test", systemPrompt: "Test", instructions: ["Test"], toolIds: [] }));
+    let modelRequests = 0;
+    const server = createServer((request, response) => {
+        request.on("data", () => undefined);
+        request.on("end", () => {
+            modelRequests += 1;
+            response.writeHead(503, { "content-type": "application/json" });
+            response.end(JSON.stringify({ error: { message: "offline test failure", type: "server_error", code: "service_unavailable" } }));
+        });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    assert.ok(address !== null && typeof address !== "string");
+    const env = {
+        LAZYGOAL_HOME: home,
+        LLM_PROVIDER: "openai-compatible",
+        LLM_MODEL: "test",
+        LLM_API_KEY: "test",
+        LLM_BASE_URL: `http://127.0.0.1:${address.port}/v1`,
+        LLM_CONTEXT_WINDOW_TOKENS: "16000",
+        LLM_MAX_OUTPUT_TOKENS: "4096",
+        LLM_TOKENIZER_ENCODING: "cl100k_base",
+    } as NodeJS.ProcessEnv;
+    const owner = new SupervisorOwnership(join(dataDirectory, "owner.db"));
+    const triggers = new TriggerStore(join(dataDirectory, "triggers.db"));
+    const goals = new JsonFileGoalStore(join(dataDirectory, "goals"));
+    const scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, permissionAdapter: never });
+    const work = workTrigger("failed-run-work-trigger", "Fail after transient model errors");
+    try {
+        const accepted = await admitTrigger(owner, triggers, goals, never, work, principal, async (intent, reservedGoalId) => ({
+            goal: createGoal({ ...currentProtocols, id: reservedGoalId ?? "goal-failed-response", runId: "run-failed-response", intent,
+                promptBundleVersion: 1,
+                modelSelection: { provider: "openai-compatible", modelId: "test", contextWindowTokens: 16000,
+                    maxOutputTokens: 4096, inputEstimator: { kind: "character-v1" } },
+                profile: { id: "default", systemPrompt: "Test", instructions: ["Test"], toolIds: [] } }),
+            authorization: { workspace: { mode: "shared" as const, projectRoot: workspace, executionRoot: workspace },
+                toolIds: [], sandbox: { extraFiles: [], network: "none" as const } },
+        }));
+        const goalId = acceptedGoalId(accepted);
+        await scheduler.pump();
+        await waitFor(() => triggers.queueRecord(goalId)?.status === "terminal", 20000);
+        const failedGoal = await goals.restore(goalId);
+        assert.ok(failedGoal !== undefined);
+        assert.equal(failedGoal.state.run.status, "failed");
+        assert.ok(modelRequests >= 1);
+        const failedReport = triggers.listGoalTriggers(goalId).find((trigger) => trigger.type === "response"
+            && trigger.payload.action === "failed");
+        assert.ok(failedReport !== undefined && failedReport.type === "response");
+        assert.deepEqual(failedReport.payload, { action: "failed", runId: failedGoal.state.run.id });
+        assert.equal(failedReport.replyTo, work.id);
+        assert.equal(triggers.routeStatus(failedReport.id), "routed");
         await scheduler.closeIdle();
     } finally {
         server.closeAllConnections();
@@ -572,9 +662,20 @@ test("Supervisor 断开后 Worker 用本地检查点完成已授权工具并在�
         restartedStores = { owner, triggers, scheduler };
         await scheduler.pump();
         await waitFor(() => triggers.queueRecord(goalId)?.status === "terminal");
-        assert.equal((await goals.restore(goalId))?.state.run.status, "completed");
-        assert.equal(triggers.listGoalTriggers(goalId).some((trigger) => trigger.type === "response"
-            && trigger.payload.action === "completed"), false);
+        const completedGoal = await goals.restore(goalId);
+        assert.equal(completedGoal?.state.run.status, "completed");
+        assert.ok(completedGoal !== undefined);
+        const finalAnswer = completedGoal.state.messages.filter((message) => message.role === "assistant"
+            && message.runId === completedGoal.state.run.id && message.purpose === "answer").at(-1);
+        assert.ok(finalAnswer !== undefined);
+        const completedReport = triggers.listGoalTriggers(goalId).find((trigger) => trigger.type === "response"
+            && trigger.payload.action === "completed");
+        assert.ok(completedReport !== undefined && completedReport.type === "response");
+        assert.deepEqual(completedReport.payload, {
+            action: "completed", runId: completedGoal.state.run.id, answer: finalAnswer.content,
+        });
+        assert.equal(completedReport.replyTo, "offline-action-trigger");
+        assert.equal(triggers.routeStatus(completedReport.id), "routed");
         await scheduler.closeIdle();
     } finally {
         server.closeAllConnections();

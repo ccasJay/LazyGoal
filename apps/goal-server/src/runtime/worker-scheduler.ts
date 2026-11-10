@@ -92,12 +92,17 @@ type WorkerLifecycleEvent =
     | { readonly type: "worker_started" | "worker_reconnected"; readonly pid: number }
     | { readonly type: "worker_exited"; readonly pid: number; readonly code: number | null; readonly signal: NodeJS.Signals | null; readonly normal: boolean };
 
+type WorkerResponseTrigger = Extract<Trigger, { readonly type: "response" }>;
+type WorkerRunResponsePayload = Exclude<WorkerResponseTrigger["payload"], { readonly action: "goal_created" }>;
+
 /**
  * 将持久待派发队列按序绑定到可复用的独立 Worker。
  *
  * @remarks
  * 派发严格按 SQLite 队列顺序认领；没有空闲且工作区匹配的 Worker 时启动新进程。
  * 不限制不同 Goal 的并发。等待态继续占用 Worker；只有持久记录终态后才释放。
+ * Run 进入 `running` 时在其 Snapshot 经 Supervisor 保存后发布进度响应；`waiting` 与终态响应在核对已保存 Snapshot 后发布。
+ * 所有 Run 响应以 `replyTo` 指向对应 Goal 的来源 work Trigger；完成答复取自持久化的最终助手答复，失败与取消只暴露 `runId`。
  * 已观察到的子进程退出会写入生命周期 Trigger 并留下待恢复记录，不自动重派。
  * Supervisor 重启时只重新接管能通过本机挑战握手的 Worker；显式恢复 Trigger 才能
  * 释放已确证退出进程的 Goal 绑定，运行中的不确定副作用需要单独确认。
@@ -216,6 +221,9 @@ export class WorkerScheduler {
     /**
      * 要求当前持有 Goal 的 Worker 再推进一次。
      *
+     * @remarks
+     * Run 进入 `running` 时会在 Snapshot 持久化后发布进度响应；Worker 返回等待或终态进度后，
+     * 本方法会核对 Snapshot 并发布对应响应，再返回进度。
      * @param goalId - 该 Worker 已持久认领的 Goal。
      * @returns Runtime 报告的等待、终态或拒绝原因。
      * @throws Goal 未绑定到存活 Worker、代次不符或 IPC 故障时抛出。
@@ -660,6 +668,7 @@ export class WorkerScheduler {
             owner: this.options.owner,
             triggers: this.options.triggers,
             goals: this.options.goals,
+            onSnapshotSaved: (goal: Goal) => this.reportPersistedRunningProgress(registration.workerId, registration.generation, goal),
         };
     }
 
@@ -819,39 +828,120 @@ export class WorkerScheduler {
         if (progress.kind === "terminal" && goal.state.run.status !== progress.status) throw new Error("Worker terminal report does not match the Goal snapshot");
 
         if (progress.kind === "waiting") {
-            const replyTo = goal.definition.triggerContext?.triggerId;
-            if (replyTo === undefined) throw new Error("Worker progress has no source Trigger association");
-            const report = { workerId: slot.workerId, generation: slot.generation, goalId, runId: goal.state.run.id, waitingFor: progress.waitingFor };
-            const digest = createHash("sha256").update(canonicalJson(report)).digest("hex");
-            const triggerId = `worker-progress-${digest}`;
-            const trigger: Trigger = {
-                id: triggerId,
-                name: "Goal is waiting",
-                type: "response",
-                source: { role: "worker", workerId: slot.workerId, generation: slot.generation },
-                target: "supervisor",
-                goalId,
-                replyTo,
-                payload: { action: "progress", runId: goal.state.run.id, status: "waiting", waitingFor: progress.waitingFor },
-                sentAt: triggerSentAt(this.options.triggers, triggerId),
-            };
-            const existing = this.options.triggers.read(triggerId);
-            if (existing === undefined) {
-                receiveAuthorizedTrigger(this.options.triggers, trigger, {
-                    role: "worker", workerId: slot.workerId, generation: slot.generation, goalId, mayCreateGoal: false,
-                });
-            } else if (canonicalJson(existing) !== canonicalJson(trigger)) {
-                throw new Error("Worker progress Trigger identity conflict");
-            }
+            const triggerId = this.persistRunResponse(slot.workerId, slot.generation, goal, {
+                action: "progress", runId: goal.state.run.id, status: "waiting", waitingFor: progress.waitingFor,
+            });
             await this.options.triggers.markWorkerGoalStatus(this.options.owner, slot.workerId, slot.generation, goalId, "waiting");
             this.options.triggers.markRouted(triggerId);
             return;
         }
         if (progress.kind === "terminal") {
+            let payload: WorkerRunResponsePayload;
+            if (progress.status === "completed") {
+                const answer = goal.state.messages.filter((message) => message.role === "assistant"
+                    && message.runId === goal.state.run.id && message.purpose === "answer").at(-1)?.content;
+                if (answer === undefined) throw new Error("Completed Goal has no persisted answer message");
+                payload = { action: "completed", runId: goal.state.run.id, answer };
+            } else {
+                payload = { action: progress.status, runId: goal.state.run.id };
+            }
+            const triggerId = this.persistRunResponse(slot.workerId, slot.generation, goal, payload);
             await this.options.triggers.markWorkerGoalStatus(this.options.owner, slot.workerId, slot.generation, goalId, "terminal");
+            this.options.triggers.markRouted(triggerId);
             slot.process.confirmTerminal(goalId);
             void this.pump();
         }
+    }
+
+    private async reportPersistedRunningProgress(workerId: string, generation: string, goal: Goal): Promise<void> {
+        if (goal.state.run.status !== "running") return;
+        this.sourceWorkTriggerId(workerId, generation, goal);
+        const latest = this.latestRunResponse(goal.id, goal.state.run.id);
+        if (latest?.payload.action === "progress" && latest.payload.status === "running") {
+            if (this.options.triggers.routeStatus(latest.id) !== "routed") this.options.triggers.markRouted(latest.id);
+            return;
+        }
+        if (latest !== undefined && !(latest.payload.action === "progress" && latest.payload.status === "waiting")) {
+            throw new Error("Running Goal snapshot follows a terminal Run response");
+        }
+        const triggerId = this.persistRunResponse(workerId, generation, goal, {
+            action: "progress", runId: goal.state.run.id, status: "running",
+        });
+        this.options.triggers.markRouted(triggerId);
+    }
+
+    private latestRunResponse(goalId: string, runId: string): WorkerResponseTrigger | undefined {
+        let latest: WorkerResponseTrigger | undefined;
+        for (const trigger of this.options.triggers.listGoalTriggers(goalId)) {
+            if (trigger.type !== "response" || trigger.payload.action === "goal_created") continue;
+            if (trigger.payload.runId === runId) latest = trigger;
+        }
+        return latest;
+    }
+
+    private persistRunResponse(
+        workerId: string,
+        generation: string,
+        goal: Goal,
+        payload: WorkerRunResponsePayload,
+    ): string {
+        const replyTo = this.sourceWorkTriggerId(workerId, generation, goal);
+        if (payload.runId !== goal.state.run.id) throw new Error("Run response does not match the persisted Goal Run");
+        const status = payload.action === "progress" ? payload.status : payload.action;
+        const identity = {
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            commitRevision: goal.state.commitRevision ?? 0,
+            status,
+        };
+        const digest = createHash("sha256").update(canonicalJson(identity)).digest("hex");
+        const triggerId = `worker-run-response-${digest}`;
+        const name = payload.action === "progress"
+            ? payload.status === "running" ? "Goal is running" : "Goal is waiting"
+            : `Goal ${payload.action}`;
+        const base = {
+            id: triggerId,
+            name,
+            type: "response" as const,
+            source: { role: "worker" as const, workerId, generation },
+            target: "supervisor" as const,
+            goalId: goal.id,
+            replyTo,
+            sentAt: triggerSentAt(this.options.triggers, triggerId),
+        };
+        let trigger: Trigger;
+        if (payload.action === "progress") {
+            trigger = { ...base, payload };
+        } else if (payload.action === "completed") {
+            trigger = { ...base, payload };
+        } else {
+            trigger = { ...base, payload: { action: payload.action, runId: payload.runId } };
+        }
+        const existing = this.options.triggers.read(triggerId);
+        if (existing === undefined) {
+            receiveAuthorizedTrigger(this.options.triggers, trigger, {
+                role: "worker", workerId, generation, goalId: goal.id, mayCreateGoal: false,
+            });
+        } else if (existing.source.role !== "worker"
+            || canonicalJson({ ...existing, source: trigger.source }) !== canonicalJson(trigger)) {
+            throw new Error("Worker Run response Trigger identity conflict");
+        }
+        return triggerId;
+    }
+
+    private sourceWorkTriggerId(workerId: string, generation: string, goal: Goal): string {
+        const queue = this.options.triggers.queueRecord(goal.id);
+        const replyTo = goal.definition.triggerContext?.triggerId;
+        if (queue === undefined || queue.workerId !== workerId || queue.generation !== generation || queue.triggerId !== replyTo
+            || replyTo === undefined) {
+            throw new Error("Worker Run response has no matching queued work Trigger");
+        }
+        const source = this.options.triggers.read(replyTo);
+        if (source?.type !== "work" || source.payload.action !== "submitted" || source.target !== "supervisor"
+            || "goalId" in source || this.options.triggers.routeStatus(replyTo) !== "routed") {
+            throw new Error("Worker Run response does not reference its routed source work Trigger");
+        }
+        return replyTo;
     }
 
     private async autoHandleActionPermission(

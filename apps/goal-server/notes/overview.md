@@ -65,7 +65,7 @@ flowchart LR
 
 1. Web 创建命令校验模型选择并提交以 Trigger ID 标识的工作事件。Supervisor 对显式用户工作走确定性 Fast path；其他来源由 Supervisor 模型决定接受或忽略并选择工作区策略，不得改写 Trigger 中的原始工作文本。
 2. 对已接受的工作 Trigger，Worker Runtime 使用原始 material 和自己的 Profile、Prompt Bundle、上下文协议及执行策略构造 Goal。Supervisor 加入来源与授权上限，持久化 Goal Snapshot 后再写入 FIFO Worker 队列、标记原 Trigger 已路由并发布 `response.goal_created`。准入故障保留未路由 Trigger 及失败分类；Goal ID 冲突不会覆盖现有快照。
-3. WorkerScheduler 按派发顺序为 Goal 选择匹配的空闲 Worker，或启动独立进程；不同 Goal 可并行。Supervisor 是 Goal 状态的唯一写入者，Worker 持久化自己的上下文与执行检查点，并以 Trigger 回报进度和结果。
+3. WorkerScheduler 按派发顺序为 Goal 选择匹配的空闲 Worker，或启动独立进程；不同 Goal 可并行。Supervisor 是 Goal Snapshot 的唯一写入者，Worker Snapshot 经 Supervisor 持久化；Run 的 `running` 进度在对应 Snapshot 保存后发布，`waiting` 与终态响应在 Worker 报告且 Snapshot 核对后发布。所有 Run 响应以 `replyTo` 关联创建该 Goal 的 work Trigger；完成响应的 `answer` 取自已持久化的最终助手答复，失败与取消响应只暴露 `runId`。
 4. 结构化回答、取消、权限请求与恢复决定都绑定 Goal、Run、请求身份及必要的 Worker generation，经 Trigger 往返。未知工具副作用只有用户明确确认恢复后才可能重试。
 5. Supervisor 重启时先清理已入队 Goal 的残留创建意图、补发缺失的创建响应，并重试存储中的未路由新 Goal work Trigger；这不依赖来源重新提交。随后核对所有权和存活 Worker、处理离线积压，再尝试路由仍适用于当前 Goal/Worker 状态的已存储控制 Trigger；不凭 PID 或超时重派未知动作，只有确认退出的 Worker 才形成显式恢复记录。
 6. Browser 从 Supervisor 保存的 Goal 与 Trigger 状态构造列表和详情，Goal SSE 初始发送 `state_sync`，后续按提交修订刷新；断线后重新连接会重新读取权威状态。
