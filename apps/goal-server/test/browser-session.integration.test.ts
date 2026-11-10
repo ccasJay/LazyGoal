@@ -7,6 +7,7 @@ import { test } from "node:test";
 
 import type { LLMAdapter } from "../../../packages/llm-core/src/index";
 import { createGoal } from "../../../packages/runtime/src/index";
+import { TriggerStore } from "../../../packages/storage/src/trigger-store";
 import { createBrowserSessionAccess } from "../../../packages/browser/src/index";
 import { runServerSession } from "../src/cli";
 import { createCompositionRoot } from "../src/composition-root";
@@ -142,6 +143,31 @@ const inactiveAdapter: LLMAdapter = {
     async generate() { throw new Error("This test does not use Supervisor model decisions"); },
 };
 
+function createRetryingWorkNameAdapter(): { readonly adapter: LLMAdapter; readonly calls: () => number } {
+    let calls = 0;
+    return {
+        adapter: {
+            structuredOutputMode: "strict",
+            async generate(request) {
+                calls += 1;
+                assert.equal(request.structuredOutput?.name, "trigger_name_summary");
+                assert.equal(request.messages[1]?.role, "user");
+                const submittedText = calls <= 2 ? "Wait until the user cancels this Goal." : "Wait independently for cancellation.";
+                assert.equal(request.messages[1]?.content, submittedText);
+                if (calls === 1) throw new Error("Injected name-generation failure");
+                const name = calls === 2 ? "Wait for user cancellation" : "Wait independently for cancellation";
+                return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({ name }) }] };
+            },
+        },
+        calls: () => calls,
+    };
+}
+
+function assertOnlyCreationTimestamp(trigger: { readonly sentAt: string }): void {
+    assert.deepEqual(Object.keys(trigger).filter((key) => key.endsWith("At")), ["sentAt"]);
+    assert.ok(Number.isFinite(Date.parse(trigger.sentAt)));
+}
+
 test("真实 Web 入口使用 Trigger 并行启动 Worker、观察状态、拒绝续聊并安全取消", { timeout: 40_000 }, async () => {
     const workspace = await mkdtemp(join(tmpdir(), "lazygoal-trigger-browser-"));
     const home = join(workspace, "home");
@@ -176,6 +202,8 @@ test("真实 Web 入口使用 Trigger 并行启动 Worker、观察状态、拒�
     const access = createBrowserSessionAccess();
     let root: Awaited<ReturnType<typeof createCompositionRoot>> | undefined;
     let serving: Promise<number> | undefined;
+    let triggerStore: TriggerStore | undefined;
+    const nameModel = createRetryingWorkNameAdapter();
 
     try {
         root = await createCompositionRoot({
@@ -183,7 +211,7 @@ test("真实 Web 入口使用 Trigger 并行启动 Worker、观察状态、拒�
             dataDirectory,
             env: environment,
             profile,
-            adapter: inactiveAdapter,
+            adapter: nameModel.adapter,
             httpMiddleware: access.middleware,
             exitPort: { exit() {} },
         });
@@ -192,6 +220,8 @@ test("真实 Web 入口使用 Trigger 并行启动 Worker、观察状态、拒�
         const launchUrl = new URL(await withTimeout(launchReady.promise, "Web server did not start"));
         const origin = launchUrl.origin;
         const token = launchUrl.hash.slice(1);
+        const persistedTriggers = new TriggerStore(join(dataDirectory, "triggers.db"));
+        triggerStore = persistedTriggers;
         const request = async (path: string, method: string, body?: unknown) => {
             const response = await fetch(`${origin}${path}`, {
                 method,
@@ -209,29 +239,54 @@ test("真实 Web 入口使用 Trigger 并行启动 Worker、观察状态、拒�
             };
         };
 
-        const createAlpha = await request("/api/goals", "POST", {
+        const alphaCommand = {
+            kind: "create_session",
+            intentId: "work-alpha",
             goalId: "goal-alpha",
             inputId: "work-alpha",
             intent: "Wait until the user cancels this Goal.",
             modelId: "test-model",
-        });
-        assert.equal(createAlpha.status, 202, JSON.stringify(createAlpha.body));
+        } as const;
+        const failedName = await request("/api/control", "POST", alphaCommand);
+        assert.equal(failedName.status, 500);
+        assert.deepEqual(failedName.body, { intentId: "work-alpha", status: "rejected", error: "create_failed" });
+        assert.equal(persistedTriggers.read(alphaCommand.inputId), undefined);
+        const createAlphaControl = await request("/api/control", "POST", alphaCommand);
+        assert.equal(createAlphaControl.status, 202, JSON.stringify(createAlphaControl.body));
+        assert.equal(createAlphaControl.body.status, "accepted");
+        const createAlpha = { body: createAlphaControl.body.result.result as Record<string, any> };
         assert.equal(createAlpha.body.goalId, "goal-alpha");
+        const alphaWork = persistedTriggers.read(alphaCommand.inputId);
+        assert.ok(alphaWork !== undefined && alphaWork.type === "work");
+        assert.equal(alphaWork.name, "Wait for user cancellation");
+        assert.deepEqual(alphaWork.payload, { action: "submitted", material: { kind: "text", text: alphaCommand.intent } });
+        assert.deepEqual(Object.keys(alphaWork).sort(), ["id", "name", "payload", "sentAt", "source", "target", "type"]);
+        assertOnlyCreationTimestamp(alphaWork);
         const repeatedCreateAlpha = await request("/api/goals", "POST", {
-            goalId: "goal-alpha",
-            inputId: "work-alpha",
-            intent: "Wait until the user cancels this Goal.",
-            modelId: "test-model",
+            goalId: alphaCommand.goalId,
+            inputId: alphaCommand.inputId,
+            intent: alphaCommand.intent,
+            modelId: alphaCommand.modelId,
         });
-        assert.equal(repeatedCreateAlpha.status, 409);
+        assert.equal(repeatedCreateAlpha.status, 409, JSON.stringify(repeatedCreateAlpha.body));
         assert.equal(repeatedCreateAlpha.body.error, "input_conflict");
-        const createBeta = await request("/api/goals", "POST", {
+        assert.equal(nameModel.calls(), 2);
+        const betaCommand = {
+            kind: "create_session",
+            intentId: "work-beta",
             goalId: "goal-beta",
             inputId: "work-beta",
             intent: "Wait independently for cancellation.",
             modelId: "test-model",
-        });
-        assert.equal(createBeta.status, 202, JSON.stringify(createBeta.body));
+        } as const;
+        const createBetaControl = await request("/api/control", "POST", betaCommand);
+        assert.equal(createBetaControl.status, 202, JSON.stringify(createBetaControl.body));
+        assert.equal(createBetaControl.body.status, "accepted");
+        const createBeta = { body: createBetaControl.body.result.result as Record<string, any> };
+        const betaWork = persistedTriggers.read(betaCommand.inputId);
+        assert.ok(betaWork !== undefined && betaWork.type === "work");
+        assert.equal(betaWork.name, "Wait independently for cancellation");
+        assert.equal(nameModel.calls(), 3);
         await withTimeout(modelServer.started, "Both independent Workers did not enter the model", 15_000);
 
         const list = await request("/api/goals", "GET");
@@ -276,6 +331,11 @@ test("真实 Web 入口使用 Trigger 并行启动 Worker、观察状态、拒�
             runId: createAlpha.body.runId,
         });
         assert.equal(stopAlpha.status, 202, JSON.stringify(stopAlpha.body));
+        const cancelAlpha = persistedTriggers.read("cancel-alpha");
+        assert.ok(cancelAlpha !== undefined && cancelAlpha.type === "instruction");
+        assert.equal(cancelAlpha.name, "Cancel Goal run");
+        assert.deepEqual(cancelAlpha.payload, { action: "cancel", runId: createAlpha.body.runId });
+        assertOnlyCreationTimestamp(cancelAlpha);
         const stopBeta = await request("/api/goals/goal-beta/inputs", "POST", {
             kind: "interrupt",
             inputId: "cancel-beta",
@@ -327,6 +387,7 @@ test("真实 Web 入口使用 Trigger 并行启动 Worker、观察状态、拒�
             process.emit("SIGINT");
             await serving.catch(() => undefined);
         }
+        triggerStore?.close();
         await root?.lifecycle.close().catch(() => undefined);
         await root?.httpService.close().catch(() => undefined);
         await modelServer.close();

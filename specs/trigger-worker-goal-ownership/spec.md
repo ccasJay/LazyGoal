@@ -66,7 +66,7 @@ superseded_by: null
 - [x] //TODO 2. 接入 Actor 身份认证、Supervisor 路由和 Worker 间中转 → R1.2；检查：运行认证与路由定向测试。
 - [x] //TODO 3. 让持久队列直接保存 Trigger，并实现唯一 ID 冲突拒绝和重启续路由 → R1.3、R1.4；检查：运行存储、重复 ID 与 Supervisor 重启测试。
 - [x] //TODO 4. 将 work Trigger 的 Goal 构造放入 Worker Runtime，并在持久提交后回复 `goal_created` → R2.1；检查：运行跨进程 Goal 创建测试。
-- [ ] //TODO 5. 实现语义名称、控制名称、`sentAt` 与命名失败保留 → R2.2、R2.3；检查：运行命名失败注入和消息字段测试。
+- [x] //TODO 5. 实现语义名称、控制名称、`sentAt` 与命名失败保留 → R2.2、R2.3；检查：运行命名失败注入和消息字段测试。
 - [ ] //TODO 6. 实现 `replyTo` 约束、Run 进度及终态响应 → R3.1、R3.2、R3.3；检查：运行进度、完成答复、失败/取消定向测试。
 - [ ] //TODO 7. 实现权限、交互、取消、恢复与 Worker 生命周期 Trigger → R4.1、R4.2；检查：运行跨进程等待/回复及故障恢复测试。
 - [ ] //TODO 8. 对齐受影响的模块说明与语义表，并验证端到端组合和回归 → R1.1–R4.2；检查：运行组合多进程测试及 `npm test`、`npm run contracts:generate -- --check`、`npm run check:dependencies`、`npm run check:docs`。

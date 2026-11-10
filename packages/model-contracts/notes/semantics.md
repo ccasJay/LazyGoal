@@ -17,3 +17,4 @@
 | 模型生成绑定 | Catalog 从 TS 单源生成的 Schema、校验器与 `ContractBinding` 集合。 | [模型协议契约](../README.md) | [生成绑定装配](../src/model-output/generated-bindings.ts) |
 | Trigger 准入判断 | Supervisor 模型输出接受或忽略决定；接受时只选择 shared/worktree 策略，工作意图保持为原始 material。 | [模型协议契约](../README.md) | [准入契约](../src/trigger-admission.ts) |
 | Supervisor 权限判断 | 对单个 Worker Action 输出 approve/reject；Provider wire 结果仍由消费端核验字段组合，不授予持续权限。 | [模型协议契约](../README.md) | [权限判断契约](../src/trigger-permission-decision.ts) |
+| Trigger 名称摘要 | 为 work Trigger 生成封闭的简短名称输出；消费方拒绝空名称，原始 material 仍是工作来源。 | [模型协议契约](../README.md) | [名称摘要契约](../src/trigger-name-summary.ts) |

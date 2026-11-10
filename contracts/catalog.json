@@ -9643,6 +9643,68 @@
             "role": "boundary-root"
         },
         {
+            "key": "model-contracts/src/trigger-name-summary#TriggerNameSummary",
+            "declaration": "TriggerNameSummary",
+            "source": {
+                "path": "packages/model-contracts/src/trigger-name-summary.ts",
+                "line": 13
+            },
+            "owner": "model-contracts",
+            "module": "model-contracts",
+            "boundary": "model-output",
+            "section": "Trigger 名称摘要模型输出",
+            "definition": "原生 TS 接口",
+            "definitionKind": "native-ts",
+            "relations": [],
+            "consumers": [
+                "apps/goal-server/src/browser-session-port.ts"
+            ],
+            "protocol": {
+                "identity": {
+                    "state": "declared",
+                    "value": "model.supervisor-trigger-name-summary"
+                },
+                "version": {
+                    "state": "declared",
+                    "value": 1,
+                    "detail": "version: 1"
+                }
+            },
+            "generation": {
+                "state": "enabled",
+                "detail": "语义 Trigger 名称摘要的结构 Schema、校验器与绑定。",
+                "strategy": "typescript-binding",
+                "rootType": "TriggerNameSummary",
+                "declaredTypes": [
+                    "TriggerNameSummary"
+                ],
+                "outputDirectory": "packages/model-contracts/src/generated",
+                "artifacts": {
+                    "schemaModule": "trigger-name-summary-schema.ts",
+                    "validator": "trigger-name-summary-validator.mjs",
+                    "validatorTypes": "trigger-name-summary-validator.d.mts",
+                    "manifest": "trigger-name-summary-manifest.json",
+                    "binding": "trigger-name-summary-binding.ts"
+                },
+                "binding": {
+                    "module": "../../../contract-binding/src/index",
+                    "dataType": "TriggerNameSummary",
+                    "dataTypeModule": "../trigger-name-summary",
+                    "exportName": "triggerNameSummaryBinding",
+                    "names": {
+                        "schema": "triggerNameSummarySchema",
+                        "metadata": "triggerNameSummaryMetadata",
+                        "validator": "validateTriggerNameSummary"
+                    }
+                }
+            },
+            "validation": {
+                "state": "generated-reader",
+                "detail": "生成绑定拒绝额外字段与错误类型；消费端拒绝空白摘要，原始 material 仍是唯一工作来源。"
+            },
+            "role": "boundary-root"
+        },
+        {
             "key": "model-contracts/src/trigger-permission-decision#SupervisorPermissionDecisionWire",
             "declaration": "SupervisorPermissionDecisionWire",
             "source": {

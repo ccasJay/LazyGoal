@@ -5,7 +5,7 @@
 | 概念 | 简明含义 | 归属模块 | 权威说明 |
 | --- | --- | --- | --- |
 | Composition Root | 服务依赖装配边界。 | [Goal Server](../README.md) | [模块说明](./overview.md) |
-| Trigger Browser Session Port | Web 创建与控制命令接入 Supervisor 的准入、Trigger 路由和 Worker 调度；重复 Trigger ID 返回冲突，不回放旧结果。 | [Goal Server](../README.md) | [Trigger 浏览器端口](../src/browser-session-port.ts) |
+| Trigger Browser Session Port | Web 创建与控制命令接入 Supervisor 的准入、Trigger 路由和 Worker 调度；work 名称发布前由模型摘要，失败不写入 Trigger 且可重试；控制名称确定，`sentAt` 仅记创建时间。重复 Trigger ID 返回冲突，不回放旧结果。 | [Goal Server](../README.md) | [Trigger 浏览器端口](../src/browser-session-port.ts) |
 | Web service | 同源浏览器接口的显式启停入口；会话读取按 Goal 投影并通过 Trigger 路径接受支持的控制。 | [Goal Server](../README.md) | [CLI 装配](../src/cli.ts) |
 | Trigger 本地传输 | loopback 凭据映射到可信 Worker generation、externalId 或 Supervisor Actor；Supervisor 严格校验来源与 Goal 目标，Worker-target 控制消息经 WorkerScheduler 路由，Worker 间没有直接连接。 | [Goal Server](../README.md) | [传输组件](../src/runtime/trigger-wire-server.ts)、[认证与接收](../../../packages/storage/src/trigger-ingress.ts) |
 | Provider profile resolution | 启动与选择期的受管档案解析、优先级与不可解析时的显式失败；档案变更后刷新解析视图。 | [Goal Server](../README.md) | [Composition Root](../src/composition-root.ts) |
