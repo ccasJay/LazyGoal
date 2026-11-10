@@ -176,6 +176,12 @@ test("FIFO 派发让不同 Goal 并行，等待绑定保留，终态后复用匹
         assert.equal(new Set(pids.map((item) => item.pid)).size, 2);
         assert.deepEqual(scheduler.assignments().map((item) => item.goalId).sort(), [...acceptedIds].sort());
 
+        const staleCancel = cancelTrigger("cancel-trigger-stale-run", acceptedIds[0]!, "retired-run");
+        await assert.rejects(scheduler.handleCancelTrigger(staleCancel, { ...principal, goalIds: [acceptedIds[0]!] }), /stale or missing Run/);
+        assert.equal(triggers.routeStatus(staleCancel.id), undefined);
+        assert.equal(triggers.queueRecord(acceptedIds[0]!)?.status, "waiting");
+        assert.equal((await goals.restore(acceptedIds[0]!))?.state.run.status, "waiting");
+
         const firstCancel = cancelEvent("cancel-trigger-a", acceptedIds[0]!);
         const firstTerminal = await scheduler.handleCancelTrigger(firstCancel, { ...principal, goalIds: [acceptedIds[0]!] });
         assert.deepEqual(firstTerminal, { kind: "terminal", status: "cancelled" });
@@ -231,6 +237,8 @@ test("FIFO 派发让不同 Goal 并行，等待绑定保留，终态后复用匹
         assert.ok(recovery !== undefined);
         const exitEvidence = triggers.read(recovery.lifecycleTriggerId);
         assert.ok(exitEvidence !== undefined && triggers.routeStatus(exitEvidence.id) === "routed");
+        assert.equal(exitEvidence.type, "lifecycle");
+        assert.equal(exitEvidence.target, "supervisor");
         assert.deepEqual(exitEvidence.payload, { action: "exited", outcome: "unexpected" });
         assert.deepEqual(exitEvidence.source, { role: "supervisor" });
         const exitTriggerId = exitEvidence.id;
@@ -244,10 +252,14 @@ test("FIFO 派发让不同 Goal 并行，等待绑定保留，终态后复用匹
             resumeTrigger("resume-uncertain-fourth-trigger", fourthGoalId, waitingCheckpoint.state.run.id, exitTriggerId, false),
             { role: "user", externalId: "test-actor", mayCreateGoal: false, goalIds: [fourthGoalId] }));
         await goals.save(waitingCheckpoint);
+        const resume = resumeTrigger("resume-fourth-trigger", fourthGoalId, waitingCheckpoint.state.run.id, exitTriggerId, false);
+        if (!("replyTo" in resume)) assert.fail("Expected a recovery Trigger reply reference");
+        assert.equal(resume.replyTo, exitTriggerId);
         const resumed = await scheduler.handleWorkerRecoveryTrigger(
-            resumeTrigger("resume-fourth-trigger", fourthGoalId, waitingCheckpoint.state.run.id, exitTriggerId, false),
+            resume,
             { role: "user", externalId: "test-actor", mayCreateGoal: false, goalIds: [fourthGoalId] });
         assert.deepEqual(resumed, { kind: "resumed", goalId: fourthGoalId });
+        assert.equal(triggers.routeStatus(resume.id), "routed");
         assert.equal(triggers.workerRecovery(fourthGoalId)?.status, "resumed");
         await scheduler.pump();
         await waitFor(() => triggers.queueRecord(fourthGoalId)?.status === "terminal");
@@ -273,6 +285,53 @@ test("FIFO 派发让不同 Goal 并行，等待绑定保留，终态后复用匹
             await scheduler.handleCancelTrigger(cancelEvent("cleanup-recovery-cancel-trigger", cleanupGoalId),
                 { role: "user", externalId: "test-actor", mayCreateGoal: false, goalIds: [cleanupGoalId] }).catch(() => undefined);
         }
+        await scheduler.closeIdle().catch(() => undefined);
+        triggers.close();
+        await owner.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("stored cancellation is rechecked against the Run current at routing time", { timeout: 15000 }, async () => {
+    const root = await mkdtemp(join(tmpdir(), "lg-worker-stale-cancel-recovery-"));
+    const workspace = join(root, "workspace");
+    const home = join(root, "home");
+    const dataDirectory = join(root, "data");
+    await Promise.all([mkdir(workspace, { recursive: true }), mkdir(join(home, "agent-profiles"), { recursive: true }), mkdir(dataDirectory, { recursive: true })]);
+    await writeFile(join(home, "agent-profiles", "default.json"), JSON.stringify({ schemaVersion: 1, id: "default", name: "Test",
+        description: "Test", systemPrompt: "Test", instructions: ["Test"], toolIds: [] }));
+    const owner = new SupervisorOwnership(join(dataDirectory, "owner.db"));
+    const triggers = new TriggerStore(join(dataDirectory, "triggers.db"));
+    const goals = new JsonFileGoalStore(join(dataDirectory, "goals"));
+    const scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory,
+        env: { LAZYGOAL_HOME: home, LLM_PROVIDER: "openai", LLM_MODEL: "gpt-4o-mini", LLM_API_KEY: "test" }, permissionAdapter: never });
+    const work = workTrigger("stale-cancel-routing-work", "Wait for a stale cancellation check");
+    let goalId: string | undefined;
+    let originalGoal: Awaited<ReturnType<typeof goals.restore>> = undefined;
+    try {
+        const accepted = await admitTrigger(owner, triggers, goals, never, work, principal, async (intent, reservedGoalId) =>
+            createWaitingGoal(reservedGoalId ?? "goal-stale-cancel-routing", intent, workspace));
+        goalId = acceptedGoalId(accepted);
+        await scheduler.pump();
+        await waitFor(() => triggers.queueRecord(goalId!)?.status === "waiting");
+        originalGoal = await goals.restore(goalId);
+        assert.ok(originalGoal !== undefined);
+
+        const delayedCancel = cancelTrigger("stale-cancel-routing-event", goalId, originalGoal.state.run.id);
+        receiveAuthorizedTrigger(triggers, delayedCancel, { ...principal, mayCreateGoal: false, goalIds: [goalId] });
+        const replacementGoal = createWaitingGoal(`${goalId}-replacement`, "A later Run", workspace).goal;
+        await goals.save({ ...originalGoal, state: replacementGoal.state });
+
+        await scheduler.pump();
+        assert.equal(triggers.routeStatus(delayedCancel.id), "unrouted");
+        assert.equal(triggers.queueRecord(goalId)?.status, "waiting");
+        assert.equal((await goals.restore(goalId))?.state.run.id, replacementGoal.state.run.id);
+    } finally {
+        if (goalId !== undefined && originalGoal !== undefined && triggers.queueRecord(goalId)?.status !== "terminal") {
+            await goals.save(originalGoal).catch(() => undefined);
+            await scheduler.pump().catch(() => undefined);
+        }
+        for (const worker of await scheduler.processIds().catch(() => [])) process.kill(worker.pid, "SIGKILL");
         await scheduler.closeIdle().catch(() => undefined);
         triggers.close();
         await owner.close();
@@ -338,7 +397,7 @@ test("活动模型调用收到取消后等待 Runtime 结算，再持久化终�
         assert.equal(runningReport.replyTo, input.id);
         assert.equal(triggers.routeStatus(runningReport.id), "routed");
 
-        const cancel = scheduler.handleCancelTrigger(cancelEvent("active-cancel-trigger", goalId),
+        const cancel = scheduler.handleCancelTrigger(cancelTrigger("active-cancel-trigger", goalId, runningGoal!.state.run.id),
             { ...principal, goalIds: [goalId] });
         const cancelResult = await withTimeout(cancel, 5000, "Cancellation did not settle");
         assert.deepEqual(cancelResult, { kind: "terminal", status: "cancelled" });
@@ -474,11 +533,14 @@ test("新 Supervisor 恢复未路由 work 与 cancel Trigger，并接管 Worker"
         originalWorkerPid = ready.workers[0]?.pid;
         assert.ok(originalWorkerId !== undefined && originalWorkerPid !== undefined);
         const beforeExitStore = new TriggerStore(join(dataDirectory, "triggers.db"));
-        const cancelAfterRestart = cancelEvent("cancel-after-restart", goalId);
+        let cancelAfterRestart: ReturnType<typeof cancelTrigger> | undefined;
         try {
             assert.equal(beforeExitStore.routeStatus(reconnectTrigger.id), "routed");
             assert.equal(beforeExitStore.queueRecord(goalId)?.triggerId, reconnectTrigger.id);
             await waitFor(() => beforeExitStore.queueRecord(goalId)?.status === "waiting");
+            const reconnectGoal = await goals.restore(goalId);
+            assert.ok(reconnectGoal !== undefined);
+            cancelAfterRestart = cancelTrigger("cancel-after-restart", goalId, reconnectGoal.state.run.id);
             receiveAuthorizedTrigger(beforeExitStore, cancelAfterRestart, { ...principal, mayCreateGoal: false, goalIds: [goalId] });
             assert.equal(beforeExitStore.routeStatus(cancelAfterRestart.id), "unrouted");
         } finally { beforeExitStore.close(); }
@@ -493,6 +555,7 @@ test("新 Supervisor 恢复未路由 work 与 cancel Trigger，并接管 Worker"
             await scheduler.pump();
             assert.deepEqual(scheduler.assignments(), [{ workerId: originalWorkerId }]);
             assert.deepEqual(await scheduler.processIds(), [{ workerId: originalWorkerId, pid: originalWorkerPid }]);
+            assert.ok(cancelAfterRestart !== undefined);
             assert.equal(triggers.routeStatus(cancelAfterRestart.id), "routed");
             assert.equal(triggers.queueRecord(goalId)?.status, "terminal");
             assert.equal((await goals.restore(goalId))?.state.run.status, "cancelled");

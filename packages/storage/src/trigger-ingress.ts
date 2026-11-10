@@ -22,26 +22,20 @@ export type TriggerIngressPrincipal =
     | { readonly role: "supervisor"; readonly mayCreateGoal: boolean; readonly goalIds: readonly string[] };
 
 /**
- * 验证可信连接 Actor 与 Trigger 目标授权后，持久化一条新 Trigger。
+ * 严格校验 Trigger 结构、来源身份与 Goal 访问权，但不持久化事件。
  *
  * @remarks
- * 此入口不提供网络身份认证；宿主必须先认证连接并构造 Actor。接收方核对 Worker ID 与 generation，或 externalId，并按可访问 Goal 授权目标。只有无 `goalId` 的 `work.submitted` 可创建 Goal，且受 `mayCreateGoal` 控制；所有 Worker target 消息仍由 Supervisor 接收。此入口不构造 `type`/`action` 方向矩阵。已存在的 Trigger ID 一律冲突，不会返回既有事件或处理结果。
- *
- * @param store - 当前 Supervisor 使用的 Trigger 存储。
+ * 用于需要在持久接收前完成额外当前状态核对的 Supervisor 路由。网络身份认证仍由宿主负责；返回值只确认此 Trigger 可由该 principal 提交。
  * @param input - 不可信的进程或适配器值。
  * @param principal - 已认证连接对应的可信身份和授权。
- * @returns 新持久化的不可变 Trigger。
- * @throws 结构、身份、目标授权不符、Trigger ID 已存在或存储失败时抛出。
+ * @returns 通过生成绑定与来源授权检查的不可变 Trigger。
+ * @throws 结构、身份、目标授权或 Goal 创建授权不符时抛出。
  * @example
  * ```ts
- * const trigger = receiveAuthorizedTrigger(store, input, principal);
+ * const trigger = validateAuthorizedTrigger(input, principal);
  * ```
  */
-export function receiveAuthorizedTrigger(
-    store: TriggerStore,
-    input: unknown,
-    principal: TriggerIngressPrincipal,
-): Trigger {
+export function validateAuthorizedTrigger(input: unknown, principal: TriggerIngressPrincipal): Trigger {
     const trigger = readTrigger(input);
     if (trigger === undefined) throw new Error("Invalid Trigger");
     const goalId = "goalId" in trigger ? trigger.goalId : undefined;
@@ -68,5 +62,27 @@ export function receiveAuthorizedTrigger(
     if (trigger.target === "worker" && goalId === undefined && principal.role !== "supervisor") {
         throw new Error("Trigger target is not authorized");
     }
-    return store.receive(trigger);
+    return trigger;
+}
+
+/**
+ * 验证可信连接 Actor 与 Trigger 目标授权后，持久化一条新 Trigger。
+ *
+ * @remarks 已存在的 Trigger ID 一律冲突，不会返回既有事件或处理结果。
+ * @param store - 当前 Supervisor 使用的 Trigger 存储。
+ * @param input - 不可信的进程或适配器值。
+ * @param principal - 已认证连接对应的可信身份和授权。
+ * @returns 新持久化的不可变 Trigger。
+ * @throws 结构、身份、目标授权不符、Trigger ID 已存在或存储失败时抛出。
+ * @example
+ * ```ts
+ * const trigger = receiveAuthorizedTrigger(store, input, principal);
+ * ```
+ */
+export function receiveAuthorizedTrigger(
+    store: TriggerStore,
+    input: unknown,
+    principal: TriggerIngressPrincipal,
+): Trigger {
+    return store.receive(validateAuthorizedTrigger(input, principal));
 }

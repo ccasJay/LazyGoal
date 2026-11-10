@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { TriggerStore } from "../src/trigger-store";
-import { receiveAuthorizedTrigger } from "../src/trigger-ingress";
+import { receiveAuthorizedTrigger, validateAuthorizedTrigger } from "../src/trigger-ingress";
 import { cancelTrigger, workTrigger, waitingTrigger } from "../../runtime/test/trigger-fixtures";
 
 test("ingress rejects forged process identity and targets before storing", async () => {
@@ -40,7 +40,9 @@ test("ingress does not treat control events as Goal creation", async () => {
         delete missingGoal.goalId;
         assert.throws(() => receiveAuthorizedTrigger(store, missingGoal, principal), /Invalid Trigger/);
         assert.throws(() => receiveAuthorizedTrigger(store, { ...trigger, goalId: "goal-2" }, principal), /authorized/);
+        assert.deepEqual(validateAuthorizedTrigger(trigger, principal), trigger);
         assert.deepEqual(store.unroutedTriggers(), []);
+        assert.equal(store.routeStatus(trigger.id), undefined);
         assert.deepEqual(receiveAuthorizedTrigger(store, trigger, principal), trigger);
         assert.equal(store.routeStatus(trigger.id), "unrouted");
         store.close();

@@ -7,7 +7,7 @@ import { projectInteractionView } from "../../../../packages/runtime/src/interac
 import { JsonFileGoalStore } from "../../../../packages/storage/src/goal-store";
 import { TriggerStore } from "../../../../packages/storage/src/trigger-store";
 import { SupervisorOwnership } from "../../../../packages/storage/src/supervisor-ownership";
-import { receiveAuthorizedTrigger, type TriggerIngressPrincipal } from "../../../../packages/storage/src/trigger-ingress";
+import { receiveAuthorizedTrigger, validateAuthorizedTrigger, type TriggerIngressPrincipal } from "../../../../packages/storage/src/trigger-ingress";
 import {
     decodeTriggerActionPermissionReply,
     decodeTriggerActionPermissionRequest,
@@ -244,14 +244,15 @@ export class WorkerScheduler {
      * 将已认证的取消 Trigger 转发给 Goal 当前绑定的 Worker。
      *
      * @remarks
-     * Trigger 先持久保存；Worker 只有在 Runtime 中断结果及 Supervisor 对应 Goal 进度
-     * 已持久化后才标记该 Trigger 已路由。队列的等待或终态状态仍由独立的 Goal 队列记录。
+     * 先验证来源授权与当前 Run 身份，再持久保存 Trigger；路由时再次核对当前 Run，Worker 也按该 Run 身份执行中断。
+     * Worker 只有在 Runtime 中断结果及 Supervisor 对应 Goal 进度已持久化后才标记该 Trigger 已路由。
+     * 队列的等待或终态状态仍由独立的 Goal 队列记录。
      * 断连、过期代次或未确认停止会保留原队列绑定，不终止进程，也不重新派发副作用未知的工作。未路由 Trigger 留在 Store 供 `pump()` 使用原事件恢复；调用方不得重交相同 ID。
      *
      * @param trigger - 关联既有 Goal 的取消 Trigger。
      * @param principal - 由宿主认证的来源与 Goal 授权。
      * @returns Worker 已报告的终态、等待状态或拒绝原因。
-     * @throws 载荷、授权或持久存储错误时抛出；未路由的 Trigger 可由所属处理器重试。
+     * @throws 载荷、授权、当前 Run 身份或持久存储不符时抛出；未路由的 Trigger 可由所属处理器重试。
      * @example
      * ```ts
      * const progress = await scheduler.handleCancelTrigger(trigger, authenticatedExternalActor);
@@ -263,10 +264,13 @@ export class WorkerScheduler {
             throw new Error("Cancellation requires a Goal-bound cancel Trigger");
         }
         const goalId = trigger.goalId;
-        receiveAuthorizedTrigger(this.options.triggers, trigger, principal);
+        const authorizedTrigger = validateAuthorizedTrigger(trigger, principal);
+        if (this.options.triggers.routeStatus(trigger.id) !== undefined) throw new Error("Trigger identity conflict");
+        await this.assertCurrentCancellationRun(goalId, trigger.payload.runId);
+        this.options.triggers.receive(authorizedTrigger);
 
         await this.pump();
-        return this.routeCancelTrigger(trigger);
+        return this.routeCancelTrigger(authorizedTrigger);
     }
 
     private async routeCancelTrigger(trigger: Trigger): Promise<WorkerProgress> {
@@ -275,6 +279,7 @@ export class WorkerScheduler {
             throw new Error("Cancellation requires a Goal-bound cancel Trigger");
         }
         const goalId = trigger.goalId;
+        await this.assertCurrentCancellationRun(goalId, trigger.payload.runId);
         const routeStatus = this.options.triggers.routeStatus(trigger.id);
         if (routeStatus === "routed") return this.currentProgress(goalId);
         if (routeStatus !== "unrouted") throw new Error("Cancellation Trigger is not stored");
@@ -292,11 +297,18 @@ export class WorkerScheduler {
         if (slot === undefined || slot.generation !== queue.generation || slot.process.assignedGoalId !== goalId) {
             throw new Error("Cancellation target has no confirmed active Worker");
         }
-        const progress = await slot.process.cancel(goalId, trigger.id);
+        const progress = await slot.process.cancel(goalId, trigger.payload.runId, trigger.id);
         if (progress.kind === "rejected") return progress;
         await this.reportProgress(slot, goalId, progress);
         this.options.triggers.markRouted(trigger.id);
         return progress;
+    }
+
+    private async assertCurrentCancellationRun(goalId: string, runId: string): Promise<void> {
+        const goal = await this.options.goals.restore(goalId);
+        if (goal === undefined || goal.state.run.id !== runId) {
+            throw new Error("Cancellation Trigger targets a stale or missing Run");
+        }
     }
 
     /**

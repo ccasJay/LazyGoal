@@ -452,22 +452,24 @@ export class SupervisorWorkerProcess {
      * 请求运行时中断当前 Goal，并等待 Worker 确认快照已经进入取消终态。
      *
      * @remarks
-     * 中断受理本身不会释放进程绑定。Worker 等待当前推进完全结算后返回快照对应
-     * 的状态；Supervisor 仍须持久化报告和队列终态，再调用 `confirmTerminal`。
-     * 断连或拒绝会保留绑定。
+     * 中断受理本身不会释放进程绑定。Worker 先核对当前持久快照仍是请求指定的 Run，
+     * 再等待当前推进完全结算并返回状态；Supervisor 仍须持久化报告和队列终态，再调用
+     * `confirmTerminal`。过期 Run、断连或拒绝会保留绑定。
      *
      * @param goalId - 此 Worker 当前持有的 Goal。
+     * @param expectedRunId - 取消 Trigger 所指向且必须仍为当前值的 Run 身份。
      * @param requestId - 稳定中断身份；同一请求重试共享进行中的 IPC 操作。
      * @returns Worker 观察到的最终等待、取消或拒绝结果。
-     * @throws Goal 快照读取、进程断连或 IPC 协议错误时抛出。
+     * @throws Run 已过期、Goal 快照读取、进程断连或 IPC 协议错误时抛出。
      * @example
      * ```ts
-     * const progress = await worker.cancel("goal-1", "cancel-trigger-1");
+     * const progress = await worker.cancel("goal-1", "run-1", "cancel-trigger-1");
      * ```
      */
-    cancel(goalId: string, requestId: string): Promise<WorkerProgress> {
+    cancel(goalId: string, expectedRunId: string, requestId: string): Promise<WorkerProgress> {
+        if (!expectedRunId.trim()) return Promise.reject(new Error("Cancellation Run identity is required"));
         if (!requestId.trim()) return Promise.reject(new Error("Cancellation request identity is required"));
-        const key = JSON.stringify([goalId, requestId]);
+        const key = JSON.stringify([goalId, expectedRunId, requestId]);
         const existing = this.cancelRequests.get(key);
         if (existing !== undefined) return existing;
         if (this.closed || this.goalId !== goalId) return Promise.reject(new Error("Worker does not own the cancellation target"));
@@ -477,7 +479,8 @@ export class SupervisorWorkerProcess {
             await this.advanceCommandSent;
             const goal = await this.options.goals.restore(goalId);
             if (goal === undefined) throw new Error("Cancellation target snapshot is unavailable");
-            const response = await this.request({ kind: "cancel", requestId: randomUUID(), interruptId: requestId, goalId, runId: goal.state.run.id });
+            if (goal.state.run.id !== expectedRunId) throw new Error("Cancellation target Run is stale");
+            const response = await this.request({ kind: "cancel", requestId: randomUUID(), interruptId: requestId, goalId, runId: expectedRunId });
             if (response.kind !== "cancel-result") throw new Error("Unexpected Worker cancellation response");
             return response.result;
         })().finally(() => { this.cancelling = false; });

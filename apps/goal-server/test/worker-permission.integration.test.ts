@@ -146,16 +146,33 @@ test("Worker 的一次性 Action 权限经 Trigger 由 Supervisor 决定并在�
         assert.equal(statuses.length, 1);
         assert.equal(statuses[0]?.request.type, "action_approval_request");
         assert.equal(statuses[0]?.pending, false);
+        const storedRequest = triggers.read(statuses[0]!.requestId);
+        assert.ok(storedRequest !== undefined && storedRequest.type === "permission" && storedRequest.payload.action === "requested");
+        assert.equal(storedRequest.id, statuses[0]!.requestId);
+        assert.equal(storedRequest.goalId, goalId);
+        assert.equal(storedRequest.target, "supervisor");
+        assert.deepEqual(storedRequest.payload, {
+            action: "requested",
+            runId: statuses[0]!.request.runId,
+            actionId: statuses[0]!.request.actionId,
+            interactionId: statuses[0]!.request.interactionId,
+            commitRevision: statuses[0]!.request.commitRevision,
+        });
         assert.equal(reviewerCalls, 1);
         assert.equal(await readFile(join(workspace, "automatic-permission-result.txt"), "utf8"), "automatic authorized once");
         const replies = triggers.listGoalTriggers(goalId).filter((trigger) => trigger.type === "permission"
             && trigger.payload.action === "decided" && trigger.source.role === "supervisor");
         assert.equal(replies.length, 1);
         const replyTrigger = replies[0];
-        if (replyTrigger?.type !== "permission" || replyTrigger.payload.action !== "decided") throw new Error("Expected a permission decision Trigger");
+        if (replyTrigger?.type !== "permission" || replyTrigger.payload.action !== "decided" || !("replyTo" in replyTrigger)) {
+            throw new Error("Expected a permission decision Trigger");
+        }
+        assert.equal(replyTrigger.goalId, goalId);
+        assert.equal(replyTrigger.replyTo, statuses[0]!.requestId);
+        assert.equal(replyTrigger.target, "worker");
         assert.equal(triggers.routeStatus(replyTrigger.id), "routed");
         assert.equal(triggers.routeStatus(statuses[0]!.requestId), "routed");
-        assert.deepEqual({ decision: replyTrigger.payload.decision, scope: replyTrigger.payload.scope }, { decision: "approve", scope: "action" });
+        assert.deepEqual(replyTrigger.payload, { action: "decided", decision: "approve", scope: "action" });
         assert.equal(requests.length >= 3, true);
 
         const manualGoalId = await admitGoal("manual", "人工授权动作");
@@ -170,9 +187,20 @@ test("Worker 的一次性 Action 权限经 Trigger 由 Supervisor 决定并在�
         const manualPrincipal = { role: "user", externalId: "test-actor", mayCreateGoal: false, goalIds: [manualGoalId] } as const;
         const staleReply = permissionDecisionTrigger("old-worker-permission-event", manualGoalId, "retired-request", "approve", undefined, externalTestActor);
         await assert.rejects(scheduler.handleActionPermissionReply(staleReply, manualPrincipal), /stored request Trigger/);
+        assert.equal(triggers.routeStatus(staleReply.id), undefined);
+        const crossGoalReply = permissionDecisionTrigger("cross-goal-worker-permission-event", "another-goal",
+            manualRequest.requestId, "approve", undefined, externalTestActor);
+        await assert.rejects(scheduler.handleActionPermissionReply(crossGoalReply, manualPrincipal), /stored request Trigger/);
+        assert.equal(triggers.routeStatus(crossGoalReply.id), undefined);
         assert.equal(await readFile(join(workspace, "manual-permission-result.txt")).then(() => true, () => false), false);
 
         const validReply = permissionDecisionTrigger("manual-worker-permission-event", manualGoalId, manualRequest.requestId, "approve", undefined, externalTestActor);
+        if (validReply.type !== "permission" || validReply.payload.action !== "decided" || !("replyTo" in validReply)) {
+            throw new Error("Expected a permission decision Trigger");
+        }
+        assert.equal(validReply.replyTo, manualRequest.requestId);
+        assert.equal(validReply.goalId, manualGoalId);
+        assert.deepEqual(validReply.payload, { action: "decided", decision: "approve", scope: "action" });
         receiveAuthorizedTrigger(triggers, validReply, manualPrincipal);
         await scheduler.pump();
         await waitFor(() => scheduler.actionPermissionStatuses(manualGoalId).some((status) => !status.pending));
