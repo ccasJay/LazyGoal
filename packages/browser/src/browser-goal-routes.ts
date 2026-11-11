@@ -7,7 +7,7 @@ import type {
     BrowserActivityQuery,
     BrowserActivityReadResult,
 } from "../../web-contracts/src/index";
-import type { BrowserGoalSessionState } from "../../web-contracts/src/index";
+import type { BrowserGoalSessionStateEnvelope } from "../../web-contracts/src/index";
 import type { BrowserModelCatalogReadResult } from "./browser-model-catalog";
 import type {
     BrowserGoalPlanModeCommand,
@@ -172,13 +172,13 @@ export interface BrowserGoalApiPort {
      */
     read(goalId: string): Promise<BrowserGoalSession | undefined>;
     /**
-     * 读取不含历史消息、步骤或阶段明细的当前状态；实现必须仅从 Snapshot 投影。
+     * 读取不含历史明细的当前状态。包含会话修订时，两份投影必须来自同一 Snapshot。
      *
      * @param goalId - Goal 的稳定标识。
      * @returns 窄状态；Goal 不存在时返回 `undefined`。
      * @throws Snapshot 损坏或底层读取失败时拒绝。
      */
-    readState?(goalId: string): Promise<BrowserGoalSessionState | undefined>;
+    readState?(goalId: string): Promise<BrowserGoalSessionStateEnvelope | undefined>;
     /**
      * 读取固定消息与已提交轨迹上界内的有界 Activity 页。
      *
@@ -455,8 +455,7 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
             try {
                 const state = await source.readState(goalId);
                 if (state === undefined) return context.json({ error: "goal_not_found" }, 404);
-                const session = source.session === undefined ? undefined : await source.session.readState(goalId);
-                return context.json({ goal: state, ...(session === undefined ? {} : { session }) });
+                return context.json(state);
             } catch {
                 return context.json({ error: "goal_read_failed" }, 500);
             }

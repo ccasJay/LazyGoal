@@ -42,6 +42,7 @@ export {
     projectInputOutcome,
     projectSessionInputReceipt,
     projectSessionState,
+    readBrowserControlSnapshot,
     type BrowserGoalLiveFeed,
     type BrowserGoalSessionPort,
     type BrowserGoalSessionPortDependencies,

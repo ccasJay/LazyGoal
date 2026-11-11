@@ -317,8 +317,11 @@ export async function readBrowserGoalSessionState(
     activeGoalId?: string,
 ): Promise<BrowserGoalSessionState | undefined> {
     const goal = await store.restore(goalId);
-    if (goal === undefined) return undefined;
+    return goal === undefined ? undefined : projectBrowserGoalSessionState(goal, activeGoalId);
+}
 
+/** 将已读取的 Goal 投影为不含历史的窄状态，供同次读取组合控制快照。 */
+export function projectBrowserGoalSessionState(goal: Goal, activeGoalId?: string): BrowserGoalSessionState {
     const currentRun = goal.state.run;
     const isActive = activeGoalId !== undefined && goal.id === activeGoalId;
     const terminalDetail = projectRunTerminalDetail([], currentRun.status, currentRun.stopReason).terminalDetail;

@@ -15,6 +15,7 @@ import {
     createBrowserSessionAccess,
     readBrowserGoalActivity,
     readBrowserGoalSessionState,
+    readBrowserControlSnapshot,
     type BrowserGoalApiPort,
 } from "../src/index";
 
@@ -79,23 +80,18 @@ test("Activity 路由校验双向游标并只返回受限页", async () => {
 
 test("view=state 返回显式标注历史外置的窄状态，不读取完整会话投影", async () => {
     let fullReads = 0;
-    let stateReads = 0;
-    const state = {
-        goalId: "goal-1",
-        currentRunId: "run-1",
-        runStatus: "running",
-        currentRunMode: "normal",
-        currentPlanRoute: { revision: 1, stages: [] },
-        history: {
-            messages: { included: false, source: "activity" },
-            steps: { included: false, source: "activity" },
-            stages: { included: false, source: "activity" },
-        },
-    };
+    let restores = 0;
+    const initial = createTestGoal();
+    const first: Goal = { ...initial, state: { ...initial.state, commitRevision: 2 } };
+    const second: Goal = { ...initial, state: {
+        ...initial.state, commitRevision: 3, run: { ...initial.state.run, stepCount: 12 },
+    } };
+    const store = { restore: async () => ++restores === 1 ? first : second };
     const api = {
         async list() { return { goals: [], unreadableCount: 0 }; },
         async read() { fullReads += 1; return { goalId: "goal-1", messages: [], runs: [], historyTruncated: false }; },
-        async readState() { stateReads += 1; return state; },
+        readState: (goalId: string) => readBrowserControlSnapshot(goalId, store, () => false),
+        session: { readState: async () => { throw new Error("Unexpected separate session read"); } },
         async enterPlanMode() { return { ok: false as const, error: "plan_mode_failed" as const }; },
         async models() { return { ok: false as const, error: "model_catalog_unavailable" as const }; },
         async setModelPreference() { return { ok: false as const, error: "model_catalog_unavailable" as const }; },
@@ -106,8 +102,15 @@ test("view=state 返回显式标注历史外置的窄状态，不读取完整会
     const response = await routes.request("/api/goals/goal-1?view=state");
 
     assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), { goal: state });
-    assert.equal(stateReads, 1);
+    const state = await response.json();
+    assert.deepEqual(state.goal.history, {
+        messages: { included: false, source: "activity" },
+        steps: { included: false, source: "activity" },
+        stages: { included: false, source: "activity" },
+    });
+    assert.equal(state.goal.currentRunStepCount, first.state.run.stepCount);
+    assert.equal(state.session.commitRevision, 2);
+    assert.equal(restores, 1);
     assert.equal(fullReads, 0);
 });
 
@@ -399,7 +402,10 @@ test("正式 HTTP 从重建的文件 Store 读取 Activity，并遵守 Snapshot 
         const api = {
             async list() { return { goals: [], unreadableCount: 0 }; },
             async read() { return undefined; },
-            readState: (goalId: string) => readBrowserGoalSessionState(goalId, restoredGoals),
+            readState: async (goalId: string) => {
+                const goal = await readBrowserGoalSessionState(goalId, restoredGoals);
+                return goal === undefined ? undefined : { goal };
+            },
             readActivity: async (goalId: string, query: Parameters<typeof readBrowserGoalActivity>[1]) => {
                 reads += 1;
                 return readBrowserGoalActivity(goalId, query, restoredGoals, (trajectoryQuery) =>

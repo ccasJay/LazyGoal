@@ -1,7 +1,6 @@
 import type { JsonValue } from "../../../packages/contracts/src/index";
 import { normalizeProjectionSchema, triggerNameSummaryBinding } from "../../../packages/model-contracts/src/index";
 import {
-    projectGoalSessionState,
     queryGoalMessages,
     readGoalMessageBody,
     projectInteractionView,
@@ -14,26 +13,22 @@ import { WorkerScheduler, allocateGoalWorkspace, admitTrigger, type RuntimeCompo
 import type { GoalTriggerContext } from "../../../packages/runtime/src/domain";
 import type { Trigger } from "../../../packages/runtime/src/trigger";
 import {
-    projectSessionState,
+    readBrowserControlSnapshot,
     type BrowserGoalLiveFeed,
     type BrowserGoalSessionPort,
     type BrowserSessionEventsResult,
 } from "../../../packages/browser/src/index";
-import {
-    readBrowserGoalSessionState,
-} from "../../../packages/browser/src/browser-projection";
 import type {
+    BrowserControlSnapshot,
     BrowserCreateSessionCommand,
     BrowserCreateSessionResult,
     BrowserExecutionState,
     BrowserGoalEvent,
-    BrowserGoalSessionState,
     BrowserSessionInputCommand,
     BrowserSessionInputQueryResult,
     BrowserSessionInputReceipt,
     BrowserSessionInputResult,
     BrowserSessionInteractionResponse,
-    BrowserSessionState,
 } from "../../../packages/web-contracts/src/index";
 import { JsonFileGoalStore } from "../../../packages/storage/src/goal-store";
 import { TriggerStore } from "../../../packages/storage/src/trigger-store";
@@ -54,7 +49,10 @@ const EVENT_POLL_INTERVAL_MS = 250;
  * const session = createTriggerBrowserSessionPort({ externalId: access.externalId, root, owner, triggers, scheduler, goals, resolveModelSelection });
  * ```
  */
-export function createTriggerBrowserSessionPort(dependencies: TriggerBrowserSessionPortDependencies): BrowserGoalSessionPort {
+export function createTriggerBrowserSessionPort(dependencies: TriggerBrowserSessionPortDependencies): BrowserGoalSessionPort & {
+    /** 从同一提交读取当前 Goal 控制状态，Goal 不存在时返回 undefined。 */
+    readControlSnapshot(goalId: string): Promise<BrowserControlSnapshot | undefined>;
+} {
     const { root, owner, triggers, scheduler, goals } = dependencies;
     const browserActor = { role: "external" as const, externalId: dependencies.externalId };
     const browserPrincipal = { role: "user" as const, externalId: dependencies.externalId, mayCreateGoal: true, goalIds: [] as readonly string[] };
@@ -67,35 +65,20 @@ export function createTriggerBrowserSessionPort(dependencies: TriggerBrowserSess
         return "inactive";
     };
 
-    async function readState(goalId: string): Promise<BrowserSessionState | undefined> {
-        const goal = await goals.restore(goalId);
-        if (goal === undefined) return undefined;
-        const ownsExecution = executionOwner(goalId);
-        const state = projectSessionState(goalId, projectGoalSessionState({ goal, executionOwner: ownsExecution }));
+    async function readSnapshot(goalId: string): Promise<BrowserControlSnapshot | undefined> {
+        const snapshot = await readBrowserControlSnapshot(goalId, goals, () => executionOwner(goalId));
+        if (snapshot === undefined) return undefined;
         return {
-            ...state,
-            needsRecovery: !ownsExecution && triggers.workerRecovery(goalId)?.status === "pending",
-            executionOwner: ownsExecution,
-        };
-    }
-
-    async function readSnapshot(goalId: string): Promise<{
-        readonly state: BrowserSessionState;
-        readonly goal: BrowserGoalSessionState;
-    } | undefined> {
-        const [state, goal] = await Promise.all([
-            readState(goalId),
-            readBrowserGoalSessionState(goalId, goals),
-        ]);
-        if (state === undefined || goal === undefined || state.runId !== goal.currentRunId) return undefined;
-        return {
-            state,
             goal: {
-                ...goal,
+                ...snapshot.goal,
                 execution: {
                     state: executionState(goalId),
-                    committedThroughSequence: goal.execution?.committedThroughSequence ?? 0,
+                    committedThroughSequence: snapshot.goal.execution?.committedThroughSequence ?? 0,
                 },
+            },
+            session: {
+                ...snapshot.session,
+                needsRecovery: !snapshot.session.executionOwner && triggers.workerRecovery(goalId)?.status === "pending",
             },
         };
     }
@@ -305,7 +288,8 @@ export function createTriggerBrowserSessionPort(dependencies: TriggerBrowserSess
                     triggerRunId(trigger), triggers.routeStatus(trigger.id) === "routed" ? goal?.state.run.id : undefined),
             };
         },
-        readState,
+        readState: async (goalId) => (await readSnapshot(goalId))?.session,
+        readControlSnapshot: readSnapshot,
         openEvents: async (goalId: string, signal?: AbortSignal): Promise<BrowserSessionEventsResult> => {
             const initial = await readSnapshot(goalId);
             if (initial === undefined) return { ok: false, error: "goal_not_found" };
@@ -426,13 +410,13 @@ function toGoalUserAction(
 
 async function* pollGoalEvents(
     goalId: string,
-    read: () => Promise<{ readonly state: BrowserSessionState; readonly goal: BrowserGoalSessionState } | undefined>,
-    initial: { readonly state: BrowserSessionState; readonly goal: BrowserGoalSessionState },
+    read: () => Promise<BrowserControlSnapshot | undefined>,
+    initial: BrowserControlSnapshot,
     isClosed: () => boolean,
     signal?: AbortSignal,
 ): AsyncGenerator<BrowserGoalEvent> {
     let previous = initial;
-    yield { type: "state_sync", goalId, state: initial.state, snapshot: { goal: initial.goal, session: initial.state } };
+    yield { type: "state_sync", goalId, state: initial.session, snapshot: initial };
     while (!isClosed()) {
         await waitForNextPoll(isClosed, signal);
         if (isClosed()) return;
@@ -448,16 +432,16 @@ async function* pollGoalEvents(
             return;
         }
         if (JSON.stringify(current) === JSON.stringify(previous)) continue;
-        if (current.state.commitRevision !== previous.state.commitRevision) {
+        if (current.session.commitRevision !== previous.session.commitRevision) {
             yield {
                 type: "state_committed",
                 goalId,
-                runId: current.state.runId,
-                commitRevision: current.state.commitRevision,
+                runId: current.session.runId,
+                commitRevision: current.session.commitRevision,
                 changed: ["session", "activity", "trajectory", "metrics"],
             };
         }
-        yield { type: "state_sync", goalId, state: current.state, snapshot: { goal: current.goal, session: current.state } };
+        yield { type: "state_sync", goalId, state: current.session, snapshot: current };
         previous = current;
     }
 }

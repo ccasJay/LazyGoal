@@ -15,7 +15,6 @@ import {
     projectBrowserModelCatalog,
     readBrowserGoalActivity,
     readBrowserGoalSession,
-    readBrowserGoalSessionState,
     resolveBrowserDraftModelCatalog,
     type BrowserModelCatalog,
     type BrowserModelSource,
@@ -453,16 +452,7 @@ export async function runServerSession(
                     },
                 };
             },
-            readState: async (goalId) => {
-                const goal = await readBrowserGoalSessionState(goalId, root.workspaceGoalStore);
-                return goal === undefined ? undefined : {
-                    ...goal,
-                    execution: {
-                        state: executionStateFor(goalId),
-                        committedThroughSequence: goal.execution?.committedThroughSequence ?? 0,
-                    },
-                };
-            },
+            readState: browserSessionPort.readControlSnapshot,
             readActivity: (goalId, query) => readBrowserGoalActivity(
                 goalId,
                 query,
