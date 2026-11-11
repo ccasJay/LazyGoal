@@ -57,12 +57,12 @@ export interface ConnectionFacts {
  * ```
  */
 export function selectConnectionPresentation(facts: ConnectionFacts): ConnectionPresentation {
-  const isOutdated = facts.synced && facts.stale;
+  const isOutdated = facts.stale;
   if (!facts.connected) {
     return { state: "reconnecting", label: "Reconnecting", allowsNewDecisions: false, isOutdated, retainsLastKnown: true };
   }
   if (!facts.synced) {
-    return { state: "reconnecting", label: "Connecting", allowsNewDecisions: false, isOutdated: false, retainsLastKnown: true };
+    return { state: "reconnecting", label: "Connecting", allowsNewDecisions: false, isOutdated, retainsLastKnown: true };
   }
   if (facts.stale) {
     return { state: "stale", label: "State out of date", allowsNewDecisions: false, isOutdated, retainsLastKnown: true };

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useState } from "react";
 import type {
   BrowserGoalSessionState,
   BrowserToolGrantSummary,
@@ -23,23 +23,33 @@ export function useToolGrants({
 }) {
   const [toolGrantsLoading, setToolGrantsLoading] = useState(false);
   const [toolGrantsError, setToolGrantsError] = useState<string | null>(null);
+  const { view } = control.state;
+  const { ownsView, currentState, mergeResources } = control;
+  const runId = session?.currentRunId;
   const toolGrants = control.state.resources.grants ?? [];
   const revokingGrantId = pendingIntentOfKind(control.state, "grant_revoke")?.grantId ?? null;
 
   const reloadToolGrants = useCallback(async (): Promise<void> => {
-    if (session === null) return;
+    if (view === null || runId === undefined || !ownsView(view)) return;
+    const isCurrent = () => ownsView(view) && currentState().snapshot?.goal.currentRunId === runId;
     setToolGrantsLoading(true);
     setToolGrantsError(null);
     try {
-      const result = await browserApi.listToolGrants(session.goalId, session.currentRunId);
+      const result = await browserApi.listToolGrants(view.goalId, runId);
+      if (!isCurrent()) return;
       if (!result.ok) throw new Error(result.error);
-      control.mergeResources({ grants: result.grants });
+      mergeResources({ grants: result.grants });
     } catch {
-      setToolGrantsError("Could not load saved permissions. Reopen this panel to retry.");
+      if (isCurrent()) setToolGrantsError("Could not load saved permissions. Reopen this panel to retry.");
     } finally {
-      setToolGrantsLoading(false);
+      if (isCurrent()) setToolGrantsLoading(false);
     }
-  }, [session, control.mergeResources]);
+  }, [view, runId, ownsView, currentState, mergeResources]);
+
+  useLayoutEffect(() => {
+    setToolGrantsLoading(false);
+    setToolGrantsError(null);
+  }, [view, runId]);
 
   useEffect(() => {
     if (!enabled || session === null || selectedGoalId === null) return;

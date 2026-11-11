@@ -1,17 +1,18 @@
 import type {
-  BrowserControlEvent,
   BrowserControlIntentCommand,
   BrowserControlReceipt,
   BrowserControlScope,
   BrowserControlSnapshot,
   BrowserGoalEvent,
-  BrowserRunStatus,
   BrowserSessionInputOutcome,
 } from "../../../../packages/web-contracts/src/index";
-import type { ControlIntentState, ControlResources, ControlState } from "./types";
+import type { ControlConnection, ControlIntentState, ControlResources, ControlState } from "./types";
 import { applyToolActivityEvent } from "./tool-activity";
 
 const MAX_CONTROL_INTENTS = 64;
+const DISCONNECTED: ControlConnection = {
+  connected: false, synced: false, stale: false, syncRevision: null, staleScopes: [],
+};
 
 /**
  * 创建尚未同步的控制状态。
@@ -24,11 +25,59 @@ const MAX_CONTROL_INTENTS = 64;
  */
 export function createControlState(): ControlState {
   return {
+    view: null,
     snapshot: null,
+    requiredSessionRevision: 0,
     intents: [],
     toolActivities: [],
     resources: {},
-    connection: { connected: false, synced: false, staleScopes: [] },
+    connection: DISCONNECTED,
+  };
+}
+
+/** 切换所观察的 Goal。控制意图与独立资源继续保留，旧视图身份失效。 */
+export function selectControlGoal(state: ControlState, goalId: string | null): ControlState {
+  if ((state.view?.goalId ?? null) === goalId) return state;
+  return {
+    ...state,
+    view: goalId === null ? null : { goalId },
+    snapshot: null,
+    requiredSessionRevision: 0,
+    toolActivities: [],
+    connection: DISCONNECTED,
+  };
+}
+
+/** 断开当前 SSE 连接，保留最后确认的内容。 */
+export function disconnectControlStream(state: ControlState): ControlState {
+  return {
+    ...state,
+    connection: { ...state.connection, connected: false, synced: false, stale: true, syncRevision: null },
+  };
+}
+
+/** 接纳当前视图的完整控制投影。返回原状态表示投影无法用于确认状态。 */
+export function acceptControlSnapshot(state: ControlState, snapshot: BrowserControlSnapshot): ControlState {
+  const { goal, session } = snapshot;
+  const current = state.snapshot?.session;
+  if (state.view?.goalId !== goal.goalId || session.goalId !== goal.goalId
+    || session.runId !== goal.currentRunId
+    || (current?.commitRevision === session.commitRevision && current.runId !== session.runId)
+    || session.commitRevision < Math.max(state.requiredSessionRevision, current?.commitRevision ?? 0, state.connection.syncRevision ?? 0)) return state;
+  const { connection } = state;
+  const synced = connection.connected && connection.syncRevision !== null
+    && session.commitRevision >= connection.syncRevision;
+  return {
+    ...state,
+    snapshot,
+    intents: reconcileIntents(state.intents, snapshot),
+    toolActivities: state.snapshot?.session.runId === session.runId ? state.toolActivities : [],
+    connection: {
+      ...connection,
+      synced,
+      stale: synced ? false : connection.stale,
+      staleScopes: connection.staleScopes.filter((scope) => scope !== "session"),
+    },
   };
 }
 
@@ -49,7 +98,15 @@ export function createControlState(): ControlState {
  */
 export function beginControlIntent(state: ControlState, intent: BrowserControlIntentCommand): ControlState {
   if (state.intents.some((entry) => entry.intent.intentId === intent.intentId)) return state;
-  const intents = [...state.intents, { intent, phase: "pending" as const }];
+  const interaction = state.snapshot?.goal.interaction;
+  const entry: ControlIntentState = {
+    intent,
+    phase: "pending",
+    ...(intent.kind === "action_review" && state.view !== null && interaction?.actionId === intent.actionId
+      && interaction.runId === intent.runId && interaction.goalId === intent.goalId
+      ? { reviewTarget: { view: state.view, interactionId: interaction.interactionId } } : {}),
+  };
+  const intents = [...state.intents, entry];
   return { ...state, intents: intents.slice(-MAX_CONTROL_INTENTS) };
 }
 
@@ -169,23 +226,29 @@ export function discardControlIntent(state: ControlState, intentId: string): Con
  * ```
  */
 export function applyControlEvent(state: ControlState, event: BrowserGoalEvent): ControlState {
+  if (state.view?.goalId !== event.goalId) return state;
   switch (event.type) {
     case "state_sync":
-      return applyStateSync(state, event.snapshot);
+      return applyStateSync(state, event);
     case "input_result":
       return applyInputOutcome(state, event.outcome);
     case "state_committed":
-      return markControlScopesStale(state, event.changed);
+      return invalidateCommittedScopes(state, event.changed, event.commitRevision);
     case "run_status_changed":
-      return applyRunStatus(state, event.runId, event.status);
     case "run_result":
-      return applyRunStatus(state, event.runId, event.result);
+      if (state.snapshot?.session.runId !== event.runId) return state;
+      return event.commitRevision === undefined
+        ? markControlScopesStale(state, ["session"])
+        : invalidateCommittedScopes(state, ["session"], event.commitRevision);
     case "interaction_opened":
-      return applyInteractionOpened(state, event);
+      return state.snapshot?.session.runId === event.runId ? markControlScopesStale(state, ["session"]) : state;
     case "interaction_settled":
-      return applyInteractionSettled(state, event);
+      return state.snapshot?.session.runId === event.runId
+        && state.snapshot.goal.interaction?.interactionId === event.interactionId
+        ? markControlScopesStale(state, ["session"]) : state;
     case "tool_activity":
-      return { ...state, toolActivities: applyToolActivityEvent(state.toolActivities, event.activity) };
+      return state.snapshot?.session.runId === event.runId
+        ? { ...state, toolActivities: applyToolActivityEvent(state.toolActivities, event.activity) } : state;
     case "stream_fault":
       return {
         ...state,
@@ -196,7 +259,7 @@ export function applyControlEvent(state: ControlState, event: BrowserGoalEvent):
         },
       };
     case "closed":
-      return { ...state, connection: { ...state.connection, connected: false, synced: false } };
+      return disconnectControlStream(state);
     default:
       return state;
   }
@@ -217,7 +280,7 @@ export function markControlScopesFresh(
   state: ControlState,
   scopes: readonly BrowserControlScope[],
 ): ControlState {
-  const staleScopes = state.connection.staleScopes.filter((scope) => !scopes.includes(scope));
+  const staleScopes = state.connection.staleScopes.filter((scope) => scope === "session" || !scopes.includes(scope));
   return staleScopes.length === state.connection.staleScopes.length
     ? state
     : { ...state, connection: { ...state.connection, staleScopes } };
@@ -267,33 +330,38 @@ function phaseAfterReceipt(
     : "applied";
 }
 
-function applyStateSync(state: ControlState, snapshot: BrowserControlSnapshot | undefined): ControlState {
-  if (snapshot === undefined) {
-    return {
-      ...state,
-      connection: {
-        connected: true,
-        synced: state.snapshot !== null,
-        staleScopes: unionScopes(
-          state.connection.staleScopes.filter((scope) => scope !== "session"),
-          ["session"],
-        ),
-      },
-    };
-  }
-  const current = state.snapshot;
-  const stale = current !== null && snapshot.session.commitRevision < current.session.commitRevision;
-  const nextSnapshot = stale ? current : snapshot;
-  return {
+function applyStateSync(
+  state: ControlState,
+  event: Extract<BrowserGoalEvent, { readonly type: "state_sync" }>,
+): ControlState {
+  if (event.state.goalId !== event.goalId) return state;
+  const revision = event.state.commitRevision;
+  const current = state.snapshot?.session.commitRevision ?? 0;
+  if (state.connection.synced && revision < current) return state;
+  const syncRevision = Math.max(state.connection.syncRevision ?? 0, revision);
+  const connecting = {
     ...state,
-    snapshot: nextSnapshot,
-    intents: reconcileIntents(state.intents, nextSnapshot),
-    connection: {
-      connected: true,
-      synced: true,
-      staleScopes: state.connection.staleScopes.filter((scope) => scope !== "session"),
-    },
+    connection: { ...state.connection, connected: true, synced: false, syncRevision },
   };
+  if (event.snapshot?.session.commitRevision === revision && event.snapshot.session.runId === event.state.runId) {
+    const next = acceptControlSnapshot(connecting, event.snapshot);
+    if (next !== connecting) return next;
+  }
+  return markControlScopesStale(connecting, ["session"]);
+}
+
+function invalidateCommittedScopes(
+  state: ControlState,
+  scopes: readonly BrowserControlScope[],
+  revision: number,
+): ControlState {
+  if (revision <= (state.snapshot?.session.commitRevision ?? -1)) {
+    return markControlScopesStale(state, scopes.filter((scope) => scope !== "session"));
+  }
+  const stale = markControlScopesStale(state, scopes);
+  return scopes.includes("session") && revision > stale.requiredSessionRevision
+    ? { ...stale, requiredSessionRevision: revision }
+    : stale;
 }
 
 function reconcileIntents(
@@ -305,7 +373,7 @@ function reconcileIntents(
     if (entry.intent.kind === "create_session" && entry.intent.goalId === snapshot.goal.goalId) {
       return { ...entry, phase: "applied" };
     }
-    if (entry.intent.kind === "session_input") {
+    if (entry.intent.kind === "session_input" && entry.intent.goalId === snapshot.goal.goalId) {
       const inputId = entry.intent.input.inputId;
       const pending = snapshot.goal.pendingMessages?.some((message) => message.inputId === inputId) === true
         || snapshot.goal.pendingSteers?.some((steer) => steer.messageId === inputId) === true;
@@ -321,7 +389,8 @@ function reconcileIntents(
 
 function applyInputOutcome(state: ControlState, outcome: BrowserSessionInputOutcome): ControlState {
   const index = state.intents.findIndex(
-    (entry) => entry.intent.kind === "session_input" && entry.intent.input.inputId === outcome.inputId,
+    (entry) => entry.intent.kind === "session_input" && entry.intent.goalId === outcome.goalId
+      && entry.intent.input.inputId === outcome.inputId,
   );
   if (index < 0) return state;
   const entry = state.intents[index]!;
@@ -330,69 +399,6 @@ function applyInputOutcome(state: ControlState, outcome: BrowserSessionInputOutc
     ? outcome.receipt?.status === "applied" ? "applied" : "accepted"
     : "rejected";
   return replaceIntent(state, index, { ...entry, phase });
-}
-
-function applyRunStatus(
-  state: ControlState,
-  runId: string,
-  status: BrowserRunStatus,
-): ControlState {
-  if (state.snapshot === null || state.snapshot.session.runId !== runId) return state;
-  return {
-    ...state,
-    snapshot: {
-      goal: { ...state.snapshot.goal, runStatus: status },
-      session: { ...state.snapshot.session, runStatus: status },
-    },
-  };
-}
-
-function applyInteractionOpened(
-  state: ControlState,
-  event: Extract<BrowserControlEvent, { readonly type: "interaction_opened" }>,
-): ControlState {
-  if (state.snapshot === null || state.snapshot.session.runId !== event.runId) return state;
-  return {
-    ...state,
-    snapshot: {
-      ...state.snapshot,
-      session: {
-        ...state.snapshot.session,
-        waitingFor: waitingForOf(event.kind),
-        interaction: {
-          interactionId: event.interactionId,
-          kind: event.kind,
-          runId: event.runId,
-        },
-      },
-    },
-  };
-}
-
-function applyInteractionSettled(
-  state: ControlState,
-  event: Extract<BrowserControlEvent, { readonly type: "interaction_settled" }>,
-): ControlState {
-  if (state.snapshot === null) return state;
-  const { session, goal } = state.snapshot;
-  const settledSession = session.interaction?.interactionId === event.interactionId;
-  const settledGoal = goal.interaction?.interactionId === event.interactionId;
-  if (!settledSession && !settledGoal) return state;
-  const { interaction: _goalInteraction, ...goalRest } = goal;
-  const { interaction: _sessionInteraction, waitingFor: _waitingFor, ...sessionRest } = session;
-  return {
-    ...state,
-    snapshot: {
-      goal: settledGoal ? goalRest : goal,
-      session: settledSession ? sessionRest : session,
-    },
-  };
-}
-
-function waitingForOf(
-  kind: Extract<BrowserControlEvent, { readonly type: "interaction_opened" }>["kind"],
-): NonNullable<NonNullable<ControlState["snapshot"]>["session"]["waitingFor"]> {
-  return kind === "question" ? "ask_user" : kind;
 }
 
 function markControlScopesStale(

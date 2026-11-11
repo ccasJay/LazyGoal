@@ -20,9 +20,11 @@ import { useRunCommands } from "./useRunCommands";
 import { useRunStream } from "./useRunStream";
 import { useToolGrants } from "./useToolGrants";
 import { useWorkspaceContext } from "./useWorkspaceContext";
+import type { GoalView } from "../control/types";
 import type { SessionTab } from "../types";
 
 export function useGoalBoardApp() {
+  const [goalsError, setGoalsError] = useState<string | null>(null);
   const [goalInfoOpen, setGoalInfoOpen] = useState(false);
   const [trajectoryTarget, setTrajectoryTarget] = useState<{ runId: string; executionUnitId: string; nonce: number } | null>(null);
   const [sessionTab, setSessionTab] = useState<SessionTab>("Activity");
@@ -34,6 +36,7 @@ export function useGoalBoardApp() {
   const control = useControlIntents();
 
   const sessionManager = useGoalSession({
+    control,
     onGoalsRefresh: async () => { await goalsManager.refreshGoals(); },
     onClearLiveText: () => { streamManager.setLiveText(""); },
   });
@@ -42,7 +45,7 @@ export function useGoalBoardApp() {
 
   const goalsManager = useGoals({
     selectedGoalId: sessionManager.selectedGoalId,
-    onError: sessionManager.setSessionError,
+    onError: setGoalsError,
     control,
   });
 
@@ -113,24 +116,27 @@ export function useGoalBoardApp() {
   });
 
   /** 按控制事件声明的范围定向读取；不触发完整会话重读。 */
-  const readControlScopes = async (scopes: readonly BrowserControlScope[]): Promise<void> => {
-    if (scopes.includes("session")) await sessionManager.refreshSessionState();
-    if (scopes.includes("activity")) await sessionManager.refreshActivity();
-    if (scopes.includes("goals")) await goalsManager.refreshGoals();
-    if (scopes.includes("grants")) await reloadToolGrants();
-    if (scopes.includes("permission")) await permissionsManager.reloadPermissionMode();
-    if (scopes.includes("model")) modelSelectionManager.refreshModelCatalog();
-    control.markFresh(scopes);
+  const readControlScopes = async (view: GoalView, scopes: readonly BrowserControlScope[], signal: AbortSignal): Promise<void> => {
+    const isCurrent = () => control.ownsView(view) && !signal.aborted;
+    if (!isCurrent()) return;
+    await Promise.all(scopes.map(async (scope) => {
+      if (scope === "session") {
+        await sessionManager.readSessionState(view, signal);
+        return;
+      }
+      if (scope === "activity" && !await sessionManager.refreshActivity(view, signal)) return;
+      if (scope === "goals") await goalsManager.refreshGoals();
+      if (scope === "grants") await reloadToolGrants();
+      if (scope === "permission") await permissionsManager.reloadPermissionMode();
+      if (scope === "model") await modelSelectionManager.refreshModelCatalog();
+      if (isCurrent()) control.markFresh(view, [scope]);
+    }));
   };
 
   const streamManager = useRunStream({
-    selectedGoalId: sessionManager.selectedGoalId,
-    session: sessionManager.session,
+    control,
     activityPage: sessionManager.activityPage,
-    sessionLoading: sessionManager.sessionLoading,
-    onRefresh: sessionManager.refreshSelectedSession,
-    onControlSnapshot: sessionManager.applyControlSnapshot,
-    onControlEvent: control.applyEvent,
+    onSessionConfirmed: sessionManager.confirmSession,
     onReadScopes: readControlScopes,
   });
 
@@ -192,7 +198,7 @@ export function useGoalBoardApp() {
       onClearManageError={() => goalsManager.refreshGoals()}
       undoArchiveId={goalsManager.undoArchiveId}
       onRefreshGoals={goalsManager.refreshGoals}
-      sessionError={sessionManager.sessionError}
+      sessionError={goalsError}
     />
   );
 

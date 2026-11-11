@@ -50,6 +50,8 @@ export interface ControlResources {
 export interface ControlIntentState {
   /** 原冻结载荷；同一 `intentId` 不得被改写。 */
   readonly intent: BrowserControlIntentCommand;
+  /** 浏览器预检发出时对应的视图及等待身份。 */
+  readonly reviewTarget?: { readonly view: GoalView; readonly interactionId: string };
   readonly phase: "pending" | "accepted" | "applied" | "rejected" | "unknown";
   /** 最近一次受理收据；尚未收到时省略。 */
   readonly receipt?: BrowserControlReceipt;
@@ -61,30 +63,36 @@ export interface ControlIntentState {
  * 当前控制流连接与失效范围。
  *
  * @remarks
- * `staleScopes` 只累积尚未重新读取的投影：`state_sync` 清除 `session`，调用方
- * 完成定向读取后调用 `markControlScopesFresh` 清除对应 scope。连接断开不等同于
+ * 只有接纳达到所需修订的控制快照才能清除会话失效。连接断开不等同于
  * Run 失败，也不清除最后确认的控制状态。
  *
  * @example
  * ```ts
- * const connection: ControlConnection = { connected: true, synced: true, staleScopes: [] };
+ * const connection: ControlConnection = { connected: true, synced: true, stale: false, syncRevision: 3, staleScopes: [] };
  * ```
  */
 export interface ControlConnection {
   /** SSE 连接是否仍然建立。 */
   readonly connected: boolean;
-  /** 是否已收到至少一份权威控制快照。 */
+  /** 本次连接是否已接纳达到同步水位的控制快照。 */
   readonly synced: boolean;
+  /** 已确认内容是否可能过期。 */
+  readonly stale: boolean;
+  /** 当前连接声明的同步修订，断开后清空。 */
+  readonly syncRevision: number | null;
   /** 需要重新读取的投影作用域。 */
   readonly staleScopes: readonly BrowserControlScope[];
 }
+
+/** 本次选择的浏览器观察身份。对象身份区分同一 Goal 的不同打开过程。 */
+export type GoalView = { readonly goalId: string };
 
 /**
  * Goal Board 的控制状态。
  *
  * @remarks
  * 这是 runtime 事实、受理收据与本客户端意图的纯派生结果，不持久化。
- * `snapshot` 在首次权威同步前为 `null`；不得伪造空快照。
+ * `snapshot` 来自当前视图已接纳的窄 HTTP 或 SSE 投影。
  *
  * @example
  * ```ts
@@ -92,7 +100,11 @@ export interface ControlConnection {
  * ```
  */
 export interface ControlState {
-  /** 最近一份 `state_sync` 权威快照；尚未同步时为 `null`。 */
+  /** 当前选择的观察身份。 */
+  readonly view: GoalView | null;
+  /** 已收到的会话失效通知要求的最低修订。 */
+  readonly requiredSessionRevision: number;
+  /** 当前视图已接纳的控制快照。 */
   readonly snapshot: BrowserControlSnapshot | null;
   /** 本客户端最近的控制意图，按受理顺序保留。 */
   readonly intents: readonly ControlIntentState[];

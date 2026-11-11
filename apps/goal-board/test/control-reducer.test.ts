@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { controlSnapshot } from "./control-fixtures";
+
 import type {
   BrowserControlIntentCommand,
   BrowserControlReceipt,
@@ -9,11 +11,14 @@ import type {
   BrowserSessionInputReceipt,
 } from "../../../packages/web-contracts/src/index";
 import {
+  acceptControlSnapshot,
   applyControlEvent,
+  disconnectControlStream,
   beginControlIntent,
   createControlState,
   markControlScopesFresh,
   settleControlIntent,
+  selectControlGoal,
   verifyControlIntent,
 } from "../src/control/reducer";
 
@@ -91,7 +96,7 @@ const permissionMode: BrowserControlIntentCommand = {
 };
 
 test("意图生命周期区分 pending、accepted、applied、rejected 与 unknown", () => {
-  let state = createControlState();
+  let state = selectControlGoal(createControlState(), "goal-1");
   state = beginControlIntent(state, sessionInput);
   assert.equal(state.intents[0]?.phase, "pending");
 
@@ -140,7 +145,7 @@ test("同一 intentId 保留冻结载荷，核验只更新结论", () => {
 });
 
 test("state_sync 应用权威快照并确认 create_session 与已应用输入", () => {
-  let state = createControlState();
+  let state = selectControlGoal(createControlState(), "goal-1");
   state = beginControlIntent(state, {
     kind: "create_session",
     intentId: "intent-create",
@@ -184,14 +189,14 @@ test("state_sync 应用权威快照并确认 create_session 与已应用输入",
 });
 
 test("低 commitRevision 的 state_sync 不覆盖已确认快照", () => {
-  let state = applyControlEvent(createControlState(), syncEvent(5));
+  let state = applyControlEvent(selectControlGoal(createControlState(), "goal-1"), syncEvent(5));
   state = applyControlEvent(state, syncEvent(4));
   assert.equal(state.snapshot?.session.commitRevision, 5);
   assert.equal(state.connection.synced, true);
 });
 
 test("提交作用域幂等累积，定向读取后清除", () => {
-  let state = applyControlEvent(createControlState(), syncEvent(1));
+  let state = applyControlEvent(selectControlGoal(createControlState(), "goal-1"), syncEvent(1));
   state = applyControlEvent(state, { type: "state_committed", goalId: "goal-1", commitRevision: 2, changed: ["activity", "trajectory"] });
   state = applyControlEvent(state, { type: "state_committed", goalId: "goal-1", commitRevision: 2, changed: ["activity", "trajectory"] });
   assert.deepEqual(state.connection.staleScopes, ["activity", "trajectory"]);
@@ -200,40 +205,24 @@ test("提交作用域幂等累积，定向读取后清除", () => {
   assert.deepEqual(state.connection.staleScopes, ["trajectory"]);
 });
 
-test("迟到交互结算不解除新建立的等待", () => {
-  let state = applyControlEvent(createControlState(), syncEvent(1));
-  state = applyControlEvent(state, {
-    type: "interaction_opened",
-    goalId: "goal-1",
-    runId: "run-1",
-    interactionId: "question:new",
-    kind: "question",
-  });
-  assert.equal(state.snapshot?.session.interaction?.interactionId, "question:new");
-  assert.equal(state.snapshot?.session.waitingFor, "ask_user");
-
-  state = applyControlEvent(state, {
-    type: "interaction_settled",
-    goalId: "goal-1",
-    runId: "run-1",
-    interactionId: "question:old",
-    kind: "question",
-  });
-  assert.equal(state.snapshot?.session.interaction?.interactionId, "question:new");
-
-  state = applyControlEvent(state, {
-    type: "interaction_settled",
-    goalId: "goal-1",
-    runId: "run-1",
-    interactionId: "question:new",
-    kind: "question",
-  });
-  assert.equal(state.snapshot?.session.interaction, undefined);
-  assert.equal(state.snapshot?.session.waitingFor, undefined);
+test("交互事件只使当前等待失效，已确认快照由窄读取推进", () => {
+  const pending = controlSnapshot({ interactionRequestId: "request-new", interactionActionId: "action-1" });
+  let state = acceptControlSnapshot(selectControlGoal(createControlState(), "goal-1"), pending);
+  const settled: BrowserGoalEvent = {
+    type: "interaction_settled", goalId: "goal-1", runId: "run-1",
+    interactionId: "action_approval:request-old", kind: "action_approval",
+  };
+  assert.equal(applyControlEvent(state, settled), state);
+  state = applyControlEvent(state, { ...settled, interactionId: "action_approval:request-new" });
+  assert.equal(state.snapshot, pending);
+  assert.deepEqual(state.connection.staleScopes, ["session"]);
+  state = acceptControlSnapshot(state, snapshot(2));
+  assert.equal(state.snapshot?.goal.interaction, undefined);
+  assert.deepEqual(state.connection.staleScopes, []);
 });
 
 test("stream_fault 累积重新同步范围，closed 只断开连接", () => {
-  let state = applyControlEvent(createControlState(), syncEvent(1));
+  let state = applyControlEvent(selectControlGoal(createControlState(), "goal-1"), syncEvent(1));
   state = applyControlEvent(state, { type: "stream_fault", goalId: "goal-1", code: "gap", resync: ["session", "activity"] });
   assert.deepEqual(state.connection.staleScopes, ["session", "activity"]);
   state = applyControlEvent(state, { type: "closed", goalId: "goal-1", reason: "closed" });
@@ -242,12 +231,54 @@ test("stream_fault 累积重新同步范围，closed 只断开连接", () => {
   assert.deepEqual(state.connection.staleScopes, ["session", "activity"]);
 });
 
-test("旧 Run 的状态与终态事件不覆盖当前 Run", () => {
-  let state = applyControlEvent(createControlState(), syncEvent(1));
-  state = applyControlEvent(state, { type: "run_status_changed", goalId: "goal-1", runId: "run-old", status: "failed" });
-  assert.equal(state.snapshot?.session.runStatus, "running");
-  state = applyControlEvent(state, { type: "run_status_changed", goalId: "goal-1", runId: "run-1", status: "waiting" });
-  assert.equal(state.snapshot?.session.runStatus, "waiting");
-  state = applyControlEvent(state, { type: "run_result", goalId: "goal-1", runId: "run-1", result: "completed" });
-  assert.equal(state.snapshot?.session.runStatus, "completed");
+test("低修订 HTTP 与 SSE 无法覆盖完成状态或清除会话失效", () => {
+  let state = applyControlEvent(selectControlGoal(createControlState(), "goal-1"), syncEvent(1));
+  const completed = snapshot(2, { runStatus: "completed" });
+  state = acceptControlSnapshot(state, completed);
+  state = applyControlEvent(state, { type: "state_committed", goalId: "goal-1", commitRevision: 3, changed: ["session"] });
+  assert.equal(acceptControlSnapshot(state, snapshot(1)), state);
+  assert.equal(applyControlEvent(state, syncEvent(1)), state);
+  assert.equal(state.snapshot, completed);
+  assert.deepEqual(markControlScopesFresh(state, ["session"]).connection.staleScopes, ["session"]);
+});
+
+test("切换 Goal 清除旧快照与连接，B 的修订独立于 A", () => {
+  const a = applyControlEvent(selectControlGoal(createControlState(), "goal-1"), syncEvent(10));
+  const b = selectControlGoal(a, "goal-2");
+  assert.equal(b.snapshot, null);
+  assert.equal(b.connection.synced, false);
+  assert.equal(applyControlEvent(b, syncEvent(11)), b);
+  const first = snapshot(1);
+  const next = { goal: { ...first.goal, goalId: "goal-2" }, session: { ...first.session, goalId: "goal-2" } };
+  const synced = applyControlEvent(b, { type: "state_sync", goalId: "goal-2", state: next.session, snapshot: next });
+  assert.equal(synced.snapshot, next);
+  assert.equal(synced.connection.synced, true);
+  assert.notEqual(selectControlGoal(synced, "goal-1").view, a.view);
+});
+
+test("后继 Run 接纳同 Goal 的更高修订，旧 Run 的状态与交互不覆盖当前状态", () => {
+  const first = applyControlEvent(selectControlGoal(createControlState(), "goal-1"), syncEvent(1));
+  const next = snapshot(2);
+  const successor = { goal: { ...next.goal, currentRunId: "run-2" }, session: { ...next.session, runId: "run-2" } };
+  const state = acceptControlSnapshot(first, successor);
+  const late: readonly BrowserGoalEvent[] = [
+    { type: "run_status_changed", goalId: "goal-1", runId: "run-1", status: "waiting", commitRevision: 1 },
+    { type: "run_result", goalId: "goal-1", runId: "run-1", result: "completed" },
+    { type: "interaction_opened", goalId: "goal-1", runId: "run-1", interactionId: "old", kind: "question" },
+  ];
+  for (const event of late) assert.equal(applyControlEvent(state, event), state);
+  assert.equal(state.snapshot, successor);
+});
+
+test("重连低修订与缺失快照不能标记同步，当前连接须达到声明的修订", () => {
+  let state = applyControlEvent(selectControlGoal(createControlState(), "goal-1"), syncEvent(5));
+  state = disconnectControlStream(state);
+  state = applyControlEvent(state, syncEvent(4));
+  assert.equal(state.connection.synced, false);
+  assert.equal(state.snapshot?.session.commitRevision, 5);
+  state = applyControlEvent(state, { type: "state_sync", goalId: "goal-1", state: snapshot(7).session });
+  assert.equal(acceptControlSnapshot(state, snapshot(6)), state);
+  state = acceptControlSnapshot(state, snapshot(7));
+  assert.equal(state.connection.synced, true);
+  assert.equal(state.connection.stale, false);
 });

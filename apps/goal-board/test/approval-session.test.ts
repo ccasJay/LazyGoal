@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { selectApprovalSession } from "../src/control/approval-session";
-import { applyControlEvent, beginControlIntent, settleControlIntent } from "../src/control/reducer";
+import { acceptControlSnapshot, selectControlGoal, applyControlEvent, beginControlIntent, settleControlIntent } from "../src/control/reducer";
 import {
   acceptedInput,
   acceptedReview,
@@ -108,4 +108,16 @@ test("被拒绝的预检回到 unreviewed，未知结果保持 unknown", () => {
   state = beginControlIntent(state, actionReviewIntent("review-2", actionId));
   state = settleControlIntent(state, { intentId: "review-2", status: "unknown" });
   assert.equal(selectApprovalSession(state, actionId).phase, "unknown");
+});
+
+
+test("切换等待或重开同一 Goal 后不可复用原审批预检", () => {
+  const waiting = controlSnapshot({ pendingAction: pendingAction(actionId), interactionRequestId: requestId, interactionActionId: actionId });
+  let state = stateWith(waiting);
+  state = beginControlIntent(state, actionReviewIntent("review-1", actionId));
+  state = settleControlIntent(state, acceptedReview("review-1", reviewFor(actionId, "ref-1")));
+  const replaced = controlSnapshot({ pendingAction: pendingAction(actionId), interactionRequestId: "new-request", interactionActionId: actionId, revision: 2 });
+  assert.equal(selectApprovalSession(acceptControlSnapshot(state, replaced), actionId).phase, "unreviewed");
+  state = selectControlGoal(selectControlGoal(state, null), waiting.goal.goalId);
+  assert.equal(selectApprovalSession(acceptControlSnapshot(state, waiting), actionId).phase, "unreviewed");
 });

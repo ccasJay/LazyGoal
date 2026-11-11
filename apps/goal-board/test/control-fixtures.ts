@@ -7,7 +7,7 @@ import type {
   BrowserPendingAction,
   BrowserSessionInputReceipt,
 } from "../../../packages/web-contracts/src/index";
-import { applyControlEvent, createControlState, type ControlState } from "../src/control/reducer";
+import { applyControlEvent, createControlState, selectControlGoal, type ControlState } from "../src/control/reducer";
 
 export function sessionState(revision: number): BrowserControlSnapshot["session"] {
   return {
@@ -89,7 +89,7 @@ export function pendingAction(actionId: string): BrowserPendingAction {
 }
 
 export function stateWith(snapshot: BrowserControlSnapshot): ControlState {
-  return applyControlEvent(createControlState(), {
+  return applyControlEvent(selectControlGoal(createControlState(), snapshot.goal.goalId), {
     type: "state_sync",
     goalId: snapshot.goal.goalId,
     state: snapshot.session,
