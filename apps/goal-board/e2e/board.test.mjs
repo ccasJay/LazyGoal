@@ -74,16 +74,17 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
         await waitForExpression(socket, "document.querySelector('.workspace-sidebar-dialog') !== null");
       }
       const assetName = width <= 760 ? "mark-on-light" : "logo-on-light";
-      await waitForExpression(socket, `(() => { const image = document.querySelector('.brand-logo img'); return image?.complete && image.naturalWidth > 0 && image.currentSrc.includes('${assetName}'); })()`);
-      await waitForExpression(socket, "(() => { const bounds = document.querySelector('.brand-logo img')?.getBoundingClientRect(); return bounds && bounds.left >= 0 && bounds.right <= innerWidth; })()");
+      const logoSelector = width <= 760 ? ".brand-logo img" : ".windowbar-logo";
+      await waitForExpression(socket, `(() => { const image = document.querySelector(${JSON.stringify(logoSelector)}); return image?.complete && image.naturalWidth > 0 && image.currentSrc.includes('${assetName}'); })()`);
+      await waitForExpression(socket, `(() => { const bounds = document.querySelector(${JSON.stringify(logoSelector)})?.getBoundingClientRect(); return bounds && bounds.left >= 0 && bounds.right <= innerWidth; })()`);
       const brand = await value(socket, `(() => {
-        const button = document.querySelector('button[aria-label="Open Board"]');
-        const image = button.querySelector('img');
+        const image = document.querySelector(${JSON.stringify(logoSelector)});
         const bounds = image.getBoundingClientRect();
-        return { width: bounds.width, height: bounds.height, alt: image.alt, text: button.textContent.trim(), fits: bounds.left >= 0 && bounds.right <= innerWidth };
+        return { width: bounds.width, height: bounds.height, aspectRatio: image.naturalWidth / image.naturalHeight,
+          alt: image.alt, text: image.closest('button')?.textContent.trim() ?? '', fits: bounds.left >= 0 && bounds.right <= innerWidth };
       })()`);
-      assert.equal(brand.width, width <= 760 ? 28 : 124);
-      assert.equal(brand.height, width <= 760 ? 28 : 30);
+      assert.equal(brand.width, width <= 760 ? 28 : 96);
+      assert.ok(Math.abs(brand.width / brand.height - brand.aspectRatio) < 0.01);
       assert.equal(brand.alt, "LazyGoal");
       assert.equal(brand.text, "");
       assert.equal(brand.fits, true);
@@ -104,7 +105,7 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     });
 
     await waitForExpression(socket, "document.querySelector('.transient-message h1')?.textContent === 'Checking saved notes…'");
-    assert.match(await value(socket, "document.querySelector('.session').innerText"), /Live response/);
+    assert.match(await value(socket, "document.querySelector('.session').innerText"), /Earlier response/);
     assert.match(await value(socket, "document.querySelector('.session').innerText"), /Not saved yet/);
     assert.doesNotMatch(await value(socket, "document.querySelector('.session').innerText"), /Run completed/);
     await waitForExpression(socket, "[...document.querySelectorAll('.timeline-activity-status')].some(node => node.textContent === 'Running')");
@@ -124,11 +125,13 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     assert.equal(await value(socket, "document.querySelector('.timeline-activity.running .timeline-activity-heading').getAttribute('aria-expanded')"), "true");
     assert.match(await value(socket, "[...document.querySelectorAll('.timeline-activity')].find(group => group.querySelector('.timeline-activity-status')?.textContent === 'Running').innerText"), /Not saved yet/);
     mock.advanceReviewActivity();
-    await waitForExpression(socket, "document.querySelector('.transient-message h1')?.textContent === 'Reviewing result…'");
+    await waitForExpression(socket, "[...document.querySelectorAll('.transient-message h1')].some(node => node.textContent === 'Reviewing result…')");
+    await waitForExpression(socket, "document.querySelectorAll('.transient-message').length === 2");
     assert.equal(await value(socket, "document.querySelectorAll('.timeline-activity').length"), 4);
     assert.equal(await value(socket, `[...document.querySelectorAll('.timeline-activity')].find(group => group.dataset.groupId === ${JSON.stringify(liveGroupId)}).querySelector('.timeline-activity-heading').getAttribute('aria-expanded')`), "true", "settlement preserves the open live group");
     assert.match(await value(socket, "[...document.querySelectorAll('.timeline-activity')].find(group => group.innerText.includes('Not saved yet'))?.innerText ?? ''"), /Not saved yet/);
-    assert.doesNotMatch(await value(socket, "document.querySelector('.transient-message').innerText"), /Checking saved notes/);
+    assert.match(await value(socket, "document.querySelectorAll('.transient-message')[0].innerText"), /Earlier response[\s\S]*Checking saved notes/);
+    assert.match(await value(socket, "document.querySelectorAll('.transient-message')[1].innerText"), /Live response[\s\S]*Reviewing result/);
     const requestStartedAt = mock.publishModelProgress();
     await waitForExpression(socket, "document.querySelector('.timeline-step-progress')?.innerText.includes('Checking the proposed answer')");
     assert.match(await value(socket, "document.querySelector('.timeline-step-progress').innerText"), /Checking the proposed answer.*No response received yet/);
@@ -139,7 +142,7 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await waitForExpression(socket, "document.querySelector('.jump') === null");
     mock.commitWaitingActivity();
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Which source should I use?')");
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('button[aria-label=\"Open Board\"]').click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.breadcrumb button').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.goal-card') !== null && document.querySelector('.session') === null");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.goal-card').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Which source should I use?')");
@@ -148,19 +151,16 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     assert.ok(conversationBounds.centerGap < 16);
     assert.deepEqual(await value(socket, "[...document.querySelectorAll('.timeline-activity-heading')].map(button => button.querySelector('[data-slot=trace-title]').textContent)"), ["Searched files", "Read README.md", "Run tests"]);
     assert.deepEqual(await value(socket, "[...document.querySelectorAll('.timeline-activity-heading')].map(button => button.getAttribute('aria-expanded'))"), ["false", "false", "true"], "active tool groups and failed groups expand by default");
-    assert.ok(await value(socket, "document.querySelector('.timeline-activity-heading').getBoundingClientRect().height >= 38"));
+    const visibleActivityHeadingHeight = await value(socket, "(() => { const heading = [...document.querySelectorAll('.timeline-activity-heading')].find(node => node.checkVisibility()); return heading?.getBoundingClientRect().height; })()");
+    assert.ok(visibleActivityHeadingHeight >= 24, `visible Activity headings remain large enough to use: ${visibleActivityHeadingHeight}px`);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.timeline-activity.failed .timeline-activity-heading').click()", returnByValue: true });
-    for (let index = 0; index < 2; index += 1) {
-      await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('#filter-execution-steps').click()", returnByValue: true });
-      await waitForExpression(socket, "document.querySelector('.timeline-activity.completed') !== null && document.querySelector('.timeline-activity.failed') !== null");
-    }
-    assert.equal(await value(socket, "document.querySelector('.timeline-activity.failed .timeline-activity-heading').getAttribute('aria-expanded')"), "false", "filtering preserves a manually collapsed failure");
+
     mock.commitWaitingActivity();
     await waitForExpression(socket, "document.querySelector('.timeline-activity.failed .timeline-activity-heading')?.getAttribute('aria-expanded') === 'false'");
     await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.timeline-activity-heading[aria-expanded=\"false\"]')].forEach(button => button.click())", returnByValue: true });
     await waitForExpression(socket, "document.querySelectorAll('.timeline-activity-members > li').length === 3");
-    assert.deepEqual(await value(socket, "[...document.querySelectorAll('.timeline-activity-members > li .timeline-activity-member-label')].map(label => label.textContent)"), ["Searched files", "Read README.md", "Run tests"]);
-    assert.deepEqual(await value(socket, "[...document.querySelectorAll('.timeline-activity-members > li .timeline-activity-member-status')].map(status => status.textContent)"), ["Completed", "Completed", "Failed"]);
+    assert.deepEqual(await value(socket, "[...document.querySelectorAll('.timeline-activity-members > li .timeline-activity-member-tool')].map(tool => tool.textContent)"), ["bash", "read_file", "bash"]);
+    assert.deepEqual(await value(socket, "[...document.querySelectorAll('.timeline-activity-status')].map(status => status.textContent)"), ["Completed", "Completed", "Failed"]);
     assert.match(await value(socket, "[...document.querySelectorAll('.timeline-activity')].find(group => group.innerText.includes('Run tests')).innerText"), /npm test|Test failed/);
     for (const width of [390, 320]) {
       await cdp(socket, "Emulation.setDeviceMetricsOverride", { width, height: 900, deviceScaleFactor: 1, mobile: true });
@@ -168,13 +168,8 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     }
     await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
 
-    // 关闭技术详情仍保留活动摘要、失败提示、正文与 Run 边界。
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('#filter-execution-steps').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.timeline-activity.completed') !== null && document.querySelector('.timeline-activity.failed') !== null");
     assert.equal(await value(socket, "document.querySelector('.timeline-run-summary') !== null"), true);
     assert.match(await value(socket, "document.querySelector('.session').innerText"), /Which source should I use\?/);
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('#filter-execution-steps').click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.timeline-activity') !== null");
 
     assert.equal(await value(socket, "document.querySelector('.session-header') === null"), true);
     assert.equal(await value(socket, "document.querySelector('.task-state').textContent"), "Awaiting your response");
@@ -195,15 +190,15 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await waitForExpression(socket, "document.querySelector('.metrics-popover') === null");
 
     assert.equal(await value(socket, "document.querySelector('.topbar .goal-info-toggle') !== null"), true);
-    assert.deepEqual(await value(socket, "[...document.querySelectorAll('.session-tab-buttons button')].map(button => button.textContent)"), ["Board", "Activity", "Trajectory"]);
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.session-tab-buttons button:first-child').click()", returnByValue: true });
+    assert.deepEqual(await value(socket, "[...document.querySelectorAll('.session-tab-buttons button')].map(button => button.getAttribute('aria-label'))"), ["Board", "Activity", "Trajectory"]);
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.session-tab-buttons button[aria-label=\"Board\"]').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.session .board-area .goal-card') !== null");
     assert.equal(await value(socket, "document.querySelectorAll('.session .board .column').length"), 5);
     assert.equal(await value(socket, "document.querySelector('.session .board-footer') === null"), true);
     assert.equal(await value(socket, "document.querySelector('.session .composer-area') === null"), true);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.session .goal-card').click()", returnByValue: true });
-    await waitForExpression(socket, "[...document.querySelectorAll('.session-tab-buttons button')].find(button => button.textContent === 'Activity')?.getAttribute('aria-pressed') === 'true'");
-    assert.equal(await value(socket, "[...document.querySelectorAll('.session-tab-buttons button')].some(button => button.textContent === 'Plan')"), false);
+    await waitForExpression(socket, "[...document.querySelectorAll('.session-tab-buttons button')].find(button => button.getAttribute('aria-label') === 'Activity')?.getAttribute('aria-pressed') === 'true'");
+    assert.equal(await value(socket, "[...document.querySelectorAll('.session-tab-buttons button')].some(button => button.getAttribute('aria-label') === 'Plan')"), false);
     assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Goal intent\"]') === null"), true);
     assert.equal(await value(socket, "document.querySelector('.composer-area .current-model-control') !== null"), true);
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.composer-area .current-model-control').focus(); document.querySelector('.composer-area .current-model-control').click()", returnByValue: true });
@@ -243,7 +238,7 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
       returnByValue: true,
     });
     await value(socket, "document.querySelector('.jump')?.click()");
-    await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Run completed')");
+    await waitForExpression(socket, "document.querySelector('.timeline-run-summary.completed .timeline-run-status')?.textContent === 'Completed'");
     await waitForExpression(socket, "document.querySelector('.composer-area') !== null && document.querySelector('textarea[aria-label=\"Goal intent\"]') === null");
     const controlBounds = await value(socket, "(() => { const controls = document.querySelector('.composer-area').getBoundingClientRect(); const main = document.querySelector('.workspace-main').getBoundingClientRect(); return { width: controls.width, centered: Math.abs((controls.left + controls.right - main.left - main.right) / 2) < 2, mainWithinViewport: main.left >= 0 && main.right <= window.innerWidth }; })()");
     assert.ok(controlBounds.width <= 1100 && controlBounds.centered && controlBounds.mainWithinViewport, JSON.stringify(controlBounds));
@@ -261,7 +256,7 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await waitForExpression(socket, "document.querySelector('.permission-popover') === null");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.permission-trigger').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.permission-popover') !== null");
-    const outsidePermission = await value(socket, "(() => { const rect = document.querySelector('.session-tabs').getBoundingClientRect(); return { x: rect.right - 8, y: rect.top + 8 }; })()");
+    const outsidePermission = await value(socket, "(() => { const rect = document.querySelector('.statusbar').getBoundingClientRect(); return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }; })()");
     await cdp(socket, "Input.dispatchMouseEvent", { type: "mousePressed", button: "left", clickCount: 1, ...outsidePermission });
     await cdp(socket, "Input.dispatchMouseEvent", { type: "mouseReleased", button: "left", clickCount: 1, ...outsidePermission });
     await waitForExpression(socket, "document.querySelector('.permission-popover') === null");
@@ -396,7 +391,7 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await waitForExpression(socket, "document.querySelector('.message.assistant .message-avatar img')?.naturalWidth > 0");
     assert.match(await value(socket, "document.querySelector('.message.assistant .message-avatar img').currentSrc"), /mark-on-light/);
     assert.equal(mock.lastInteraction.response.scope, "goal");
-    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.session-tab-buttons button')].find(button => button.textContent === 'Trajectory').click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.session-tab-buttons button')].find(button => button.getAttribute('aria-label') === 'Trajectory').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.mi-input-status')?.textContent.includes('1 / 1 saved model inputs')");
     await cdp(socket, "Runtime.evaluate", { expression: "(() => { document.querySelector('#trajectory-event-1').click(); const plot = document.querySelector('.tr-timeline .tr-plot'); const bounds = plot.getBoundingClientRect(); plot.dispatchEvent(new WheelEvent('wheel', { deltaY: -160, clientX: bounds.left + bounds.width * .6, clientY: bounds.top + 20, bubbles: true, cancelable: true })); return true; })()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.tr-zoom-level')?.textContent !== '1×'");
@@ -405,12 +400,11 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     assert.equal(await value(socket, "document.querySelector('.tr-zoom-level').textContent"), retainedZoom);
     assert.equal(await value(socket, "document.querySelector('#trajectory-event-1').getAttribute('aria-pressed')"), "true");
     assert.equal(mock.trajectoryReads(), 1, "loading model inputs does not reload committed events");
-    await waitForExpression(socket, "[...document.querySelectorAll('.ct-record')].some(row => row.textContent.includes('Prompt'))");
+    await waitForExpression(socket, "[...document.querySelectorAll('.ct-record')].some(row => row.textContent.includes('Initial system prompt'))");
     assert.equal(await value(socket, "document.querySelector('.mi-input-status [role=alert]') === null"), true);
-    assert.equal(await value(socket, "[...document.querySelectorAll('.ct-record')].some(row => row.textContent.includes('Prompt'))"), true);
-    assert.equal(await value(socket, "[...document.querySelectorAll('.ct-record')].find(row => row.textContent.includes('Prompt')).querySelector('.ct-badge').textContent"), "Prompt");
-    assert.equal(await value(socket, "(() => { const row = [...document.querySelectorAll('.ct-record')].find(item => item.textContent.includes('Prompt')); const body = row.querySelector('.ct-record-body'); const preview = row.querySelector('.ct-preview'); const bounds = row.getBoundingClientRect(); return getComputedStyle(row).display === 'flex' && getComputedStyle(body).display === 'flex' && preview.getBoundingClientRect().right <= bounds.right && preview.getBoundingClientRect().height <= bounds.height; })()"), true);
-    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.ct-record')].find(row => row.textContent.includes('Prompt')).querySelector('.ct-record-body').click()", returnByValue: true });
+    assert.equal(await value(socket, "[...document.querySelectorAll('.ct-record')].some(row => row.classList.contains('prepared') && row.querySelector('.ct-detail')?.textContent === 'Initial system prompt')"), true);
+    assert.equal(await value(socket, "(() => { const row = [...document.querySelectorAll('.ct-record')].find(item => item.textContent.includes('Initial system prompt')); const body = row.querySelector('.ct-record-body'); const preview = row.querySelector('.ct-preview'); const bounds = row.getBoundingClientRect(); return getComputedStyle(row).display === 'flex' && getComputedStyle(body).display === 'flex' && preview.getBoundingClientRect().right <= bounds.right && preview.getBoundingClientRect().height <= bounds.height; })()"), true);
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.ct-record')].find(row => row.textContent.includes('Initial system prompt')).querySelector('.ct-record-body').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.mi-inspector') !== null");
     await waitForExpression(socket, "document.querySelectorAll('.mi-message').length === 3");
     assert.equal(await value(socket, "document.querySelector('.mi-inspector h3')?.textContent"), "Model request");
@@ -717,8 +711,8 @@ test("Goal board uses saved state, structured waits, and full-width session tabs
     await cdp(socket, "Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
     await waitForExpression(socket, "document.querySelector('[role=menu]') !== null");
     await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('[role=menuitem]')].find(button => button.textContent.includes('Archive')).click()", returnByValue: true });
-    await waitForExpression(socket, "document.querySelector('.archive-view-toggle')?.textContent.includes('Archived (1)')");
-    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.archive-view-toggle').click()", returnByValue: true });
+    await waitForExpression(socket, "document.querySelector('.view-segmented button:last-child')?.textContent.includes('Archived (1)')");
+    await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.view-segmented button:last-child').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.goal-card') !== null");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelector('.goal-card-options').focus()", returnByValue: true });
     await cdp(socket, "Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
@@ -838,21 +832,19 @@ test("activity width and structured interaction area remain usable and persist",
     const bounds = () => value(socket, `(() => {
       const feed = document.querySelector('.session-timeline-feed').getBoundingClientRect();
       const item = document.querySelector('.session-timeline-feed > *').getBoundingClientRect();
-      const filter = document.querySelector('.activity-filter-content').getBoundingClientRect();
-      const controls = document.querySelector('.composer-area').getBoundingClientRect();
-      return { feedWidth: feed.width, itemWidth: item.width, filterWidth: filter.width, controlsWidth: controls.width,
+      return { feedWidth: feed.width, itemWidth: item.width,
         hasOrdinaryInput: document.querySelector('.composer-area textarea[aria-label="Goal intent"]') !== null,
         permissionVisible: document.querySelector('.composer-area .permission-trigger') !== null };
     })()`);
     const standard = await bounds();
     assert.ok(standard.feedWidth <= 840, JSON.stringify(standard));
-    assert.ok(Math.abs(standard.itemWidth - standard.feedWidth) < 1 && Math.abs(standard.filterWidth - standard.feedWidth) < 1);
-    assert.equal(standard.hasOrdinaryInput, false, "the waiting Goal does not show an ordinary message input");
+    assert.ok(Math.abs(standard.itemWidth - standard.feedWidth) < 1);
+    assert.equal(standard.hasOrdinaryInput, false, "the existing Goal does not show an ordinary message input");
     assert.equal(standard.permissionVisible, true, "permission controls remain available while the Goal waits");
 
     await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 916, height: 900, deviceScaleFactor: 1, mobile: false });
     const mediumStandard = await bounds();
-    assert.ok(Math.abs(mediumStandard.itemWidth - mediumStandard.feedWidth) < 1 && Math.abs(mediumStandard.filterWidth - mediumStandard.feedWidth) < 1);
+    assert.ok(Math.abs(mediumStandard.itemWidth - mediumStandard.feedWidth) < 1);
     await value(socket, "document.querySelector('.workspace-settings').click()");
     await waitForExpression(socket, "[...document.querySelectorAll('[role=tab]')].some(tab => tab.textContent === 'Appearance')");
     await value(socket, "[...document.querySelectorAll('[role=tab]')].find(tab => tab.textContent === 'Appearance').focus()");
@@ -861,16 +853,18 @@ test("activity width and structured interaction area remain usable and persist",
     await waitForExpression(socket, "document.querySelectorAll('[role=radiogroup] [role=radio]').length === 2");
     await value(socket, "document.querySelectorAll('[role=radiogroup] [role=radio]')[1].click()");
     await waitForExpression(socket, "document.querySelector('.workspace-shell').dataset.activityWidth === 'wide'");
-    await value(socket, "document.querySelector('.settings-back').click()");
+    await cdp(socket, "Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+    await cdp(socket, "Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
     await waitForExpression(socket, "document.querySelector('.session-timeline-feed')?.checkVisibility()");
+    await waitForExpression(socket, "document.activeElement === document.querySelector('.workspace-settings')");
     await waitForExpression(socket, `document.querySelector('.session-timeline-feed')?.getBoundingClientRect().width > ${mediumStandard.feedWidth + 60}`);
     const mediumWide = await bounds();
     assert.ok(mediumWide.feedWidth > mediumStandard.feedWidth + 60, "wide remains visibly wider at a 916px viewport");
-    assert.ok(Math.abs(mediumWide.itemWidth - mediumWide.feedWidth) < 1 && Math.abs(mediumWide.filterWidth - mediumWide.feedWidth) < 1);
+    assert.ok(Math.abs(mediumWide.itemWidth - mediumWide.feedWidth) < 1);
     await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
     const wide = await bounds();
     assert.ok(wide.feedWidth > standard.feedWidth + 100, "wide fills the available activity area");
-    assert.ok(Math.abs(wide.itemWidth - wide.feedWidth) < 1 && Math.abs(wide.filterWidth - wide.feedWidth) < 1);
+    assert.ok(Math.abs(wide.itemWidth - wide.feedWidth) < 1);
 
     await navigate(socket, `${newPortUrl}/?session=width#${token}`);
     await waitForExpression(socket, "document.querySelector('.workspace-shell')?.dataset.activityWidth === 'wide'");
@@ -884,14 +878,16 @@ test("activity width and structured interaction area remain usable and persist",
     assert.equal(await value(socket, "document.querySelectorAll('[role=radiogroup] [role=radio]')[1].getAttribute('aria-checked')"), "true");
     await value(socket, "document.querySelectorAll('[role=radiogroup] [role=radio]')[0].click()");
     await waitForExpression(socket, "document.querySelector('.workspace-shell').dataset.activityWidth === 'standard'");
-    await value(socket, "document.querySelector('.settings-back').click()");
+    await cdp(socket, "Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+    await cdp(socket, "Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
     await waitForExpression(socket, "document.querySelector('.session-timeline-feed')?.checkVisibility()");
+    await waitForExpression(socket, "document.activeElement === document.querySelector('.workspace-settings')");
     const restored = await bounds();
     assert.ok(Math.abs(restored.feedWidth - standard.feedWidth) < 1 && Math.abs(restored.itemWidth - standard.itemWidth) < 1);
     await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 320, height: 900, deviceScaleFactor: 1, mobile: true });
     await waitForExpression(socket, "document.querySelector('.composer-area').getBoundingClientRect().width <= 320");
     const narrow = await bounds();
-    assert.ok(Math.abs(narrow.itemWidth - narrow.feedWidth) < 1 && Math.abs(narrow.filterWidth - narrow.feedWidth) < 1);
+    assert.ok(Math.abs(narrow.itemWidth - narrow.feedWidth) < 1);
     assert.ok(await value(socket, "document.documentElement.scrollWidth - innerWidth") <= 1);
     assert.equal(await value(socket, `(() => {
       const composer = document.querySelector('.composer-area').getBoundingClientRect();
@@ -903,6 +899,24 @@ test("activity width and structured interaction area remain usable and persist",
 
     await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
     await waitForExpression(socket, "document.querySelector('.workspace-settings')?.checkVisibility()");
+    await value(socket, "document.querySelector('button[aria-label=\"New goal\"]').click()");
+    await waitForExpression(socket, "document.querySelector('.draft-timeline') !== null && document.querySelector('textarea[aria-label=\"Goal intent\"]') !== null");
+    const draftComposer = await value(socket, `(() => {
+      const area = document.querySelector('.composer-area').getBoundingClientRect();
+      const form = document.querySelector('.composer-area form').getBoundingClientRect();
+      const text = document.querySelector('textarea[aria-label=\"Goal intent\"]');
+      return { formWidth: form.width,
+        centered: Math.abs((area.left + area.right - form.left - form.right) / 2) < 1,
+        textHeight: text.getBoundingClientRect().height };
+    })()`);
+    assert.ok(draftComposer.formWidth <= 840 && Math.abs(draftComposer.formWidth - standard.feedWidth) < 1);
+    assert.equal(draftComposer.centered, true, "the New Goal composer is centered in its available area");
+    await value(socket, "document.querySelector('textarea[aria-label=\"Goal intent\"]').focus()");
+    assert.equal(await value(socket, "getComputedStyle(document.querySelector('textarea[aria-label=\"Goal intent\"]')).outlineStyle"), "none");
+    assert.match(await value(socket, "getComputedStyle(document.querySelector('textarea[aria-label=\"Goal intent\"]')).boxShadow"), /^(none|(?:rgba\(0, 0, 0, 0\) 0px 0px 0px 0px)(?:, rgba\(0, 0, 0, 0\) 0px 0px 0px 0px)*)$/);
+    await setText(socket, 'textarea[aria-label=\"Goal intent\"]', "First line\nSecond line\nThird line");
+    await waitForExpression(socket, "document.querySelector('textarea[aria-label=\"Goal intent\"]').getBoundingClientRect().height > 50");
+
     await value(socket, "document.querySelector('.workspace-settings').click()");
     await waitForExpression(socket, "[...document.querySelectorAll('[role=tab]')].some(tab => tab.textContent === 'Appearance')");
     await value(socket, "[...document.querySelectorAll('[role=tab]')].find(tab => tab.textContent === 'Appearance').focus()");
@@ -1995,6 +2009,6 @@ async function waitForLocal(predicate, timeoutMs = 5_000) {
 }
 
 async function browserDiagnostics(socket) {
-  const page = await value(socket, "({url: location.origin + location.pathname, state: document.querySelector('.task-state')?.textContent, connection: document.querySelector('.stream-state')?.textContent, buttons: [...document.querySelectorAll('.structured-form button, .command-candidate')].map(button => ({text: button.textContent.trim(), disabled: button.disabled}))})");
+  const page = await value(socket, "({url: location.origin + location.pathname, state: document.querySelector('.task-state')?.textContent, connection: document.querySelector('.stream-state')?.textContent, buttons: [...document.querySelectorAll('.structured-form button, .command-candidate')].map(button => ({text: button.textContent.trim(), disabled: button.disabled})), timeline: document.querySelector('.session-timeline-feed')?.innerText, transientMessages: [...document.querySelectorAll('.transient-message')].map(node => node.innerText), activityHeadings: [...document.querySelectorAll('.timeline-activity-heading')].map(node => node.innerText)})");
   return JSON.stringify({ ...page, requests: [...socket.requests.values()] });
 }

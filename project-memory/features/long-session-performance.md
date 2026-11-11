@@ -32,7 +32,7 @@ authorities: [packages/runtime/notes/overview.md, packages/storage/notes/overvie
 - compact JSON 只改变磁盘字节形态，不得改变 Snapshot schema、字段语义或 fsync/durability 策略；编解码去重不得引入输入、输出与存储之间的共享可变引用。 [S1, S3, S14, S15]
 - `prepare(latest)` 只在 gate 内、事实与 Snapshot 写入之前运行；不得借它跳过 gate 顺序或改写 Goal ID。 [S2, S6, S7]
 - `readRevision` 只用于变更检测；不得用它的值恢复状态，也不得把它当成跨进程实时保证。 [S1, S2, S12, S13]
-- 本次不改变 fsync 频率、不合并 step 内多次 Snapshot 写入，也不新增持久化缓存或存储引擎替换。 [S1]
+- 本次不改变 fsync 频率、不合并 step 内多次 Snapshot 写入，也不新增持久化缓存或存储引擎替换；执行热路径至今仍不持有持久化缓存，`long-session-io-performance` 为列表新增的 catalog 摘要不参与执行或恢复。 [S1, S23]
 
 ## Revisit When
 
@@ -65,3 +65,4 @@ authorities: [packages/runtime/notes/overview.md, packages/storage/notes/overvie
 - S20: `packages/model-call/test/model-input-recording.test.ts`
 - S21: `packages/model-context/test/trajectory-execution-unit-adapter.test.ts`
 - S22: `packages/runtime/src/runner.ts`
+- S23: `specs/long-session-io-performance/spec.md`

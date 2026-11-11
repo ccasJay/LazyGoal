@@ -66,12 +66,13 @@ test("browser provider models API consumes the generated binding against a local
     let viteError = "";
 
     try {
-        vite = startVite(backendPort, await findFreePort());
+        const vitePort = await findFreePort();
+        vite = startVite(backendPort, vitePort);
         vite.stdout.setEncoding("utf8");
         vite.stderr.setEncoding("utf8");
         vite.stdout.on("data", chunk => { viteOutput += chunk; });
         vite.stderr.on("data", chunk => { viteError += chunk; });
-        const origin = await waitForVite(vite, () => viteOutput, () => viteError);
+        const origin = await waitForVite(vite, vitePort, () => viteOutput, () => viteError);
 
         chrome = spawn(findChrome(), [
             "--headless=new",
@@ -212,12 +213,22 @@ function startVite(backendPort, vitePort) {
     });
 }
 
-async function waitForVite(child, readOutput, readError) {
-    return waitFor(async () => {
-        if (child.exitCode !== null) throw new Error(`Vite exited: ${readError()}${readOutput()}`);
-        const match = readOutput().match(/Local:\s+(http:\/\/127\.0\.0\.1:\d+\/?)/);
-        return match?.[1]?.replace(/\/$/, "");
-    }, "Vite development server", 20_000);
+async function waitForVite(child, port, readOutput, readError) {
+    const origin = `http://127.0.0.1:${port}`;
+    try {
+        return await waitFor(async () => {
+            if (child.exitCode !== null) throw new Error(`Vite exited: ${readError()}${readOutput()}`);
+            try {
+                const response = await fetch(origin);
+                return response.ok ? origin : undefined;
+            } catch {
+                return undefined;
+            }
+        }, `Vite development server at ${origin}`, 20_000);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`${message}; stdout=${JSON.stringify(readOutput())}; stderr=${JSON.stringify(readError())}`);
+    }
 }
 
 async function findFreePort() {

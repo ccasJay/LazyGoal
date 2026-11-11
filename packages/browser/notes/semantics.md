@@ -5,6 +5,7 @@
 | 概念 | 简明含义 | 归属模块 | 权威说明 |
 | --- | --- | --- | --- |
 | BrowserSessionAccess | 短期 Bearer 能力与由其派生的非秘密 external Actor ID；Actor ID 不替代请求授权。 | [浏览器服务边界](../README.md) | [访问边界](./overview.md)、[访问能力](../src/browser-session-access.ts) |
+| Health probe route | 精确的 `GET /healthz` 固定返回 `{"status":"ok"}`，不读取业务依赖或诊断信息；仅该路由免 Bearer 校验，Host 与已提供的 Origin／Fetch Metadata 校验仍生效。 | [浏览器服务边界](../README.md) | [路由](../src/browser-healthz.ts)、[访问边界](../src/browser-session-access.ts) |
 | Goal 列表响应 | 可读取的 Goal 摘要与因本地快照不兼容而无法读取的历史 Goal 数量；单条不可读快照不使整份列表失败。 | [浏览器服务边界](../README.md) | [Goal Routes](../src/browser-goal-routes.ts) |
 | 共享命令合同解析 | JSON 请求体经 web-contracts 严格命令合同解析，route 只保留 wire ID、路径身份、跨字段关系与 HTTP 错误映射。 | [浏览器服务边界](../README.md) | [Goal Routes](../src/browser-goal-routes.ts) |
 | BrowserGoalCommandService | 未迁入统一 inputs 入口的管理命令（Plan Mode、模型选择、Action 详情、授权与权限模式、终态管理前置检查）到 Runtime 的适配。 | [浏览器服务边界](../README.md) | [模块说明](./overview.md) |

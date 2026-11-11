@@ -104,7 +104,7 @@ test("real service and browser share one session output protocol", { timeout: 18
       throw new Error(error.message + "; browser=" + JSON.stringify(browserState) + "; sessionApi=" + JSON.stringify({ status: apiState.response.status, body: apiState.body }));
     }
     await cdp(socket, "Runtime.evaluate", {
-      expression: "[...document.querySelectorAll('.session-tab-buttons button')].find(button => button.textContent === 'Activity')?.click()",
+      expression: "[...document.querySelectorAll('.session-tab-buttons button')].find(button => button.getAttribute('aria-label') === 'Activity')?.click()",
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelector('.session-timeline-feed') !== null", 20_000);
@@ -176,8 +176,8 @@ test("real service and browser share one session output protocol", { timeout: 18
       const items = node === undefined ? [] : [...node.parentElement.children];
       const nodeIndex = feed === null ? -1 : items.indexOf(node);
       const prefixStable = window.__candidatePrefix.every((prefixNode, index) => items[index] === prefixNode);
-      const terminal = feed?.querySelector('.timeline-terminal');
-      const terminalAfter = terminal !== null && terminal !== undefined && nodeIndex < items.indexOf(terminal);
+      const runStatus = feed?.querySelector('.timeline-run-summary.completed .timeline-run-status');
+      const completedRunVisible = runStatus?.textContent === 'Completed';
       return {
         count: matches.length,
         sameNode: node === window.__candidateNode,
@@ -185,7 +185,7 @@ test("real service and browser share one session output protocol", { timeout: 18
         text: node?.innerText,
         itemId: node?.dataset.itemId,
         prefixStable,
-        terminalAfter,
+        completedRunVisible,
       };
     })()`);
     assert.equal(promotedNode.count, 1);
@@ -195,7 +195,7 @@ test("real service and browser share one session output protocol", { timeout: 18
     assert.doesNotMatch(promotedNode.text, /Draft answer/);
     assert.equal(promotedNode.itemId, `message:${answer.messageId}`);
     assert.equal(promotedNode.prefixStable, true);
-    assert.equal(promotedNode.terminalAfter, true);
+    assert.equal(promotedNode.completedRunVisible, true);
     await value(socket, "document.querySelectorAll('.timeline-stage-heading[aria-expanded=false]').forEach(button => button.click())");
     const expandedActivity = await value(socket, `(() => {
       const ids = [...new Set([...document.querySelectorAll('.session-timeline-feed [data-item-id]')].map(node => node.dataset.itemId))];

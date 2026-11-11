@@ -1,4 +1,5 @@
 import { createSessionMetricsRoutes } from "../../../packages/session-metrics/src/index";
+import { createHealthzRoutes } from "../../../packages/browser/src/index";
 import {
     createHttpService,
     type HttpService,
@@ -26,7 +27,7 @@ export interface CompositionRootOptions extends RuntimeCompositionOptions {
 }
 
 export interface CompositionRoot extends RuntimeComposition {
-    /** 已挂载指标路由、尚未启动的 HTTP 服务。 */
+    /** 已挂载健康探针与指标路由、尚未启动的 HTTP 服务。 */
     readonly httpService: HttpService;
     /** 宿主关闭协调：结算实例后按应用决定退出。 */
     readonly shutdownCoordinator: HostShutdownCoordinator;
@@ -37,7 +38,7 @@ export interface CompositionRoot extends RuntimeComposition {
  *
  * @remarks
  * 依赖装配、执行链与生命周期由 `createRuntimeComposition` 完成；本函数只创建
- * HTTP 服务、挂载指标路由、追加关闭准入中间件、把 HTTP 关闭注册为应用资源，
+ * HTTP 服务、挂载健康探针与指标路由、追加关闭准入中间件、把 HTTP 关闭注册为应用资源，
  * 并构造宿主退出协调器。实例关闭后仍拒绝新的 Web 写请求，直到 HTTP 关闭。
  *
  * @param options - 运行时装配选项与宿主 HTTP/退出选项。
@@ -72,6 +73,7 @@ export async function createCompositionRoot(
             return middlewareResult;
         };
     const httpService = createHttpService({ middleware: httpMiddleware });
+    httpService.mount("/", createHealthzRoutes());
     httpService.mount("/", createSessionMetricsRoutes(runtime.sessionMetricsService));
 
     return {

@@ -180,6 +180,8 @@ export {
     type SessionMetricsSnapshot,
 } from "./metrics";
 
+export type { HealthzResponse } from "./wire";
+
 export * from "./bindings";
 
 export { isNullableSafeInteger } from "./invariants";

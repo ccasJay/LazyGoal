@@ -1,6 +1,6 @@
 # Goal Server
 
-本机 Web Composition Root，连接 Browser、HTTP、Supervisor、Trigger 持久化与独立 Worker。Goal Board 的创建、结构化交互、取消和显式恢复经 Trigger 路径处理；普通后续消息不受支持。
+本机 Web Composition Root，连接 Browser、HTTP、Supervisor、Trigger 持久化与独立 Worker，并提供不含诊断信息的 `/healthz` 存活探针。Goal Board 的创建、结构化交互、取消和显式恢复经 Trigger 路径处理；普通后续消息不受支持。模型执行协议由服务端目录解析并随 Goal 安全恢复。
 
 阅读 [模块说明](./notes/overview.md)、[语义表](./notes/semantics.md)。
 

@@ -167,7 +167,11 @@ test("recoverable Worker progress requires explicit unknown-effect confirmation"
     await waitForExpression(socket, "document.querySelector('.composer-recover-actions button')?.textContent.includes('Stop Run')", 20_000);
     const resumed = await waitForSession(restarted.origin, restarted.token, (candidate) => candidate.goalId === running.goalId && candidate.runStatus === "running" && candidate.execution?.state === "active");
     assert.equal(resumed.currentRunId, running.currentRunId, "recovery continues the existing Run");
-    assert.ok((await readStatus(statusPath)).modelCalls > beforeResumeCalls, "explicit recovery resumes model execution");
+    await waitFor(
+      async () => (await readStatus(statusPath)).modelCalls > beforeResumeCalls,
+      "explicit recovery resumes model execution",
+      20_000,
+    );
     assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Goal intent\"]') === null"), true);
     await cdp(socket, "Runtime.evaluate", {
       expression: "[...document.querySelectorAll('.composer-recover-actions button')].find(button => button.textContent.includes('Stop Run')).click()",

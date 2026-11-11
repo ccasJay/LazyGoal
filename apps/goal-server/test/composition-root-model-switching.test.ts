@@ -94,6 +94,7 @@ function createOpenCodeGoDynamicDescriptor(): LlmModelDescriptor {
         executionApi: "openai-completions",
         reasoning: true,
         vision: false,
+        supportsRequiredToolChoice: false,
         availabilitySource: "live",
         metadataSource: "live",
         selectable: true,
@@ -188,6 +189,7 @@ test("浏览器只提交模型 ID，服务端目录生成并保存 OpenCode Go �
         id: "beam-free",
         displayName: "Beam Free",
         maxOutputTokens: 131_072,
+        supportsRequiredToolChoice: true,
     };
     const catalog = new FakeCatalog([createOpenCodeGoDynamicDescriptor(), beamDescriptor]);
     try {
@@ -281,6 +283,7 @@ test("浏览器只提交模型 ID，服务端目录生成并保存 OpenCode Go �
             maxOutputTokens: 524_288,
             reasoning: true,
             vision: false,
+            supportsRequiredToolChoice: false,
             executionApi: "openai-completions",
             inputEstimator: { kind: "character-v1" },
         });
@@ -303,6 +306,7 @@ test("浏览器只提交模型 ID，服务端目录生成并保存 OpenCode Go �
             maxOutputTokens: 131_072,
             reasoning: true,
             vision: false,
+            supportsRequiredToolChoice: true,
             executionApi: "openai-completions",
             inputEstimator: { kind: "character-v1" },
         });

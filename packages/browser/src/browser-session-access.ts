@@ -34,7 +34,7 @@ const PUBLIC_ASSET_PATHS = new Set(["/", "/favicon.ico"]);
 export interface BrowserSessionAccess {
     /** 本能力认证成功后代表浏览器参与者的稳定、不含凭据 Actor ID。 */
     readonly externalId: string;
-    /** 在所有 HTTP 路由前执行的访问控制与安全响应头中间件。 */
+    /** 在所有 HTTP 路由前设置安全响应头并校验 Host 与请求来源；仅精确的 `GET /healthz` 豁免 Bearer 校验。 */
     readonly middleware: HttpServiceMiddleware;
     /**
      * 绑定 HTTP 服务实际监听的 Origin。
@@ -87,6 +87,7 @@ export function createBrowserSessionAccess(): BrowserSessionAccess {
         const path = new URL(request.url).pathname;
         const isPublicAsset = request.method === "GET"
             && (PUBLIC_ASSET_PATHS.has(path) || path.startsWith("/assets/"));
+        const isHealthProbe = request.method === "GET" && path === "/healthz";
         if (isPublicAsset) {
             await next();
             return;
@@ -103,7 +104,7 @@ export function createBrowserSessionAccess(): BrowserSessionAccess {
         if (fetchSite !== null && fetchSite !== "same-origin" && fetchSite !== "none") {
             return context.json({ error: "cross_origin_denied" }, 403);
         }
-        if (!hasValidBearerToken(request.headers.get("authorization"), token)) {
+        if (!isHealthProbe && !hasValidBearerToken(request.headers.get("authorization"), token)) {
             return context.json({ error: "unauthorized" }, 401);
         }
 

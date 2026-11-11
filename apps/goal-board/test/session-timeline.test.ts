@@ -146,7 +146,7 @@ test("saved multi-Run activity keeps stable source order across duplicate sync a
   assert.deepEqual(partialProjection.actionGroups, resultPage.page.actionGroups);
 
   const activityGroups = collectActivityProjections(activity.page, goal.id, []);
-  const projection = projectSessionTimeline(activity.page, state, activityGroups, "temporary answer");
+  const projection = projectSessionTimeline(activity.page, state, activityGroups, [{ sourceKey: "run-normal:segment:1", runId: state.currentRunId, content: "temporary answer", truncated: false, order: 1, active: true }]);
   const saved = projection.items.filter((item) => item.kind !== "live-preview");
   assert.deepEqual(saved.map((item) => item.itemId), [
     "run:run-normal",
@@ -158,9 +158,8 @@ test("saved multi-Run activity keeps stable source order across duplicate sync a
     "message:steer-applied",
     "message:process-second",
     "event:event-run-normal-8",
-    "message:final-answer",
-    "terminal:run-normal:completed",
-    "run:run-plan",
+    'message:final-answer',
+    'run:run-plan',
     "event:event-run-plan-1",
     "event:event-run-plan-2",
     "message:stage-process",
@@ -172,16 +171,26 @@ test("saved multi-Run activity keeps stable source order across duplicate sync a
   ]);
   assert.equal(saved.some((item) => item.kind === "fact" && item.runId === "run-normal" && item.eventType.startsWith("run_stage_")), false);
   assert.equal(saved.some((item) => item.kind === "terminal" && item.runId === "run-plan"), false);
+  assert.equal(saved.some((item) => item.kind === "terminal" && item.runId === "run-normal"), false);
   const stage = saved.find((item) => item.kind === "fact" && item.eventType === "run_stage_declared");
   assert.equal(stage?.kind === "fact" ? stage.stageTarget : undefined, "Summarize verified findings");
   assert.deepEqual(projection.currentPlanRoute?.stages[0]?.target, "Summarize verified findings");
   assert.equal(projection.items.at(-1)?.kind, "live-preview");
 
+  const multiBlock = projectSessionTimeline(activity.page, state, activityGroups, [
+    { sourceKey: "run-normal:segment:1", runId: state.currentRunId, content: "first block", truncated: false, order: 2, active: false },
+    { sourceKey: "run-normal:segment:2", runId: state.currentRunId, content: "second block", truncated: false, order: 6, active: true },
+  ]);
+  assert.deepEqual(
+    multiBlock.items.filter((item) => item.kind === "live-preview").map((item) => [item.itemId, item.liveOrder]),
+    [["live:run-normal:segment:1", 2], ["live:run-normal:segment:2", 6]],
+  );
+
   const duplicateAndReorderedPage: BrowserActivityPage = {
     ...activity.page,
     items: [...activity.page.items].reverse().concat(activity.page.items[0]!),
   };
-  const refreshed = projectSessionTimeline(duplicateAndReorderedPage, state, activityGroups, "temporary answer");
+  const refreshed = projectSessionTimeline(duplicateAndReorderedPage, state, activityGroups, [{ sourceKey: "run-normal:segment:1", runId: state.currentRunId, content: "temporary answer", truncated: false, order: 1, active: true }]);
   assert.deepEqual(refreshed.items.map((item) => item.itemId), projection.items.map((item) => item.itemId));
 });
 

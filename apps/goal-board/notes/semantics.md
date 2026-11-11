@@ -7,7 +7,7 @@
 | shadcn UI | 官方 Radix 组件源码、Tailwind 样式与 LazyGoal 品牌语义变量；通用交互不重复自制。 | [Goal Board](../README.md) | [组件配置](../components.json)、[品牌主题](../src/ui.css) |
 | 界面配色 | Radix Colors 标准色阶经语义变量映射到业务样式与 shadcn；品牌、交互、状态及聚焦分开定义，图片与用户内容不改色。 | [Goal Board](../README.md) | [配色说明](./overview.md#界面配色)、[主题映射](../src/ui.css)、[语义变量](../src/style.css) |
 | 底部指标行 | 输入框下方独立展示 Goal 聚合指标；窄屏横向滚动，Popover 展示当前 Run 状态与完整计量说明。 | [Goal Board](../README.md) | [SessionMetricsBar](../src/components/SessionMetricsBar.tsx)、[模块说明](./overview.md) |
-| 历史执行折叠 | 当前 Run 默认展开，历史执行默认折叠，用户消息与最终答复保持原顺序可读。 | [Goal Board](../README.md) | [SessionTimeline](../src/components/SessionTimeline.tsx) |
+| 历史执行折叠 | Run 默认全部展开；折叠后只保留 Run 标题行，不再保留部分来源。折叠状态按 Run 身份记录，追加内容与结算不覆盖用户选择。 | [Goal Board](../README.md) | [SessionTimeline](../src/components/SessionTimeline.tsx) |
 | 阅读与跟随 | Activity 窗口持有自动滚动状态；暂停滚动仍接收末尾窗口的新回答与终态并保留锚点，有更新方向缺口的历史页只累计提示。未读按新增来源水位计数，显式跳转回到最新。 | [Goal Board](../README.md) | [Activity 窗口](../src/activity-page-window.ts)、[会话视图](../src/components/GoalSession.tsx) |
 | 模型无响应提示 | 模型六十秒无新公开响应时提示；显示来源时长与最近观察时间，不自动取消或重试。 | [Goal Board](../README.md) | [执行进度](../src/execution-progress.ts) |
 | Workspace shell | 当前工作区的紧凑导航、详情、Goal 搜索与可收起最近列表；侧栏可隐藏及拖动调宽，宽度仅保存在页面内。 | [Goal Board](../README.md) | [WorkspaceShell](../src/components/WorkspaceShell.tsx)、[ResizableSidebar](../src/components/ResizableSidebar.tsx) |
@@ -17,7 +17,7 @@
 | Wire DTO 消费 | 页面消费 web-contracts 的 DTO 与边界读取器；在线模型列表由生成绑定校验并剥离未知字段，其它响应继续使用 guard。 | [Goal Board](../README.md) | [模块说明](./overview.md)、[Web 传输契约](../../../packages/web-contracts/README.md)、[Provider 模型 API](../src/api.ts) |
 | Session view | 首屏并行读取不含历史的 Goal 状态与固定水位 Activity 页；完整会话按需用于 Plan、Trajectory 和 Goal details。 | [Goal Board](../README.md) | [useGoalSession](../src/hooks/useGoalSession.ts)、[模块说明](./overview.md) |
 | SessionTimeline | 按服务端 Run 内位置合并稳定来源身份，单列呈现消息、候选预览、活动事实、Run 边界与终态；候选按 `previewId` 在原展示身份转为正式消息。 | [Goal Board](../README.md) | [投影](../src/session-timeline.ts)、[视图](../src/components/SessionTimeline.tsx) |
-| 固定 Activity 页 | 有界正文／安全活动读取带固定水位和 cursor；当前页面提示更早来源存在，但不自动翻页。 | [浏览器服务边界](../../../packages/browser/README.md) | [Activity API](../../../packages/browser/src/browser-goal-routes.ts)、[页面说明](./overview.md) |
+| 固定 Activity 页 | 有界正文／安全活动读取带固定水位和 cursor；打开后自动预取更早页（300 项预算），超出预算后滚动到顶部继续读取。 | [浏览器服务边界](../../../packages/browser/README.md) | [Activity API](../../../packages/browser/src/browser-goal-routes.ts)、[页面说明](./overview.md) |
 | 输出速率展示 | 显示已结束模型调用的端到端输出速率；在调用完成事实更新后刷新。 | [Goal Board](../README.md) | [模块说明](./overview.md) |
 | 交互区域 | 按已提交等待种类分派的统一决定区：问答导航与审阅、任务范围审阅、工具能力与期限、未知结果恢复；替换旧三套表单。 | [Goal Board](../README.md) | [InteractionRegion](../src/interaction-panel.tsx) |
 | 交互提交状态 | 从控制意图派生的展示阶段（编辑、提交中、待核验、已受理、失效）；冻结身份只用于核验与原身份重试，不再维护第二份状态机。 | [Goal Board](../README.md) | [interaction-state.ts](../src/interaction-state.ts)、[控制 reducer](../src/control/reducer.ts) |
@@ -36,11 +36,12 @@
 | ActivityGroup | 从固定 Activity 页的已提交事实与安全实时事件派生的纯展示分组。同一 Action 的决策、审批、执行、重试与结果先按 Action 身份归入同一成员，再压缩同阶段内连续同工具调用，不代表 Runtime 阶段；断组由完整交错来源决定，正文、交互、未知事实与阶段边界都会断开相邻成员，隐藏正文不改变该判定。 | [Goal Board](../README.md) | [ActivityProjector](../src/activity-projector.ts) |
 | 历史检索活动 | 同 Run 的请求与结果仅按 `lookupId` 归并为一条时间线活动；未命中与失败独立显示，展开详情只使用安全请求类别、固定状态说明与白名单错误码。分页缺少一侧时保留稳定身份。 | [Goal Board](../README.md) | [时间线投影](../src/session-timeline.ts)、[SessionTimeline](../src/components/SessionTimeline.tsx) |
 | 活动成员状态 | 区分执行中、重试、审批等待、结果待保存、已提交失败／成功与已拒绝；展开详情按来源顺序显示该成员的授权、执行、重试与结果记录，已提交 Observation 才决定终态。组的运行状态与异常计数独立显示，结算后区分全部失败与部分失败；实时返回不标为已保存成功。 | [Goal Board](../README.md) | [ActivityProjector](../src/activity-projector.ts) |
-| 活动组展开状态 | 标题单行显示动作描述与真实调用次数，混合失败组保留成功和失败计数；完整命令、结果计数与授权／执行／重试／结果生命周期只在展开详情中显示。连续步骤使用 shadcn Trace，消息断开步骤组；成功默认折叠，运行、失败、拒绝与审批等待默认展开，等待授权不能被筛选或手动折叠隐藏其 `Awaiting approval` 状态。手动开合在追加、结算与筛选时保留，异常摘要不随折叠或筛选隐藏。 | [Goal Board](../README.md) | [SessionTimeline](../src/components/SessionTimeline.tsx)、[ActivityProjector](../src/activity-projector.ts) |
+| 活动组展开状态 | 标题单行显示动作描述与真实调用次数，混合失败组保留成功和失败计数；完整命令、结果计数与授权／执行／重试／结果生命周期只在展开详情中显示，单成员组不在详情内重复组标题与状态。连续步骤使用 shadcn Trace，消息断开步骤组；成功默认折叠，运行、失败、拒绝与审批等待默认展开，等待授权不能被筛选或手动折叠隐藏其 `Awaiting approval` 状态。手动开合在追加、结算与筛选时保留，异常摘要不随折叠或筛选隐藏。 | [Goal Board](../README.md) | [SessionTimeline](../src/components/SessionTimeline.tsx)、[ActivityProjector](../src/activity-projector.ts) |
 | 真实阶段展示 | 只按已提交声明或当前路线的真实阶段标题、身份与修订收拢连续活动；已接受阶段默认折叠，工作中与需处理的阶段展开，正文与交互仍在原来源位置。 | [Goal Board](../README.md) | [SessionTimeline](../src/components/SessionTimeline.tsx)、[时间线投影](../src/session-timeline.ts) |
 | Live Activity | 当前 Goal SSE 的公开生成与连接状态；控制事实先进入控制 reducer，内容事实维持候选与临时正文路径。 | [Goal Board](../README.md) | [useRunStream](../src/hooks/useRunStream.ts) |
 | 重连与权威恢复 | 两条流结束后由既有 800ms 循环重新订阅；不发送 `Last-Event-ID`、不请求补发，以新连接的 `state_sync` 快照或最新指标快照替换旧值与旧临时正文。 | [Goal Board](../README.md) | [useRunStream](../src/hooks/useRunStream.ts)、[useGoals](../src/hooks/useGoals.ts) |
-| 临时正文来源索引 | 流式正文按来源身份独立累积并有界：换源时旧来源保留已到达内容，新来源单独累积；结算边界立即提交待合并尾部，不丢字也不复活旧帧。 | [Goal Board](../README.md) | [流式渲染状态](../src/streaming-render.ts)、[帧合并](../src/live-text-batch.ts) |
+| 临时正文来源索引 | 流式正文按来源身份分块并有界：每块在首次产生时确定时间线顺序，工具调用或新的模型阶段关闭当前块，恢复输出创建新块；后续增量只更新内容，不回填或重排已显示节点。进度与工具节点使用同一观察顺序。只有当前活跃块显示流式光标，已关闭块标记为 `Earlier response`。 | [Goal Board](../README.md) | [流式渲染状态](../src/streaming-render.ts)、[实时顺序](../src/live-timeline.ts)、[useRunStream](../src/hooks/useRunStream.ts) |
+| Run 终态展示 | `completed` 只由 Run 标题表达，不重复独立终态行；`failed` 与 `cancelled` 保留终态行及其安全详情。 | [Goal Board](../README.md) | [时间线投影](../src/session-timeline.ts)、[SessionTimeline](../src/components/SessionTimeline.tsx) |
 | 安全 Markdown | 正文与 Think 输出共用同一安全 GFM 渲染：原始 HTML 与脚本不进入 DOM，模型图片与嵌入降级为链接，代码与表格只在自身区域横向滚动。 | [Goal Board](../README.md) | [AssistantMarkdown](../src/components/AssistantMarkdown.tsx) |
 | 观察同步与过期 | 订阅按 Goal 建立并先消费权威同步；断开或读取失败保留最后确认内容并标记可能过期，依赖最新状态的决定在重连并同步前不可用。 | [Goal Board](../README.md) | [观察恢复语义](../src/session-stream-recovery.ts) |
 | 统一 SSE 分帧 | metrics 与 Goal 事件共用一个 `eventsource-parser` 入口，只产出事件名与 `data`；未知命名事件忽略，已接受事件的无效 JSON 或无效 DTO 结束本次生成器。 | [Goal Board](../README.md) | [SSE 分帧](../src/sse.ts)、[API 映射](../src/api.ts) |
@@ -51,7 +52,7 @@
 | New Goal 草稿 | 仅保存在页面状态的未提交首个意图；提交结果不明时保留原身份，受理成功后由服务端 Goal 与 Trigger 收据接管。 | [Goal Board](../README.md) | [MessageComposer](../src/components/MessageComposer.tsx) |
 | 新 Goal 输入 | 输入框只创建 Goal 并提交首个意图；已有 Goal 不提供普通续聊、Steer 或队列操作。 | [Goal Board](../README.md) | [输入区](../src/components/MessageComposer.tsx)、[会话视图](../src/components/GoalSession.tsx) |
 | Worker 状态与恢复 | 已运行 Goal 显示所属 Worker；只有 Supervisor 明确记录的待恢复 Worker 退出可继续，恢复运行中检查点要求承认未知外部效果。 | [Goal Board](../README.md) | [会话视图](../src/components/GoalSession.tsx)、[Trigger 浏览器端口](../../goal-server/src/browser-session-port.ts) |
-| 会话渐进加载 | 固定水位 Activity 页支持双向翻页：更早与更新的页按稳定身份并入当前窗口，缺口明确提示；历史页缓存至多三页，正文分段至多三段；阅读锚点按可见项身份恢复。 | [Goal Board](../README.md) | [Activity 窗口](../src/activity-page-window.ts)、[SessionTimeline](../src/components/SessionTimeline.tsx) |
+| 会话渐进加载 | 固定水位 Activity 页支持更早与更新方向翻页；打开时自动预取更早页至 300 项预算，超出后滚动到顶部续取；最多缓存 3 页，阅读锚点按可见项稳定身份及项内偏移恢复。 | [Goal Board](../README.md) | [Activity 窗口](../src/activity-page-window.ts)、[SessionTimeline](../src/components/SessionTimeline.tsx) |
 | 会话输出消费 | 页面消费同一条 Goal SSE：保存不明的候选保持待核验；正式 Activity 以同一展示 key 替换候选；确定作废后立即移除临时正文并保留有限身份标记以忽略迟到片段。 | [Goal Board](../README.md) | [会话输出归约](../src/session-output-consumer.ts) |
 | 不确定提交核验 | 受理结果不明时保留原 `inputId` 与冻结载荷，由统一核验按收据或资源身份结算；只有未应用允许原身份重试。 | [Goal Board](../README.md) | [控制核验](../src/control/verify.ts)、[运行命令](../src/hooks/useRunCommands.ts) |
 | 渲染错误边界 | 会话与轨迹视图的渲染异常被边界捕获，显示错误卡与重载入口，不整页白屏。 | [Goal Board](../README.md) | [SessionBoundary](../src/components/error-boundary.tsx) |

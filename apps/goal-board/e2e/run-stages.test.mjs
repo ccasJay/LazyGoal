@@ -13,7 +13,7 @@ const root = resolve(import.meta.dirname, "..");
 const webUrl = "http://127.0.0.1:4174";
 const token = "e2e-token-stages";
 
-test("Web goal session presents run stages, revisions, rejection feedback, and collapsed steps", async () => {
+test("Web goal session presents run stages, revisions, Activity summaries, and Trajectory details", async () => {
   const mock = createStageMockApi();
   const apiAddress = await listen(mock.server);
   const apiPort = Number(new URL(apiAddress).port);
@@ -97,56 +97,32 @@ test("Web goal session presents run stages, revisions, rejection feedback, and c
     assert.equal(await value(socket, "document.querySelector('[data-stage-id=\"stage-beta\"] > .timeline-stage-heading').getAttribute('aria-expanded')"), "true");
     await value(socket, "document.querySelector('[data-stage-id=\"stage-alpha\"] > .timeline-stage-heading').click()");
 
-    // 6. 同阶段的编辑与写入分别保留，运行中的 Think 自动展开。
-    await value(socket, "document.querySelector('#filter-execution-steps').click()");
+    // Activity shows tool groups and Think placeholders; full Think content stays in Trajectory.
     const stage1StepsCount = await value(socket, "document.querySelectorAll('.timeline-activity').length");
-    assert.equal(stage1StepsCount, 6);
+    assert.equal(stage1StepsCount, 4);
+    assert.equal(await value(socket, "document.querySelectorAll('.timeline-thinking').length"), 2);
     const editGroupSummary = await value(socket, "[...document.querySelectorAll('.timeline-activity-heading [data-slot=trace-title]')].map(node => node.textContent).find(text => text.includes('Edited'))");
     assert.equal(editGroupSummary, "Edited src/index.ts");
-    assert.equal(await value(socket, "document.querySelectorAll('.timeline-activity-heading[aria-expanded=\"false\"]').length"), 5);
+    assert.equal(await value(socket, "document.querySelectorAll('.timeline-activity-heading[aria-expanded=\"false\"]').length"), 4);
     await cdp(socket, "Runtime.evaluate", {
       expression: "[...document.querySelectorAll('.timeline-activity-heading')].filter(button => /Edited src\\/index.ts|Wrote src\\/index.test.ts/.test(button.textContent)).forEach(button => button.click())",
       returnByValue: true,
     });
     await waitForExpression(socket, "document.querySelectorAll('.timeline-stage-activities .timeline-activity-members > li').length === 2");
-    const memberLabels = await value(socket, "[...document.querySelectorAll('.timeline-stage-activities .timeline-activity-members > li .timeline-activity-member-label')].map(node => node.textContent)");
-    assert.deepEqual(memberLabels, ["Edited src/index.ts", "Wrote src/index.test.ts"]);
+    const memberTools = await value(socket, "[...document.querySelectorAll('.timeline-stage-activities .timeline-activity-members > li .timeline-activity-member-tool')].map(node => node.textContent)");
+    assert.deepEqual(memberTools, ["edit_file", "write_file"]);
 
-    // 7. 显式 Think 保留获准摘要、状态与详情入口
-    await waitForExpression(socket, "document.querySelectorAll('[data-group-id^=\"think:\"]').length === 2");
-    const thinkGroups = "[...document.querySelectorAll('[data-group-id^=\"think:\"]')]";
-    await cdp(socket, "Runtime.evaluate", {
-      expression: `${thinkGroups}.forEach(group => { const button = group.querySelector('.timeline-activity-heading'); if (button.getAttribute('aria-expanded') === 'false') button.click(); })`,
-      returnByValue: true,
-    });
-    assert.match(await value(socket, `${thinkGroups}[0].innerText`), /Compare recovery paths/);
-    assert.match(await value(socket, `${thinkGroups}[0].innerText`), /Use the committed checkpoint/);
-    assert.match(await value(socket, `${thinkGroups}[0].querySelector('.timeline-activity-member-status').textContent`), /Completed/);
-    assert.match(await value(socket, `${thinkGroups}[1].innerText`), /Check remaining uncertainty/);
-    assert.match(await value(socket, `${thinkGroups}[1].querySelector('.timeline-activity-member-status').textContent`), /Running/);
-    assert.doesNotMatch(await value(socket, `${thinkGroups}[1].innerText`), /Use the committed checkpoint/);
-    mock.completeThink();
-    await value(socket, "document.querySelector('.jump')?.click()");
-    await waitForExpression(socket, `document.querySelectorAll('[data-group-id^="think:"]')[1].classList.contains('completed')`);
-    assert.equal(await value(socket, "document.querySelectorAll('[data-group-id^=\"think:\"]').length"), 2);
-    assert.equal(await value(socket, `${thinkGroups}[1].querySelector('.timeline-activity-heading').getAttribute('aria-expanded')`), "false", "successful activity automatically contracts without a manual override");
-    await value(socket, `${thinkGroups}[1].querySelector('.timeline-activity-heading').click()`);
-    assert.match(await value(socket, `${thinkGroups}[1].innerText`), /Remaining uncertainty is resolved/);
+    await waitForExpression(socket, "document.querySelectorAll('.timeline-thinking').length === 2");
+    assert.deepEqual(await value(socket, "[...document.querySelectorAll('.timeline-thinking')].map(node => node.textContent.trim())"), ["Thinking", "Thinking"]);
+    assert.doesNotMatch(await value(socket, "document.querySelector('.timeline').innerText"), /Compare recovery paths|Use the committed checkpoint|Check remaining uncertainty/);
 
     await navigate(socket, "about:blank");
     await navigate(socket, `${webUrl}/?session=desktop#${token}`);
     await waitForExpression(socket, "document.querySelector('.goal-card') !== null");
     await value(socket, "document.querySelector('.goal-card').click()");
-    await waitForExpression(socket, "document.querySelector('#filter-execution-steps') !== null");
-    await value(socket, "document.querySelector('#filter-execution-steps').click()");
-    await waitForExpression(socket, "document.querySelectorAll('[data-group-id^=\"think:\"]').length === 2");
-    await cdp(socket, "Runtime.evaluate", {
-      expression: "[...document.querySelectorAll('[data-group-id^=\"think:\"]')][0].querySelector('.timeline-activity-heading').click()",
-      returnByValue: true,
-    });
-    await waitForExpression(socket, "document.querySelector('[data-group-id^=\"think:\"] .timeline-activity-trajectory') !== null");
-    await value(socket, "document.querySelector('[data-group-id^=\"think:\"] .timeline-activity-trajectory').click()");
-    await waitForExpression(socket, "document.querySelector('.ct-badge.thinking') !== null");
+    await waitForExpression(socket, "document.querySelector('[aria-label=\"Trajectory\"]') !== null");
+    await value(socket, "document.querySelector('[aria-label=\"Trajectory\"]').click()");
+    await waitForExpression(socket, "document.querySelector('#trajectory-event-6') !== null");
     await value(socket, "document.querySelector('#trajectory-event-6').click()");
     await waitForExpression(socket, "document.querySelector('.tr-detail-body [aria-label=\"Think analysis\"]') !== null");
     assert.match(await value(socket, "document.querySelector('.tr-detail-body').innerText"), /Compare recovery paths/);
@@ -166,7 +142,7 @@ test("Web goal session presents run stages, revisions, rejection feedback, and c
 });
 
 function createStageMockApi() {
-  const streams = new Set();
+
   const session = {
     goalId: "goal-stage-1",
     intent: "Exercise run stage presentation and review feedback",
@@ -424,20 +400,13 @@ function createStageMockApi() {
         connection: "keep-alive",
       });
       response.write("event: ping\ndata: {}\n\n");
-      streams.add(response);
-      response.on("close", () => streams.delete(response));
       return;
     }
     response.writeHead(404, { "content-type": "application/json" });
     response.end(JSON.stringify({ error: "not_found" }));
   });
 
-  return { server, completeThink() {
-    const pending = session.runs[0].steps[1];
-    pending.status = "completed";
-    pending.think.output = "Remaining uncertainty is resolved.";
-    for (const stream of streams) stream.write(`data: ${JSON.stringify({ type: "state_committed", goalId: session.goalId, runId: "run-1", commitRevision: 1, changed: ["session", "activity"] })}\n\n`);
-  } };
+  return { server };
 }
 
 function json(response, value) {

@@ -76,15 +76,10 @@ export function GoalBoard({
               : totalCount}
           </span>
         </strong>
-        <Button variant="ghost" size="sm"
-          className={`archive-view-toggle ${archivedView ? "is-active" : ""}`}
-          type="button"
-          onClick={() => {
-            setArchivedView(!archivedView);
-          }}
-        >
-          {archivedView ? "All goals" : `Archived (${goals.filter((goal) => goal.archived).length})`}
-        </Button>
+        <div className="view-segmented" role="group" aria-label="Goal visibility">
+          <Button variant="ghost" size="sm" type="button" aria-pressed={!archivedView} onClick={() => setArchivedView(false)}>Active</Button>
+          <Button variant="ghost" size="sm" type="button" aria-pressed={archivedView} onClick={() => setArchivedView(true)}>Archived ({goals.filter((goal) => goal.archived).length})</Button>
+        </div>
         <Label className="search" htmlFor="goal-board-search">
           <Search size={14} />
           <Input

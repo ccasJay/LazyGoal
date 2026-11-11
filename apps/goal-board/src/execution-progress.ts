@@ -9,12 +9,14 @@ import type { BrowserGoalEvent } from "../../../packages/web-contracts/src/index
  *
  * @example
  * ```ts
- * const entries = recordExecutionProgress([], event, Date.now());
+ * const entries = recordExecutionProgress([], event, Date.now(), 1);
  * ```
  */
 export interface ExecutionProgressEntry {
   /** 当前连接内递增的展示身份。 */
   readonly id: number;
+  /** 本连接内的事件发生顺序；同一节点更新时保持不变。 */
+  readonly order: number;
   /** 实际来源 Run；后继 Run 不继承前一 Run 的提示。 */
   readonly runId: string;
   /** 最后观察的公开事件种类。 */
@@ -41,9 +43,10 @@ export interface ExecutionProgressEntry {
  * @param entries - 此连接已观察的进度。
  * @param event - 已通过 wire 校验的公开事件。
  * @param observedAt - 浏览器实际接收时间。
+ * @param order - 本连接内的事件发生顺序；仅新建条目时使用。
  * @returns 最多 20 条新记录；无语义变化时返回原引用。
  */
-export function recordExecutionProgress(entries: readonly ExecutionProgressEntry[], event: BrowserGoalEvent, observedAt: number): readonly ExecutionProgressEntry[] {
+export function recordExecutionProgress(entries: readonly ExecutionProgressEntry[], event: BrowserGoalEvent, observedAt: number, order: number): readonly ExecutionProgressEntry[] {
   if (event.type !== "activity") return entries;
   const activity = event.activity;
   let label: string;
@@ -100,7 +103,7 @@ export function recordExecutionProgress(entries: readonly ExecutionProgressEntry
     return [...entries.slice(0, -1), { ...previous, lastObservedAt: observedAt }];
   }
   return [...entries, {
-    id: (previous?.id ?? 0) + 1, runId: event.runId, kind: activity.kind, label, detail,
+    id: (previous?.id ?? 0) + 1, order, runId: event.runId, kind: activity.kind, label, detail,
     startedAt: sourceTime === undefined ? observedAt : Date.parse(sourceTime), lastObservedAt: observedAt, hasSourceTime: sourceTime !== undefined,
     ...(executionUnitId === undefined ? {} : { executionUnitId }),
     ...(actionId === undefined ? {} : { actionId }),

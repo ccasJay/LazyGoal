@@ -10,6 +10,7 @@ import {
   type SessionOutputDisplay,
 } from "./session-output-consumer";
 import type { ActivityGroup } from "./activity-projector";
+import type { LiveTextBlock } from "./live-timeline";
 
 /**
  * 单一时间线中的已保存来源边界、消息、事实和当前临时正文。
@@ -34,7 +35,7 @@ import type { ActivityGroup } from "./activity-projector";
 export type SessionTimelineEntry =
   | { readonly kind: "run"; readonly itemId: string; readonly runId: string; readonly status: string; readonly detail?: BrowserGoalSessionState["currentRunTerminalDetail"]; readonly position: BrowserActivityPosition }
   | { readonly kind: "message"; readonly itemId: string; readonly presentationKey: string; readonly runId: string; readonly role: "user" | "assistant"; readonly purpose?: "process" | "answer" | "notice"; readonly content: string; readonly position: BrowserActivityPosition; readonly previewIssue?: "official-text-differs" | "preview-incomplete" }
-  | { readonly kind: "activity"; readonly itemId: string; readonly runId: string; readonly group: ActivityGroup; readonly position?: BrowserActivityPosition }
+  | { readonly kind: "activity"; readonly itemId: string; readonly runId: string; readonly group: ActivityGroup; readonly position?: BrowserActivityPosition; readonly liveOrder?: number }
   | {
       readonly kind: "lookup";
       readonly itemId: string;
@@ -52,7 +53,7 @@ export type SessionTimelineEntry =
   | { readonly kind: "interaction"; readonly itemId: string; readonly runId: string; readonly interactionId: string; readonly interactionKind: string; readonly position: BrowserActivityPosition }
   | { readonly kind: "fact"; readonly itemId: string; readonly runId: string; readonly title: string; readonly detail?: string; readonly eventType: string; readonly executionUnitId?: string; readonly stageId?: string; readonly stageRevision?: number; readonly stageTarget?: string; readonly position: BrowserActivityPosition }
   | { readonly kind: "terminal"; readonly itemId: string; readonly runId: string; readonly status: "completed" | "failed" | "cancelled"; readonly detail?: BrowserGoalSessionState["currentRunTerminalDetail"]; readonly position: BrowserActivityPosition }
-  | { readonly kind: "live-preview"; readonly itemId: string; readonly runId: string; readonly content: string }
+  | { readonly kind: "live-preview"; readonly itemId: string; readonly runId: string; readonly content: string; readonly liveOrder: number; readonly active: boolean }
   | { readonly kind: "candidate-preview"; readonly itemId: string; readonly presentationKey: string; readonly candidateId: string; readonly runId: string; readonly content: string; readonly status: "generating" | "ready" | "pending-verification"; readonly missingPrefix: boolean; readonly truncated: boolean };
 
 /**
@@ -91,18 +92,18 @@ export interface SessionTimelineProjection {
  * @param page - 服务端固定水位 Activity 页。
  * @param state - 不含历史正文的当前 Goal 状态。
  * @param activityGroups - 按 Run 收集的真实活动组。
- * @param liveText - 当前连接尚未提交的正文；空字符串不生成临时项。
+ * @param livePreviews - 当前连接尚未提交的正文块；按首次出现顺序保存。
  * @returns 按 Run 与来源位置排序的时间线及当前 Plan 路线。
  * @example
  * ```ts
- * const timeline = projectSessionTimeline(activityPage, goalState, groups, liveText, outputDisplay);
+ * const timeline = projectSessionTimeline(activityPage, goalState, groups, livePreviews, outputDisplay);
  * ```
  */
 export function projectSessionTimeline(
   page: BrowserActivityPage,
   state: BrowserGoalSessionState,
   activityGroups: ReadonlyMap<string, readonly ActivityGroup[]>,
-  liveText = "",
+  livePreviews: readonly LiveTextBlock[] = [],
   outputDisplay: SessionOutputDisplay = EMPTY_SESSION_OUTPUT_DISPLAY,
 ): SessionTimelineProjection {
   const unique = new Map<string, BrowserActivityItem>();
@@ -242,10 +243,11 @@ export function projectSessionTimeline(
         itemId: `activity:${group.id}`,
         runId: run.runId,
         group,
+        ...(group.liveOrder === undefined ? {} : { liveOrder: group.liveOrder }),
       });
     }
 
-    if (run.status === "completed" || run.status === "failed" || run.status === "cancelled") {
+    if (run.status === "failed" || run.status === "cancelled") {
       const terminalPosition = last ?? runPosition;
       items.push({
         kind: "terminal",
@@ -284,16 +286,21 @@ export function projectSessionTimeline(
 
   const currentRun = page.runs.find((run) => run.runId === state.currentRunId && run.current);
   if (
-    liveText.length > 0
+    livePreviews.length > 0
     && currentRun !== undefined
     && (state.runStatus === "running" || state.runStatus === "waiting")
   ) {
-    items.push({
-      kind: "live-preview",
-      itemId: `live:${currentRun.runId}`,
-      runId: currentRun.runId,
-      content: liveText,
-    });
+    for (const block of livePreviews) {
+      if (block.runId !== currentRun.runId || block.content.length === 0) continue;
+      items.push({
+        kind: "live-preview",
+        itemId: `live:${block.sourceKey}`,
+        runId: currentRun.runId,
+        content: block.content,
+        liveOrder: block.order,
+        active: block.active,
+      });
+    }
   }
 
   for (const candidate of outputDisplay.candidates) {

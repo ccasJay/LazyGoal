@@ -1,5 +1,3 @@
-import { Checkbox } from "./ui/checkbox";
-import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
 import { Button } from "./ui/button";
 import {
   AlertDialog,
@@ -12,7 +10,6 @@ import {
   AlertDialogTitle,
 } from "./ui/alert-dialog";
 import { Input } from "./ui/input";
-import { Label } from "./ui/label";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Sheet, SheetContent, SheetTitle } from "./ui/sheet";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
@@ -30,7 +27,6 @@ import { GoalDetails, WaitingInteraction } from "../panels";
 import type { AcceptedDecisionSummary } from "../interaction-panel";
 import brandMark from "../assets/lazygoal/mark-on-light.svg?no-inline";
 import { Trajectory } from "../trajectory";
-import { sessionStatus, sessionStatusTone } from "../types";
 import { selectUnverifiedWorkbenchActions, selectWorkbenchActions, workbenchReasonText } from "../workbench-actions";
 import { selectConnectionPresentation } from "../connection-presentation";
 import { useGoalSessionContext } from "../context/GoalSessionContext";
@@ -87,21 +83,21 @@ export function GoalSession({
     loadFullSession,
     sessionLoading,
     sessionError,
+    activityError,
+    loadingEarlier,
     sessionTab,
     setSessionTab,
     trajectoryTarget,
     setTrajectoryTarget,
     follow,
     setFollow,
-    showTools,
-    setShowTools,
     goalInfoOpen,
     setGoalInfoOpen,
     toolGrants,
     toolGrantsLoading,
     toolGrantsError,
     revokingGrantId,
-    liveText,
+    livePreviews,
     liveActivity,
     progressEntries,
     liveEvents,
@@ -200,9 +196,10 @@ export function GoalSession({
   const timelineProjection = useMemo(
     () => session === null || activityPage === null
       ? { items: [], stages: [], actionGroups: [], currentPlanRoute: undefined }
-      : projectSessionTimeline(activityPage, session, activityGroups, liveText, candidatePresentation),
-    [activityPage, session, activityGroups, liveText, candidatePresentation],
+      : projectSessionTimeline(activityPage, session, activityGroups, livePreviews, candidatePresentation),
+    [activityPage, session, activityGroups, livePreviews, candidatePresentation],
   );
+
 
   useLayoutEffect(() => {
     const element = timeline.current;
@@ -236,11 +233,7 @@ export function GoalSession({
         }
       });
     }
-  }, [activityPage?.items, currentRun?.runId, liveText, candidatePresentation, follow]);
-
-  const sessionTabs = session?.goalPlan === undefined
-    ? (["Board", "Activity", "Trajectory"] as const)
-    : (["Board", "Activity", "Plan", "Trajectory"] as const);
+  }, [activityPage?.items, currentRun?.runId, livePreviews, candidatePresentation, follow]);
 
   return (
     <section className={`session${draftSessionOpen || sessionTab === "Activity" ? " session-activity" : ""}`}>
@@ -285,14 +278,6 @@ export function GoalSession({
             <p>{sessionError}</p>
             <Button variant="ghost" size="sm" className="secondary" onClick={() => void refreshSelectedSession()}>Reload session</Button>
           </div>}
-          <div className="session-tabs">
-            <Tabs value={sessionTab} onValueChange={value => { setTrajectoryTarget(null); setSessionTab(value as typeof sessionTab); }}><TabsList className="session-tab-buttons">
-              <TabsTrigger value="Activity">Activity</TabsTrigger>
-            </TabsList></Tabs>
-            <span className="stream-state">
-              <span className="dot" />Local Runtime
-            </span>
-          </div>
           <div className="timeline draft-timeline">
             <div className="timeline-date">
               <span />No saved messages<span />
@@ -395,28 +380,6 @@ export function GoalSession({
             <Button variant="ghost" size="sm" className="secondary" onClick={() => void refreshSelectedSession()}>Reload session</Button>
           </div>}
           {session.nextRunMode === "plan" && <div className="session-intro">Next Run: Plan Mode</div>}
-          <div className="session-tabs">
-            <Tabs value={sessionTab} onValueChange={value => { setTrajectoryTarget(null); setSessionTab(value as typeof sessionTab); }}><TabsList className="session-tab-buttons">
-              {sessionTabs.map((tab) => (
-                <TabsTrigger value={tab} onClick={() => { setTrajectoryTarget(null); setSessionTab(tab); }}
-                  key={tab}
-                  aria-pressed={sessionTab === tab}
-                >
-                  {tab}
-                </TabsTrigger>
-              ))}
-            </TabsList></Tabs>
-            <div className="session-state">
-              <span className={`task-state ${sessionStatusTone(session)}`}>
-                <span className="status-dot" />
-                {sessionStatus(session)}
-              </span>
-              <span className={`stream-state ${connection.state === "linked" ? "connected" : ""}`}>
-                <span className="dot" />
-                {connection.label}
-              </span>
-            </div>
-          </div>
           {connection.isOutdated && (
             <div className="state-stale" role="alert">
               The live connection dropped. The last confirmed content is shown, but it may be outdated. New Steer
@@ -460,20 +423,6 @@ export function GoalSession({
             )
           ) : (
             <>
-              <div className="activity-filter">
-                <div className="activity-filter-content">
-                  <Label htmlFor="filter-execution-steps">
-                    <Checkbox
-                      id="filter-execution-steps"
-                      name="showTools"
-                      checked={showTools}
-                      onCheckedChange={checked => setShowTools(checked === true)}
-                    />
-                    Execution details
-                  </Label>
-                  <span>{activityPage?.items.filter((item) => item.type === "message").length ?? 0} messages in this page</span>
-                </div>
-              </div>
               <SessionBoundary label="Activity view" onReload={() => void refreshSelectedSession()}>
                 <div className="timeline-region">
                   {isWaitingApprovalOrInput && !follow && (
@@ -512,7 +461,10 @@ export function GoalSession({
                       programmaticTop.current = undefined;
                       const following = element.scrollHeight - element.scrollTop - element.clientHeight < FOLLOW_THRESHOLD_PX;
                       setFollow(following);
-                      if (!following) readingAnchor.current = captureAnchor({ offsets: timelineOffsets(element), scrollTop: element.scrollTop });
+                      if (!following) {
+                        readingAnchor.current = captureAnchor({ offsets: timelineOffsets(element), scrollTop: element.scrollTop });
+                        if (element.scrollTop <= 80 && activityPage?.range.olderAvailable === true) void loadEarlierActivity();
+                      }
                     }}
                     onClickCapture={event => {
                       if (event.target instanceof Element && event.target.closest("button[aria-expanded]")) {
@@ -523,14 +475,25 @@ export function GoalSession({
                     }}
                   >
                     {activityPage === null ? (
-                      <div className="session-empty"><p>Loading Activity…</p></div>
+                      activityError === null ? (
+                        <div className="session-empty"><p>Loading Activity…</p></div>
+                      ) : (
+                        <div className="session-empty" role="alert">
+                          <CircleHelp size={24} />
+                          <p>{activityError}</p>
+                          <Button variant="ghost" size="sm" className="secondary" onClick={() => void refreshSelectedSession()}>
+                            Reload activity
+                          </Button>
+                        </div>
+                      )
                     ) : (
                       <SessionTimeline
                         projection={timelineProjection}
                         currentRunId={session.currentRunId}
                         runStatus={session.runStatus}
                         olderAvailable={activityPage.range.olderAvailable}
-                        showExecutionFacts={showTools}
+                        loadingEarlier={loadingEarlier}
+                        showExecutionFacts={false}
                         liveActivity={liveActivity}
                         progressEntries={progressEntries}
                         streamConnected={connection.allowsNewDecisions}

@@ -2,6 +2,8 @@
 
 本机浏览器会话的访问检查、Goal 命令、历史读取与投影路由；不拥有前端视图。本文描述当前实现、使用边界与限制；[公开入口](../src/index.ts)。
 
+`GET /healthz` 路由只返回 `{ status: "ok" }`，不读取运行时依赖或诊断信息。宿主访问中间件保留 Host、Origin 与 Fetch Metadata 检查，仅对该精确 GET 路径省略 bearer token 校验。
+
 
 会话投影从当前 Snapshot 公开用户中断的 `requested`／`finished` 状态及未知工具效果标记，不推断模型收尾进度。执行语义见 [Runtime](../../runtime/notes/overview.md)。
 

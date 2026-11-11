@@ -33,6 +33,7 @@
 | BrowserControlSnapshot | `state_sync` 携带的权威控制快照：同一 Run 的 Goal 控制投影与窄会话状态。 | [Web 传输契约](../README.md) | [Wire 类型](../src/wire.ts) |
 | BrowserControlEvent / BrowserContentEvent | 控制事实与内容事实的判别子集；`state_sync`、`input_result` 属于控制事实。 | [Web 传输契约](../README.md) | [Event DTO](../src/events.ts)、[Wire 类型](../src/wire.ts) |
 | SessionMetricsSnapshot | 会话指标响应 DTO；`tokensPerSecond` 的端到端计时语义归属指标投影模块。 | [Web 传输契约](../README.md) | [指标 DTO](../src/metrics.ts) |
+| HealthzResponse | Goal Server `/healthz` 的固定存活响应 DTO，不包含业务或诊断状态。 | [Web 传输契约](../README.md) | [Wire 类型](../src/wire.ts) |
 | BrowserCreateGoalCommand | 创建 Goal 的 Web 命令。 | [Web 传输契约](../README.md) | [模块说明](./overview.md) |
 | Provider model query | 未保存连接参数与仅含模型 ID/名称的响应；TS 类型驱动 Schema 生成、校验和未知字段提取。 | [Web 传输契约](../README.md) | [Provider DTO](../src/provider-settings.ts)、[生成绑定](../src/generated/provider-models-binding.ts) |
 | BrowserSessionStep.think | 显式 Think 的有界目标、可选已提交输出及截断标记；不计为新增 Runtime Step。 | [Web 传输契约](../README.md) | [Session DTO](../src/session.ts) |

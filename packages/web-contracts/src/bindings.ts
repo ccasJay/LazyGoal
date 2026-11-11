@@ -55,6 +55,7 @@ export { browserModelInputsBinding } from "./generated/model-inputs-binding";
 export { browserModelInputDetailBinding } from "./generated/model-input-detail-binding";
 export { sessionMetricsSnapshotBinding } from "./generated/session-metrics-binding";
 export { sessionMetricsValuesBinding } from "./generated/session-metrics-values-binding";
+export { healthzResponseBinding } from "./generated/healthz-response-binding";
 export { browserTrajectoryRunBinding } from "./generated/trajectory-run-binding";
 export { browserTrajectoryEntryBinding } from "./generated/trajectory-entry-binding";
 export { browserTrajectoryRunsBinding } from "./generated/trajectory-runs-binding";

@@ -26,7 +26,6 @@ export function useGoalBoardApp() {
   const [goalInfoOpen, setGoalInfoOpen] = useState(false);
   const [trajectoryTarget, setTrajectoryTarget] = useState<{ runId: string; executionUnitId: string; nonce: number } | null>(null);
   const [sessionTab, setSessionTab] = useState<SessionTab>("Activity");
-  const [showTools, setShowTools] = useState(false);
   const [draftText, setDraftText] = useState("");
 
   const draftGeneration = useRef(0);
@@ -210,6 +209,8 @@ export function useGoalBoardApp() {
     fullSessionError: sessionManager.fullSessionError,
     sessionLoading: sessionManager.sessionLoading,
     sessionError: sessionManager.sessionError,
+    activityError: sessionManager.activityError,
+    loadingEarlier: sessionManager.loadingEarlier,
     workspaceContext,
     workspaceContextError,
     sessionTab,
@@ -218,8 +219,6 @@ export function useGoalBoardApp() {
     setTrajectoryTarget,
     follow,
     setFollow,
-    showTools,
-    setShowTools,
     goalInfoOpen,
     setGoalInfoOpen,
     toolGrants,
@@ -227,6 +226,7 @@ export function useGoalBoardApp() {
     toolGrantsError,
     revokingGrantId: permissionsManager.revokingGrantId,
     liveText: streamManager.liveText,
+    livePreviews: streamManager.livePreviews,
     liveActivity: streamManager.liveActivity,
     progressEntries: streamManager.progressEntries,
     candidatePresentation: streamManager.candidatePresentation,

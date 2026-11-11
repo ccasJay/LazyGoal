@@ -2,7 +2,7 @@ import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "./ui/collap
 import { Button } from "./ui/button";
 import React, { memo, useCallback, useEffect, useState } from "react";
 import type { CSSProperties } from "react";
-import { ArrowUpRight, Check, ChevronRight, CircleHelp, Clock3, X } from "lucide-react";
+import { ArrowUpRight, Check, ChevronRight, CircleHelp, Clock3, FileText, Globe, Lightbulb, Pencil, Search, Terminal, User, X } from "lucide-react";
 import type {
   BrowserPlanRoute,
   BrowserRunStatus,
@@ -12,7 +12,6 @@ import { PlanRouteList } from "./PlanRouteList";
 import type { SessionTimelineEntry, SessionTimelineProjection } from "../session-timeline";
 import type { ActivityGroup, ActivityGroupStatus, ActivityMemberStatus } from "../activity-projector";
 import { isActiveStatus, needsAttentionStatus, selectStageSectionPresentation, stageSectionIdentity } from "../stage-section-presentation";
-import { Badge } from "./ui/badge";
 import { cn } from "../ui-utils";
 import { Trace, TraceLine, TraceIcon, TraceTitle, TraceDescription, TraceCollapsible, TraceCollapsibleTrigger, TraceCollapsibleContent } from "./ui/trace";
 import type { ExecutionProgressEntry } from "../execution-progress";
@@ -32,44 +31,48 @@ const SessionMessage = memo(function SessionMessage({
 }) {
   const isCandidate = entry.kind === "candidate-preview";
   const role = isCandidate ? "assistant" : entry.role;
+  const showMeta = isCandidate || role === "assistant" && entry.kind === "message" && entry.purpose !== "answer";
   const assistantLabel = entry.kind === "candidate-preview" ? "LazyGoal"
     : entry.purpose === "process" ? "Progress"
       : entry.purpose === "notice" ? "Notice" : "LazyGoal";
   return (
     <article
       className={`message ${role}${isCandidate ? " transient-message candidate-message" : ""}`}
+      data-purpose={entry.kind === "message" ? entry.purpose : undefined}
       id={`timeline-message-${encodeURIComponent(entry.itemId)}`}
       data-item-id={entry.itemId}
       data-run-id={entry.runId}
       data-presentation-key={entry.presentationKey}
     >
-      <div className="message-heading">
-        <span className={`message-avatar ${role}`}>
-          {role === "user" ? "You" : <img src={brandMark} alt="" width={20} height={20} />}
-        </span>
-        <strong>{role === "user" ? "You" : assistantLabel}</strong>
-        {!isCandidate && role === "assistant" && entry.purpose === "process" && <small>Process update</small>}
-        {isCandidate && <small>{candidateStatusLabel(entry.status)}</small>}
+      <span className={`message-avatar ${role}`} aria-hidden="true">
+        {role === "user" ? <User size={14} /> : <img src={brandMark} alt="" width={23} height={23} />}
+      </span>
+      <div className="message-content">
+        <div className={`message-meta${showMeta ? "" : " sr-only"}`}>
+          <strong>{role === "user" ? "You" : assistantLabel}</strong>
+          {!isCandidate && role === "assistant" && entry.purpose === "process" && <small>Process update</small>}
+          {isCandidate && <small>{candidateStatusLabel(entry.status)}</small>}
+        </div>
+        <div className={`message-body ${role === "assistant" ? "markdown-body" : ""}`}>
+          {role === "assistant" ? <AssistantMarkdown content={entry.content} /> : entry.content}
+        </div>
+        {entry.kind === "candidate-preview" && entry.missingPrefix && (
+          <small className="candidate-settlement-note">Preview incomplete.</small>
+        )}
+        {entry.kind === "candidate-preview" && entry.truncated && (
+          <small className="candidate-settlement-note">Preview truncated.</small>
+        )}
+        {!isCandidate && entry.previewIssue === "official-text-differs" && (
+          <small className="candidate-settlement-note">The saved answer differs from its preview.</small>
+        )}
+        {!isCandidate && entry.previewIssue === "preview-incomplete" && (
+          <small className="candidate-settlement-note">The saved answer is shown; its preview was incomplete.</small>
+        )}
+        {laterAnswerId !== undefined && <Button variant="ghost" size="sm" type="button" className="message-later-answer"
+          onClick={() => document.getElementById(`timeline-message-${encodeURIComponent(laterAnswerId)}`)?.scrollIntoView({ behavior: "smooth", block: "start" })}>
+          View later answer <ArrowUpRight data-icon="inline-end" aria-hidden="true" />
+        </Button>}
       </div>
-      <div className={`message-body ${role === "assistant" ? "markdown-body" : ""}`}>
-        {role === "assistant" ? <AssistantMarkdown content={entry.content} /> : entry.content}
-      </div>
-      {entry.kind === "candidate-preview" && entry.missingPrefix && (
-        <small className="candidate-settlement-note">Preview incomplete.</small>
-      )}
-      {entry.kind === "candidate-preview" && entry.truncated && (
-        <small className="candidate-settlement-note">Preview truncated.</small>
-      )}
-      {!isCandidate && entry.previewIssue === "official-text-differs" && (
-        <small className="candidate-settlement-note">The saved answer differs from its preview.</small>
-      )}
-      {!isCandidate && entry.previewIssue === "preview-incomplete" && (
-        <small className="candidate-settlement-note">The saved answer is shown; its preview was incomplete.</small>
-      )}
-      {laterAnswerId !== undefined && <Button variant="ghost" size="sm" type="button"
-        onClick={() => document.getElementById(`timeline-message-${encodeURIComponent(laterAnswerId)}`)?.scrollIntoView({ behavior: "smooth", block: "start" })}>
-        View later answer <ArrowUpRight data-icon="inline-end" aria-hidden="true" />
-      </Button>}
     </article>
   );
 });
@@ -78,7 +81,7 @@ const SessionMessage = memo(function SessionMessage({
  * Goal 会话 Activity 单列视图的展示属性。
  *
  * @remarks
- * `olderAvailable` 提示固定页之前仍有来源；读取更早或更新来源仅通过调用方回调触发，不恢复执行。
+ * `olderAvailable` 提示固定页之前仍有来源；调用方负责自动预取与滚动续取，`loadingEarlier` 只显示只读加载状态，两者都不恢复执行。
  *
  * @example
  * ```tsx
@@ -96,11 +99,13 @@ export interface SessionTimelineProps {
   readonly runStatus: BrowserRunStatus;
   /** 固定窗口之前是否还有可按 cursor 读取的来源。 */
   readonly olderAvailable: boolean;
-  /** 是否显示独立技术事实与 Think；工具和检索摘要、异常及 Run／阶段边界始终保留，组内详情仍可展开。 */
+  /** 是否正在自动读取更早的 Activity 页。 */
+  readonly loadingEarlier?: boolean;
+  /** 是否显示技术事实与 Think 正文；隐藏 Think 正文时仍保留 Thinking 行，工具摘要、异常及 Run／阶段边界始终保留。 */
   readonly showExecutionFacts: boolean;
   /** 当前安全状态摘要；不从未提交工具参数生成文案。 */
   readonly liveActivity: string | null;
-  /** 当前连接实际观察的有界阶段变化；仅按真实执行单元或 Action 归入节点折叠内容，不充当已保存历史。 */
+  /** 当前连接观察到的有界执行进度；归入已保存节点详情或临时步骤，等待模型响应时仅保留状态行，不显示连接诊断，也不充当已保存历史。 */
   readonly progressEntries?: readonly ExecutionProgressEntry[];
   /** 当前 Goal SSE 是否已连接。 */
   readonly streamConnected: boolean;
@@ -129,6 +134,7 @@ const technicalEventTypes = new Set([
   "tool_finished",
   "observation_recorded",
   "model_request_retry_recorded",
+  "model_repair_feedback_recorded",
   "context_lookup_requested",
   "context_lookup_completed",
   "context_lookup_not_found",
@@ -151,26 +157,66 @@ function ActivitySnake({ className }: { readonly className?: string }) {
 }
 
 /**
+ * Run 折叠的默认展开规则。
+ *
+ * @remarks
+ * 未记录过用户选择的 Run 默认展开，避免首次进入 Activity 时只看到一堆 Run 标题。
+ * 用户手动折叠后该选择在本次会话内保留，直到重新进入会话视图。
+ *
+ * @param expandedRuns - 用户已记录的展开状态，键为 Run 稳定标识。
+ * @param runId - 目标 Run 的稳定标识。
+ * @returns 该 Run 当前是否展开。
+ * @example
+ * ```ts
+ * isRunExpanded(new Map(), "run-1"); // true
+ * ```
+ */
+export function isRunExpanded(expandedRuns: ReadonlyMap<string, boolean>, runId: string): boolean {
+  return expandedRuns.get(runId) ?? true;
+}
+
+/**
+ * Run 折叠时保留的来源。
+ *
+ * @remarks
+ * 折叠后只保留 Run 标题行；不再按来源类型保留部分内容，避免箭头指示的折叠
+ * 状态与实际可见内容不一致。
+ *
+ * @param entries - 该 Run 已加载的全部来源。
+ * @param expanded - 该 Run 当前的展开状态。
+ * @returns 展开时原样返回，折叠时返回空列表。
+ * @example
+ * ```ts
+ * runVisibleEntries(entries, false); // []
+ * ```
+ */
+export function runVisibleEntries(entries: readonly SessionTimelineEntry[], expanded: boolean): readonly SessionTimelineEntry[] {
+  return expanded ? entries : [];
+}
+
+/**
  * 按 Activity 服务端位置单列呈现会话来源。
  *
  * @remarks
  * 消息、事实和临时正文保留各自的稳定来源身份；状态为终态的 Run 才显示终态行，阶段事实
- * 不改变 Run 状态。Plan 路线只显示在当前 Run 边界，旧页缺口仍明确提示。工具活动以真实
+ * 不改变 Run 状态。后续 Run 以用户消息开头时，直接从该输入行开始显示并隐藏重复的输入应用事实；其他 Run 保留可折叠标题。
+ * Run 默认全部展开，折叠后只保留 Run 标题行；折叠状态按 Run 身份记录，
+ * 追加内容与结算不覆盖用户选择。Plan 路线只显示在当前 Run 边界，更早缺口由自动预取补齐。工具活动以真实
  * 动作组呈现，成功默认折叠，运行、失败与等待组默认展开。同一 Action 的授权、执行、重试
  * 与结果记录随成员详情折叠；等待审批的组仍显示明确的 `Awaiting approval`。真实阶段按服务端阶段上下文、声明
- * 或当前路线关联，不从工具类别生成阶段；阶段折叠与 Execution details 筛选仍保留异常活动。手动开合状态按组身份保存，
- * 追加内容、结算和 Execution details 筛选不覆盖用户选择；重新进入会话时恢复默认值。
+ * 或当前路线关联，不从工具类别生成阶段；阶段折叠与执行事实筛选仍保留异常活动。手动开合状态按组身份保存，
+ * 追加内容、结算和执行事实筛选不覆盖用户选择；重新进入会话时恢复默认值。
  * 同一历史检索只显示一条可展开活动，未命中与失败分别标注；展开内容只用安全请求摘要、
  * 固定结果说明和白名单错误码。阶段及 Action 来源未全部加载时，折叠状态仍保留完整性提示。
- * 公开进度在匹配事件或工具步骤的折叠内容中显示；尚无已保存节点的真实执行单元形成临时步骤，
- * 不显示独立进度面板，未提供执行身份的事件不按相邻位置归属。
+ * 公开进度在匹配事件或工具步骤的详情及临时步骤中显示；尚无已保存节点且正在等待模型响应时，
+ * 临时步骤只保留状态行，不显示连接诊断。未提供执行身份的事件不按相邻位置归属。
  *
  * @param props - 当前固定 Activity 页的来源投影与安全实时状态。
  * @returns 按稳定来源顺序排列的可滚动 feed。
  * @example
  * ```tsx
  * <SessionTimeline projection={projection} currentRunId={state.currentRunId} runStatus={state.runStatus}
- *   olderAvailable={page.range.olderAvailable} showExecutionFacts={showTools}
+ *   olderAvailable={page.range.olderAvailable} showExecutionFacts={false}
  *   liveActivity={liveActivity} streamConnected={streamConnected} brandMark={brandMark} />
  * ```
  */
@@ -179,6 +225,7 @@ export function SessionTimeline({
   currentRunId,
   runStatus,
   olderAvailable,
+  loadingEarlier = false,
   showExecutionFacts,
   liveActivity,
   progressEntries = [],
@@ -238,65 +285,87 @@ export function SessionTimeline({
   const stageProgress = (projection.currentPlanRoute?.stages ?? projection.stages.filter(stage => stage.runId === currentRunId && stage.target !== undefined))
     .filter(stage => stage.status === "executing" || stage.status === "accepted");
   const historicalStageProgress = projection.currentPlanRoute === undefined && newerItemCount > 0;
-  const renderPendingSteps = () => pendingSteps.size > 0 && <Trace className="timeline-execution">{[...pendingSteps].map(([unitId, entries]) => (
-    <TraceCollapsible key={unitId} defaultOpen className="timeline-fact" data-run-id={currentRunId} data-execution-unit-id={unitId}>
-      <TraceCollapsibleTrigger className="timeline-step-trigger">
-        <TraceLine status="running"><TraceIcon>{streamConnected ? <ActivitySnake /> : <Clock3 />}</TraceIcon><TraceTitle>{entries.at(-1)!.label}</TraceTitle></TraceLine>
-      </TraceCollapsibleTrigger>
-      <TraceCollapsibleContent><StepProgressDetails entries={entries} active={entries.at(-1)?.id === progress.at(-1)?.id} streamConnected={streamConnected} onOpenTrajectory={onOpenTrajectory} /></TraceCollapsibleContent>
-    </TraceCollapsible>
-  ))}</Trace>;
+  const renderStepGroup = (unitId: string, entries: readonly ExecutionProgressEntry[]) => {
+    const latest = entries.at(-1)!;
+    const line = <TraceLine status="running"><TraceIcon>{streamConnected ? <ActivitySnake /> : <Clock3 />}</TraceIcon><TraceTitle>{latest.label}</TraceTitle></TraceLine>;
+    if (latest.kind === "model_started") return <div key={unitId} className="timeline-fact timeline-step-summary" data-run-id={currentRunId} role="status">{line}</div>;
+    return <TraceCollapsible key={unitId} defaultOpen className="timeline-fact" data-run-id={currentRunId} data-execution-unit-id={unitId}>
+      <TraceCollapsibleTrigger className="timeline-step-trigger">{line}</TraceCollapsibleTrigger>
+      <TraceCollapsibleContent><StepProgressDetails entries={entries} active={latest.id === progress.at(-1)?.id} currentInHeading streamConnected={streamConnected} onOpenTrajectory={onOpenTrajectory} /></TraceCollapsibleContent>
+    </TraceCollapsible>;
+  };
+
+  const liveOrderOf = (entry: SessionTimelineEntry): number | undefined => entry.kind === "live-preview"
+    ? entry.liveOrder
+    : entry.kind === "activity" ? entry.liveOrder : undefined;
+
+  /** 实时正文、进度与工具节点按其首次出现顺序追加，避免已显示内容被重新排序。 */
+  const renderLiveTail = (visible: readonly SessionTimelineEntry[], pending: ReadonlyMap<string, readonly ExecutionProgressEntry[]>) => {
+    const nodes = [
+      ...visible
+        .map((entry) => ({ entry, order: liveOrderOf(entry) }))
+        .filter((item): item is { entry: SessionTimelineEntry; order: number } => item.order !== undefined)
+        .map(({ entry, order }) => ({ order, key: `live:${entry.itemId}`, node: renderTimelineEntries([entry], options) })),
+      ...[...pending.entries()].map(([unitId, entries]) => ({
+        order: entries[0]?.order ?? 0,
+        key: `steps:${unitId}`,
+        node: renderStepGroup(unitId, entries),
+      })),
+    ].sort((left, right) => left.order - right.order);
+    return nodes.map((item) => <React.Fragment key={item.key}>{item.node}</React.Fragment>);
+  };
 
   return (
     <div className="session-timeline-feed" data-testid="session-timeline">
-      {runs.length > 1 && <nav className="history-note" aria-label="Loaded runs">{runs.map(run =>
-        <Button key={run.runId} variant="ghost" size="sm" type="button" onClick={() =>
-          document.getElementById(`timeline-run-${encodeURIComponent(run.runId)}`)?.scrollIntoView({ behavior: "smooth", block: "start" })}>
-          Run {run.position.runOrder + 1}
-        </Button>)}</nav>}
-      {runStatus === "running" && stageProgress.length > 0 && <div className="history-note" aria-label="Run progress">
-        {projection.currentPlanRoute === undefined && <span>Stages in loaded activity:</span>}
-        {stageProgress.filter(stage => stage.status === "executing").map(stage => <span key={stage.stageId}>{historicalStageProgress ? "Last recorded in progress" : "In progress"}: {stage.target}</span>)}
-        {stageProgress.filter(stage => stage.status === "accepted").map(stage => <span key={stage.stageId}>{historicalStageProgress ? "Recorded as accepted" : "Accepted"}: {stage.target}</span>)}
-      </div>}
-      {olderAvailable && (
+      {loadingEarlier && <div className="history-note" role="status">Loading earlier activity…</div>}
+      {olderAvailable && !loadingEarlier && (
         <div className="history-note">
-          <span>
-            {olderItemCount > 0 ? `${olderItemCount} earlier items` : "Earlier activity"}
-          </span>
+          <span>{olderItemCount > 0 ? `${olderItemCount} earlier items` : "Earlier activity"}</span>
           {onLoadEarlier !== undefined && (
             <Button variant="outline" size="sm" type="button" onClick={onLoadEarlier}>Load earlier activity</Button>
           )}
         </div>
       )}
+      {runStatus === "running" && stageProgress.length > 0 && <div className="history-note" aria-label="Run progress">
+        {projection.currentPlanRoute === undefined && <span>Stages in loaded activity:</span>}
+        {stageProgress.filter(stage => stage.status === "executing").map(stage => <span key={stage.stageId}>{historicalStageProgress ? "Last recorded in progress" : "In progress"}: {stage.target}</span>)}
+        {stageProgress.filter(stage => stage.status === "accepted").map(stage => <span key={stage.stageId}>{historicalStageProgress ? "Recorded as accepted" : "Accepted"}: {stage.target}</span>)}
+      </div>}
       {unreadCount > 0 && (
         <div className="history-note history-unread" role="status">
           {unreadCount} new items
         </div>
       )}
       {runs.map(run => {
-        const expanded = expandedRuns.get(run.runId) ?? run.runId === currentRunId;
+        const expanded = isRunExpanded(expandedRuns, run.runId);
         const entries = projection.items.filter(item => item.runId === run.runId && item.kind !== "run");
-        const visible = expanded ? entries : entries.filter(item => item.kind === "message" && (item.role === "user" || item.purpose !== "process")
-          || item.kind === "candidate-preview" || item.kind === "live-preview" || item.kind === "interaction");
+        const firstMessage = entries.find((entry): entry is Extract<SessionTimelineEntry, { kind: "message" }> => entry.kind === "message");
+        const continuationRun = run.position.runOrder > 0 && firstMessage?.role === "user";
+        const contentExpanded = continuationRun || expanded;
+        const visible = contentExpanded ? entries : runVisibleEntries(entries, expanded);
+        const stableVisible = visible.filter(entry => liveOrderOf(entry) === undefined);
+        const runVisible = continuationRun
+          ? stableVisible.filter(entry => entry.kind !== "fact" || entry.eventType !== "session_input_applied")
+          : stableVisible;
+        const content = <>
+          {contentExpanded && run.runId === currentRunId && <PlanRouteList route={projection.currentPlanRoute} />}
+          {renderTimelineEntries(runVisible, options)}
+          {contentExpanded && run.runId === currentRunId && renderLiveTail(visible, pendingSteps)}
+        </>;
         return <div className="timeline-run-block" id={`timeline-run-${encodeURIComponent(run.runId)}`} key={run.runId} data-run-id={run.runId}>
-          <Collapsible open={expanded} onOpenChange={open => setExpandedRuns(current => new Map(current).set(run.runId, open))}>
+          {continuationRun ? content : <Collapsible open={expanded} onOpenChange={open => setExpandedRuns(current => new Map(current).set(run.runId, open))}>
             <CollapsibleTrigger asChild><Button variant="ghost" className={cn("timeline-run-summary", run.status)} data-item-id={run.itemId}>
               <ChevronRight data-icon="inline-start" className={cn(expanded && "rotate-90")} />
               <strong>Run {run.position.runOrder + 1}</strong>
-              <Badge variant="outline" className={`timeline-run-status ${run.status}`}>{formatRunStatus(run.status)}</Badge>
+              <span className={`timeline-run-status ${run.status}`}>{formatRunStatus(run.status)}</span>
               <span className="timeline-run-result">{run.detail?.message ?? (run.status === "failed" ? "Failure reason unavailable" : run.status === "completed" ? "Run finished; answer accuracy is not indicated" : run.runId === currentRunId ? "Current run" : "Execution history")}</span>
               {run.detail?.code && <code className="timeline-run-error-code">{run.detail.code}</code>}
             </Button></CollapsibleTrigger>
-          <CollapsibleContent forceMount>
-          {expanded && run.runId === currentRunId && <PlanRouteList route={projection.currentPlanRoute} />}
-          {renderTimelineEntries(visible, options)}
-          {expanded && run.runId === currentRunId && renderPendingSteps()}
-          </CollapsibleContent>
-          </Collapsible>
+            <CollapsibleContent forceMount>{content}</CollapsibleContent>
+          </Collapsible>}
         </div>;
       })}
-      {!projection.items.some(item => item.kind === "run") && <>{renderTimelineEntries(projection.items, options)}{renderPendingSteps()}</>}
+      {!projection.items.some(item => item.kind === "run") && <>{renderTimelineEntries(projection.items.filter(item => liveOrderOf(item) === undefined), options)}{renderLiveTail(projection.items, pendingSteps)}</>}
       {savedContentCount === 0 && (
         <div className="timeline-date"><span />No saved activity in this window<span /></div>
       )}
@@ -310,9 +379,11 @@ export function SessionTimeline({
   );
 }
 
-function StepProgressDetails({ entries, active, streamConnected, onOpenTrajectory }: {
+function StepProgressDetails({ entries, active, currentInHeading = false, streamConnected, onOpenTrajectory }: {
   readonly entries: readonly ExecutionProgressEntry[];
   readonly active: boolean;
+  /** 当前阶段标签已作为折叠标题展示，日志不再重复该行。 */
+  readonly currentInHeading?: boolean;
   readonly streamConnected: boolean;
   readonly onOpenTrajectory: SessionTimelineProps["onOpenTrajectory"];
 }) {
@@ -327,21 +398,31 @@ function StepProgressDetails({ entries, active, streamConnected, onOpenTrajector
   const elapsed = seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
   const silent = active && streamConnected && (current.kind === "model_started" || current.kind === "assistant_text_delta")
     && now - current.lastObservedAt >= 60_000;
+  // 当前阶段标签已作为折叠标题展示时，日志不再重复该行。
+  const earlier = active && currentInHeading ? entries.slice(0, -1) : entries;
   return <div className="timeline-step-progress">
     {active && <p>{streamConnected ? current.detail : "Reconnecting. Showing the last observed operation."}</p>}
-    {active && <small>{streamConnected ? "Connected" : "Disconnected"}, Last event {new Date(current.lastObservedAt).toLocaleTimeString("en-GB")}</small>}
-    {active && <small title={current.hasSourceTime ? "Time since the model request started" : "Time since this event was observed"}>
-      {current.hasSourceTime ? elapsed : `Observed ${elapsed}`}
-    </small>}
+    {active && <div className="timeline-step-meta">
+      <small>{streamConnected ? "Connected" : "Disconnected"}, Last event {new Date(current.lastObservedAt).toLocaleTimeString("en-GB")}</small>
+      <small title={current.hasSourceTime ? "Time since the model request started" : "Time since this event was observed"}>
+        {current.hasSourceTime ? elapsed : `Observed ${elapsed}`}
+      </small>
+      {current.executionUnitId !== undefined && currentInHeading && onOpenTrajectory !== undefined && <Button variant="ghost" size="sm"
+        className="timeline-step-inspect" aria-label={`Inspect ${current.label}`}
+        onClick={() => onOpenTrajectory({ runId: current.runId, executionUnitId: current.executionUnitId! })}>
+        <ArrowUpRight size={13} aria-hidden="true" />
+      </Button>}
+    </div>}
     {silent && <p className="timeline-step-warning" role="status">No response update for 60 seconds. The Run is still waiting for the model; you can pause it below.</p>}
-    <ol>{entries.map(entry => <li key={entry.id}>
+    {earlier.length > 0 && <ol>{earlier.map(entry => <li key={entry.id}>
       <span>{entry.label}</span>
       <time dateTime={new Date(entry.lastObservedAt).toISOString()}>{new Date(entry.lastObservedAt).toLocaleTimeString("en-GB")}</time>
       {entry.executionUnitId !== undefined && onOpenTrajectory !== undefined && <Button variant="ghost" size="sm"
-        aria-label={`Inspect ${entry.label}`} onClick={() => onOpenTrajectory({ runId: entry.runId, executionUnitId: entry.executionUnitId! })}>
+        className="timeline-step-inspect" aria-label={`Inspect ${entry.label}`}
+        onClick={() => onOpenTrajectory({ runId: entry.runId, executionUnitId: entry.executionUnitId! })}>
         <ArrowUpRight size={13} aria-hidden="true" />
       </Button>}
-    </li>)}</ol>
+    </li>)}</ol>}
   </div>;
 }
 
@@ -369,6 +450,7 @@ type TimelineRenderOptions = {
 
 
 function renderCorrectionGroup(entries: readonly Extract<SessionTimelineEntry, { kind: "fact" }>[], options: TimelineRenderOptions) {
+  if (!options.showExecutionFacts) return null;
   const first = entries[0]!;
   return <TraceCollapsible key={`corrections:${first.itemId}`} className="timeline-fact" data-run-id={first.runId} data-item-id={first.itemId}>
     <TraceCollapsibleTrigger className="timeline-step-trigger"><TraceLine>
@@ -565,7 +647,12 @@ function renderEntry(item: SessionTimelineEntry, options: TimelineRenderOptions)
 
   if (item.kind === "activity") {
     const attention = item.group.members.some(member => needsAttentionStatus(member.status));
-    if (!options.showExecutionFacts && item.group.category === "think") return null;
+    if (!options.showExecutionFacts && item.group.category === "think") return (
+      <div className="timeline-thinking" key={item.itemId} data-item-id={item.itemId} data-run-id={item.runId}>
+        <Lightbulb size={14} aria-hidden="true" />
+        <span>Thinking</span>
+      </div>
+    );
     const expanded = options.expandedGroups.get(item.group.id) ?? (item.group.status !== "partial-failure" && attention || isActiveStatus(item.group.status));
     return (
       <ActivityGroupRow
@@ -673,14 +760,16 @@ function renderEntry(item: SessionTimelineEntry, options: TimelineRenderOptions)
 
   return (
     <article className="message assistant transient-message" key={item.itemId} data-item-id={item.itemId} data-run-id={item.runId} aria-label="Uncommitted assistant activity">
-      <div className="message-heading">
-        <span className="message-avatar assistant"><img src={options.brandMark} alt="" width={20} height={20} /></span>
-        <strong>Live response</strong>
-        <small>Not saved yet</small>
-      </div>
-      <div className="message-body markdown-body">
-        <AssistantMarkdown content={item.content} />
-        <span className="cursor" />
+      <span className="message-avatar assistant"><img src={options.brandMark} alt="" width={23} height={23} /></span>
+      <div className="message-content">
+        <div className="message-meta">
+          <strong>{item.active ? "Live response" : "Earlier response"}</strong>
+          <small>Not saved yet</small>
+        </div>
+        <div className="message-body markdown-body">
+          <AssistantMarkdown content={item.content} />
+          {item.active && <span className="cursor" />}
+        </div>
       </div>
     </article>
   );
@@ -691,7 +780,7 @@ function renderEntry(item: SessionTimelineEntry, options: TimelineRenderOptions)
  *
  * @remarks
  * 展开状态由调用方按组身份保存。运行与重试状态提供轻微动画，遵循系统减少动态效果设置；
- * 已完成状态以图标呈现并保留可访问名称。成员只显示既有安全摘要与真实来源身份，原始
+ * 静态图标按工具类型区分，失败与等待仍显示真实状态。成员只显示既有安全摘要与真实来源身份，原始
  * 参数与 Observation 不进入此处。同一 Action 的授权、执行、重试与结果记录只在展开
  * 详情中显示；历史组保持折叠，等待审批的组保留醒目的 `Awaiting approval` 状态。
  *
@@ -732,20 +821,18 @@ export function ActivityGroupRow({
   readonly onOpenTrajectory: SessionTimelineProps["onOpenTrajectory"];
 }) {
   const detailId = `activity-detail-${group.id.replace(/[^A-Za-z0-9_-]/gu, "-")}`;
+  const activityIcon = activityIconForGroup(group);
   return (
     <TraceCollapsible open={expanded} onOpenChange={onToggle} className={cn("timeline-activity", group.status)} data-item-id={itemId} data-run-id={runId} data-group-id={group.id}>
       <TraceCollapsibleTrigger className="timeline-activity-heading" aria-expanded={expanded} aria-controls={detailId}>
         <TraceLine status={isActiveStatus(group.status) ? "running" : group.status === "failed" || group.status === "partial-failure" ? "error" : undefined}>
           <TraceIcon className="timeline-activity-marker">
-            {group.status === "completed" ? <Check />
-              : group.status === "failed" || group.status === "partial-failure" ? <CircleHelp />
-                : group.status === "rejected" ? <X />
-                  : group.status === "waiting" ? <Clock3 /> : <ActivitySnake />}
+            {activityIcon}
           </TraceIcon>
           <TraceTitle title={group.summary}>{group.summary}</TraceTitle>
           <TraceDescription className="timeline-activity-counts">{group.status === "partial-failure" ? `${group.counts.completed} succeeded / ${group.counts.failed} failed` : `${group.members.length} ${group.members.length === 1 ? "call" : "calls"}`}</TraceDescription>
         </TraceLine>
-        <Badge variant="outline" className={cn("timeline-activity-status", group.status)}>{activityStatusLabel(group.status)}</Badge>
+        <span className={cn("timeline-activity-status", group.status)}>{activityStatusLabel(group.status)}</span>
         {group.live === true && <span className="sr-only">Not saved yet</span>}
       </TraceCollapsibleTrigger>
       {incomplete && <div className="timeline-activity-outcome"><span>Details not fully loaded</span>
@@ -771,19 +858,23 @@ export function ActivityGroupRow({
           {group.members.map((member) => (
             <li key={member.id} data-member-id={member.id} data-action-id={member.actionId ?? ""}>
               <div className="timeline-activity-member-copy">
-                <span className="timeline-activity-member-label">
-                  {member.think === undefined ? member.label : member.think.goal}
-                </span>
+                {group.members.length > 1 && (
+                  <span className="timeline-activity-member-label">
+                    {member.think === undefined ? member.label : member.think.goal}
+                  </span>
+                )}
                 {member.toolId === "bash" && member.inputSummary !== undefined && (
                   <code className="timeline-activity-member-command">{member.inputSummary}</code>
                 )}
-                {member.toolId !== undefined && <code className="timeline-activity-member-tool">{member.toolId}</code>}
+                {member.toolId !== undefined && (member.toolId !== member.label || group.members.length === 1) && <code className="timeline-activity-member-tool">{member.toolId}</code>}
                 {member.summary !== undefined && <small className="timeline-activity-member-summary">{member.summary}</small>}
               </div>
-              <span className={`timeline-activity-member-status ${member.status}`} title={activityStatusLabel(member.status)}>
-                {member.status === "completed" && <Check size={12} aria-hidden="true" />}
-                <span>{activityStatusLabel(member.status)}</span>
-              </span>
+              {group.members.length > 1 && (
+                <span className={`timeline-activity-member-status ${member.status}`} title={activityStatusLabel(member.status)}>
+                  {member.status === "completed" && <Check size={12} aria-hidden="true" />}
+                  <span>{activityStatusLabel(member.status)}</span>
+                </span>
+              )}
               {member.lifecycle !== undefined && member.lifecycle.length > 0 && (
                 <ol className="timeline-activity-member-lifecycle" aria-label="Execution details">
                   {member.lifecycle.map((lifecycle, index) => (
@@ -831,6 +922,21 @@ export function ActivityGroupRow({
       </TraceCollapsibleContent>
     </TraceCollapsible>
   );
+}
+
+function activityIconForGroup(group: ActivityGroup): React.ReactNode {
+  const firstMember = group.members[0];
+  if (group.status === "failed" || group.status === "partial-failure") return <CircleHelp />;
+  if (group.status === "rejected") return <X />;
+  if (group.status === "waiting") return <Clock3 />;
+  if (isActiveStatus(group.status)) return <ActivitySnake />;
+  if (firstMember?.category === "think") return <Lightbulb />;
+  if (firstMember?.toolId === "bash" && firstMember.category === "explore") return <Search />;
+  if (firstMember?.toolId === "bash" || firstMember?.toolId === "execute_program") return <Terminal />;
+  if (firstMember?.toolId === "web_fetch") return <Globe />;
+  if (firstMember?.toolId === "write_file" || firstMember?.toolId === "edit_file") return <Pencil />;
+  if (firstMember?.toolId === "read_file" || firstMember?.toolId === "list_directory" || firstMember?.toolId === "web_search") return <Search />;
+  return <FileText />;
 }
 
 function activityStatusLabel(status: ActivityGroupStatus): string {

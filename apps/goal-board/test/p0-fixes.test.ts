@@ -14,12 +14,11 @@ test("index.html references the bundled SVG favicon", () => {
   assert.match(favicon, /viewBox="0 0 100 100"/);
 });
 
-test("style.css contains fixed activity-filter, jump and command-notice styles", () => {
+test("style.css contains fixed jump and command-notice styles", () => {
   const cssPath = path.resolve(import.meta.dirname, "../src/style.css");
   const css = fs.readFileSync(cssPath, "utf-8");
 
-  // 1. activity-filter solid background & border
-  assert.ok(css.includes(".activity-filter"));
+  // 1. sticky chrome keeps a hairline border token
   assert.ok(css.includes("--border-width: 0.5px"));
   assert.ok(css.includes("border-bottom: var(--border-width) solid var(--line)"));
   assert.ok(css.includes("background: var(--panel)"));

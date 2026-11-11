@@ -4,7 +4,6 @@ import type {
   BrowserActivityPage,
   BrowserGoalSession,
   BrowserGoalSessionState,
-  BrowserGoalEvent,
   BrowserModelCatalog,
   BrowserToolGrantSummary,
   BrowserWorkspaceContext,
@@ -13,6 +12,7 @@ import type { MetricsState, ModelPickerTarget, SessionTab } from "../types";
 import type { SessionOutputDisplay } from "../session-output-consumer";
 import type { ActivityWindowState } from "../activity-page-window";
 import type { ExecutionProgressEntry } from "../execution-progress";
+import type { LiveTextBlock, OrderedGoalEvent } from "../live-timeline";
 
 /**
  * Goal Board 单个会话视图消费的局部状态与只读加载入口。
@@ -49,6 +49,10 @@ export interface GoalSessionContextValue {
   /** 初始窄状态与 Activity 页是否正在读取。 */
   readonly sessionLoading: boolean;
   readonly sessionError: string | null;
+  /** Activity 固定窗口读取失败的原因；不影响已读取的窄会话状态。 */
+  readonly activityError: string | null;
+  /** 是否正在自动读取更早的 Activity 页；只读，不阻断已展示内容。 */
+  readonly loadingEarlier: boolean;
   readonly workspaceContext: BrowserWorkspaceContext | null;
   readonly workspaceContextError: boolean;
   readonly sessionTab: SessionTab;
@@ -57,8 +61,6 @@ export interface GoalSessionContextValue {
   readonly setTrajectoryTarget: (target: { runId: string; executionUnitId: string; nonce: number } | null) => void;
   readonly follow: boolean;
   readonly setFollow: (follow: boolean | ((current: boolean) => boolean)) => void;
-  readonly showTools: boolean;
-  readonly setShowTools: (show: boolean | ((current: boolean) => boolean)) => void;
   readonly goalInfoOpen: boolean;
   readonly setGoalInfoOpen: (open: boolean | ((current: boolean) => boolean)) => void;
   readonly toolGrants: readonly BrowserToolGrantSummary[];
@@ -66,12 +68,14 @@ export interface GoalSessionContextValue {
   readonly toolGrantsError: string | null;
   readonly revokingGrantId: string | null;
   readonly liveText: string;
+  /** 当前连接按首次出现顺序排列的未提交正文块。 */
+  readonly livePreviews: readonly LiveTextBlock[];
   readonly liveActivity: string | null;
   /** 当前连接观察到的有界执行进度；快照刷新不清除，重连后从新事件开始。 */
   readonly progressEntries: readonly ExecutionProgressEntry[];
   /** 按候选 ID 关联的公开预览与保存核验状态。 */
   readonly candidatePresentation: SessionOutputDisplay;
-  readonly liveEvents: readonly BrowserGoalEvent[];
+  readonly liveEvents: readonly OrderedGoalEvent[];
   readonly streamConnected: boolean;
   /** 最后确认的正式内容是否可能过期；过期期间限制依赖最新状态的新决定。 */
   readonly stateStale: boolean;

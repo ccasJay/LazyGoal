@@ -213,8 +213,8 @@ test("真实 GoalSessionStream 在保存屏障前展示候选，正式保存核�
     const finalState = await readBrowserGoalSessionState(initial.id, store);
     assert.ok(finalState);
     if (finalState === undefined) return;
-    const previewProjection = projectSessionTimeline(beforePage.page, beforeState, collectActivityProjections(beforePage.page, beforePage.page.goalId, []), "", beforeSave);
-    const finalProjection = projectSessionTimeline(finalPage.page, finalState, collectActivityProjections(finalPage.page, finalPage.page.goalId, []), "", promoted);
+    const previewProjection = projectSessionTimeline(beforePage.page, beforeState, collectActivityProjections(beforePage.page, beforePage.page.goalId, []), [], beforeSave);
+    const finalProjection = projectSessionTimeline(finalPage.page, finalState, collectActivityProjections(finalPage.page, finalPage.page.goalId, []), [], promoted);
     const previewIndex = previewProjection.items.findIndex((item) =>
       item.kind === "candidate-preview" && item.presentationKey === stableKey);
     const formalIndex = finalProjection.items.findIndex((item) =>
@@ -225,7 +225,7 @@ test("真实 GoalSessionStream 在保存屏障前展示候选，正式保存核�
       finalProjection.items.slice(0, previewIndex).map((item) => item.itemId),
       previewProjection.items.slice(0, previewIndex).map((item) => item.itemId),
     );
-    assert.ok(finalProjection.items[formalIndex + 1]?.kind === "terminal");
+    assert.equal(finalProjection.items.some((item) => item.kind === "terminal" && item.status === "completed"), false);
     const finalHtml = renderTimeline(finalPage.page, finalState, promoted);
     assert.equal(finalHtml.includes('data-presentation-key="' + stableKey + '"'), true);
     assert.equal(finalHtml.includes("规范正式答复"), true);
@@ -328,7 +328,7 @@ function renderTimeline(
   state: NonNullable<Awaited<ReturnType<typeof readBrowserGoalSessionState>>>,
   display: NonNullable<ReturnType<typeof applySessionOutputEvent>>,
 ): string {
-  const projection = projectSessionTimeline(page, state, collectActivityProjections(page, page.goalId, []), "", display);
+  const projection = projectSessionTimeline(page, state, collectActivityProjections(page, page.goalId, []), [], display);
   return renderToStaticMarkup(createElement(SessionTimeline, {
     projection,
     currentRunId: state.currentRunId,

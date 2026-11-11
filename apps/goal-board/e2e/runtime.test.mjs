@@ -202,14 +202,14 @@ test("real local service restores and completes one authorized Goal conversation
       expression: "[...document.querySelectorAll('.structured-form button')].find(button => button.textContent.includes('Approve once')).click()",
       returnByValue: true,
     });
-    await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Run completed')", 15_000);
+    await waitForExpression(socket, "document.querySelector('.timeline-run-summary.completed .timeline-run-status')?.textContent === 'Completed'", 15_000);
     await waitForStatus(statusPath, (status) => status.modelCalls === 6 && status.toolCalls === 1);
     session = await waitForSession(restarted.origin, restarted.token, (candidate) => candidate.runStatus === "completed");
     assert.equal(session.pendingAction, undefined);
     assert.ok(session.runs.find((run) => run.current)?.steps.some((step) => step.toolId === "browser_fixture_write" && step.status === "completed"));
     assert.equal(JSON.stringify(session).includes("PRIVATE_CONTROLLED_TOOL_OUTPUT"), false);
     assert.equal(await value(socket, "document.body.innerText.includes('PRIVATE_CONTROLLED_TOOL_OUTPUT')"), false);
-    assert.equal(await value(socket, "[...document.querySelectorAll('.session-tab-buttons button')].some(button => button.textContent === 'Plan')"), false);
+    assert.equal(await value(socket, "[...document.querySelectorAll('.session-tab-buttons button')].some(button => button.getAttribute('aria-label') === 'Plan')"), false);
     const actionLines = (await readFile(join(workspace, "controlled-tool-actions.jsonl"), "utf8")).trim().split("\n");
     assert.equal(actionLines.length, 1);
     assert.deepEqual(JSON.parse(actionLines[0]), { actionId: pendingActionId, value: "controlled write" });
@@ -232,8 +232,8 @@ test("real local service restores and completes one authorized Goal conversation
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelectorAll('.timeline-stage-heading[aria-expanded=\"false\"]').forEach(button => button.click())", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.timeline-activity-heading') !== null");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelectorAll('.timeline-activity-heading[aria-expanded=\"false\"]').forEach(button => button.click())", returnByValue: true });
-    await waitForExpression(socket, "[...document.querySelectorAll('.timeline-activity-member-label')].some(label => label.textContent.includes('browser_fixture_write'))");
-    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.timeline-activity-members > li')].find(member => member.querySelector('.timeline-activity-member-label')?.textContent.includes('browser_fixture_write')).querySelector('.timeline-activity-trajectory').click()", returnByValue: true });
+    await waitForExpression(socket, "[...document.querySelectorAll('.timeline-activity-member-tool')].some(tool => tool.textContent.includes('browser_fixture_write'))");
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.timeline-activity-members > li')].find(member => member.querySelector('.timeline-activity-member-tool')?.textContent.includes('browser_fixture_write')).querySelector('.timeline-activity-trajectory').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.trajectory-view .ct-record-body[aria-pressed=\"true\"]') !== null");
     await waitForExpression(socket, "document.querySelector('.tr-inspector .tr-detail-title h3') !== null");
     assert.equal(await value(socket, "document.activeElement?.id"), `trajectory-event-${executionTrajectory.body.locatedSequence}`);
@@ -286,7 +286,7 @@ test("real local service restores and completes one authorized Goal conversation
     await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.mi-inspector .tr-detail-tabs button')].find(button => button.textContent === 'System Prompt').click()", returnByValue: true });
     await waitForExpression(socket, "document.querySelector('.mi-inspector .tr-detail-body pre')?.innerText.length > 0");
     assert.equal(await value(socket, "document.querySelector('.mi-inspector .tr-detail-body pre').innerText"), completeInput.body.call.messages.filter(message => message.role === "system").map(message => message.content).join("\n"));
-    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.session-tab-buttons button')].find(button => button.textContent === 'Activity').click()", returnByValue: true });
+    await cdp(socket, "Runtime.evaluate", { expression: "[...document.querySelectorAll('.session-tab-buttons button')].find(button => button.getAttribute('aria-label') === 'Activity').click()", returnByValue: true });
 
     assert.equal(await value(socket, "document.querySelector('textarea[aria-label=\"Goal intent\"]') === null"), true,
       "a completed Goal has no continuation composer");
@@ -357,7 +357,7 @@ test("real local service restores and completes one authorized Goal conversation
       expression: "[...document.querySelectorAll('.structured-form button')].find(button => button.textContent.includes('Approve once')).click()",
       returnByValue: true,
     });
-    await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Run completed')", 15_000);
+    await waitForExpression(socket, "document.querySelector('.timeline-run-summary.completed .timeline-run-status')?.textContent === 'Completed'", 15_000);
     await waitForStatus(statusPath, (status) => status.modelCalls === 12 && status.toolCalls === 2);
     const completedPlanSession = await waitForSession(
       restarted.origin,
@@ -372,7 +372,7 @@ test("real local service restores and completes one authorized Goal conversation
     assert.equal(await value(socket, "document.querySelector('.timeline-stage.completed button.timeline-stage-heading')?.getAttribute('aria-expanded')"), "false");
     await cdp(socket, "Runtime.evaluate", { expression: "document.querySelectorAll('.timeline-stage-heading[aria-expanded=\"false\"]').forEach(button => button.click())", returnByValue: true });
     assert.equal(await value(socket, "document.querySelectorAll('.timeline-activity').length > 0"), true);
-    assert.equal(await value(socket, "document.querySelector('#filter-execution-steps') !== null"), true);
+    assert.equal(await value(socket, "document.querySelector('.session-timeline-feed') !== null"), true);
     assert.equal(await value(socket, "document.querySelector('.plan-route-list') !== null"), true);
     const completedList = await api(restarted.origin, "/api/goals", { token: restarted.token });
     assert.equal(completedList.response.status, 200, JSON.stringify(completedList.body));
@@ -393,7 +393,7 @@ test("real local service restores and completes one authorized Goal conversation
       expression: "document.querySelectorAll('.goal-card')[0].click()",
       returnByValue: true,
     });
-    await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Run completed')", 10_000);
+    await waitForExpression(socket, "document.querySelector('.timeline-run-summary.completed .timeline-run-status')?.textContent === 'Completed'", 10_000);
     assert.equal(await value(socket, "document.body.innerText.includes('PRIVATE_CONTROLLED_TOOL_OUTPUT')"), false);
 
     await cdp(socket, "Runtime.evaluate", {
@@ -419,7 +419,7 @@ test("real local service restores and completes one authorized Goal conversation
       expression: "document.querySelector('.skip-confirm .approval-cancel').click()",
       returnByValue: true,
     });
-    await waitForExpression(socket, "document.querySelector('.session')?.innerText.includes('Run completed')", 10_000);
+    await waitForExpression(socket, "document.querySelector('.timeline-run-summary.completed .timeline-run-status')?.textContent === 'Completed'", 10_000);
     cancellationSession = await waitForSession(restarted.origin, restarted.token, (candidate) => candidate.intent.includes("Cancellation flow") && candidate.runStatus === "completed");
     assert.equal(cancellationSession.interaction, undefined);
     const cancellationTrajectory = await api(restarted.origin, `/api/goals/${cancellationSession.goalId}/trajectory?runId=${cancellationSession.currentRunId}`, { token: restarted.token });

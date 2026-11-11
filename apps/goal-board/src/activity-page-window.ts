@@ -7,6 +7,10 @@ import type {
 
 /** 最多缓存的历史 Activity 页数量。 */
 export const MAX_CACHED_ACTIVITY_PAGES = 3;
+/** Activity 打开时自动预取更早历史的项数预算。 */
+export const ACTIVITY_PREFETCH_ITEM_BUDGET = 300;
+/** 一次预取最多连续读取的页数。 */
+export const ACTIVITY_PREFETCH_MAX_PAGES = 6;
 /** 最多缓存的正文分段数量。 */
 export const MAX_CACHED_MESSAGE_DETAILS = 3;
 /** 距底部该距离内视为仍在跟随最新内容。 */

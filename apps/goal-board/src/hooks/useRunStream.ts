@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { BrowserActivityPage, BrowserControlScope, BrowserControlSnapshot, BrowserGoalActivityEvent, BrowserGoalEvent, BrowserGoalSessionState } from "../../../../packages/web-contracts/src/index";
 import { browserApi } from "../api";
 import { createTextBatcher } from "../live-text-batch";
+import type { LiveTextBlock, OrderedGoalEvent } from "../live-timeline";
 import { recordExecutionProgress, type ExecutionProgressEntry } from "../execution-progress";
 import {
   EMPTY_SESSION_OUTPUT_DISPLAY,
@@ -43,7 +44,7 @@ export function useRunStream({
   onReadScopes: (scopes: readonly BrowserControlScope[]) => Promise<void>;
 }) {
   const [outputDisplay, setOutputDisplay] = useState(EMPTY_SESSION_OUTPUT_DISPLAY);
-  const [liveEvents, setLiveEvents] = useState<BrowserGoalEvent[]>([]);
+  const [liveEvents, setLiveEvents] = useState<OrderedGoalEvent[]>([]);
   const [progressEntries, setProgressEntries] = useState<readonly ExecutionProgressEntry[]>([]);
   const [streamConnected, setStreamConnected] = useState(false);
   const [recovery, setRecovery] = useState<StreamRecoveryState>(INITIAL_STREAM_RECOVERY_STATE);
@@ -58,13 +59,32 @@ export function useRunStream({
   /** 当前累积中的来源身份；换源时开启新的来源，旧来源独立结算。 */
   const sourceRef = useRef<{ readonly sourceKey: string; readonly runId: string } | null>(null);
   const segmentRef = useRef(0);
+  const liveOrderRef = useRef(0);
+  const sourceOrdersRef = useRef(new Map<string, number>());
 
-  const openSource = useCallback((runId: string): string => {
+  const nextLiveOrder = useCallback((): number => {
+    liveOrderRef.current += 1;
+    return liveOrderRef.current;
+  }, []);
+
+  const livePreviews: readonly LiveTextBlock[] = livePreview.sources.map((source) => ({
+    ...source,
+    order: sourceOrdersRef.current.get(source.sourceKey) ?? 0,
+    active: sourceRef.current?.sourceKey === source.sourceKey,
+  }));
+
+  const openSource = useCallback((runId: string, order: number): string => {
     segmentRef.current += 1;
     const sourceKey = `${runId}:segment:${segmentRef.current}`;
     sourceRef.current = { sourceKey, runId };
+    sourceOrdersRef.current.set(sourceKey, order);
     setLivePreview((current) => applyTextDelta(current, { sourceKey, runId, text: "", cursor: 0 }));
     return sourceKey;
+  }, []);
+
+  /** 结束当前正文块；后续增量必须开启新的块，不能回填到已显示节点。 */
+  const closeSource = useCallback((): void => {
+    sourceRef.current = null;
   }, []);
 
   const setLiveText = useCallback((next: string | ((current: string) => string)) => {
@@ -94,16 +114,15 @@ export function useRunStream({
   const textBatcherRef = useRef<ReturnType<typeof createTextBatcher<string>> | null>(null);
   if (textBatcherRef.current === null) {
     textBatcherRef.current = createTextBatcher((delta) => {
-      setLivePreview((current) => {
-        const source = sourceRef.current;
-        if (source === null) return current;
-        return applyTextDelta(current, {
-          sourceKey: source.sourceKey,
-          runId: source.runId,
-          text: delta,
-          cursor: 0,
-        });
-      });
+      // Capture before the queued updater can observe a later closeSource().
+      const source = sourceRef.current;
+      if (source === null) return;
+      setLivePreview((current) => applyTextDelta(current, {
+        sourceKey: source.sourceKey,
+        runId: source.runId,
+        text: delta,
+        cursor: 0,
+      }));
     });
   }
   const textBatcher = textBatcherRef.current;
@@ -131,6 +150,24 @@ export function useRunStream({
       setRecovery(INITIAL_STREAM_RECOVERY_STATE);
     }
   }, [selectedGoalId]);
+
+  // 新的 Run 重置实时顺序；不同 Run 的临时节点不共享排序。
+  useEffect(() => {
+    liveOrderRef.current = 0;
+    sourceOrdersRef.current.clear();
+    sourceRef.current = null;
+  }, [selectedGoalId, session?.currentRunId]);
+
+  // Run 到达终态后，临时正文、进度与实时工具节点由已提交历史接管。
+  const runIsTerminal = session !== null
+    && (session.runStatus === "completed" || session.runStatus === "failed" || session.runStatus === "cancelled");
+  useEffect(() => {
+    if (!runIsTerminal) return;
+    sourceRef.current = null;
+    setLivePreview(createLivePreviewState());
+    setLiveEvents([]);
+    setProgressEntries([]);
+  }, [runIsTerminal, session?.currentRunId]);
 
   useEffect(() => {
     if (activityPage === null || selectedGoalId !== activityPage.goalId) return;
@@ -198,6 +235,8 @@ export function useRunStream({
                 // 重建连接后的权威同步：丢弃断线期间保留的临时正文与来源索引。
                 textBatcher.clear();
                 sourceRef.current = null;
+                liveOrderRef.current = 0;
+                sourceOrdersRef.current.clear();
                 setLivePreview(createLivePreviewState());
                 setOutputDisplay((current) => ({
                   ...current,
@@ -254,7 +293,8 @@ export function useRunStream({
               setOutputDisplay((current) => applySessionOutputEvent(current, event) ?? current);
               continue;
             }
-            setProgressEntries((current) => recordExecutionProgress(current, event, Date.now()));
+            const order = nextLiveOrder();
+            setProgressEntries((current) => recordExecutionProgress(current, event, Date.now(), order));
             const retainedActivity: BrowserGoalActivityEvent | undefined = event.activity.kind === "assistant_text_delta"
               ? {
                   kind: "activity_boundary",
@@ -272,35 +312,41 @@ export function useRunStream({
             if (retainedActivity !== undefined) {
               setLiveEvents((current) => [
                 ...current,
-                { ...event, activity: retainedActivity },
+                { event: { ...event, activity: retainedActivity }, order },
               ].slice(-256));
             }
             switch (event.activity.kind) {
               case "assistant_text_delta": {
-                if (sourceRef.current === null) openSource(event.runId);
+                if (sourceRef.current === null) openSource(event.runId, order);
                 textBatcher.push(event.activity.text);
                 setOutputDisplay((current) => ({ ...current, liveActivity: "A response is being generated" }));
                 break;
               }
               case "model_started":
                 textBatcher.flush();
-                openSource(event.runId);
+                closeSource();
                 setLiveText("");
                 setOutputDisplay((current) => ({ ...current, liveActivity: "Waiting for model response" }));
                 break;
               case "model_completed":
+                textBatcher.flush();
+                closeSource();
                 setOutputDisplay((current) => ({ ...current, liveActivity: "Waiting for the saved result" }));
                 break;
               case "step_started":
                 textBatcher.flush();
-                openSource(event.runId);
+                closeSource();
                 setLiveText("");
                 setOutputDisplay((current) => ({ ...current, liveActivity: "A new execution step has started" }));
                 break;
               case "tool_started":
+                textBatcher.flush();
+                closeSource();
                 setOutputDisplay((current) => ({ ...current, liveActivity: "A workspace action has started" }));
                 break;
               case "tool_finished":
+                textBatcher.flush();
+                closeSource();
                 setOutputDisplay((current) => ({ ...current, liveActivity: "Workspace action finished; waiting for saved state" }));
                 break;
             }
@@ -333,6 +379,7 @@ export function useRunStream({
 
   return {
     liveText,
+    livePreviews,
     setLiveText,
     liveActivity,
     candidatePresentation: outputDisplay,

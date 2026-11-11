@@ -581,12 +581,16 @@ test("real pi-ai stream maps fragmented tool arguments and preserves the ended b
     });
 });
 
-test("pi-ai serializes tool choice for generate and stream across provider protocols", async () => {
+test("pi-ai serializes tool choice across adapter paths and normalizes OpenCode Go API families to Chat Completions", async () => {
     const captured: Record<string, any>[] = [];
     const { opencodeGoProvider } = await import("@earendil-works/pi-ai/providers/opencode-go");
     const goModels = opencodeGoProvider().getModels();
-    const goModel = goModels.find(candidate => candidate.api === "openai-responses");
-    assert.ok(goModel, "expected an OpenCode Go model backed by the native Responses API");
+    const goApiFamilies = ["openai-responses", "anthropic-messages", "google-generative-ai"] as const;
+    const goCases = goApiFamilies.map(apiFamily => {
+        const model = goModels.find(candidate => candidate.api === apiFamily);
+        assert.ok(model, `expected an OpenCode Go catalog model with ${apiFamily} API metadata`);
+        return ["opencode-go", model.id, completionsBody()] as const;
+    });
     for (const [provider, model, body] of [
         ["openai", "gpt-4.1-mini", responsesBody],
         ["anthropic", "claude-sonnet-4-5", anthropicBody],
@@ -595,8 +599,8 @@ test("pi-ai serializes tool choice for generate and stream across provider proto
         ["opencode-go", "longcat-2.5-preview-free", completionsBody()],
         ["openrouter", "openai/gpt-4.1-mini", completionsBody()],
         ["deepseek", "deepseek-flash", completionsBody()],
-        // OpenCode Go is routed through its current OpenAI Chat Completions compatibility endpoint.
-        ["opencode-go", goModel.id, completionsBody()],
+        // OpenCode Go source API metadata does not change this adapter's completion-compatible wire protocol.
+        ...goCases,
     ] as const) {
         await withServer((req, res) => {
             let data = "";
