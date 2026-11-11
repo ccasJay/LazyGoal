@@ -11,6 +11,7 @@ import { SupervisorOwnership } from "../../../packages/storage/src/supervisor-ow
 import { SupervisorWorkerProcess, type SupervisorWorkerProcessOptions } from "../src/runtime/worker-process";
 import { createWorkerProcessRegistration } from "../src/runtime/worker-process-registry";
 import type { Goal } from "../../../packages/runtime/src/domain";
+import { interactionAnswerTrigger, permissionDecisionTrigger } from "../../../packages/runtime/test/trigger-fixtures";
 
 interface FakeParentCommand {
     readonly kind: string;
@@ -20,13 +21,14 @@ interface FakeParentCommand {
 class FakeWorkerChild extends EventEmitter {
     readonly pid = 42;
     connected = true;
+    writeError: Error | null = null;
     readonly commands: FakeParentCommand[] = [];
 
     send(message: unknown, callback?: (error: Error | null) => void): boolean {
         const command = message as FakeParentCommand;
         this.commands.push(command);
         this.emit("command", command);
-        callback?.(null);
+        callback?.(this.writeError);
         if (command.kind === "close") {
             queueMicrotask(() => {
                 this.connected = false;
@@ -34,6 +36,11 @@ class FakeWorkerChild extends EventEmitter {
             });
         }
         return true;
+    }
+
+    disconnect(): void {
+        this.connected = false;
+        this.emit("disconnect");
     }
 
     waitForCommand(kind: string, occurrence = 1): Promise<FakeParentCommand> {
@@ -84,9 +91,10 @@ test("Supervisor 启动独立 Worker 并在同一进程中重复确认身份", a
     }
 });
 
-test("Worker parent operation slot orders cancellation and deduplicates active requests", { timeout: 5000 }, async () => {
-    const goalId = "goal-operation-slot";
-    const runId = "run-operation-slot";
+const goalId = "goal-operation-slot";
+const runId = "run-operation-slot";
+
+function createFakeWorker(assignedGoalId?: string) {
     const goal = { id: goalId, state: { run: { id: runId } } } as unknown as Goal;
     const child = new FakeWorkerChild();
     const options = {
@@ -106,7 +114,13 @@ test("Worker parent operation slot orders cancellation and deduplicates active r
         workerId: options.workerId,
         generation: options.generation,
         pid: child.pid,
+        assignedGoalId,
     });
+    return { worker, child };
+}
+
+test("Worker parent operation slot orders cancellation and deduplicates active requests", { timeout: 5000 }, async () => {
+    const { worker, child } = createFakeWorker();
 
     const advance = worker.advance(goalId);
     const advanceCommand = await child.waitForCommand("advance");
@@ -150,4 +164,63 @@ test("Worker parent operation slot orders cancellation and deduplicates active r
 
     worker.confirmTerminal(goalId);
     await worker.close();
+});
+
+const interaction = interactionAnswerTrigger("answer", goalId, "work", {
+    kind: "answer_ask_user", requestId: "question", answers: [],
+});
+const permission = permissionDecisionTrigger("decision", goalId, "permission-request", "approve");
+
+for (const kind of ["interaction", "permission"] as const) {
+    test(`Worker submits cancel while a ${kind} response is pending`, { timeout: 5000 }, async () => {
+        const { worker, child } = createFakeWorker(goalId);
+        const reply = kind === "interaction" ? worker.respondInteraction(interaction) : worker.respondActionPermission(permission);
+        const cancellation = worker.cancel(goalId, runId, "stop");
+        const replyCommand = await child.waitForCommand(`${kind}-response`);
+        const cancelCommand = await child.waitForCommand("cancel");
+        assert.deepEqual(child.commands.map((command) => command.kind), [`${kind}-response`, "cancel"]);
+        await assert.rejects(worker.advance(goalId), /unavailable/);
+        await assert.rejects(worker.respondInteraction(interaction), /does not own/);
+        await assert.rejects(worker.respondActionPermission(permission), /does not own/);
+        await assert.rejects(worker.close(), /unsettled Goal/);
+        assert.throws(() => worker.confirmTerminal(goalId), /not settled/);
+
+        const result = { kind: "terminal", status: "cancelled" } as const;
+        child.emit("message", { kind: `${kind}-result`, requestId: replyCommand.requestId, goalId, result });
+        assert.deepEqual(await reply, result);
+        child.emit("message", { kind: "cancel-result", requestId: cancelCommand.requestId, goalId, result });
+        assert.deepEqual(await cancellation, result);
+        worker.confirmTerminal(goalId);
+        await worker.close();
+    });
+}
+
+test("Worker releases the operation slot after an interaction IPC write fails", { timeout: 5000 }, async () => {
+    const { worker, child } = createFakeWorker(goalId);
+    child.writeError = new Error("IPC write failed");
+    await assert.rejects(worker.respondInteraction(interaction), /IPC write failed/);
+    assert.equal(worker.assignedGoalId, goalId);
+
+    child.writeError = null;
+    const cancellation = worker.cancel(goalId, runId, "stop");
+    const command = await child.waitForCommand("cancel");
+    const result = { kind: "terminal", status: "cancelled" } as const;
+    child.emit("message", { kind: "cancel-result", requestId: command.requestId, goalId, result });
+    assert.deepEqual(await cancellation, result);
+    worker.confirmTerminal(goalId);
+    await worker.close();
+});
+
+test("Worker rejects both in-flight requests when child IPC disconnects without exit", { timeout: 5000 }, async () => {
+    const { worker, child } = createFakeWorker(goalId);
+    const reply = worker.respondInteraction(interaction);
+    const cancellation = worker.cancel(goalId, runId, "stop");
+    const repliesRejected = Promise.all([
+        assert.rejects(reply, /disconnected/),
+        assert.rejects(cancellation, /disconnected/),
+    ]);
+    await child.waitForCommand("cancel");
+    child.disconnect();
+    await repliesRejected;
+    assert.equal(worker.assignedGoalId, goalId);
 });

@@ -211,6 +211,11 @@ export class SupervisorWorkerProcess {
             if (this.child !== undefined) {
                 this.child.on("message", onMessage);
                 this.child.on("error", (error) => { reject(error); failPending(error); });
+                this.child.once("disconnect", () => {
+                    const error = new Error("Worker process is disconnected");
+                    reject(error);
+                    failPending(error);
+                });
                 this.child.once("exit", (code, signal) => {
                     const error = new Error(`Worker process exited (${signal ?? code})`);
                     reject(error);
