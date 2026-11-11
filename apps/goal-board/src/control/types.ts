@@ -96,7 +96,7 @@ export type GoalView = { readonly goalId: string };
  *
  * @example
  * ```ts
- * const next = applyControlEvent(createControlState(), event);
+ * const next = applyControlEvent(selectControlGoal(createControlState(), event.goalId), event);
  * ```
  */
 export interface ControlState {

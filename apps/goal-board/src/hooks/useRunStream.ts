@@ -194,9 +194,7 @@ export function useRunStream({
         };
         const readScopes = (scopes: readonly BrowserControlScope[]) => {
           if (scopes.length === 0 || reads.signal.aborted) return;
-          void onReadScopesRef.current(view, scopes, reads.signal).then(resetAfterSync).catch(() => {
-            if (active() && !reads.signal.aborted) disconnect(view);
-          });
+          void onReadScopesRef.current(view, scopes, reads.signal).then(resetAfterSync);
         };
         try {
           for await (const event of browserApi.events(view.goalId, controller.signal)) {

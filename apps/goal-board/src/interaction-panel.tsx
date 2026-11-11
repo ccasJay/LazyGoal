@@ -206,13 +206,21 @@ export function useInteractionSubmission({
   readonly onDecisionAccepted: (summary: AcceptedDecisionSummary) => void;
 }) {
   const [error, setError] = useState<string | null>(null);
+  const { view: goalView } = control.state;
+  const { ownsView, currentState, submit, verify } = control;
+  const isCurrentWait = useCallback(() => {
+    const wait = currentState().snapshot?.goal.interaction;
+    return goalView !== null && ownsView(goalView) && wait?.runId === view.runId
+      && wait.interactionId === view.interactionId;
+  }, [currentState, goalView, ownsView, view.interactionId, view.runId]);
   const derived = selectInteractionSubmission(control.state.intents, view, receiptErrorText);
   const submission: InteractionSubmissionState = error === null ? derived : { ...derived, error };
 
   const submitCommand = useCallback(async (command: BrowserGoalInteractionCommand): Promise<void> => {
+    if (!isCurrentWait()) return;
     const inputId = resolveDecisionInputId(submission, command, () => crypto.randomUUID());
     setError(null);
-    const receipt = await control.submit({
+    const receipt = await submit({
       kind: "session_input",
       intentId: inputId,
       goalId: view.goalId,
@@ -224,6 +232,7 @@ export function useInteractionSubmission({
         response: toSessionInteractionResponse(command),
       },
     });
+    if (goalView === null || !ownsView(goalView)) return;
     if (receipt.status === "rejected") {
       setError(receiptErrorText(receipt.error));
       return;
@@ -236,11 +245,12 @@ export function useInteractionSubmission({
       onDecisionAccepted({ interactionId: view.interactionId, runId: view.runId, summary: decisionSummary(command) });
     }
     await onRefreshSession();
-  }, [submission, view, control.submit, onRefreshSession, onDecisionAccepted]);
+  }, [submission, view, goalView, ownsView, isCurrentWait, submit, onRefreshSession, onDecisionAccepted]);
 
   const verifyFrozen = useCallback(async (): Promise<void> => {
-    if (submission.frozen === null) return;
-    const verification = await control.verify(submission.frozen.inputId);
+    if (submission.frozen === null || !isCurrentWait()) return;
+    const verification = await verify(submission.frozen.inputId);
+    if (goalView === null || !ownsView(goalView)) return;
     if (verification === "not_applied") {
       setError("This decision was not saved. You can retry the same decision.");
       return;
@@ -258,7 +268,7 @@ export function useInteractionSubmission({
       });
     }
     await onRefreshSession();
-  }, [submission.frozen, view, control.verify, onRefreshSession, onDecisionAccepted]);
+  }, [submission.frozen, view, goalView, ownsView, isCurrentWait, verify, onRefreshSession, onDecisionAccepted]);
 
   return { submission, submitCommand, verifyFrozen };
 }

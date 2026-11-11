@@ -1029,7 +1029,178 @@ test("Goal events and metrics reconnect after the server ends each stream", { ti
   }
 });
 
-function createMockApi() {
+test("Goal views reject late HTTP and SSE while keeping current approval and fixed history", { timeout: 90_000 }, async () => {
+  const mock = createMockApi({ secondGoal: true });
+  const statePath = "/api/goals/goal-1?view=state";
+  const activityPath = "/api/goals/goal-1/activity";
+  const fullPath = "/api/goals/goal-1";
+  mock.resetToAction("request-first");
+  mock.enablePinnedHistory();
+  const apiAddress = await listen(mock.server);
+  const origin = "http://127.0.0.1:4175";
+  const webServer = spawn(process.execPath, [
+    join(root, "node_modules/vite/bin/vite.js"), "--host", "127.0.0.1", "--port", "4175", "--strictPort",
+  ], { cwd: root, env: { ...process.env, LAZYGOAL_E2E_API_PORT: new URL(apiAddress).port }, stdio: "ignore" });
+  const profile = await mkdtemp(join(tmpdir(), "lazygoal-state-admission-"));
+  let chrome;
+  let socket;
+  try {
+    await waitForHttp(origin);
+    chrome = spawn(findChrome(), [
+      "--headless=new", "--no-sandbox", "--disable-gpu", "--no-first-run",
+      "--remote-debugging-port=0", `--user-data-dir=${profile}`, "about:blank",
+    ], { stdio: "ignore" });
+    const devtools = await waitForDevtools(profile, chrome);
+    const targets = await (await fetch(`http://127.0.0.1:${devtools.port}/json/list`)).json();
+    socket = await connectCdp(targets.find((item) => item.type === "page").webSocketDebuggerUrl);
+    await cdp(socket, "Page.enable");
+    await cdp(socket, "Runtime.enable");
+    await cdp(socket, "Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+    await navigate(socket, `${origin}/#${token}`);
+
+    const goalA = "document.querySelector('.workspace-recent button[title^=\"Collect approved\"]')";
+    const goalB = "document.querySelector('.workspace-recent button[title=\"Observe a different approval\"]')";
+    const approve = "[...document.querySelectorAll('.action-approval button')].find(button => button.textContent.trim() === 'Approve once')";
+    const linked = "document.querySelector('.stream-state')?.textContent === 'Connected'";
+    const click = async (expression) => {
+      await waitForExpression(socket, `${expression} != null && !${expression}.disabled`);
+      await value(socket, `${expression}.click()`);
+    };
+    const settlePaint = async () => {
+      await cdp(socket, "Runtime.evaluate", {
+        expression: "new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
+        awaitPromise: true,
+      });
+    };
+    const invalidateSession = () => mock.emit({ type: "stream_fault", goalId: "goal-1", code: "gap", resync: ["session"] });
+    const reload = "[...document.querySelectorAll('.command-error button')].find(button => button.textContent === 'Reload session')";
+
+    const historical = mock.holdRead(`${activityPath}?before=fixed-run-1`);
+    await click(goalA);
+    await waitForExpression(socket, `${approve}?.disabled === false`);
+    const first = mock.snapshot();
+    const oldRead = mock.holdRead(statePath);
+    invalidateSession();
+    const releaseOld = await oldRead;
+    mock.completeGoal();
+    mock.sync(mock.snapshot());
+    await waitForExpression(socket, "document.querySelector('.task-state')?.textContent === 'Completed'");
+    releaseOld(first);
+    mock.sync(first);
+    (await historical)();
+    await waitForExpression(socket, "document.querySelector('.session-timeline-feed')?.innerText.includes('Pinned historical note')");
+    assert.equal(await value(socket, `${approve} === undefined`), true);
+    assert.equal(await value(socket, "document.querySelector('.task-state')?.textContent"), "Completed");
+
+    mock.resetToAction("request-next", "run-2");
+    mock.sync(mock.snapshot());
+    mock.emit({ type: "interaction_opened", goalId: "goal-1", runId: "run-1", interactionId: first.goal.interaction.interactionId, kind: "action_approval" });
+    mock.emit({ type: "run_result", goalId: "goal-1", runId: "run-1", result: "completed" });
+    await waitForExpression(socket, `${approve}?.disabled === false`);
+
+    const failedRecovery = mock.holdRead(statePath);
+    mock.reconnectWith(first, true);
+    const releaseRecovery = await failedRecovery;
+    await waitForExpression(socket, `!(${linked}) && ${approve}?.disabled === true`);
+    releaseRecovery({ error: "goal_read_failed" }, 500);
+    await waitForExpression(socket, `${reload} != null`);
+    assert.equal(await value(socket, "document.querySelector('.session-timeline-feed')?.innerText.includes('Pinned historical note')"), true);
+
+    const missingSnapshot = mock.holdRead(statePath);
+    mock.sync(mock.snapshot(), false);
+    const releaseMissing = await missingSnapshot;
+    releaseMissing(first);
+    await settlePaint();
+    assert.equal(await value(socket, linked), false);
+    const recoveredRead = mock.holdRead(statePath);
+    mock.sync(mock.snapshot(), false);
+    (await recoveredRead)();
+    await waitForExpression(socket, linked);
+    const readsBeforeValidSync = [mock.reads(activityPath), mock.reads(fullPath)];
+    mock.sync(mock.snapshot());
+    await settlePaint();
+    await waitForExpression(socket, `(${linked}) && ${approve}?.disabled === false`);
+    assert.deepEqual([mock.reads(activityPath), mock.reads(fullPath)], readsBeforeValidSync);
+
+    const supersededFailure = mock.holdRead(statePath);
+    invalidateSession();
+    const releaseFailure = await supersededFailure;
+    mock.sync(mock.snapshot());
+    await waitForExpression(socket, `${approve}?.disabled === false`);
+    releaseFailure({ error: "goal_read_failed" }, 500);
+    await settlePaint();
+    assert.equal(await value(socket, `${reload} == null`), true);
+
+    const currentFailure = mock.holdRead(statePath);
+    invalidateSession();
+    (await currentFailure)({ error: "goal_read_failed" }, 500);
+    await waitForExpression(socket, `${reload} != null && ${approve}?.disabled === true`);
+    const previousState = mock.holdRead(statePath);
+    const previousActivity = mock.holdRead(activityPath);
+    const previousFull = mock.holdRead(fullPath);
+    await click(reload);
+    const [releasePreviousState, releasePreviousActivity] = await Promise.all([previousState, previousActivity]);
+    await click("document.querySelector('button[aria-label=\"Trajectory\"]')");
+    const releasePreviousFull = await previousFull;
+    const current = mock.snapshot();
+    await click(goalB);
+    await waitForExpression(socket, `(${linked}) && ${approve}?.disabled === false && document.querySelector('.action-approval').innerText.includes('secondary.txt')`);
+    await waitForLocal(() => !mock.goalEventsOpen());
+    mock.emitForSecond({ type: "state_sync", goalId: "goal-1", state: current.session, snapshot: current });
+    await settlePaint();
+    assert.equal(await value(socket, `(${linked}) && ${approve}?.disabled === false`), true);
+    assert.equal(await value(socket, `${goalB}.getAttribute('aria-current')`), "page");
+
+    const reopenedState = mock.holdRead(statePath);
+    await click(goalA);
+    const releaseReopened = await reopenedState;
+    const loading = "document.querySelector('.session-empty .loading-mark') !== null";
+    await waitForExpression(socket, loading);
+    const wrongGoal = { ...first.goal, intent: "Discarded first view", runStatus: "failed" };
+    releasePreviousState({ goal: wrongGoal, session: { ...first.session, runStatus: "failed", commitRevision: current.session.commitRevision + 20 } });
+    const oldActivity = mock.activityPage();
+    releasePreviousActivity({ ...oldActivity, items: oldActivity.items.map((item) =>
+      item.type === "message" ? { ...item, content: "Discarded first view history" } : item) });
+    releasePreviousFull({ error: "goal_read_failed" }, 500);
+    await settlePaint();
+    assert.equal(await value(socket, loading), true, await browserDiagnostics(socket));
+    assert.equal(await value(socket, "document.querySelector('.command-error') === null"), true);
+    releaseReopened(current);
+    await waitForExpression(socket, `(${linked}) && ${approve}?.disabled === false`);
+    assert.equal(await value(socket, "document.body.innerText.includes('Discarded first view history')"), false);
+    const reopenedFull = mock.holdRead(fullPath);
+    await click("document.querySelector('button[aria-label=\"Trajectory\"]')");
+    const releaseFull = await reopenedFull;
+    await waitForExpression(socket, "document.body.innerText.includes('Loading Trajectory…')");
+    releaseFull();
+    await click("document.querySelector('button[aria-label=\"Activity\"]')");
+    await click(approve);
+    await waitForLocal(() => mock.lastInteraction?.requestId === "request-next");
+    assert.equal(mock.lastInteraction.runId, "run-2");
+    assert.equal(mock.lastInteraction.response.kind, "approve_action");
+
+    await click("document.querySelector('button[aria-label=\"Close session\"]')");
+    const initialFailure = mock.holdRead(statePath);
+    await click(goalA);
+    (await initialFailure)({ error: "goal_read_failed" }, 500);
+    const firstReadRetry = "[...document.querySelectorAll('.session-empty[role=alert] button')].find(button => button.textContent === 'Reload session')";
+    await click(firstReadRetry);
+    await waitForExpression(socket, "document.querySelector('.task-state')?.textContent === 'Completed'");
+  } finally {
+    socket?.close();
+    if (chrome !== undefined && chrome.exitCode === null) {
+      const closed = once(chrome, "close");
+      chrome.kill("SIGTERM");
+      await closed;
+    }
+    webServer.kill("SIGTERM");
+    mock.server.close();
+    mock.server.closeAllConnections();
+    await rm(profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+  }
+});
+
+function createMockApi({ secondGoal = false } = {}) {
   let session = waitingSession();
   let currentListItem = listItem("waiting");
   let metricsStreamResponse;
@@ -1068,6 +1239,16 @@ function createMockApi() {
   let inputSequence = 0;
   const inputReceipts = new Map();
   let nextInteractionDetailsFailure;
+  const heldReads = new Map();
+  const readCounts = new Map();
+  let nextSync;
+  let secondEvents;
+  let historyCursor;
+  const secondIntent = "Observe a different approval";
+  const secondView = {
+    goalId: "goal-2", runId: "run-b", kind: "action_approval",
+    interactionId: "action_approval:action-b", actionId: "action-b", decisions: ["approve_action", "reject_action"], truncated: false,
+  };
   const nativeCall = { goalId: "goal-1", runId: "run-1", callId: "call-native", stepIndex: 1, stage: "decide", occurredAt: "2026-08-05T09:00:01.000Z", messages: [
     { role: "tool", source: "native_history", callId: "tool-call", toolId: "read_file", content: "Native tool result" },
     { role: "user", source: "section", content: `[Dynamic section: run_mode; source: Goal.intent]\n${"Follow the current request.\n".repeat(80)}` },
@@ -1087,25 +1268,33 @@ function createMockApi() {
     };
   };
   /** 订阅首项一致同步所需的公开会话状态。 */
-  const sessionState = () => ({
-    goalId: "goal-1",
-    runId: session.currentRunId,
-    runStatus: session.runStatus,
-    mode: session.currentRunMode === "plan" ? "plan" : "normal",
-    commitRevision: 1,
-    queueRevision: 0,
-    queuePaused: false,
-    pendingMessageCount: 0,
-    pendingSteerCount: 0,
-    needsRecovery: false,
-    executionOwner: true,
-    messages: { count: session.messages.length, recent: [] },
-    ...(session.runStatus !== "waiting" ? {} : {
-      waitingFor: session.pendingAction !== undefined
-        ? (session.pendingAction.status === "outcome_unknown" ? "action_recovery" : "action_approval")
-        : "ask_user",
-    }),
-  });
+  let lastProjectedSession;
+  let commitRevision = 0;
+  const sessionState = () => {
+    if (lastProjectedSession !== session) {
+      lastProjectedSession = session;
+      commitRevision += 1;
+    }
+    return {
+      goalId: "goal-1",
+      runId: session.currentRunId,
+      runStatus: session.runStatus,
+      mode: session.currentRunMode === "plan" ? "plan" : "normal",
+      commitRevision,
+      queueRevision: 0,
+      queuePaused: false,
+      pendingMessageCount: 0,
+      pendingSteerCount: 0,
+      needsRecovery: false,
+      executionOwner: true,
+      messages: { count: session.messages.length, recent: [] },
+      ...(session.runStatus !== "waiting" ? {} : {
+        waitingFor: session.pendingAction !== undefined
+          ? (session.pendingAction.status === "outcome_unknown" ? "action_recovery" : "action_approval")
+          : "ask_user",
+      }),
+    };
+  };
   /** 窄状态投影：只给出当前状态与等待点，历史正文和步骤显式外置。 */
   const goalState = () => ({
     goalId: "goal-1",
@@ -1187,6 +1376,21 @@ function createMockApi() {
   /** Goal 事件统一使用 `update`，metrics 使用 `snapshot`。 */
   const writeGoalEvent = (response, payload) => writeSseEvent(response, "update", payload);
   const writeMetricsSnapshot = (response, payload) => writeSseEvent(response, "snapshot", payload);
+  const snapshot = () => ({ goal: goalState(), session: sessionState() });
+  const publishSync = (response, pair = snapshot(), withSnapshot = true) => {
+    writeGoalEvent(response, { type: "state_sync", goalId: pair.goal.goalId, state: pair.session,
+      ...(withSnapshot ? { snapshot: pair } : {}) });
+  };
+  const respondToRead = (request, response, payload) => {
+    readCounts.set(request.url, (readCounts.get(request.url) ?? 0) + 1);
+    const hold = heldReads.get(request.url);
+    if (hold === undefined) {
+      json(response, payload);
+      return;
+    }
+    heldReads.delete(request.url);
+    hold((body = payload, status = 200) => json(response, body, status));
+  };
   const server = createServer(async (request, response) => {
     authorizationHeaders.push(request.headers.authorization ?? "");
     if (request.headers["last-event-id"] !== undefined) sawLastEventId = true;
@@ -1261,7 +1465,33 @@ function createMockApi() {
       return;
     }
     if (request.url === "/api/goals" && request.method === "GET") {
-      json(response, { goals: currentListItem === null ? [] : [currentListItem], unreadableCount: 0 });
+      const goals = currentListItem === null ? [] : [currentListItem];
+      if (secondGoal) goals.push({ ...listItem("waiting"), goalId: "goal-2", runId: "run-b", intent: secondIntent });
+      json(response, { goals, unreadableCount: 0 });
+      return;
+    }
+    if (secondGoal && request.url?.startsWith("/api/goals/goal-2")) {
+      const goal = {
+        ...goalState(), goalId: "goal-2", intent: secondIntent, currentRunId: "run-b", runStatus: "waiting",
+        interaction: secondView,
+        pendingAction: { actionId: "action-b", toolId: "write_file", status: "awaiting_approval", inputPreview: "{}", inputPreviewTruncated: false },
+      };
+      const state = { ...sessionState(), goalId: goal.goalId, runId: goal.currentRunId, runStatus: "waiting", commitRevision: 1 };
+      if (request.url.endsWith("?view=state")) json(response, { goal, session: state });
+      else if (request.url.endsWith("/events")) {
+        response.writeHead(200, { "content-type": "text/event-stream" });
+        secondEvents = response;
+        publishSync(response, { goal, session: state });
+      } else if (request.url.includes("/interaction-details?")) {
+        json(response, { ok: true, goalId: goal.goalId, runId: state.runId, interactionId: secondView.interactionId,
+          detail: { kind: "action_approval", actionId: "action-b", toolId: "write_file", approvalKind: "tool", input: { path: "secondary.txt" } } });
+      } else if (request.url.includes("/activity")) {
+        json(response, { ...activityPage(), goalId: goal.goalId, items: [], runs: [], window: [], actionGroups: [] });
+      } else if (request.url.includes("/models")) {
+        json(response, { provider: "openai", currentModelId: "model-default", models: [] });
+      } else {
+        json(response, { error: "not_found" }, 404);
+      }
       return;
     }
     if (request.url === "/api/goals/goal-1/archive" && request.method === "POST") {
@@ -1318,15 +1548,26 @@ function createMockApi() {
       return;
     }
     if (request.url === "/api/goals/goal-1" && request.method === "GET") {
-      json(response, { goal: session });
+      respondToRead(request, response, { goal: session });
       return;
     }
     if (request.url === "/api/goals/goal-1?view=state" && request.method === "GET") {
-      json(response, { goal: goalState() });
+      respondToRead(request, response, snapshot());
       return;
     }
     if (request.url?.startsWith("/api/goals/goal-1/activity") && request.method === "GET") {
-      json(response, activityPage());
+      const page = activityPage();
+      if (historyCursor !== undefined && request.url.includes("before=")) {
+        respondToRead(request, response, { ...page, items: [{
+          ...page.items[0], itemId: "message:pinned-history", messageId: "pinned-history", content: "Pinned historical note",
+        }], actionGroups: [] });
+        return;
+      }
+      if (historyCursor !== undefined) {
+        page.beforeCursor = historyCursor;
+        page.range.olderAvailable = true;
+      }
+      respondToRead(request, response, page);
       return;
     }
     if (request.url === "/api/goals/goal-1/models?runId=run-1" && request.method === "GET") {
@@ -1384,13 +1625,13 @@ function createMockApi() {
       }
       const query = new URL(request.url, "http://localhost").searchParams;
       const interactionId = query.get("interactionId");
-      if (query.get("runId") !== "run-1" || session.interaction === undefined
+      if (query.get("runId") !== session.currentRunId || session.interaction === undefined
         || interactionId !== session.interaction.interactionId) {
         json(response, { ok: false, error: "interaction_not_waiting" }, 409);
         return;
       }
       if (session.interaction.kind === "question") {
-        json(response, { ok: true, goalId: "goal-1", runId: "run-1", interactionId, detail: questionInteractionDetail });
+        json(response, { ok: true, goalId: "goal-1", runId: session.currentRunId, interactionId, detail: questionInteractionDetail });
         return;
       }
       if (session.pendingAction === undefined) {
@@ -1400,7 +1641,7 @@ function createMockApi() {
       json(response, {
         ok: true,
         goalId: "goal-1",
-        runId: "run-1",
+        runId: session.currentRunId,
         interactionId,
         detail: {
           kind: session.interaction.kind,
@@ -1436,7 +1677,8 @@ function createMockApi() {
       });
       activityResponse = response;
       response.on("close", () => { if (activityResponse === response) activityResponse = undefined; });
-      writeGoalEvent(response, { type: "state_sync", goalId: "goal-1", state: sessionState() });
+      publishSync(response, nextSync?.pair, nextSync?.withSnapshot);
+      nextSync = undefined;
       if (!liveTransitionSent) {
         liveTransitionSent = true;
         writeGoalEvent(response, { goalId: "goal-1", runId: "run-1", type: "activity", activity: { kind: "model_started" } });
@@ -1522,7 +1764,7 @@ function createMockApi() {
               return;
             }
             lastInteraction = command;
-            session = completedSession(session);
+            session = { ...completedSession(session), pendingAction: undefined };
             currentListItem = listItem("completed");
             const receipt = sessionInputReceipt(command.inputId, "respond", "applied");
             inputReceipts.set(command.inputId, receipt);
@@ -1608,6 +1850,27 @@ function createMockApi() {
   });
   return {
     server,
+    snapshot,
+    activityPage,
+    completeGoal() {
+      session = { ...completedSession(session), pendingAction: undefined };
+      currentListItem = listItem("completed");
+    },
+    reads: (path) => readCounts.get(path) ?? 0,
+    holdRead(path) {
+      return new Promise((resolve) => {
+        assert.equal(heldReads.has(path), false, path);
+        heldReads.set(path, resolve);
+      });
+    },
+    emit(event) { writeGoalEvent(activityResponse, event); },
+    emitForSecond(event) { writeGoalEvent(secondEvents, event); },
+    sync(pair, withSnapshot = true) { publishSync(activityResponse, pair, withSnapshot); },
+    reconnectWith(pair, withSnapshot) {
+      nextSync = { pair, withSnapshot };
+      activityResponse.end();
+    },
+    enablePinnedHistory() { historyCursor = "fixed-run-1"; },
     publishOutputRate() {
       assert.ok(metricsStreamResponse && !metricsStreamResponse.destroyed);
       currentMetrics = {
@@ -1635,7 +1898,7 @@ function createMockApi() {
       assert.ok(activityResponse && !activityResponse.destroyed);
       session = interactionSession();
       currentListItem = listItem("waiting");
-      writeGoalEvent(activityResponse, { goalId: "goal-1", runId: "run-1", type: "state_committed", commitRevision: 1, changed: ["session", "activity"] });
+      writeGoalEvent(activityResponse, { goalId: "goal-1", runId: "run-1", type: "state_committed", commitRevision: sessionState().commitRevision, changed: ["session", "activity"] });
     },
     /** 显式结束当前 Goal 事件流，触发客户端按既有退避重连。 */
     endGoalEvents() {
@@ -1718,14 +1981,16 @@ function createMockApi() {
       currentListItem = listItem("waiting");
       liveTransitionSent = true;
     },
-    resetToAction() {
+    resetToAction(requestId, runId = "run-1") {
       session = {
         ...interactionSession(),
+        currentRunId: runId,
         interaction: {
           goalId: "goal-1",
-          runId: "run-1",
+          runId,
           kind: "action_approval",
-          interactionId: "action_approval:action-1",
+          interactionId: `action_approval:${requestId ?? "action-1"}`,
+          ...(requestId === undefined ? {} : { requestId }),
           actionId: "action-1",
           decisions: ["approve_action", "approve_action_revision", "reject_action"],
           truncated: false,

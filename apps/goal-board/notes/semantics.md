@@ -24,9 +24,9 @@
 | 控制 reducer | 页面唯一的 `ControlState`：权威快照、意图生命周期、工具活动、独立资源与失效作用域。 | [Goal Board](../README.md) | [reducer.ts](../src/control/reducer.ts)、[模块说明](./overview.md#控制-reducer) |
 | 控制意图生命周期 | `pending → accepted → applied` 或 `rejected`／`unknown`；同一 `intentId` 保留冻结载荷，重复登记不改写。 | [Goal Board](../README.md) | [reducer.ts](../src/control/reducer.ts)、[控制命令 DTO](../../../packages/web-contracts/src/control.ts) |
 | 统一核验 | 结果不明时按 `inputId` 收据、权限 revision、`grantId`、Goal 状态、模型选择与 `pendingAction` 重新核对；只有 `not_applied` 允许原身份重试。 | [Goal Board](../README.md) | [verify.ts](../src/control/verify.ts) |
-| 权威控制快照 | `state_sync.snapshot` 直接替换会话控制状态；页面不再因同步事件完整重读 session／activity。 | [Goal Board](../README.md) | [useGoalSession](../src/hooks/useGoalSession.ts)、[useRunStream](../src/hooks/useRunStream.ts) |
-| 定向失效与读取 | `state_committed.changed` 与 `stream_fault.resync` 只触发声明范围的读取；普通控制事实不触发 HTTP 重读。 | [Goal Board](../README.md) | [事件路由](../src/control/event-routing.ts)、[useRunStream](../src/hooks/useRunStream.ts) |
-| 审批会话 | 由 `pendingAction`、最近预检与 `respond` 提交派生的 `unreviewed`／`reviewing`／`reviewed`／`submitting`／`accepted`／`settled`／`invalidated`／`unknown`。 | [Goal Board](../README.md) | [审批会话 selector](../src/control/approval-session.ts) |
+| 权威控制快照 | `state_sync.snapshot` 与窄 HTTP 共用控制快照，按视图代次、连接与同 Goal 修订接纳。 | [Goal Board](../README.md) | [useGoalSession](../src/hooks/useGoalSession.ts)、[useRunStream](../src/hooks/useRunStream.ts) |
+| 定向失效与读取 | `state_committed.changed` 与 `stream_fault.resync` 只触发声明范围的读取；需要确认等待或终态时只读窄状态。 | [Goal Board](../README.md) | [事件路由](../src/control/event-routing.ts)、[useRunStream](../src/hooks/useRunStream.ts) |
+| 审批会话 | 由 `pendingAction`、同一视图与等待的预检及 `respond` 提交派生的 `unreviewed`／`reviewing`／`reviewed`／`submitting`／`accepted`／`settled`／`invalidated`／`unknown`。 | [Goal Board](../README.md) | [审批会话 selector](../src/control/approval-session.ts) |
 | 工具活动生命周期 | 以 `actionId` + `executionUnitId` 聚合尝试；工具返回停在 `result_pending`，Observation 提交后进入 `observed_committed`。 | [Goal Board](../README.md) | [工具活动 selector](../src/control/tool-activity.ts) |
 | 模型选择原子化 | 一次 `model_selection` 完成模型切换与可选默认偏好；部分失败以子结果报告，重试复用同一意图身份。 | [Goal Board](../README.md) | [模型选择结果](../src/control/model-selection.ts)、[useModelSelection](../src/hooks/useModelSelection.ts) |
 | 交互决定摘要 | 当前页面暂存已受理的非权限决定摘要；工具／沙箱授权及修订授权不保留在输入区，刷新后清空。 | [Goal Board](../README.md) | [GoalSession](../src/components/GoalSession.tsx)、[交互提交](../src/interaction-panel.tsx) |

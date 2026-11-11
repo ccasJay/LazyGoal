@@ -175,9 +175,10 @@ export function GoalSession({
     if (followFrame.current !== null) window.cancelAnimationFrame(followFrame.current);
   }, []);
 
+  const sessionGoalId = session?.goalId;
   useEffect(() => {
-    if (session !== null && (sessionTab === "Plan" || sessionTab === "Trajectory" || goalInfoOpen)) void loadFullSession();
-  }, [session, sessionTab, goalInfoOpen, loadFullSession]);
+    if (sessionGoalId !== undefined && (sessionTab === "Plan" || sessionTab === "Trajectory" || goalInfoOpen)) void loadFullSession();
+  }, [sessionGoalId, sessionTab, goalInfoOpen, loadFullSession]);
 
   const isWaitingApprovalOrInput =
     session !== null &&
@@ -382,7 +383,8 @@ export function GoalSession({
           {session.nextRunMode === "plan" && <div className="session-intro">Next Run: Plan Mode</div>}
           {connection.isOutdated && (
             <div className="state-stale" role="alert">
-              The live connection dropped. The last confirmed content is shown, but it may be outdated. New Steer
+              {streamConnected ? "The saved state is being refreshed." : "The live connection dropped."}{" "}
+              The last confirmed content is shown, but it may be outdated. New Steer
               and Resume actions stay unavailable until the state is re-read.
               <Button variant="ghost" size="sm" type="button" onClick={() => void refreshSelectedSession()}>Re-read state</Button>
             </div>

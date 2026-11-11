@@ -134,9 +134,9 @@ function latestSubmissionIntent(state: ControlState, actionId: string): ControlI
 
 function approvalRequestId(state: ControlState, actionId: string): string | undefined {
   const interaction = state.snapshot?.session.interaction;
-  if (interaction?.actionId === actionId) return interaction.requestId;
+  if (interaction?.actionId === actionId) return interaction.requestId ?? actionId;
   const goalInteraction = state.snapshot?.goal.interaction;
-  return goalInteraction?.actionId === actionId ? goalInteraction.requestId : undefined;
+  return goalInteraction?.actionId === actionId ? goalInteraction.requestId ?? actionId : undefined;
 }
 
 function reviewOf(entry: ControlIntentState): BrowserActionReview | undefined {

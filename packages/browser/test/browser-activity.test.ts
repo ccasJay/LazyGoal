@@ -7,7 +7,7 @@ import { test } from "node:test";
 
 import { allocateImmutableEvent, createGoal, readTrajectoryAtSnapshot, type Goal, type TrajectoryEvent } from "../../runtime/src/index";
 import { testAssistantMessage } from "../../runtime/test/current-fixtures";
-import { isBrowserActivityPage } from "../../web-contracts/src/index";
+import { browserGoalSessionStateEnvelopeBinding, isBrowserActivityPage } from "../../web-contracts/src/index";
 import { createHttpService } from "../../http/src/index";
 import { JsonFileGoalStore, JsonFileTrajectoryStore } from "../../storage/src/index";
 import {
@@ -102,14 +102,16 @@ test("view=state 返回显式标注历史外置的窄状态，不读取完整会
     const response = await routes.request("/api/goals/goal-1?view=state");
 
     assert.equal(response.status, 200);
-    const state = await response.json();
+    const parsed = browserGoalSessionStateEnvelopeBinding.read(await response.json(), "reject");
+    assert.ok(parsed.ok);
+    const state = parsed.data;
     assert.deepEqual(state.goal.history, {
         messages: { included: false, source: "activity" },
         steps: { included: false, source: "activity" },
         stages: { included: false, source: "activity" },
     });
     assert.equal(state.goal.currentRunStepCount, first.state.run.stepCount);
-    assert.equal(state.session.commitRevision, 2);
+    assert.equal(state.session?.commitRevision, 2);
     assert.equal(restores, 1);
     assert.equal(fullReads, 0);
 });

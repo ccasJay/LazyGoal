@@ -29,7 +29,7 @@ import {
  * 初始读取不下载完整消息／步骤历史；切换 Goal 会使旧响应失效。完整读取只返回只读投影，
  * 不触发 Runtime 推进。
  *
- * @param callbacks - Goal 列表刷新与正式消息保存后清除对应临时正文的页面回调。
+ * @param options - 当前控制状态、Goal 列表刷新与正式消息保存后的临时正文清理。
  * @returns 当前选择、窄状态、Activity 窗口、按需完整会话及草稿控制。
  * @example
  * ```ts
@@ -69,7 +69,6 @@ export function useGoalSession({
   const activityLoadVersion = useRef(0);
   const activityWindowVersion = useRef(0);
   const sessionReadVersion = useRef(0);
-  const sessionConfirmed = useRef(0);
 
   const [draftSessionOpen, setDraftSessionOpen] = useState(false);
   const [draftPlanMode, setDraftPlanMode] = useState(false);
@@ -149,18 +148,15 @@ export function useGoalSession({
     }
   }, [ownsView, view]);
 
-  const confirmSession = useCallback(() => {
-    sessionConfirmed.current += 1;
-    setSessionError(null);
-  }, []);
+  const confirmSession = useCallback(() => setSessionError(null), []);
 
   const readSessionState = useCallback(async (target: GoalView, signal?: AbortSignal): Promise<boolean> => {
     if (!ownsView(target) || signal?.aborted) return false;
     const version = ++sessionReadVersion.current;
-    const confirmed = sessionConfirmed.current;
+    const previous = currentState().snapshot;
     const reportFailure = (message: string) => {
       if (ownsView(target) && !signal?.aborted && version === sessionReadVersion.current
-        && confirmed === sessionConfirmed.current) setSessionError(message);
+        && previous === currentState().snapshot) setSessionError(message);
     };
     try {
       const next = await browserApi.readGoalSessionState(target.goalId, signal);
@@ -170,8 +166,9 @@ export function useGoalSession({
         reportFailure("Could not confirm the current Goal state. Reload the session.");
         return false;
       }
-      if (version !== sessionReadVersion.current
-        && next.session.commitRevision === currentState().snapshot?.session.commitRevision) return false;
+      const latest = currentState().snapshot;
+      if (next.session.commitRevision === latest?.session.commitRevision
+        && (version !== sessionReadVersion.current || previous !== latest)) return false;
       const accepted = acceptSnapshot(target, { goal: next.goal, session: next.session });
       if (accepted) confirmSession();
       return accepted;
@@ -180,9 +177,6 @@ export function useGoalSession({
       return false;
     }
   }, [acceptSnapshot, confirmSession, currentState, ownsView]);
-
-  const refreshSessionState = useCallback(async (): Promise<boolean> =>
-    view !== null && readSessionState(view), [readSessionState, view]);
 
   const loadLatestActivity = useCallback(async (target: GoalView, signal?: AbortSignal) => {
     if (!ownsView(target)) return undefined;
@@ -324,7 +318,7 @@ export function useGoalSession({
     setFullSession(null);
     setFullSessionLoading(false);
     setFullSessionError(null);
-    if (view !== null || browserApi.hasAccessToken) setSessionError(null);
+    setSessionError(null);
     setActivityError(null);
     setLoadingEarlier(false);
   }, [view]);
@@ -365,7 +359,6 @@ export function useGoalSession({
     refreshSelectedSession,
     confirmSession,
     readSessionState,
-    refreshSessionState,
     refreshActivity,
     draftSessionOpen,
     setDraftSessionOpen,
