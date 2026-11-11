@@ -41,6 +41,14 @@ type WorkerCommand =
     | { readonly kind: "store-reply"; readonly requestId: string; readonly ok: false }
     | { readonly kind: "close" };
 
+type ParentOperationKind = "create-goal" | "advance" | "permission-response" | "interaction-response";
+type ActiveParentOperation = { readonly kind: ParentOperationKind; readonly requestSubmitted: Promise<void> };
+type ParentOperationLease = {
+    readonly requestSubmitted: Promise<void>;
+    readonly markRequestSubmitted: () => void;
+    readonly release: () => void;
+};
+
 /** Worker 推进 Goal 后向 Supervisor 报告的最小进度。 */
 export type WorkerProgress =
     | { readonly kind: "waiting"; readonly waitingFor: Extract<GoalProgressResult, { ok: true; kind: "waiting" }>['waitingFor'] }
@@ -138,13 +146,11 @@ export class SupervisorWorkerProcess {
     private readonly offlineProgress: WorkerOfflineProgress[] = [];
     private readonly progressReceipts = new Map<string, string[]>();
     private offlineProgressHandler: ((event: WorkerOfflineProgress) => void) | undefined;
-    private busy = false;
-    private cancelling = false;
+    private activeParentOperation: ActiveParentOperation | undefined;
     private remoteActive: boolean | undefined;
     private exitRecord: WorkerProcessExit | undefined;
     private exitHandler: ((exit: WorkerProcessExit) => void) | undefined;
     private closeRequested = false;
-    private advanceCommandSent: Promise<void> | undefined;
     private goalId: string | undefined;
     private closed = false;
     private readonly cancelRequests = new Map<string, Promise<WorkerProgress>>();
@@ -398,17 +404,19 @@ export class SupervisorWorkerProcess {
      * ```
      */
     async createGoal(input: WorkerGoalCreationRequest): Promise<Goal> {
-        if (this.closed || this.busy || this.cancelling || this.goalId !== undefined) {
+        if (this.closed || this.activeParentOperation !== undefined || this.cancelRequests.size > 0 || this.goalId !== undefined) {
             throw new Error("Worker is unavailable for Goal creation");
         }
-        this.busy = true;
+        const operation = this.beginParentOperation("create-goal");
         try {
-            const response = await this.request({ kind: "create-goal", requestId: randomUUID(), ...input });
+            const responsePromise = this.request({ kind: "create-goal", requestId: randomUUID(), ...input });
+            operation.markRequestSubmitted();
+            const response = await responsePromise;
             if (response.kind !== "create-goal-result") throw new Error("Unexpected Worker response");
             if (!response.ok) throw new Error(`Worker Goal creation failed: ${response.reason}`);
             return goalSnapshotCodec.decode(response.snapshot);
         } finally {
-            this.busy = false;
+            operation.release();
         }
     }
 
@@ -424,27 +432,22 @@ export class SupervisorWorkerProcess {
      * ```
      */
     async advance(goalId: string): Promise<WorkerProgress> {
-        if (this.closed || this.busy || this.cancelling) throw new Error("Worker is unavailable");
+        if (this.closed || this.activeParentOperation !== undefined || this.cancelRequests.size > 0) throw new Error("Worker is unavailable");
         const claim = this.options.triggers.workerClaim(this.options.workerId, this.options.generation);
         if (claim !== goalId) throw new Error("Worker Goal does not match its durable assignment");
         if (this.goalId !== undefined && this.goalId !== goalId) throw new Error("Worker still owns another Goal");
         this.goalId = goalId;
-        this.busy = true;
-        let markCommandSent!: () => void;
-        const commandSent = new Promise<void>((resolve) => { markCommandSent = resolve; });
-        this.advanceCommandSent = commandSent;
+        const operation = this.beginParentOperation("advance");
         try {
             const goal = await this.options.goals.restore(goalId);
             if (goal === undefined) throw new Error("Assigned Goal snapshot is unavailable");
-            const request = this.request({ kind: "advance", requestId: randomUUID(), goalId, runId: goal.state.run.id });
-            markCommandSent();
-            const response = await request;
+            const responsePromise = this.request({ kind: "advance", requestId: randomUUID(), goalId, runId: goal.state.run.id });
+            operation.markRequestSubmitted();
+            const response = await responsePromise;
             if (response.kind !== "advance-result") throw new Error("Unexpected Worker response");
             return response.result;
         } finally {
-            markCommandSent();
-            if (this.advanceCommandSent === commandSent) this.advanceCommandSent = undefined;
-            this.busy = false;
+            operation.release();
         }
     }
 
@@ -473,17 +476,17 @@ export class SupervisorWorkerProcess {
         const existing = this.cancelRequests.get(key);
         if (existing !== undefined) return existing;
         if (this.closed || this.goalId !== goalId) return Promise.reject(new Error("Worker does not own the cancellation target"));
-        if (this.cancelling) return Promise.reject(new Error("Worker already has a cancellation request"));
-        this.cancelling = true;
+        if (this.cancelRequests.size > 0) return Promise.reject(new Error("Worker already has a cancellation request"));
+        const activeOperation = this.activeParentOperation;
         const operation = (async (): Promise<WorkerProgress> => {
-            await this.advanceCommandSent;
+            await activeOperation?.requestSubmitted;
             const goal = await this.options.goals.restore(goalId);
             if (goal === undefined) throw new Error("Cancellation target snapshot is unavailable");
             if (goal.state.run.id !== expectedRunId) throw new Error("Cancellation target Run is stale");
             const response = await this.request({ kind: "cancel", requestId: randomUUID(), interruptId: requestId, goalId, runId: expectedRunId });
             if (response.kind !== "cancel-result") throw new Error("Unexpected Worker cancellation response");
             return response.result;
-        })().finally(() => { this.cancelling = false; });
+        })();
         this.cancelRequests.set(key, operation);
         void operation.finally(() => { if (this.cancelRequests.get(key) === operation) this.cancelRequests.delete(key); }).catch(() => undefined);
         return operation;
@@ -505,23 +508,18 @@ export class SupervisorWorkerProcess {
     async respondActionPermission(trigger: Trigger): Promise<WorkerProgress> {
         const goalId = "goalId" in trigger ? trigger.goalId : undefined;
         if (trigger.type !== "permission" || trigger.payload.action !== "decided"
-            || goalId === undefined || this.closed || this.busy || this.cancelling || this.goalId !== goalId) {
+            || goalId === undefined || this.closed || this.activeParentOperation !== undefined || this.cancelRequests.size > 0 || this.goalId !== goalId) {
             throw new Error("Worker does not own the permission target");
         }
-        this.busy = true;
-        let markCommandSent!: () => void;
-        const commandSent = new Promise<void>((resolve) => { markCommandSent = resolve; });
-        this.advanceCommandSent = commandSent;
+        const operation = this.beginParentOperation("permission-response");
         try {
-            const response = this.request({ kind: "permission-response", requestId: randomUUID(), trigger });
-            markCommandSent();
-            const result = await response;
+            const responsePromise = this.request({ kind: "permission-response", requestId: randomUUID(), trigger });
+            operation.markRequestSubmitted();
+            const result = await responsePromise;
             if (result.kind !== "permission-result") throw new Error("Unexpected Worker permission response");
             return result.result;
         } finally {
-            markCommandSent();
-            if (this.advanceCommandSent === commandSent) this.advanceCommandSent = undefined;
-            this.busy = false;
+            operation.release();
         }
     }
 
@@ -541,21 +539,18 @@ export class SupervisorWorkerProcess {
     async respondInteraction(trigger: Trigger): Promise<WorkerProgress> {
         const goalId = "goalId" in trigger ? trigger.goalId : undefined;
         if (trigger.type !== "interaction" || trigger.payload.action !== "answered"
-            || goalId === undefined || this.closed || this.busy || this.cancelling || this.goalId !== goalId) {
+            || goalId === undefined || this.closed || this.activeParentOperation !== undefined || this.cancelRequests.size > 0 || this.goalId !== goalId) {
             throw new Error("Worker does not own the interaction target");
         }
-        this.busy = true;
-        let markCommandSent!: () => void;
-        const commandSent = new Promise<void>((resolve) => { markCommandSent = resolve; });
-        this.advanceCommandSent = commandSent;
+        const operation = this.beginParentOperation("interaction-response");
         try {
-            const response = await this.request({ kind: "interaction-response", requestId: randomUUID(), trigger });
-            if (response.kind !== "interaction-result") throw new Error("Unexpected Worker interaction response");
-            return response.result;
+            const responsePromise = this.request({ kind: "interaction-response", requestId: randomUUID(), trigger });
+            operation.markRequestSubmitted();
+            const result = await responsePromise;
+            if (result.kind !== "interaction-result") throw new Error("Unexpected Worker interaction response");
+            return result.result;
         } finally {
-            markCommandSent();
-            if (this.advanceCommandSent === commandSent) this.advanceCommandSent = undefined;
-            this.busy = false;
+            operation.release();
         }
     }
 
@@ -571,7 +566,7 @@ export class SupervisorWorkerProcess {
      */
     confirmTerminal(goalId: string): void {
         if (this.goalId === undefined) return;
-        if (this.goalId !== goalId || this.busy) throw new Error("Worker terminal report is not settled");
+        if (this.goalId !== goalId || this.activeParentOperation !== undefined) throw new Error("Worker terminal report is not settled");
         this.goalId = undefined;
     }
 
@@ -586,7 +581,9 @@ export class SupervisorWorkerProcess {
      */
     async close(): Promise<void> {
         if (this.closed) return;
-        if (this.busy || this.cancelling || this.goalId !== undefined) throw new Error("Worker still owns an unsettled Goal");
+        if (this.activeParentOperation !== undefined || this.cancelRequests.size > 0 || this.goalId !== undefined) {
+            throw new Error("Worker still owns an unsettled Goal");
+        }
         this.closed = true;
         this.closeRequested = true;
         const closed = new Promise<void>((resolve, reject) => {
@@ -601,6 +598,30 @@ export class SupervisorWorkerProcess {
         });
         await this.writeCommand({ kind: "close" });
         await closed;
+    }
+
+    /** 在异步等待前占用唯一操作槽；释放时解除取消请求等待的派发屏障。 */
+    private beginParentOperation(kind: ParentOperationKind): ParentOperationLease {
+        if (this.activeParentOperation !== undefined) {
+            throw new Error(`Worker already has an active ${this.activeParentOperation.kind} operation`);
+        }
+        let markRequestSubmitted!: () => void;
+        const activeOperation: ActiveParentOperation = {
+            kind,
+            requestSubmitted: new Promise<void>((resolve) => { markRequestSubmitted = resolve; }),
+        };
+        this.activeParentOperation = activeOperation;
+        let released = false;
+        return {
+            requestSubmitted: activeOperation.requestSubmitted,
+            markRequestSubmitted,
+            release: () => {
+                if (released) return;
+                released = true;
+                markRequestSubmitted();
+                if (this.activeParentOperation === activeOperation) this.activeParentOperation = undefined;
+            },
+        };
     }
 
     private request(command: Extract<WorkerCommand, { readonly requestId: string }>): Promise<WorkerMessage> {
