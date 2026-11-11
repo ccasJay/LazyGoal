@@ -427,6 +427,7 @@ async function cancelAssignedGoal(message: Extract<ParentMessage, { readonly kin
     if (assignedGoalId !== message.goalId || assignedRunId !== message.runId) {
         return { kind: "rejected", code: "WORKER_GOAL_MISMATCH", message: "Worker does not own the cancellation target" };
     }
+    const advance = activeAdvance;
     try {
         const currentRuntime = await ensureRuntime();
         let goal = await currentRuntime.store.restore(message.goalId);
@@ -441,18 +442,19 @@ async function cancelAssignedGoal(message: Extract<ParentMessage, { readonly kin
             }
         }
         if (goal.state.run.status === "completed" || goal.state.run.status === "failed" || goal.state.run.status === "cancelled") {
+            await advance;
             return { kind: "terminal", status: goal.state.run.status };
         }
         const interrupted = await currentRuntime.commands.interrupt({ goalId: message.goalId, runId: message.runId }, message.interruptId);
         if (!interrupted.ok) {
             goal = await currentRuntime.store.restore(message.goalId);
             if (goal?.state.run.id === message.runId && (goal.state.run.status === "completed" || goal.state.run.status === "failed" || goal.state.run.status === "cancelled")) {
+                await advance;
                 return { kind: "terminal", status: goal.state.run.status };
             }
             return { kind: "rejected", code: interrupted.error, message: "Goal interruption was not accepted" };
         }
-        const advance = activeAdvance;
-        if (advance !== undefined) await advance;
+        await advance;
         if (latestProgress?.goalId === message.goalId && latestProgress.result.kind === "terminal") return latestProgress.result;
         goal = await currentRuntime.store.restore(message.goalId);
         if (goal?.state.run.id === message.runId && goal.state.run.status === "cancelled"

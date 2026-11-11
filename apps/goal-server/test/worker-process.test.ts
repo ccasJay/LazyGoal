@@ -224,3 +224,26 @@ test("Worker rejects both in-flight requests when child IPC disconnects without 
     await repliesRejected;
     assert.equal(worker.assignedGoalId, goalId);
 });
+
+test("A late interaction result cannot settle a newer Worker request", { timeout: 5000 }, async () => {
+    const { worker, child } = createFakeWorker(goalId);
+    const reply = worker.respondInteraction(interaction);
+    const replyCommand = await child.waitForCommand("interaction-response");
+    const cancellation = worker.cancel(goalId, runId, "stop");
+    const cancelCommand = await child.waitForCommand("cancel");
+    const result = { kind: "terminal", status: "cancelled" } as const;
+    child.emit("message", { kind: "interaction-result", requestId: replyCommand.requestId, goalId, result });
+    child.emit("message", { kind: "cancel-result", requestId: cancelCommand.requestId, goalId, result });
+    await Promise.all([reply, cancellation]);
+    worker.confirmTerminal(goalId);
+
+    const probe = worker.probe();
+    const probeCommand = await child.waitForCommand("probe");
+    child.emit("message", { kind: "interaction-result", requestId: replyCommand.requestId, goalId, result });
+    assert.equal(worker.assignedGoalId, undefined);
+    assert.deepEqual(worker.drainOfflineProgress(), [{ kind: "interaction-result", requestId: replyCommand.requestId, goalId, result }]);
+    child.emit("message", { kind: "probe-result", requestId: probeCommand.requestId, pid: child.pid,
+        workerId: "worker-operation-slot", generation: "generation-operation-slot" });
+    assert.equal(await probe, child.pid);
+    await worker.close();
+});

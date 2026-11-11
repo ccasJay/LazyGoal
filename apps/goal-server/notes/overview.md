@@ -127,8 +127,10 @@ OpenCode Go 在线文本模型按实时模型元数据确认文本生成、工�
 
 [Trigger 准入组件](../src/runtime/trigger-admission.ts) 对显式用户工作使用确定性 Fast path；其他来源由 Supervisor 直接调用模型执行 Slow path。准入失败分类随未路由 Trigger 保存，Supervisor 重启时会直接从该事件恢复处理。默认浏览器入口使用该准入路径。
 
-[独立 Worker](../src/runtime/worker-process.ts) 以 OS 子进程复用执行 Runtime；Goal 快照经 generation 与持久队列绑定核验后由 Supervisor 保存，等待中的 Goal 保持 Worker 占用。Worker 持久化离线 outbox 与执行检查点；等待、终态和取消确认以绑定 Worker 身份的 `progress` Trigger 持久记录。取消只在 Runtime 中断结算且 Supervisor 保存终态报告后释放进程。
+[独立 Worker](../src/runtime/worker-process.ts) 以 OS 子进程复用执行 Runtime。Goal 快照经 generation 与持久队列绑定核验后由 Supervisor 保存。Worker 将执行检查点和待确认的结果保存在本地 outbox。
 
-[Worker 调度器](../src/runtime/worker-scheduler.ts) 按持久队列顺序认领 Goal，匹配同一授权工作区的空闲 Worker；需要时启动新进程，不为不同 Goal 设并发上限。只有 Runtime 报告终态且队列状态提交后才释放 Worker。
+对已确认绑定的 Worker，[取消路由](../src/runtime/worker-scheduler.ts)直接派发当前 Run 的取消。正在提交推进或回复命令时，取消等该命令提交后即可发送。原操作槽保留到其结果返回或通信失败。断线且缺少终态证据时，Supervisor 保留持久绑定与未路由 Trigger，供恢复流程核验。
+
+[Worker 调度器](../src/runtime/worker-scheduler.ts) 按持久队列顺序认领 Goal，匹配同一授权工作区的空闲 Worker，需要时启动新进程。等待中的 Goal 保持 Worker 占用。原操作返回、终态 Snapshot 与响应保存、队列提交终态后，Worker 才可复用。取消遇到已完成或失败的 Run 时返回已有终态。
 
 [Goal 工作区管理器](../src/runtime/goal-workspace.ts) 根据准入选择使用共享目录或在干净 Git 项目中创建可恢复的独立 worktree。项目权限身份保持在项目根；合并前需要绑定 Goal、目标分支、head 和变更摘要的用户确认，合并后才清理 worktree。

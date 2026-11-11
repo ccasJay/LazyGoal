@@ -7,6 +7,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { createGoal } from "../../../packages/runtime/src/domain";
 import { transition } from "../../../packages/runtime/src/transition";
@@ -424,7 +425,7 @@ test("活动模型调用收到取消后等待 Runtime 结算，再持久化终�
     }
 });
 
-test("Runtime 执行失败发布仅含 Run 身份的 failed 响应", { timeout: 30000 }, async () => {
+test("Stop preserves the saved failure when the Worker operation is still settling", { timeout: 30000 }, async (context) => {
     const root = await mkdtemp(join(tmpdir(), "lg-worker-failed-response-"));
     const workspace = join(root, "workspace");
     const home = join(root, "home");
@@ -456,6 +457,16 @@ test("Runtime 执行失败发布仅含 Run 身份的 failed 响应", { timeout: 
     const owner = new SupervisorOwnership(join(dataDirectory, "owner.db"));
     const triggers = new TriggerStore(join(dataDirectory, "triggers.db"));
     const goals = new JsonFileGoalStore(join(dataDirectory, "goals"));
+    const failedSnapshotSaved = Promise.withResolvers<void>();
+    const acknowledgeFailedSnapshot = Promise.withResolvers<void>();
+    const saveGoal = goals.save.bind(goals);
+    context.mock.method(goals, "save", async (goal: Parameters<typeof saveGoal>[0]) => {
+        await saveGoal(goal);
+        if (goal.state.run.status === "failed") {
+            failedSnapshotSaved.resolve();
+            await acknowledgeFailedSnapshot.promise;
+        }
+    });
     const scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, permissionAdapter: never });
     const work = workTrigger("failed-run-work-trigger", "Fail after transient model errors");
     try {
@@ -470,19 +481,33 @@ test("Runtime 执行失败发布仅含 Run 身份的 failed 响应", { timeout: 
         }));
         const goalId = acceptedGoalId(accepted);
         await scheduler.pump();
+        await withTimeout(failedSnapshotSaved.promise, 20000, "The failed snapshot was not saved");
+        const stop = cancelTrigger("stop-after-failed-snapshot", goalId, "run-failed-response");
+        const stopping = scheduler.handleCancelTrigger(stop, { ...principal, goalIds: [goalId] });
+        const earlyOutcome = stopping.then(() => "returned", () => "rejected");
+        await waitFor(() => triggers.routeStatus(stop.id) !== undefined);
+        assert.equal(await Promise.race([earlyOutcome, delay(250, "pending")]), "pending");
+        assert.notEqual(triggers.queueRecord(goalId)?.status, "terminal");
+        assert.equal(scheduler.assignments()[0]?.goalId, goalId);
+        acknowledgeFailedSnapshot.resolve();
+        assert.deepEqual(await stopping, { kind: "terminal", status: "failed" });
+        assert.equal(triggers.routeStatus(stop.id), "routed");
         await waitFor(() => triggers.queueRecord(goalId)?.status === "terminal", 20000);
         const failedGoal = await goals.restore(goalId);
         assert.ok(failedGoal !== undefined);
         assert.equal(failedGoal.state.run.status, "failed");
         assert.ok(modelRequests >= 1);
-        const failedReport = triggers.listGoalTriggers(goalId).find((trigger) => trigger.type === "response"
+        const failedReports = triggers.listGoalTriggers(goalId).filter((trigger) => trigger.type === "response"
             && trigger.payload.action === "failed");
+        assert.equal(failedReports.length, 1);
+        const [failedReport] = failedReports;
         assert.ok(failedReport !== undefined && failedReport.type === "response");
         assert.deepEqual(failedReport.payload, { action: "failed", runId: failedGoal.state.run.id });
         assert.equal(failedReport.replyTo, work.id);
         assert.equal(triggers.routeStatus(failedReport.id), "routed");
         await scheduler.closeIdle();
     } finally {
+        acknowledgeFailedSnapshot.resolve();
         server.closeAllConnections();
         await new Promise<void>((resolve) => server.close(() => resolve()));
         const pids = await scheduler.processIds().catch(() => []);

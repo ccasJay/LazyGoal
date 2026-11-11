@@ -1,5 +1,6 @@
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -12,6 +13,8 @@ import { SupervisorOwnership } from "../../../packages/storage/src/supervisor-ow
 import { TriggerStore } from "../../../packages/storage/src/trigger-store";
 import { receiveAuthorizedTrigger } from "../../../packages/storage/src/trigger-ingress";
 import { admitTrigger } from "../src/runtime/trigger-admission";
+import { SupervisorWorkerProcess } from "../src/runtime/worker-process";
+import type { WorkerOfflineProgress } from "../src/runtime/worker-process-registry";
 import { WorkerScheduler } from "../src/runtime/worker-scheduler";
 
 function chatChunk(delta: Record<string, unknown>, finishReason: string | null = null): Record<string, unknown> {
@@ -36,14 +39,14 @@ async function waitFor(predicate: () => boolean, timeoutMs = 15000): Promise<voi
 }
 
 test("an unrouted interaction answer survives Supervisor reattachment and completes only its current Goal wait", { timeout: 30000 },
-    () => runInteractionScenario("reattached-completion"));
+    (context) => runInteractionScenario(context, "reattached-completion"));
 
 for (const route of ["direct", "replayed"] as const) {
     test(`Stop interrupts a model call resumed by a ${route} interaction answer`, { timeout: 30000 },
-        () => runInteractionScenario(route));
+        (context) => runInteractionScenario(context, route));
 }
 
-async function runInteractionScenario(route: "direct" | "replayed" | "reattached-completion"): Promise<void> {
+async function runInteractionScenario(context: TestContext, route: "direct" | "replayed" | "reattached-completion"): Promise<void> {
     const root = await mkdtemp(join(tmpdir(), "lg-worker-interaction-"));
     const workspace = join(root, "workspace");
     const home = join(root, "home");
@@ -85,7 +88,7 @@ async function runInteractionScenario(route: "direct" | "replayed" | "reattached
             const evidenceMatches = [...JSON.stringify(messages).matchAll(/Valid committed evidence sequences: ([0-9, ]+)/g)];
             const evidenceSequences = evidenceMatches.at(-1)?.[1]?.split(",").map((value) => Number(value.trim()))
                 .filter(Number.isSafeInteger) ?? [];
-            const scripted = runCalls === 1
+            const scripted = runCalls === 1 || (route === "replayed" && runCalls === 3)
                 ? ["ask_user", { questions: [{ header: "Choice", question: "Which option should I use?",
                     options: [{ label: "Option A" }, { label: "Option B" }], multiSelect: false }] }]
                 : runCalls === 2
@@ -120,6 +123,16 @@ async function runInteractionScenario(route: "direct" | "replayed" | "reattached
     let owner = new SupervisorOwnership(join(dataDirectory, "owner.db"));
     let triggers = new TriggerStore(join(dataDirectory, "triggers.db"));
     const goals = new JsonFileGoalStore(join(dataDirectory, "goals"));
+    const terminalSave = Promise.withResolvers<void>();
+    let terminalSavePending = false;
+    const saveGoal = goals.save.bind(goals);
+    context.mock.method(goals, "save", async (goal: Parameters<typeof saveGoal>[0]) => {
+        if (goal.state.run.status === "cancelled" && goal.state.run.interruption?.status === "finished") {
+            terminalSavePending = true;
+            await terminalSave.promise;
+        }
+        await saveGoal(goal);
+    });
     const never = { structuredOutputMode: "prompt_only" as const, async generate() { throw new Error("No permission decision is expected"); } };
     let scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, permissionAdapter: never });
     let storesOpen = true;
@@ -130,6 +143,15 @@ async function runInteractionScenario(route: "direct" | "replayed" | "reattached
         void operation.catch(() => undefined);
         return operation;
     };
+    let receiveOfflineProgress: ((progress: WorkerOfflineProgress) => void) | undefined;
+    if (route === "replayed") {
+        const setHandler = SupervisorWorkerProcess.prototype.setOfflineProgressHandler;
+        context.mock.method(SupervisorWorkerProcess.prototype, "setOfflineProgressHandler",
+            function (this: SupervisorWorkerProcess, handler: (progress: WorkerOfflineProgress) => void) {
+                receiveOfflineProgress = handler;
+                setHandler.call(this, handler);
+            });
+    }
     const principal = { role: "user", externalId: "test-actor", mayCreateGoal: true, goalIds: [] } as const;
     const work = workTrigger("worker-interaction-work", "Ask a question and wait for an answer");
     let goalId: string | undefined;
@@ -137,10 +159,10 @@ async function runInteractionScenario(route: "direct" | "replayed" | "reattached
         assert.deepEqual(work.payload, {
             action: "submitted", material: { kind: "text", text: "Ask a question and wait for an answer" },
         });
-        const admission = await admitTrigger(owner, triggers, goals, never, work, principal, async (intent, reservedGoalId, workspaceMode) => {
+        const createGoal: Parameters<typeof admitTrigger>[6] = async (intent, reservedGoalId, workspaceMode) => {
             const authorizedWorkspace = { mode: workspaceMode, projectRoot: workspace, executionRoot: workspace } as const;
             const goal = await scheduler.createGoal({
-                goalId: reservedGoalId ?? "worker-interaction-goal",
+                goalId: reservedGoalId ?? randomUUID(),
                 intent,
                 mode: "normal",
                 modelSelection: { provider: "openai-compatible", modelId: "test-model", contextWindowTokens: 16000,
@@ -150,7 +172,8 @@ async function runInteractionScenario(route: "direct" | "replayed" | "reattached
                 goal,
                 authorization: { workspace: authorizedWorkspace, toolIds: [], sandbox: { extraFiles: [], network: "none" as const } },
             };
-        });
+        };
+        const admission = await admitTrigger(owner, triggers, goals, never, work, principal, createGoal);
         if (admission.kind !== "accepted") throw new Error("Expected Trigger admission to accept the Goal");
         goalId = admission.goalId;
         const creationResponse = triggers.listGoalTriggers(goalId).find((trigger) => trigger.type === "response"
@@ -220,12 +243,50 @@ async function runInteractionScenario(route: "direct" | "replayed" | "reattached
         if (route !== "reattached-completion") {
             await waitFor(() => resumedRequestOpen);
             const stop = cancelTrigger("stop-resumed-interaction", goalId, waitingGoal.state.run.id);
-            const stopping = track(scheduler.handleCancelTrigger(stop, interactionPrincipal));
+            let stopSettled = false;
+            const stopping = track(scheduler.handleCancelTrigger(stop, interactionPrincipal).finally(() => { stopSettled = true; }));
             await waitFor(() => resumedRequestClosed, 8000);
+            await waitFor(() => terminalSavePending);
+            assert.equal(stopSettled, false);
+            assert.equal(triggers.routeStatus(stop.id), "unrouted");
+            assert.equal(triggers.routeStatus(interaction.id), "unrouted");
+            assert.equal(triggers.queueRecord(goalId)?.status, "waiting");
+            assert.deepEqual(scheduler.assignments(), [{ workerId: workerProcesses[0]!.workerId, goalId }]);
+            terminalSave.resolve();
+
             assert.deepEqual(await stopping, { kind: "terminal", status: "cancelled" });
             await answering;
+            const stoppedGoal = await goals.restore(goalId);
+            assert.equal(stoppedGoal?.state.run.id, waitingGoal.state.run.id);
+            assert.equal(stoppedGoal?.state.run.status, "cancelled");
+            assert.equal(stoppedGoal?.state.run.interruption?.status, "finished");
+            assert.equal(triggers.queueRecord(goalId)?.status, "terminal");
+            assert.deepEqual(scheduler.assignments(), [{ workerId: workerProcesses[0]!.workerId }]);
+            const cancelled = triggers.listGoalTriggers(goalId).filter((trigger) => trigger.type === "response"
+                && trigger.payload.action === "cancelled");
+            assert.equal(cancelled.length, 1);
+            assert.equal(cancelled[0]?.replyTo, work.id);
+            assert.deepEqual(cancelled[0]?.payload, { action: "cancelled", runId: waitingGoal.state.run.id });
+            assert.equal(triggers.routeStatus(cancelled[0]!.id), "routed");
             assert.equal(triggers.routeStatus(interaction.id), "routed");
             assert.equal(triggers.routeStatus(stop.id), "routed");
+
+            if (route === "replayed") {
+                const next = await admitTrigger(owner, triggers, goals, never, workTrigger("next-work"), principal, createGoal);
+                if (next.kind !== "accepted") assert.fail("Expected the next Goal to be accepted");
+                await scheduler.pump();
+                await waitFor(() => triggers.queueRecord(next.goalId)?.status === "waiting");
+                assert.deepEqual(await scheduler.processIds(), workerProcesses);
+                assert.ok(receiveOfflineProgress !== undefined);
+                receiveOfflineProgress({ kind: "interaction-result", requestId: "old-interaction-result", goalId,
+                    result: { kind: "waiting", waitingFor: "ask_user" } });
+                await scheduler.closeIdle();
+                assert.deepEqual(scheduler.assignments(), [{ workerId: workerProcesses[0]!.workerId, goalId: next.goalId }]);
+                assert.equal(triggers.queueRecord(goalId)?.status, "terminal");
+                assert.equal(triggers.queueRecord(next.goalId)?.status, "waiting");
+                assert.deepEqual(triggers.listGoalTriggers(goalId).filter((trigger) => trigger.type === "response"
+                    && trigger.payload.action === "cancelled"), cancelled);
+            }
             return;
         }
         await answering;
@@ -264,8 +325,15 @@ async function runInteractionScenario(route: "direct" | "replayed" | "reattached
         });
         assert.equal(completedReport.replyTo, work.id);
         assert.equal(triggers.routeStatus(completedReport.id), "routed");
+        const stop = cancelTrigger("stop-after-completion", goalId, updatedGoal.state.run.id);
+        assert.deepEqual(await scheduler.handleCancelTrigger(stop, interactionPrincipal), { kind: "terminal", status: "completed" });
+        assert.equal(triggers.routeStatus(stop.id), "routed");
+        assert.deepEqual(await goals.restore(goalId), updatedGoal);
+        assert.deepEqual(triggers.listGoalTriggers(goalId).filter((trigger) => trigger.type === "response"
+            && trigger.payload.action === "completed"), [completedReport]);
         assert.equal(runCalls, 2);
     } finally {
+        terminalSave.resolve();
         server.closeAllConnections();
         await new Promise<void>((resolve) => server.close(() => resolve()));
         const activeWorkers = await scheduler.processIds().catch(() => []);
