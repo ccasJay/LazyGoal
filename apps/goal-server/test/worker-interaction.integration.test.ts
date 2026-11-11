@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { projectInteractionView } from "../../../packages/runtime/src/interaction-view";
-import { externalTestActor, interactionAnswerTrigger, workTrigger } from "../../../packages/runtime/test/trigger-fixtures";
+import { cancelTrigger, externalTestActor, interactionAnswerTrigger, workTrigger } from "../../../packages/runtime/test/trigger-fixtures";
 import type { GoalUserAction } from "../../../packages/runtime/src/trigger";
 import { JsonFileGoalStore } from "../../../packages/storage/src/goal-store";
 import { SupervisorOwnership } from "../../../packages/storage/src/supervisor-ownership";
@@ -35,7 +35,15 @@ async function waitFor(predicate: () => boolean, timeoutMs = 15000): Promise<voi
     }
 }
 
-test("an unrouted interaction answer survives Supervisor reattachment and completes only its current Goal wait", { timeout: 30000 }, async () => {
+test("an unrouted interaction answer survives Supervisor reattachment and completes only its current Goal wait", { timeout: 30000 },
+    () => runInteractionScenario("reattached-completion"));
+
+for (const route of ["direct", "replayed"] as const) {
+    test(`Stop interrupts a model call resumed by a ${route} interaction answer`, { timeout: 30000 },
+        () => runInteractionScenario(route));
+}
+
+async function runInteractionScenario(route: "direct" | "replayed" | "reattached-completion"): Promise<void> {
     const root = await mkdtemp(join(tmpdir(), "lg-worker-interaction-"));
     const workspace = join(root, "workspace");
     const home = join(root, "home");
@@ -48,6 +56,8 @@ test("an unrouted interaction answer survives Supervisor reattachment and comple
         description: "Test", systemPrompt: "Ask the user one question, then wait for input.", instructions: ["Follow the requested interaction."], toolIds: [] }));
 
     let runCalls = 0;
+    let resumedRequestOpen = false;
+    let resumedRequestClosed = false;
     const server = createServer((request, response) => {
         void (async () => {
             let bodyText = "";
@@ -64,6 +74,13 @@ test("an unrouted interaction answer survives Supervisor reattachment and comple
                 return;
             }
             runCalls += 1;
+            if (runCalls === 2 && route !== "reattached-completion") {
+                response.writeHead(200, { "content-type": "text/event-stream" });
+                response.flushHeaders();
+                response.once("close", () => { resumedRequestClosed = true; });
+                resumedRequestOpen = true;
+                return;
+            }
             const messages = Array.isArray(body.messages) ? body.messages : [];
             const evidenceMatches = [...JSON.stringify(messages).matchAll(/Valid committed evidence sequences: ([0-9, ]+)/g)];
             const evidenceSequences = evidenceMatches.at(-1)?.[1]?.split(",").map((value) => Number(value.trim()))
@@ -107,6 +124,12 @@ test("an unrouted interaction answer survives Supervisor reattachment and comple
     let scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, permissionAdapter: never });
     let storesOpen = true;
     let workerPids: number[] = [];
+    const operations: Promise<unknown>[] = [];
+    const track = <T>(operation: Promise<T>): Promise<T> => {
+        operations.push(operation);
+        void operation.catch(() => undefined);
+        return operation;
+    };
     const principal = { role: "user", externalId: "test-actor", mayCreateGoal: true, goalIds: [] } as const;
     const work = workTrigger("worker-interaction-work", "Ask a question and wait for an answer");
     let goalId: string | undefined;
@@ -179,19 +202,33 @@ test("an unrouted interaction answer survives Supervisor reattachment and comple
         assert.equal(interaction.goalId, goalId);
         assert.equal(interaction.replyTo, work.id);
 
-        receiveAuthorizedTrigger(triggers, interaction, interactionPrincipal);
-        assert.equal(triggers.routeStatus(interaction.id), "unrouted");
+        if (route !== "direct") {
+            receiveAuthorizedTrigger(triggers, interaction, interactionPrincipal);
+            assert.equal(triggers.routeStatus(interaction.id), "unrouted");
 
-        await scheduler.detachAll();
-        triggers.close();
-        await owner.close();
-        storesOpen = false;
+            await scheduler.detachAll();
+            triggers.close();
+            await owner.close();
+            storesOpen = false;
 
-        owner = new SupervisorOwnership(join(dataDirectory, "owner.db"));
-        triggers = new TriggerStore(join(dataDirectory, "triggers.db"));
-        storesOpen = true;
-        scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, permissionAdapter: never });
-        await scheduler.pump();
+            owner = new SupervisorOwnership(join(dataDirectory, "owner.db"));
+            triggers = new TriggerStore(join(dataDirectory, "triggers.db"));
+            storesOpen = true;
+            scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, permissionAdapter: never });
+        }
+        const answering = track(route === "direct" ? scheduler.handleInteractionTrigger(interaction, interactionPrincipal) : scheduler.pump());
+        if (route !== "reattached-completion") {
+            await waitFor(() => resumedRequestOpen);
+            const stop = cancelTrigger("stop-resumed-interaction", goalId, waitingGoal.state.run.id);
+            const stopping = track(scheduler.handleCancelTrigger(stop, interactionPrincipal));
+            await waitFor(() => resumedRequestClosed, 8000);
+            assert.deepEqual(await stopping, { kind: "terminal", status: "cancelled" });
+            await answering;
+            assert.equal(triggers.routeStatus(interaction.id), "routed");
+            assert.equal(triggers.routeStatus(stop.id), "routed");
+            return;
+        }
+        await answering;
         await waitFor(() => triggers.routeStatus(interaction.id) === "routed" && triggers.queueRecord(goalId!)?.status === "terminal");
 
         const recoveredProcesses = await scheduler.processIds();
@@ -229,28 +266,13 @@ test("an unrouted interaction answer survives Supervisor reattachment and comple
         assert.equal(triggers.routeStatus(completedReport.id), "routed");
         assert.equal(runCalls, 2);
     } finally {
-        if (storesOpen && goalId !== undefined && triggers.queueRecord(goalId)?.status !== "terminal") {
-            const current = await goals.restore(goalId).catch(() => undefined);
-            if (current !== undefined) {
-                const cancel = {
-                    id: "worker-interaction-cleanup-cancel",
-                    name: "Cancel interaction test",
-                    type: "instruction" as const,
-                    source: externalTestActor,
-                    target: "worker" as const,
-                    goalId,
-                    payload: { action: "cancel" as const, runId: current.state.run.id },
-                    sentAt: "2026-11-09T00:00:00.000Z",
-                };
-                await scheduler.handleCancelTrigger(cancel, { ...principal, mayCreateGoal: false, goalIds: [goalId] }).catch(() => undefined);
-            }
-        }
         server.closeAllConnections();
         await new Promise<void>((resolve) => server.close(() => resolve()));
         const activeWorkers = await scheduler.processIds().catch(() => []);
         for (const pid of new Set([...workerPids, ...activeWorkers.map((worker) => worker.pid)])) {
             try { process.kill(pid, "SIGKILL"); } catch { /* Worker already exited. */ }
         }
+        await Promise.allSettled(operations);
         await scheduler.closeIdle().catch(() => undefined);
         if (storesOpen) {
             triggers.close();
@@ -258,4 +280,4 @@ test("an unrouted interaction answer survives Supervisor reattachment and comple
         }
         await rm(root, { recursive: true, force: true });
     }
-});
+}

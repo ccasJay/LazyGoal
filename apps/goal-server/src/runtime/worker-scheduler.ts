@@ -12,7 +12,7 @@ import {
     decodeTriggerActionPermissionReply,
     decodeTriggerActionPermissionRequest,
 } from "../../../../packages/storage/src/trigger-permission-codec";
-import type { TriggerActionPermissionFailureReason } from "../../../../packages/storage/src/trigger-store";
+import type { TriggerActionPermissionFailureReason, TriggerGoalQueueRecord } from "../../../../packages/storage/src/trigger-store";
 import type { TriggerActionPermissionReply, TriggerActionPermissionRequest } from "../../../../packages/storage/src/trigger-permission";
 import { decodeWorkerInteractionPayload } from "./worker-interaction";
 import { decideWorkerActionPermission } from "./worker-permission";
@@ -245,6 +245,7 @@ export class WorkerScheduler {
      *
      * @remarks
      * 先验证来源授权与当前 Run 身份，再持久保存 Trigger；路由时再次核对当前 Run，Worker 也按该 Run 身份执行中断。
+     * 已确认当前 Worker 绑定时直接派发取消，允许与交互回复结算并发；绑定缺失时先尝试队列恢复。
      * Worker 只有在 Runtime 中断结果及 Supervisor 对应 Goal 进度已持久化后才标记该 Trigger 已路由。
      * 队列的等待或终态状态仍由独立的 Goal 队列记录。
      * 断连、过期代次或未确认停止会保留原队列绑定，不终止进程，也不重新派发副作用未知的工作。未路由 Trigger 留在 Store 供 `pump()` 使用原事件恢复；调用方不得重交相同 ID。
@@ -269,8 +270,15 @@ export class WorkerScheduler {
         await this.assertCurrentCancellationRun(goalId, trigger.payload.runId);
         this.options.triggers.receive(authorizedTrigger);
 
-        await this.pump();
+        const queue = this.options.triggers.queueRecord(goalId);
+        if (queue?.status !== "terminal" && this.cancellationWorker(queue) === undefined) await this.pump();
         return this.routeCancelTrigger(authorizedTrigger);
+    }
+
+    private cancellationWorker(queue: TriggerGoalQueueRecord | undefined): WorkerSlot | undefined {
+        if (queue?.workerId === undefined || queue.generation === undefined) return undefined;
+        const slot = this.workers.get(queue.workerId);
+        return slot?.generation === queue.generation && slot.process.assignedGoalId === queue.goalId ? slot : undefined;
     }
 
     private async routeCancelTrigger(trigger: Trigger): Promise<WorkerProgress> {
@@ -291,10 +299,8 @@ export class WorkerScheduler {
             this.options.triggers.markRouted(trigger.id);
             return progress;
         }
-        const slot = queue.workerId === undefined || queue.generation === undefined
-            ? undefined
-            : this.workers.get(queue.workerId);
-        if (slot === undefined || slot.generation !== queue.generation || slot.process.assignedGoalId !== goalId) {
+        const slot = this.cancellationWorker(queue);
+        if (slot === undefined) {
             throw new Error("Cancellation target has no confirmed active Worker");
         }
         const progress = await slot.process.cancel(goalId, trigger.payload.runId, trigger.id);
@@ -734,9 +740,7 @@ export class WorkerScheduler {
             try {
                 if (trigger.type === "instruction" && trigger.payload.action === "cancel") {
                     const queue = "goalId" in trigger ? this.options.triggers.queueRecord(trigger.goalId) : undefined;
-                    if (queue?.status === "terminal"
-                        || (queue !== undefined && queue.workerId !== undefined && queue.generation !== undefined
-                            && this.workers.get(queue.workerId)?.generation === queue.generation)) {
+                    if (queue?.status === "terminal" || this.cancellationWorker(queue) !== undefined) {
                         await this.routeCancelTrigger(trigger);
                     }
                     continue;
