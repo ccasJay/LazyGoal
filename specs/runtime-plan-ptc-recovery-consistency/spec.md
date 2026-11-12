@@ -1,9 +1,9 @@
 ---
 feature: runtime-plan-ptc-recovery-consistency
-status: proposed
+status: delivered
 risk: high
 created_at: 2026-11-12
-delivered_at: null
+delivered_at: 2026-11-12
 supersedes: []
 superseded_by: null
 ---
@@ -52,13 +52,6 @@ superseded_by: null
 | high | 批次恢复点控制工具调用顺序和副作用；阶段与导航参与后续模型决策和证据核验。 | 验收使用临时存储、可控模型和隔离工具。 |
 
 PTC 活动时间预留继续按既有恢复规则计费，导航的提交过滤仅适用于导航来源。保留现有 Storage 校验、审批及未知结果恢复门禁。
-
-## 任务
-
-- [x] //TODO 1. 线性化 Plan 最终拒绝后的阶段与路线重开，覆盖持久化恢复 → R1.1、R1.2、R1.3；检查：Plan 路线和阶段审查定向测试。
-- [x] //TODO 2. 原子提交父程序开始与批次消费，保持审批和恢复路径的队首身份 → R2.1、R2.2、R2.3；检查：程序批次与恢复定向测试。
-- [x] //TODO 3. 按各 Run 提交边界重建导航并显式报告读取故障，同步所属模块说明 → R3.1、R3.2、R3.3；检查：上下文恢复和 Evidence 定向测试及 `npm run check:docs`。
-
 ## 执行记录
 
 - 状态：passed
