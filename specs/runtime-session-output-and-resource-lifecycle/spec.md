@@ -63,7 +63,7 @@ superseded_by: null
 
 ## 执行记录
 
-- 状态：未执行
-- 验证：-
-- 结果：-
+- 状态：passed
+- 验证：提交 `907fc999`。`npx tsc --noEmit`；`npx tsx --test packages/runtime/test/*.test.ts`（674 通过，含新增 13 项定向用例）；`TMPDIR=/tmp/lgtest npm test`；`npm run check:docs`（47 个模块，172 份当前说明）；`npm run check:dependencies`（607 个源文件）
+- 结果：全部通过。新增用例覆盖后继 Run 实时片段交接、乱序同步接纳、最终消费者上限与合并、临时内容缺口、控制事件背压隔离、关闭释放积压、来源清理的同步抛错与异步拒绝、挂起清理、受理失败主错误、基线未就绪与读取失败、派发读取在途解除与中止信号。
 - 未决：无
