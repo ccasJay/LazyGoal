@@ -53,13 +53,13 @@ superseded_by: null
 
 ## 任务
 
-- [ ] //TODO 1. 线性化等待决定与 Interrupt 的提交，并以当前已提交批准核验 Grant 激活 → R1.1、R1.2、R1.3、R1.4；检查：Interrupt 交错与 Grant 保存故障的定向测试。
-- [ ] //TODO 2. 将两个 Grant 撤销入口的审计提交绑定到最新 Run → R1.5；检查：撤销与并发保存的定向测试。
-- [ ] //TODO 3. 统一 PTC 延迟停止的执行参数与拒绝重试的结果记账，同步 Runtime 的所有权和恢复说明 → R2.1、R2.2、R2.3；检查：PTC 定向恢复测试与 `npm run check:docs`。
+- [x] //TODO 1. 线性化等待决定与 Interrupt 的提交，并以当前已提交批准核验 Grant 激活 → R1.1、R1.2、R1.3、R1.4；检查：Interrupt 交错与 Grant 保存故障的定向测试。
+- [x] //TODO 2. 将两个 Grant 撤销入口的审计提交绑定到最新 Run → R1.5；检查：撤销与并发保存的定向测试。
+- [x] //TODO 3. 统一 PTC 延迟停止的执行参数与拒绝重试的结果记账，同步 Runtime 的所有权和恢复说明 → R2.1、R2.2、R2.3；检查：PTC 定向恢复测试与 `npm run check:docs`。
 
 ## 执行记录
 
-- 状态：未执行
-- 验证：-
-- 结果：-
+- 状态：passed
+- 验证：1c22a29effea14226370378a35249e12e7e00317 · 2026-11-12T14:30:27+08:00
+- 结果：R1.1–R1.5 与 R2.1–R2.3 定向 46 项通过，覆盖 Interrupt/Grant 竞态、JSON 文件重开和实际 macOS Seatbelt worker。首次全量回归有一项失败，终端输出截断，失败项未能定位。同一实现提交完整复跑通过：Python 199 项、TypeScript 2928 项、脚本 99 项。类型、契约、文档与依赖边界检查通过。
 - 未决：无
