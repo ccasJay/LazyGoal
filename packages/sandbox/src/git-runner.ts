@@ -38,14 +38,15 @@ export class GitMutex {
         const nextLock = new Promise<void>((resolve) => {
             release = resolve;
         });
-        GitMutex.locks.set(repoKey, currentLock.then(() => nextLock));
+        const tailLock = currentLock.then(() => nextLock);
+        GitMutex.locks.set(repoKey, tailLock);
 
         try {
             await currentLock;
             return await fn();
         } finally {
             release!();
-            if (GitMutex.locks.get(repoKey) === nextLock) {
+            if (GitMutex.locks.get(repoKey) === tailLock) {
                 GitMutex.locks.delete(repoKey);
             }
         }

@@ -46,7 +46,7 @@ superseded_by: null
 
 ## 任务
 
-- [ ] //TODO 1. 按写入的队尾身份回收 GitMutex 锁记录 → R1.1、R1.2、R1.3、R1.4、R1.5、R1.6；检查：`npx tsx --test packages/sandbox/test/git-mutex.test.ts`。
+- [x] //TODO 1. 按写入的队尾身份回收 GitMutex 锁记录 → R1.1、R1.2、R1.3、R1.4、R1.5、R1.6；检查：`npx tsx --test packages/sandbox/test/git-mutex.test.ts`。
 
 ## 执行记录
 
