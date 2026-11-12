@@ -28,16 +28,18 @@ interface PromptOperation {
 }
 
 interface SessionRecord {
+    readonly kind: "registered";
     readonly cwd: string;
     readonly session: AcpSession;
     prompt?: PromptOperation;
 }
 
+type SessionEntry = { readonly kind: "creating" } | SessionRecord;
+
 interface AgentState {
-    readonly sessions: Map<string, SessionRecord>;
+    readonly sessions: Map<string, SessionEntry>;
     connection?: AgentConnection;
     closed: boolean;
-    cleanupPromise?: Promise<void>;
 }
 
 const DEFAULT_AGENT_INFO = { name: "lazygoal-acp", version: "0.1.0" } as const;
@@ -46,8 +48,9 @@ const DEFAULT_AGENT_INFO = { name: "lazygoal-acp", version: "0.1.0" } as const;
  * 启动一个只拥有当前 ACP 连接状态的 LazyGoal Agent。
  *
  * @remarks
- * 连接拥有 Session Map、连接级中止 signal 和所有 Session 的释放责任；返回的
- * 句柄由调用方关闭。函数不会复用其他连接的 Session，也不会注册认证、客户端
+ * 连接拥有 Session Map、连接级中止 signal 和工厂交付的 Session 的释放责任；返回的
+ * 句柄由调用方关闭。句柄的 closed 表示传输已关闭，资源清理可在关闭后继续。
+ * 函数不会复用其他连接的 Session，也不会注册认证、客户端
  * 文件系统、终端、MCP 或恢复能力。
  *
  * @param input - ACP 流、Session 工厂和可选 Agent 身份。
@@ -93,7 +96,8 @@ export function serveLazyGoalAcpAgent(input: AcpAgentInput): AgentConnection {
     });
 
     app.onNotification(methods.agent.session.cancel, ({ params }) => {
-        state.sessions.get(params.sessionId)?.prompt?.controller.abort();
+        const record = state.sessions.get(params.sessionId);
+        if (record?.kind === "registered") record.prompt?.controller.abort();
     });
 
     const connection = app.connect(input.stream);
@@ -106,36 +110,38 @@ async function createSession(
     input: AcpAgentInput,
     params: NewSessionRequest,
 ): Promise<{ sessionId: string }> {
-    if (state.closed) throw RequestError.requestCancelled(undefined, "ACP connection is closed");
+    const connection = state.connection;
+    if (state.closed || connection === undefined || connection.signal.aborted) {
+        throw RequestError.requestCancelled(undefined, "ACP connection is closed");
+    }
     validateNewSession(params);
     const sessionId = createSessionId(state.sessions);
-    const connectionSignal = state.connection?.signal ?? new AbortController().signal;
+    const reservation = { kind: "creating" } as const;
+    state.sessions.set(sessionId, reservation);
+    let registered: SessionRecord | undefined;
     const sessionInput: AcpSessionInput = {
         sessionId,
         cwd: params.cwd,
-        signal: connectionSignal,
+        signal: connection.signal,
         ...(params._meta === undefined || params._meta === null ? {} : { sessionMeta: params._meta }),
         update: async (update) => {
-            const record = state.sessions.get(sessionId);
-            if (state.closed || record === undefined) return;
-            const client = state.connection?.client;
-            if (client === undefined) return;
+            if (connection.signal.aborted || registered === undefined || state.sessions.get(sessionId) !== registered) return;
             const notification: SessionNotification = { ...update, sessionId };
-            await client.notify(methods.client.session.update, notification);
+            await connection.client.notify(methods.client.session.update, notification);
         },
     };
-    let session: AcpSession;
     try {
-        session = await input.sessions.create(sessionInput);
-    } catch (error) {
-        throw error;
+        const session = await input.sessions.create(sessionInput);
+        if (state.closed || connection.signal.aborted || state.sessions.get(sessionId) !== reservation) {
+            await disposeSession(session);
+            throw RequestError.requestCancelled(undefined, "ACP connection is closed");
+        }
+        registered = { kind: "registered", cwd: params.cwd, session };
+        state.sessions.set(sessionId, registered);
+        return { sessionId };
+    } finally {
+        if (state.sessions.get(sessionId) === reservation) state.sessions.delete(sessionId);
     }
-    const record: SessionRecord = {
-        cwd: params.cwd,
-        session,
-    };
-    state.sessions.set(sessionId, record);
-    return { sessionId };
 }
 
 async function runPrompt(
@@ -144,7 +150,7 @@ async function runPrompt(
     requestSignal: AbortSignal,
 ): Promise<{ stopReason: "end_turn" | "max_tokens" | "max_turn_requests" | "refusal" | "cancelled"; _meta?: Record<string, unknown> }> {
     const record = state.sessions.get(params.sessionId);
-    if (state.closed || record === undefined) {
+    if (state.closed || record?.kind !== "registered") {
         throw RequestError.invalidParams(undefined, `Unknown ACP session ${params.sessionId}`);
     }
     if (record.prompt !== undefined) {
@@ -266,7 +272,7 @@ async function safeRealpath(path: string): Promise<string> {
     }
 }
 
-function createSessionId(sessions: Map<string, SessionRecord>): string {
+function createSessionId(sessions: Map<string, SessionEntry>): string {
     let id = `session-${randomUUID()}`;
     while (sessions.has(id)) id = `session-${randomUUID()}`;
     return id;
@@ -287,18 +293,19 @@ function linkAbortSignals(signals: readonly (AbortSignal | undefined)[], target:
 }
 
 async function cleanupAgentState(state: AgentState): Promise<void> {
-    if (state.cleanupPromise !== undefined) return state.cleanupPromise;
+    if (state.closed) return;
     state.closed = true;
-    state.cleanupPromise = (async () => {
-        const records = [...state.sessions.values()];
-        for (const record of records) record.prompt?.controller.abort();
-        await Promise.all(records.map(async (record) => {
-            try { await record.prompt?.settled; } catch { /* preserve original prompt failure */ }
-            try { await record.session.dispose(); } catch { /* cleanup is best effort after disconnect */ }
-        }));
-        state.sessions.clear();
-    })();
-    return state.cleanupPromise;
+    const records = [...state.sessions.values()].filter((entry) => entry.kind === "registered");
+    state.sessions.clear();
+    for (const record of records) record.prompt?.controller.abort();
+    await Promise.all(records.map(async (record) => {
+        try { await record.prompt?.settled; } catch { /* preserve original prompt failure */ }
+        await disposeSession(record.session);
+    }));
+}
+
+async function disposeSession(session: AcpSession): Promise<void> {
+    try { await session.dispose(); } catch { /* cleanup is best effort after disconnect */ }
 }
 
 function errorMessage(error: unknown): string {

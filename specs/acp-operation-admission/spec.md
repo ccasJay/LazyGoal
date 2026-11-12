@@ -56,7 +56,7 @@ superseded_by: null
 ## 任务
 
 - [x] //TODO 1. 将 Prompt 的校验与执行纳入同一 Session 占用 → R1.1、R1.2、R1.3、R1.4、R1.5；检查：同 Session 校验期重入和取消的定向用例。
-- [ ] //TODO 2. 在连接内预留创建并回收迟交的 Session，同步公开契约与模块说明 → R2.1、R2.2、R2.3、R2.4；检查：断线后工厂交付的定向用例和 `npm run check:docs`。
+- [x] //TODO 2. 在连接内预留创建并回收迟交的 Session，同步公开契约与模块说明 → R2.1、R2.2、R2.3、R2.4；检查：断线后工厂交付的定向用例和 `npm run check:docs`。
 
 ## 执行记录
 

@@ -11,6 +11,7 @@ import {
     RequestError,
     type AnyMessage,
     type ContentBlock,
+    type NewSessionRequest,
     type SessionNotification,
     type Stream,
 } from "@agentclientprotocol/sdk";
@@ -19,6 +20,7 @@ import {
     type AcpPromptContent,
     type AcpSession,
     type AcpSessionFactory,
+    type AcpSessionInput,
 } from "../src/index.js";
 
 function streams(): [Stream, Stream] {
@@ -341,3 +343,216 @@ test("execution cancellation holds its Session without cancelling another Sessio
         assert.deepEqual(await context.request(methods.agent.session.prompt, next), { stopReason: "end_turn" });
     });
 });
+
+function messageUpdate(text: string): SessionNotification {
+    return {
+        sessionId: "overridden by Agent",
+        update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } },
+    };
+}
+
+test("concurrent factories register independently and publish updates only after registration", { timeout: 5000 }, async () => {
+    const a = { started: gate(), release: gate() };
+    const b = { started: gate(), release: gate() };
+    const pending = new Map<string, AcpSessionInput>();
+    const [agentStream, clientStream] = streams();
+    const connection = serveLazyGoalAcpAgent({
+        stream: agentStream,
+        sessions: {
+            async create(input) {
+                const label = input.sessionMeta?.label === "a" ? "a" : "b";
+                const factory = label === "a" ? a : b;
+                pending.set(label, input);
+                await input.update(messageUpdate(`before ${label}`));
+                factory.started.open();
+                await factory.release.opened;
+                return {
+                    async prompt() {
+                        await input.update(messageUpdate(label));
+                        return { stopReason: "end_turn", meta: { label } };
+                    },
+                    async dispose() {},
+                };
+            },
+        },
+    });
+    const updates: SessionNotification[] = [];
+    const app = client();
+    app.onNotification(methods.client.session.update, ({ params }) => { updates.push(params); });
+    try {
+        await app.connectWith(clientStream, async (context) => {
+            const params: NewSessionRequest = { cwd: tmpdir(), mcpServers: [] };
+            const first = context.request(methods.agent.session.new, { ...params, _meta: { label: "a" } });
+            const second = context.request(methods.agent.session.new, { ...params, _meta: { label: "b" } });
+            await Promise.all([a.started.opened, b.started.opened]);
+            const firstInput = pending.get("a");
+            const secondInput = pending.get("b");
+            assert.ok(firstInput && secondInput);
+            assert.notEqual(firstInput.sessionId, secondInput.sessionId);
+            await assert.rejects(context.request(methods.agent.session.prompt, {
+                sessionId: firstInput.sessionId,
+                prompt: textPrompt,
+            }), { code: -32602, message: /Unknown ACP session/ });
+            assert.deepEqual(updates, []);
+
+            b.release.open();
+            const secondSession = await second;
+            assert.equal(secondSession.sessionId, secondInput.sessionId);
+            assert.deepEqual(await context.request(methods.agent.session.prompt, { ...secondSession, prompt: textPrompt }), {
+                stopReason: "end_turn",
+                _meta: { label: "b" },
+            });
+            a.release.open();
+            const firstSession = await first;
+            assert.equal(firstSession.sessionId, firstInput.sessionId);
+            assert.deepEqual(await context.request(methods.agent.session.prompt, { ...firstSession, prompt: textPrompt }), {
+                stopReason: "end_turn",
+                _meta: { label: "a" },
+            });
+            assert.deepEqual(updates, [
+                { ...messageUpdate("b"), sessionId: secondSession.sessionId },
+                { ...messageUpdate("a"), sessionId: firstSession.sessionId },
+            ]);
+        });
+    } finally {
+        a.release.open();
+        b.release.open();
+        connection.close();
+    }
+});
+
+test("a rejected factory preserves its error and only retries on a new request", { timeout: 5000 }, async () => {
+    let calls = 0;
+    let rejectedId: string | undefined;
+    const factoryError = RequestError.internalError({ details: "factory failed" });
+    await withConnection({
+        async create(input) {
+            calls += 1;
+            if (calls === 1) {
+                rejectedId = input.sessionId;
+                throw factoryError;
+            }
+            return {
+                async prompt() { return { stopReason: "end_turn" }; },
+                async dispose() {},
+            };
+        },
+    }, async (context) => {
+        const params: NewSessionRequest = { cwd: tmpdir(), mcpServers: [] };
+        await assert.rejects(context.request(methods.agent.session.new, params), {
+            code: factoryError.code,
+            data: factoryError.data,
+        });
+        assert.equal(calls, 1);
+        assert.ok(rejectedId);
+        await assert.rejects(context.request(methods.agent.session.prompt, {
+            sessionId: rejectedId,
+            prompt: textPrompt,
+        }), { code: -32602, message: /Unknown ACP session/ });
+        const next = await context.request(methods.agent.session.new, params);
+        assert.notEqual(next.sessionId, rejectedId);
+        assert.deepEqual(await context.request(methods.agent.session.prompt, { ...next, prompt: textPrompt }), {
+            stopReason: "end_turn",
+        });
+        assert.equal(calls, 2);
+    });
+});
+
+for (const disposeFails of [false, true]) {
+    test(`disconnect releases a late Session once when disposal ${disposeFails ? "rejects" : "succeeds"}`, { timeout: 5000 }, async () => {
+        const running = gate();
+        const promptAborted = gate();
+        const releasePrompt = gate();
+        const registeredDisposed = gate();
+        const creating = gate();
+        const releaseFactory = gate();
+        const lateDisposed = gate();
+        let lateInput: AcpSessionInput | undefined;
+        let registeredDisposals = 0;
+        let lateDisposals = 0;
+        let factoryCalls = 0;
+        const [agentStream, clientStream] = streams();
+        const connection = serveLazyGoalAcpAgent({
+            stream: agentStream,
+            sessions: {
+                async create(input) {
+                    factoryCalls += 1;
+                    if (input.sessionMeta?.late === true) {
+                        lateInput = input;
+                        creating.open();
+                        await releaseFactory.opened;
+                        return {
+                            async prompt() { throw new Error("late Session must never run"); },
+                            async dispose() {
+                                lateDisposals += 1;
+                                lateDisposed.open();
+                                if (disposeFails) throw new Error("late dispose failed");
+                            },
+                        };
+                    }
+                    return {
+                        async prompt(_content, { signal }) {
+                            signal.addEventListener("abort", promptAborted.open, { once: true });
+                            running.open();
+                            await releasePrompt.opened;
+                            await input.update(messageUpdate("after disconnect"));
+                            return { stopReason: "cancelled" };
+                        },
+                        async dispose() {
+                            registeredDisposals += 1;
+                            registeredDisposed.open();
+                        },
+                    };
+                },
+            },
+        });
+        const updates: SessionNotification[] = [];
+        const app = client();
+        app.onNotification(methods.client.session.update, ({ params }) => { updates.push(params); });
+        const peer = app.connect(clientStream);
+        try {
+            const context = peer.agent;
+            const params: NewSessionRequest = { cwd: tmpdir(), mcpServers: [] };
+            const session = await context.request(methods.agent.session.new, params);
+            const transportError = new Error("test transport disconnected");
+            const promptRejected = assert.rejects(context.request(methods.agent.session.prompt, {
+                ...session,
+                prompt: textPrompt,
+            }), transportError);
+            const createRejected = assert.rejects(context.request(methods.agent.session.new, {
+                ...params,
+                _meta: { late: true },
+            }), transportError);
+            await Promise.all([running.opened, creating.opened]);
+
+            // Break both directions of the in-memory transport so each SDK peer observes disconnect.
+            await Promise.all([
+                clientStream.writable.getWriter().abort(transportError),
+                agentStream.writable.getWriter().abort(transportError),
+            ]);
+            await Promise.all([connection.closed, peer.closed, promptAborted.opened, promptRejected, createRejected]);
+            assert.ok(lateInput?.signal.aborted);
+            assert.equal(registeredDisposals, 0);
+            assert.equal(lateDisposals, 0);
+
+            releasePrompt.open();
+            await registeredDisposed.opened;
+            assert.equal(registeredDisposals, 1);
+            assert.equal(lateDisposals, 0);
+
+            releaseFactory.open();
+            await lateDisposed.opened;
+            await lateInput.update(messageUpdate("late Session"));
+            await new Promise<void>((resolve) => setImmediate(resolve));
+            assert.equal(registeredDisposals, 1);
+            assert.equal(lateDisposals, 1);
+            assert.equal(factoryCalls, 2);
+            assert.deepEqual(updates, []);
+        } finally {
+            releasePrompt.open();
+            releaseFactory.open();
+            peer.close();
+            connection.close();
+        }
+    });
+}
