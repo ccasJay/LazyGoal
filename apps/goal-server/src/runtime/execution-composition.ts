@@ -111,6 +111,8 @@ export type ExecutionCommands = Pick<
     GoalCoordinator,
     | "advance"
     | "resume"
+    | "resumeForSession"
+    | "scheduleAuthorizedAction"
     | "continue"
     | "steer"
     | "interrupt"
@@ -217,6 +219,10 @@ export function createExecutionComponents(
             ),
             advance: (ref, control) => coordinator.advance(ref, control),
             resume: (request, control) => coordinator.resume(request, control),
+            resumeForSession: (request, sessionInput, control) =>
+                coordinator.resumeForSession(request, sessionInput, control),
+            scheduleAuthorizedAction: (ref, authorizedActionId, control) =>
+                coordinator.scheduleAuthorizedAction(ref, authorizedActionId, control),
             continue: (ref, content, control, continuation, queueBinding) =>
                 coordinator.continue(ref, content, control, continuation, queueBinding),
             steer: (ref, messageId, content, ledger) => coordinator.steer(ref, messageId, content, ledger),

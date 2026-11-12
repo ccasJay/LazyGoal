@@ -15,14 +15,15 @@
 | 助手消息用途 | `process` 是模型公开过程正文，`answer` 是被审查接受的最终答复，`notice` 是等待、失败等 Runtime 通知。 | [Goal Runtime](../README.md) | [消息身份与来源](../src/goal-message.ts) |
 | 同源幂等提交 | 同一来源重试返回已提交的原消息身份，不追加第二条；同一来源正文不一致时明确失败，不覆盖已提交正文。 | [Goal Runtime](../README.md) | [消息身份与来源](../src/goal-message.ts) |
 | 会话输入受理 | 在短提交边界内保存一条带稳定身份的输入并返回收据；受理不等于应用。 | [Goal Runtime](../README.md) | [输入受理边界](../src/session-admission.ts) |
-| 长期 Session | 稳定 Goal 句柄与只读状态投影；创建、连接与输入受理复用同一 Runtime 执行规则。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
-| 单活动执行名额 | 一个实例同时只运行一个 Goal；其他 Goal 的执行、交互推进与输入受理返回 busy，不进入隐式调度队列。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
+| 长期 Session | 稳定 Goal 句柄与只读状态投影；创建、连接与输入受理复用同一 Runtime 执行规则。创建身份是 Goal ID、首个 inputId 与规范化正文摘要；同身份重试返回原收据且不隐式推进。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
+| 单活动执行名额 | 一个实例同时只运行一个 Goal；推进受理在提交前取得名额，其他 Goal 的执行与输入返回 busy，不进入隐式调度队列。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
 | 后台执行任务 | 受理返回后由被追踪的后台 Promise 推进 Run；异常被观察并保留真实恢复状态。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
 | 输入账本 | Goal 内按受理序号保存的输入身份、种类、载荷摘要与 pending／applied／cleared 状态。 | [Goal Runtime](../README.md) | [输入契约](../src/session-input.ts) |
 | 消息队列 | 尚未应用的普通消息 FIFO、队列修订与暂停原因；追加、单条删除、清空和队列消息转 Steer 都在对应持久化边界推进修订。 | [Goal Runtime](../README.md) | [输入契约](../src/session-input.ts) |
 | 队列暂停 | 失败终态与暂停在同一 Snapshot 提交，即使队列为空也保留暂停事实；用户 Interrupt 在受理 Snapshot 立即暂停；有积压时须显式继续，空队列上的新消息可解除暂停。 | [Goal Runtime](../README.md) | [终态队列提交](../src/runner.ts)、[会话调度与幂等补齐](../src/session-manager.ts) |
 | 会话 Steer 受理 | 目标 running Run 的补充输入与 Run 内待应用记录、账本收据在同一提交生效；可通过队列修订绑定原子消费一条待处理消息，过期或错配时拒绝且不写收据。 | [Goal Runtime](../README.md) | [输入受理边界](../src/session-admission.ts)、[Runner](../src/runner.ts) |
-| 交互回答受理 | 匹配当前等待身份的回答通过既有 Coordinator 规则推进对应等待并写入收据；旧请求与错身份不解除等待。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
+| 交互回答受理 | 匹配当前等待身份的回答或 blocked 恢复把等待解除、真实用户消息与 applied 收据放在同一次 Snapshot 提交；后续推进由后台执行所有者完成，旧请求与错身份不解除等待也不写收据。 | [Goal Runtime](../README.md) | [GoalCoordinator](../src/goal-coordinator.ts)、[会话所有者](../src/session-manager.ts) |
+| 会话推进交接 | 受理提交后把目标 Run 与执行身份交给后台执行者；同一 Goal 已有执行者时由它接手，关闭开始后不再接受新推进。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
 | 交互视图 | 由当前已提交等待派生的类型化请求：种类、Goal／Run 与请求身份、可用决定；不复制可变请求正文。 | [Goal Runtime](../README.md) | [交互视图](../src/interaction-view.ts) |
 | 交互详情读取 | 按稳定引用返回当前等待的完整问题、任务范围或 Action 输入；引用过期时拒绝且不推进等待。 | [Goal Runtime](../README.md) | [交互视图](../src/interaction-view.ts) |
 | 交互处理器 | 会话边界按种类分派的宿主处理函数入口：单一自动所有者、按引用去重、Gate 外调用；故障、迟到结果、解除与关闭都不默认决定。 | [Goal Runtime](../README.md) | [交互处理器](../src/interaction-handlers.ts) |

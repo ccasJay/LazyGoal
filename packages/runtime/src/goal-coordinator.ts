@@ -65,7 +65,10 @@ import { evaluateSandboxAuthorization } from "../../permission/src/index";
 import {
     applyPendingSessionInputs,
     dequeueQueuedMessage,
+    findSessionInputRecord,
+    nextSessionInputSequence,
     type SessionInputDigest,
+    type SessionInputRecord,
     type SessionMessageQueue,
 } from "./session-input";
 import {
@@ -267,6 +270,60 @@ export type GoalProgressResult =
     };
 
 const resumeSchedule = Symbol("resumeSchedule");
+
+/**
+ * 与等待转换同一次 Snapshot 提交的会话输入收据身份。
+ *
+ * @remarks
+ * 提供该身份时，收据与等待解除、决定事实一起写入同一份快照；提交成功后调用方
+ * 即可按 `inputId` 查询，无需等待下一轮模型或工具执行结束。同一身份的重复提交
+ * 返回既有收据，不再解除等待或改写 Run。
+ *
+ * @example
+ * ```ts
+ * const identity: SessionInputCommitIdentity = {
+ *     inputId: "input-1",
+ *     kind: "respond",
+ *     digest: "sha256:...",
+ * };
+ * ```
+ */
+export interface SessionInputCommitIdentity {
+    /** 客户端提供的稳定输入身份。 */
+    readonly inputId: string;
+    /** 需要写入收据的输入种类。 */
+    readonly kind: "respond" | "resume";
+    /** 规范化载荷摘要，用于同身份重试与载荷冲突判定。 */
+    readonly digest: SessionInputDigest;
+}
+
+/**
+ * 会话输入受理与等待转换的单次提交结果。
+ *
+ * @remarks
+ * `existing` 区分本次提交与同一身份的既有提交：两者都表示决定已持久化，且都可在
+ * 执行返回前按原 `inputId` 查询收据。失败结果不写入收据，也不改变当前等待。
+ *
+ * @example
+ * ```ts
+ * const result = await coordinator.resumeForSession(request, identity);
+ * if (result.ok) console.log(result.record.admittedAtRevision);
+ * ```
+ */
+export type SessionResumeCommitResult =
+    | {
+        readonly ok: true;
+        readonly existing: boolean;
+        readonly record: SessionInputRecord;
+        readonly authorizedActionId?: string;
+    }
+    | {
+        readonly ok: false;
+        readonly error: {
+            readonly code: GoalProgressErrorCode;
+            readonly message: string;
+        };
+    };
 
 type ResumeMutationResult = GoalProgressResult | {
     readonly [resumeSchedule]: true;
@@ -1441,13 +1498,124 @@ export class GoalCoordinator {
             return this.advance(request.ref, control);
         }
 
-        const scheduled = await this.scheduler.schedule(
-            request.ref,
-            { authorizedActionId: result.authorizedActionId },
-            control,
-        );
+        return this.scheduleAuthorizedAction(request.ref, result.authorizedActionId, control);
+    }
+
+    /**
+     * 按已提交的瞬时授权推进当前 Run。
+     *
+     * @remarks
+     * 授权由 {@link resumeForSession} 返回，只对当前 Run 尚未执行的批准操作有效。
+     * 调用方必须在提交后立即调度；Runner 在准备执行时重新核对匹配的批准，过期或不
+     * 匹配时拒绝而不执行工具。本方法不重新提交决定事实。
+     *
+     * @param ref - 目标 Goal 与当前 Run 的稳定身份。
+     * @param authorizedActionId - 已由本次决定批准的 Action 身份。
+     * @param control - 当前调度调用共享的中止控制。
+     * @returns 下一等待点、执行终态或稳定业务失败。
+     * @throws Scheduler 失败时传播原始异常；中止时抛出 `ExecutionAbortedError`。
+     * @example
+     * ```ts
+     * await coordinator.scheduleAuthorizedAction(ref, "action-1");
+     * ```
+     */
+    async scheduleAuthorizedAction(
+        ref: RunRef,
+        authorizedActionId: string,
+        control?: ExecutionControl,
+    ): Promise<GoalProgressResult> {
         throwIfAborted(control);
-        return this.afterSchedule(request.ref, scheduled, control);
+        const scheduled = await this.scheduler.schedule(ref, { authorizedActionId }, control);
+        throwIfAborted(control);
+        return this.afterSchedule(ref, scheduled, control);
+    }
+
+    /**
+     * 将会话输入收据与等待转换作为单次 Snapshot 提交应用，不调度执行。
+     *
+     * @remarks
+     * 在 Goal mutation Gate 内重新读取最新快照，先按 `inputId` 与摘要判定重复、
+     * 既有收据或载荷冲突，再由 {@link resume} 相同的等待恢复规则构造转换，并把
+     * `applied` 收据写入同一候选快照。返回值产生时决定已持久化，后续模型或工具
+     * 执行由调用方作为独立的后台推进完成；本方法不等待该推进。
+     *
+     * 提交失败时传播原始异常且不留下部分状态；已经提交但结果不明时，调用方必须
+     * 按原 `inputId` 查询权威快照，而不是生成新身份。
+     *
+     * @param request - 当前 RunRef 与用户操作。
+     * @param sessionInput - 需要与等待转换同提交的输入身份。
+     * @param control - 当前调用共享的中止控制。
+     * @returns 已提交或既有的收据、可选的瞬时执行授权，或稳定业务拒绝。
+     * @throws GoalStore、Trajectory 或 Grant 依赖失败时传播原始异常。
+     * @example
+     * ```ts
+     * const result = await coordinator.resumeForSession(
+     *     { ref: { goalId: "g-1", runId: "r-1" }, action },
+     *     { inputId: "i-1", kind: "respond", digest },
+     * );
+     * ```
+     */
+    async resumeForSession(
+        request: ResumeGoalRequest,
+        sessionInput: SessionInputCommitIdentity,
+        control?: ExecutionControl,
+    ): Promise<SessionResumeCommitResult> {
+        const preparedGrant = await this.prepareResumeGrant(request, control);
+        return withGoalMutationGate(this.store, request.ref.goalId, async (): Promise<SessionResumeCommitResult> => {
+            const goal = await this.store.restore(request.ref.goalId);
+            throwIfAborted(control);
+            if (goal === undefined || goal.state.run.id !== request.ref.runId) {
+                return {
+                    ok: false,
+                    error: {
+                        code: "RUN_NOT_FOUND",
+                        message: `Run "${request.ref.runId}" was not found`,
+                    },
+                };
+            }
+
+            const existing = findSessionInputRecord(goal, sessionInput.inputId);
+            if (existing !== undefined) {
+                return existing.kind === sessionInput.kind && existing.digest === sessionInput.digest
+                    ? { ok: true, existing: true, record: existing }
+                    : {
+                        ok: false,
+                        error: {
+                            code: "INVALID_GOAL_INPUT",
+                            message: `Input "${sessionInput.inputId}" already exists with a different kind or payload`,
+                        },
+                    };
+            }
+
+            const record: SessionInputRecord = {
+                inputId: sessionInput.inputId,
+                kind: sessionInput.kind,
+                digest: sessionInput.digest,
+                sequence: nextSessionInputSequence(goal),
+                status: "applied",
+                admittedAtRevision: (goal.state.commitRevision ?? 0) + 1,
+                targetRunId: request.ref.runId,
+                appliedRunId: goal.state.run.id,
+            };
+
+            const result = await this.resumeWithinMutationGate(request, control, preparedGrant, record);
+            if (!(resumeSchedule in result)) {
+                if (result.ok) {
+                    throw new Error(
+                        "GoalCoordinator invariant violated: session resume produced progress without a committed transition",
+                    );
+                }
+                return { ok: false, error: result.error };
+            }
+            return {
+                ok: true,
+                existing: false,
+                record,
+                ...(result.authorizedActionId === undefined
+                    ? {}
+                    : { authorizedActionId: result.authorizedActionId }),
+            };
+        });
     }
 
     private async prepareResumeGrant(
@@ -1588,14 +1756,26 @@ export class GoalCoordinator {
         request: ResumeGoalRequest,
         control: ExecutionControl | undefined,
         preparedGrant: PreparedResumeGrant,
+        receipt?: SessionInputRecord,
     ): Promise<ResumeMutationResult> {
         throwIfAborted(control);
-        const goal = await this.restore(request.ref, control);
+        const restored = await this.restore(request.ref, control);
         throwIfAborted(control);
 
-        if (goal === undefined) {
+        if (restored === undefined) {
             return this.runNotFound(request.ref);
         }
+
+        // 收据与等待转换必须同一次提交：所有分支都以该 Goal 为候选快照。
+        const goal: Goal = receipt === undefined
+            ? restored
+            : {
+                ...restored,
+                state: {
+                    ...restored.state,
+                    inputLedger: [...(restored.state.inputLedger ?? []), receipt],
+                },
+            };
 
         this.validateGoalProtocol(goal);
 

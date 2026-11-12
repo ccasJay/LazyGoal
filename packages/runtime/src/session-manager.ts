@@ -221,6 +221,13 @@ export class SessionManagerCloseError extends Error {
     }
 }
 
+/** 一次推进受理取得的名额所有权。 */
+type PromotionClaim =
+    | { readonly kind: "acquired"; readonly token: object }
+    | { readonly kind: "shared" }
+    | { readonly kind: "busy" }
+    | { readonly kind: "closed" };
+
 /** 停止消费用的可等待信号。 */
 const STOPPED = Symbol("stopped");
 
@@ -324,7 +331,14 @@ export interface SessionManagerDependencies {
     /** 运行 created/running Run 的调度入口与后继 Run 创建入口。 */
     readonly coordinator: Pick<
         GoalCoordinator,
-        "advance" | "continue" | "steer" | "interrupt" | "resume" | "reviewActionApproval"
+        | "advance"
+        | "continue"
+        | "steer"
+        | "interrupt"
+        | "resume"
+        | "resumeForSession"
+        | "scheduleAuthorizedAction"
+        | "reviewActionApproval"
     >;
     /** 冻结 Profile 解析。 */
     readonly profiles: AgentProfileRegistry;
@@ -376,10 +390,15 @@ export interface SessionManagerDependencies {
  * 拥有单活动 Goal 名额、后台执行与 Goal 句柄的 Runtime 会话所有者。
  *
  * @remarks
- * `create` 先持久化 Goal、首条用户消息、Run 与受理收据，再返回句柄并以被追踪
- * 的后台任务推进首个 Run：返回不等待 Run 完成，首次保存失败不会调用模型或
- * 工具。`open` 只做只读连接，不推进、不消费队列。一个实例同时只运行一个 Goal：
- * 其他 Goal 的新执行、交互推进与输入受理返回 `BUSY`，不会进入全局调度队列。
+ * `create` 在按 Goal 的 mutation Gate 内校对存在性、首条输入身份并提交首 Run、首条用户消息
+ * 与受理收据，再返回句柄并以被追踪的后台任务推进首个 Run：返回不等待 Run 完成，
+ * 首次保存失败不会调用模型或工具。同一 Goal 的并发首次创建只有一方提交首 Run。
+ * `open` 只做只读连接，不推进、不消费队列。一个实例同时只运行一个 Goal：其他 Goal 的
+ * 执行与输入受理返回 `BUSY`，不会进入全局调度队列；关闭开始后不再接受新推进。
+ *
+ * 交互回答与 blocked 恢复的等待解除、用户正文和收据在同一次 Snapshot 提交中生效，
+ * 因而调用方可在下一轮模型或工具仍挂起时查询收据；后续推进作为独立的后台任务登记，
+ * 可被关闭结算定位。
  *
  * 后台任务异常被观察并保留真实恢复状态（Run 保持 `created`／`running`，
  * `read()` 报告 `needsRecovery`），不会形成未处理的 Promise rejection。模型与
@@ -397,7 +416,14 @@ export class SessionManager implements SessionHandlePort {
     private readonly committer: TrajectoryCheckpointCommitterPort;
     private readonly coordinator: Pick<
         GoalCoordinator,
-        "advance" | "continue" | "steer" | "interrupt" | "resume" | "reviewActionApproval"
+        | "advance"
+        | "continue"
+        | "steer"
+        | "interrupt"
+        | "resume"
+        | "resumeForSession"
+        | "scheduleAuthorizedAction"
+        | "reviewActionApproval"
     >;
     private readonly profiles: AgentProfileRegistry;
     private readonly runIdGenerator: RunIdGenerator;
@@ -418,7 +444,12 @@ export class SessionManager implements SessionHandlePort {
     private readonly executions = new Map<string, Promise<void>>();
     private readonly backgroundTasks = new Set<Promise<void>>();
     private readonly explicitContinuations = new Set<string>();
+    private readonly pendingPromotions = new Map<Promise<void>, string>();
+    /** 已提交但尚未被后台执行消费的一次性执行授权。 */
+    private readonly pendingAuthorizations = new Map<string, { readonly runId: string; readonly authorizedActionId: string }>();
     private activeGoalId: string | undefined;
+    private promotionToken: object | undefined;
+    private closing = false;
 
     /** @param dependencies - Store、提交器、Coordinator、Profile 与身份生成器。 */
     constructor(dependencies: SessionManagerDependencies) {
@@ -460,6 +491,12 @@ export class SessionManager implements SessionHandlePort {
     /**
      * 创建或连接一个长期 Session。
      *
+     * @remarks
+     * 首次创建在按 Goal 的短提交边界内判定存在性并冻结首条输入身份；并发请求只有
+     * 一方提交首 Run。已存在 Goal 的连接以 Goal ID、首个 `inputId` 与规范化正文摘要
+     * 核对创建身份：同身份同载荷返回原收据，其余返回 `INPUT_CONFLICT`。连接与重试
+     * 都不推进 Run，重建实例后仍需显式恢复才能继续推进。
+     *
      * @param request - 稳定 Goal／输入身份、首条文本与执行配置。
      * @param control - 当前创建调用共享的中止控制。
      * @returns 已持久化受理的句柄与首条收据，或稳定业务失败。
@@ -483,92 +520,111 @@ export class SessionManager implements SessionHandlePort {
             return this.failure("INVALID_INPUT", shape.message);
         }
 
-        const existing = await this.store.restore(request.goalId);
-        if (existing !== undefined) {
-            return this.connectExistingCreate(request, existing);
-        }
-
-        if (this.activeGoalId !== undefined && this.activeGoalId !== request.goalId) {
-            return this.failure(
-                "BUSY",
-                `Goal "${this.activeGoalId}" currently owns the instance execution slot`,
-            );
-        }
-        const reserved = this.activeGoalId === undefined;
-        if (reserved) this.activeGoalId = request.goalId;
         const effectiveSelection = request.modelSelection ?? this.defaultModelSelection;
+        const outcome = await withGoalMutationGate(this.store, request.goalId, async () => {
+            const latest = await this.store.restore(request.goalId);
+            if (latest !== undefined) return { kind: "existing" as const, goal: latest };
+            if (this.closing) return { kind: "closed" as const };
+            if (this.activeGoalId !== undefined && this.activeGoalId !== request.goalId) {
+                return { kind: "busy" as const, owner: this.activeGoalId };
+            }
 
-        let created: CreateGoalResult;
-        try {
-            created = await createGoalCheckpoint(
-                {
-                    goalId: request.goalId,
-                    intent: request.content,
-                    profileId: request.profileId,
-                    ...(request.mode === undefined ? {} : { mode: request.mode }),
-                    ...(request.maxSteps === undefined ? {} : { maxSteps: request.maxSteps }),
-                    ...(effectiveSelection === undefined
-                        ? {}
-                        : { modelSelection: effectiveSelection }),
-                    firstInput: {
+            // 首次创建在本边界内占用名额并提交首 Run：并发的同 Goal 创建只有一方成功。
+            const reserved = this.activeGoalId === undefined;
+            if (reserved) this.activeGoalId = request.goalId;
+            let created: CreateGoalResult;
+            try {
+                created = await createGoalCheckpoint(
+                    {
+                        goalId: request.goalId,
+                        intent: request.content,
+                        profileId: request.profileId,
+                        ...(request.mode === undefined ? {} : { mode: request.mode }),
+                        ...(request.maxSteps === undefined ? {} : { maxSteps: request.maxSteps }),
+                        ...(effectiveSelection === undefined
+                            ? {}
+                            : { modelSelection: effectiveSelection }),
+                        firstInput: {
+                            inputId: request.inputId,
+                            digest: computeSessionInputDigest({
+                                kind: "message",
+                                inputId: request.inputId,
+                                content: request.content,
+                            }),
+                        },
+                    },
+                    {
+                        profiles: this.profiles,
+                        runIdGenerator: this.runIdGenerator,
+                        store: this.store,
+                        coordinator: this.coordinator,
+                        ...(this.protocolValidator === undefined
+                            ? {}
+                            : { protocolValidator: this.protocolValidator }),
+                        ...(this.trajectoryStore === undefined
+                            ? {}
+                            : { trajectoryStore: this.trajectoryStore }),
+                        ...(this.traceSink === undefined ? {} : { traceSink: this.traceSink }),
+                    },
+                    control,
+                );
+            } catch (error) {
+                if (reserved) this.activeGoalId = undefined;
+                throw error;
+            }
+
+            if (!created.ok) {
+                if (reserved) this.activeGoalId = undefined;
+                return { kind: "rejected" as const, created };
+            }
+            return { kind: "created" as const, created };
+        });
+
+        switch (outcome.kind) {
+            case "closed":
+                return this.failure(
+                    "BUSY",
+                    "The session manager is closing and no longer admits new execution",
+                );
+            case "busy":
+                return this.failure(
+                    "BUSY",
+                    `Goal "${outcome.owner}" currently owns the instance execution slot`,
+                );
+            case "rejected":
+                return this.failure(
+                    outcome.created.error.code === "PROFILE_NOT_FOUND"
+                        ? "PROFILE_NOT_FOUND"
+                        : "INVALID_INPUT",
+                    outcome.created.error.message,
+                );
+            case "existing":
+                return this.connectExistingCreate(request, outcome.goal);
+            case "created": {
+                const record = findSessionInputRecord(outcome.created.goal, request.inputId);
+                const session = this.createHandle(request.goalId);
+                this.startExecution(request.goalId);
+                return {
+                    ok: true,
+                    existing: false,
+                    session,
+                    receipt: toSessionInputReceipt(request.goalId, record ?? {
                         inputId: request.inputId,
+                        kind: "message",
                         digest: computeSessionInputDigest({
                             kind: "message",
                             inputId: request.inputId,
                             content: request.content,
                         }),
-                    },
-                },
-                {
-                    profiles: this.profiles,
-                    runIdGenerator: this.runIdGenerator,
-                    store: this.store,
-                    coordinator: this.coordinator,
-                    ...(this.protocolValidator === undefined
-                        ? {}
-                        : { protocolValidator: this.protocolValidator }),
-                    ...(this.trajectoryStore === undefined
-                        ? {}
-                        : { trajectoryStore: this.trajectoryStore }),
-                    ...(this.traceSink === undefined ? {} : { traceSink: this.traceSink }),
-                },
-                control,
-            );
-        } catch (error) {
-            if (reserved) this.activeGoalId = undefined;
-            throw error;
+                        sequence: 1,
+                        status: "applied",
+                        admittedAtRevision: outcome.created.goal.state.commitRevision ?? 1,
+                        appliedRunId: outcome.created.ref.runId,
+                        messageIndex: 0,
+                    }),
+                };
+            }
         }
-
-        if (!created.ok) {
-            if (reserved) this.activeGoalId = undefined;
-            return this.failure(
-                created.error.code === "PROFILE_NOT_FOUND" ? "PROFILE_NOT_FOUND" : "INVALID_INPUT",
-                created.error.message,
-            );
-        }
-
-        const record = findSessionInputRecord(created.goal, request.inputId);
-        const session = this.createHandle(request.goalId);
-        this.startExecution(request.goalId);
-        return {
-            ok: true,
-            existing: false,
-            session,
-            receipt: toSessionInputReceipt(request.goalId, record ?? {
-                inputId: request.inputId,
-                kind: "message",
-                digest: computeSessionInputDigest({
-                    kind: "message",
-                    inputId: request.inputId,
-                    content: request.content,
-                }),
-                sequence: 1,
-                status: "applied",
-                admittedAtRevision: created.goal.state.commitRevision ?? 1,
-                appliedRunId: created.ref.runId,
-                messageIndex: 0,
-            }),
-        };
     }
 
     /**
@@ -759,9 +815,10 @@ export class SessionManager implements SessionHandlePort {
      * 受理一条会话输入。
      *
      * @remarks
-     * 非活动 Goal 的输入受理明确返回 `BUSY`，不会进入全局调度队列；活动 Goal
-     * 的受理只等待持久化，不等待模型或工具。普通消息在被受理后唤醒执行所有者
-     * 继续消费队列（后继 Run 创建由队列消费实现）。
+     * 非活动 Goal 的输入受理明确返回 `BUSY`，不会进入全局调度队列；已提交的收据按
+     * 原身份优先返回，不受名额影响。活动 Goal 的受理只等待持久化，不等待模型或工具。
+     * 普通消息在被受理后唤醒执行所有者继续消费队列（后继 Run 创建由队列消费实现）；
+     * 交互回答与 blocked 恢复在收据提交后交给后台执行所有者推进。
      *
      * @param goalId - 目标 Goal。
      * @param input - 带稳定身份的会话输入。
@@ -773,6 +830,12 @@ export class SessionManager implements SessionHandlePort {
      * ```
      */
     async sendSessionInput(goalId: string, input: SessionInput): Promise<SessionInputAdmissionResult> {
+        // 已存收据优先于名额：丢失响应后的同身份重试不因其他 Goal 占用而失败。
+        const committed = await this.findCommittedInput(goalId, input);
+        if (committed !== undefined) {
+            await this.publishInputResult(goalId, input, committed);
+            return committed;
+        }
         const busy = this.activeGoalId !== undefined && this.activeGoalId !== goalId
             ? {
                 ok: false as const,
@@ -795,6 +858,27 @@ export class SessionManager implements SessionHandlePort {
                         : await this.admission.admit(goalId, input);
         await this.publishInputResult(goalId, input, result);
         return result;
+    }
+
+    /** 按稳定身份读取已提交收据；未匹配时返回 `undefined` 交给正常受理。 */
+    private async findCommittedInput(
+        goalId: string,
+        input: SessionInput,
+    ): Promise<SessionInputAdmissionResult | undefined> {
+        const shape = validateSessionInputShape(input);
+        if (shape !== undefined) return undefined;
+        const goal = await this.store.restore(goalId);
+        if (goal === undefined) return undefined;
+        const record = findSessionInputRecord(goal, input.inputId);
+        if (record === undefined) return undefined;
+        const digest = computeSessionInputDigest(input);
+        return record.kind === input.kind && record.digest === digest
+            ? { ok: true, existing: true, receipt: toSessionInputReceipt(goalId, record) }
+            : {
+                ok: false,
+                code: "INPUT_CONFLICT",
+                message: `Input "${input.inputId}" already exists with a different kind or payload`,
+            };
     }
 
     /** 以控制事件发布输入受理结果；事件携带真实 Goal／Run，发布失败不改变已提交结果。 */
@@ -832,14 +916,14 @@ export class SessionManager implements SessionHandlePort {
     }
 
     /**
-     * 受理交互回答并委派既有 Coordinator 规则。
+     * 受理交互回答并委派既有 Coordinator 等待恢复规则。
      *
      * @remarks
-     * 先核验 Goal、Run、请求及必要 Action 身份，再由现有等待恢复规则应用；匹配
-     * 回答只推进对应的等待，旧请求、错身份或载荷冲突不会解除等待。应用成功后
-     * 写入统一账本收据；收据提交失败时抛出
-     * {@link SessionInputAdmissionError}，调用方必须按原身份查询状态而不是重复生成
-     * 新身份——交互解析结果以 Snapshot 为准。
+     * 先核验 Goal、Run、请求及必要 Action 身份，再由现有规则应用；匹配回答只推进
+     * 对应的等待，旧请求、错身份或载荷冲突不会解除等待。决定、真实用户消息与账本
+     * 收据在同一次 Snapshot 提交中生效，返回值产生时收据已可查询；后续推进作为
+     * 独立后台任务交接。提交可观察地失败时抛出底层异常，调用方必须按原身份查询
+     * 或重试——交互解析结果以 Snapshot 为准；已提交的重复身份返回原收据且不重新推进。
      */
     private async admitRespond(
         goalId: string,
@@ -867,45 +951,102 @@ export class SessionManager implements SessionHandlePort {
         if (identity !== undefined) return identity;
 
         const action = toGoalUserAction(input.response, input.requestId, input.inputId);
-        const result = await this.coordinator.resume(
-            { ref: { goalId, runId: input.runId }, action },
-        );
-        if (!result.ok) {
-            return {
-                ok: false,
-                code: result.error.code === "RUN_NOT_FOUND" ? "RUN_NOT_FOUND" : "INTERACTION_MISMATCH",
-                message: `Interaction response "${input.inputId}" was rejected: ${result.error.code} ${result.error.message}`,
-            };
+        const claim = this.claimPromotion(goalId);
+        if (claim.kind === "busy" || claim.kind === "closed") {
+            return this.promotionRejection(claim.kind, goalId);
         }
 
-        const committed = await withGoalMutationGate(this.store, goalId, async () => {
-            const latest = await this.store.restore(goalId);
-            if (latest === undefined) return undefined;
-            const record: SessionInputRecord = {
-                inputId: input.inputId,
-                kind: "respond",
-                digest,
-                sequence: nextSessionInputSequence(latest),
-                status: "applied",
-                admittedAtRevision: (latest.state.commitRevision ?? 0) + 1,
-                targetRunId: input.runId,
-                appliedRunId: latest.state.run.id,
+        try {
+            const committed = await this.trackPromotion(goalId, this.coordinator.resumeForSession(
+                { ref: { goalId, runId: input.runId }, action },
+                { inputId: input.inputId, kind: "respond", digest },
+            ));
+            if (!committed.ok) {
+                this.releasePromotion(goalId, claim);
+                return this.resumeRejection(
+                    goalId,
+                    input.inputId,
+                    digest,
+                    "respond",
+                    "INTERACTION_MISMATCH",
+                    committed.error,
+                );
+            }
+            // 收据已随等待解除提交：新受理交接后台推进；重复身份只释放本次名额。
+            if (committed.existing) {
+                this.releasePromotion(goalId, claim);
+            } else {
+                this.handoffPromotion(
+                    goalId,
+                    claim,
+                    committed.authorizedActionId === undefined
+                        ? undefined
+                        : { runId: input.runId, authorizedActionId: committed.authorizedActionId },
+                );
+            }
+            return {
+                ok: true,
+                existing: committed.existing,
+                receipt: toSessionInputReceipt(goalId, committed.record),
             };
-            const nextGoal: Goal = {
-                ...latest,
-                state: {
-                    ...latest.state,
-                    inputLedger: [...(latest.state.inputLedger ?? []), record],
-                },
+        } catch (error) {
+            this.releasePromotion(goalId, claim);
+            throw error;
+        }
+    }
+
+    /** 把名额拒绝映射为稳定的受理失败。 */
+    private promotionRejection(
+        claim: "busy" | "closed",
+        goalId: string,
+    ): SessionInputAdmissionResult {
+        return claim === "closed"
+            ? {
+                ok: false,
+                code: "BUSY",
+                message: "The session manager is closing and no longer admits new execution",
+            }
+            : {
+                ok: false,
+                code: "BUSY",
+                message: `Goal "${this.activeGoalId ?? goalId}" currently owns the instance execution slot`,
             };
-            await this.committer.commit(nextGoal, { sessionState: "caller" });
-            return record;
-        });
-        if (committed === undefined) {
+    }
+
+    /**
+     * 把等待转换的业务拒绝映射为受理结果。
+     *
+     * @remarks
+     * 并发请求可能在本调用提交前抢先落地同一 `inputId`，因此拒绝时以权威快照的
+     * 账本为准：同身份同载荷返回既有收据，异载荷返回 `INPUT_CONFLICT`。
+     */
+    private async resumeRejection(
+        goalId: string,
+        inputId: string,
+        digest: SessionInputDigest,
+        kind: "respond" | "resume",
+        code: "INTERACTION_MISMATCH" | "RUN_NOT_RESUMABLE",
+        error: { readonly code: string; readonly message: string },
+    ): Promise<SessionInputAdmissionResult> {
+        const latest = await this.store.restore(goalId);
+        if (latest === undefined) {
             return { ok: false, code: "GOAL_NOT_FOUND", message: `Goal "${goalId}" was not found` };
         }
-        this.continueQueueIfEligible(goalId);
-        return { ok: true, existing: false, receipt: toSessionInputReceipt(goalId, committed) };
+        const record = findSessionInputRecord(latest, inputId);
+        if (record !== undefined) {
+            return record.kind === kind && record.digest === digest
+                ? { ok: true, existing: true, receipt: toSessionInputReceipt(goalId, record) }
+                : {
+                    ok: false,
+                    code: "INPUT_CONFLICT",
+                    message: `Input "${inputId}" already exists with a different kind or payload`,
+                };
+        }
+        return {
+            ok: false,
+            code: error.code === "RUN_NOT_FOUND" ? "RUN_NOT_FOUND" : code,
+            message: `Input "${inputId}" was rejected: ${error.code} ${error.message}`,
+        };
     }
 
     /**
@@ -985,23 +1126,49 @@ export class SessionManager implements SessionHandlePort {
                     message: `Run "${input.runId}" is blocked and requires explicit resume content`,
                 };
             }
-            const resumed = await this.coordinator.resume({
-                ref: { goalId, runId: input.runId },
-                action: { kind: "message", content, inputId: input.inputId },
-            });
-            if (!resumed.ok) {
+            const claim = this.claimPromotion(goalId);
+            if (claim.kind === "busy" || claim.kind === "closed") {
+                return this.promotionRejection(claim.kind, goalId);
+            }
+            try {
+                const resumed = await this.trackPromotion(goalId, this.coordinator.resumeForSession(
+                    {
+                        ref: { goalId, runId: input.runId },
+                        action: { kind: "message", content, inputId: input.inputId },
+                    },
+                    { inputId: input.inputId, kind: "resume", digest },
+                ));
+                if (!resumed.ok) {
+                    this.releasePromotion(goalId, claim);
+                    return await this.resumeRejection(
+                        goalId,
+                        input.inputId,
+                        digest,
+                        "resume",
+                        "RUN_NOT_RESUMABLE",
+                        resumed.error,
+                    );
+                }
+                if (resumed.existing) {
+                    this.releasePromotion(goalId, claim);
+                } else {
+                    this.handoffPromotion(
+                        goalId,
+                        claim,
+                        resumed.authorizedActionId === undefined
+                            ? undefined
+                            : { runId: input.runId, authorizedActionId: resumed.authorizedActionId },
+                    );
+                }
                 return {
-                    ok: false,
-                    code: resumed.error.code === "RUN_NOT_FOUND" ? "RUN_NOT_FOUND" : "RUN_NOT_RESUMABLE",
-                    message: `Resume "${input.inputId}" was rejected: ${resumed.error.code} ${resumed.error.message}`,
+                    ok: true,
+                    existing: resumed.existing,
+                    receipt: toSessionInputReceipt(goalId, resumed.record),
                 };
+            } catch (error) {
+                this.releasePromotion(goalId, claim);
+                throw error;
             }
-            const resumedRecord = await this.recordResumeReceipt(goalId, input, digest);
-            if (resumedRecord === undefined) {
-                return { ok: false, code: "GOAL_NOT_FOUND", message: `Goal "${goalId}" was not found` };
-            }
-            this.continueQueueIfEligible(goalId);
-            return { ok: true, existing: false, receipt: toSessionInputReceipt(goalId, resumedRecord) };
         }
         const interruptionNeedsSettlement = status === "running"
             && current.state.run.interruption !== undefined
@@ -1021,14 +1188,26 @@ export class SessionManager implements SessionHandlePort {
             };
         }
 
-        const record = await this.recordResumeReceipt(goalId, input, digest);
+        const claim = this.claimPromotion(goalId);
+        if (claim.kind === "busy" || claim.kind === "closed") {
+            return this.promotionRejection(claim.kind, goalId);
+        }
+        let record: SessionInputRecord | undefined;
+        try {
+            record = await this.trackPromotion(goalId, this.recordResumeReceipt(goalId, input, digest));
+        } catch (error) {
+            this.releasePromotion(goalId, claim);
+            throw error;
+        }
         if (record === undefined) {
+            this.releasePromotion(goalId, claim);
             return { ok: false, code: "GOAL_NOT_FOUND", message: `Goal "${goalId}" was not found` };
         }
 
         if (status === "created" || status === "running") {
-            this.startExecution(goalId);
+            this.handoffPromotion(goalId, claim);
         } else {
+            this.releasePromotion(goalId, claim);
             this.continueQueueIfEligible(goalId);
         }
         return { ok: true, existing: false, receipt: toSessionInputReceipt(goalId, record) };
@@ -1699,6 +1878,8 @@ export class SessionManager implements SessionHandlePort {
      * ```
      */
     async close(options?: { readonly timeoutMs?: number }): Promise<void> {
+        // 关闭开始后不再接纳新的推进；已提交的推进仍由下面的结算等待完成。
+        this.closing = true;
         for (const streams of this.sessionStreams.values()) {
             for (const stream of [...streams]) stream.close();
         }
@@ -1733,7 +1914,12 @@ export class SessionManager implements SessionHandlePort {
         ]);
         clearTimeout(timer as ReturnType<typeof setTimeout>);
         if (settled === "timeout") {
-            throw new SessionManagerCloseError([...this.executions.keys()]);
+            throw new SessionManagerCloseError([
+                ...new Set([
+                    ...this.executions.keys(),
+                    ...this.pendingPromotions.values(),
+                ]),
+            ]);
         }
     }
 
@@ -1748,8 +1934,8 @@ export class SessionManager implements SessionHandlePort {
      * ```
      */
     async waitForIdle(): Promise<void> {
-        while (this.backgroundTasks.size > 0) {
-            await Promise.allSettled([...this.backgroundTasks]);
+        while (this.backgroundTasks.size > 0 || this.pendingPromotions.size > 0) {
+            await Promise.allSettled([...this.backgroundTasks, ...this.pendingPromotions.keys()]);
         }
     }
 
@@ -1757,6 +1943,18 @@ export class SessionManager implements SessionHandlePort {
         request: SessionCreateRequest,
         goal: Goal,
     ): SessionCreateResult {
+        const firstMessage = goal.state.messages[0];
+        const creationInputId = firstMessage?.role === "user"
+            && firstMessage.source.kind === "user_input"
+            ? firstMessage.source.inputId
+            : undefined;
+        // 创建身份只认首条持久输入；后续消息不能冒充创建凭据。
+        if (creationInputId !== request.inputId) {
+            return this.failure(
+                "INPUT_CONFLICT",
+                `Goal "${request.goalId}" already exists without the requested creation input`,
+            );
+        }
         const record = findSessionInputRecord(goal, request.inputId);
         if (record === undefined) {
             return this.failure(
@@ -1843,7 +2041,57 @@ export class SessionManager implements SessionHandlePort {
         this.startExecution(goalId);
     }
 
+    /**
+     * 在提交前取得推进名额。
+     *
+     * @remarks
+     * `acquired` 携带本次调用独占的所有权令牌；`shared` 表示同一 Goal 已有执行
+     * 所有者，交由它接手；`busy` 与 `closed` 不写入任何受理状态。
+     */
+    private claimPromotion(goalId: string): PromotionClaim {
+        if (this.closing) return { kind: "closed" };
+        if (this.activeGoalId !== undefined && this.activeGoalId !== goalId) return { kind: "busy" };
+        if (this.executions.has(goalId) || this.activeGoalId === goalId) return { kind: "shared" };
+        this.activeGoalId = goalId;
+        const token = {};
+        this.promotionToken = token;
+        return { kind: "acquired", token };
+    }
+
+    /** 释放本次调用独占且尚未交接的名额；共享交接与其他所有权不动。 */
+    private releasePromotion(goalId: string, claim: PromotionClaim): void {
+        if (claim.kind !== "acquired" || this.promotionToken !== claim.token) return;
+        this.promotionToken = undefined;
+        if (this.activeGoalId === goalId) this.activeGoalId = undefined;
+    }
+
+    /** 把已提交的推进交给后台执行所有者；已有执行者时由它继续消费。 */
+    private handoffPromotion(
+        goalId: string,
+        claim: PromotionClaim,
+        authorization?: { readonly runId: string; readonly authorizedActionId: string },
+    ): void {
+        if (claim.kind === "acquired" && this.promotionToken === claim.token) {
+            this.promotionToken = undefined;
+        }
+        if (authorization !== undefined) {
+            this.pendingAuthorizations.set(goalId, authorization);
+        }
+        this.startExecution(goalId);
+    }
+
+    /** 把在途推进写入纳入关闭结算，不改变其返回值或异常。 */
+    private trackPromotion<T>(goalId: string, operation: Promise<T>): Promise<T> {
+        const settled = operation.then(() => undefined, () => undefined);
+        this.pendingPromotions.set(settled, goalId);
+        void settled.finally(() => {
+            this.pendingPromotions.delete(settled);
+        });
+        return operation;
+    }
+
     private startExecution(goalId: string): void {
+        if (this.closing) return;
         if (this.executions.has(goalId)) return;
         if (this.activeGoalId !== undefined && this.activeGoalId !== goalId) return;
         this.activeGoalId = goalId;
@@ -1866,7 +2114,16 @@ export class SessionManager implements SessionHandlePort {
                 const status = goal.state.run.status;
                 if (status === "created" || status === "running") {
                     this.alignModelBinding?.(goal.state.modelSelection);
-                    const result = await this.coordinator.advance({ goalId, runId: goal.state.run.id });
+                    const authorization = this.pendingAuthorizations.get(goalId);
+                    if (authorization !== undefined) {
+                        this.pendingAuthorizations.delete(goalId);
+                    }
+                    const result = authorization !== undefined && authorization.runId === goal.state.run.id
+                        ? await this.coordinator.scheduleAuthorizedAction(
+                            { goalId, runId: goal.state.run.id },
+                            authorization.authorizedActionId,
+                        )
+                        : await this.coordinator.advance({ goalId, runId: goal.state.run.id });
                     if (!result.ok) {
                         this.onBackgroundFailure?.(goalId, new Error(`${result.error.code}: ${result.error.message}`));
                         return;
@@ -1893,7 +2150,10 @@ export class SessionManager implements SessionHandlePort {
             this.onBackgroundFailure?.(goalId, error);
         } finally {
             this.executions.delete(goalId);
-            if (this.activeGoalId === goalId) this.activeGoalId = undefined;
+            if (this.activeGoalId === goalId) {
+                this.activeGoalId = undefined;
+                this.promotionToken = undefined;
+            }
             if (this.pendingWakes.delete(goalId)) {
                 this.continueQueueIfEligible(goalId);
             }

@@ -642,7 +642,7 @@ function projectMessageSourceId(source: GoalMessageSource): string {
 }
 
 
-/** 会话受理结果的稳定拒绝分类；`BUSY` 表示实例活动名额由其他 Goal 占用。 */
+/** 会话受理结果的稳定拒绝分类；`BUSY` 表示实例活动名额由其他 Goal 占用或实例正在关闭。 */
 export type SessionManagerErrorCode =
     | "INVALID_INPUT"
     | "INPUT_CONFLICT"

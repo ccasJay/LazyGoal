@@ -981,11 +981,26 @@ async function assembleRuntimeComposition(
     };
     const commands: ExecutionCommands = {
         launch: (request, control) =>
-            runTrackedOperation("launch", () => rawCommands.launch(request, control)),
+            runTrackedOperation("launch", () => rawCommands.launch(
+                request.modelSelection === undefined
+                    ? { ...request, modelSelection: defaultModelSelection }
+                    : request,
+                control,
+            )),
         advance: (ref, control) =>
             runTrackedOperation("advance", () => rawCommands.advance(ref, control)),
         resume: (request, control) =>
             runTrackedOperation("resume", () => rawCommands.resume(request, control)),
+        resumeForSession: (request, sessionInput, control) =>
+            runTrackedOperation(
+                "resume_for_session",
+                () => rawCommands.resumeForSession(request, sessionInput, control),
+            ),
+        scheduleAuthorizedAction: (ref, authorizedActionId, control) =>
+            runTrackedOperation(
+                "schedule_authorized_action",
+                () => rawCommands.scheduleAuthorizedAction(ref, authorizedActionId, control),
+            ),
         continue: (ref, content, control, continuation, queueBinding) =>
             runTrackedOperation("continue", () => rawCommands.continue(ref, content, control, continuation, queueBinding)),
         steer: (ref, messageId, content, ledger) =>
@@ -1014,7 +1029,13 @@ async function assembleRuntimeComposition(
                 } catch {
                     // 覆盖标记旁路失败忽略
                 }
-                return rawCommands.launch(request, control);
+                // 未指定选择时冻结本实例真正服务的默认选择，避免记录无法在本实例执行的占位值。
+                return rawCommands.launch(
+                    request.modelSelection === undefined
+                        ? { ...request, modelSelection: defaultModelSelection }
+                        : request,
+                    control,
+                );
             });
         },
     };

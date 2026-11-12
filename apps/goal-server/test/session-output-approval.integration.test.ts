@@ -410,9 +410,14 @@ test("集成：审批等待按 action_approval 领域身份发布，修订后按
                 && event.changed?.includes("activity") === true), true);
 
             // 正式消息按稳定身份可查，来源指向被接受的完成候选。
-            const messages = await harness.request(`/api/goals/${goalId}/messages?limit=50`, "GET");
-            assert.equal(messages.status, 200);
-            const entries = messages.body.messages as Array<Record<string, any>>;
+            // 受理只保证决定已提交，后续模型与工具在后台推进，因此等待正式答复提交。
+            let entries: Array<Record<string, any>> = [];
+            await waitFor(async () => {
+                const messages = await harness.request(`/api/goals/${goalId}/messages?limit=50`, "GET");
+                if (messages.status !== 200) return false;
+                entries = messages.body.messages as Array<Record<string, any>>;
+                return entries.some((entry) => entry.content === "最终答复正文");
+            }, "the committed final answer message");
             const answer = entries.find((entry) => entry.content === "最终答复正文");
             assert.ok(answer !== undefined, JSON.stringify(entries));
             assert.equal(answer.purpose, "answer");
