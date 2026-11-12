@@ -22,16 +22,15 @@ import type {
     AcpSessionInput,
 } from "./contracts";
 
-type SessionState = "idle" | "prompting" | "disposed";
+interface PromptOperation {
+    readonly controller: AbortController;
+    readonly settled: Promise<unknown>;
+}
 
 interface SessionRecord {
-    readonly id: string;
     readonly cwd: string;
     readonly session: AcpSession;
-    controller: AbortController | undefined;
-    state: SessionState;
-    promptPromise: Promise<unknown> | undefined;
-    disposed: Promise<void> | undefined;
+    prompt?: PromptOperation;
 }
 
 interface AgentState {
@@ -94,8 +93,7 @@ export function serveLazyGoalAcpAgent(input: AcpAgentInput): AgentConnection {
     });
 
     app.onNotification(methods.agent.session.cancel, ({ params }) => {
-        const record = state.sessions.get(params.sessionId);
-        if (record !== undefined && record.state === "prompting") record.controller?.abort();
+        state.sessions.get(params.sessionId)?.prompt?.controller.abort();
     });
 
     const connection = app.connect(input.stream);
@@ -119,7 +117,7 @@ async function createSession(
         ...(params._meta === undefined || params._meta === null ? {} : { sessionMeta: params._meta }),
         update: async (update) => {
             const record = state.sessions.get(sessionId);
-            if (state.closed || record === undefined || record.state === "disposed") return;
+            if (state.closed || record === undefined) return;
             const client = state.connection?.client;
             if (client === undefined) return;
             const notification: SessionNotification = { ...update, sessionId };
@@ -133,13 +131,8 @@ async function createSession(
         throw error;
     }
     const record: SessionRecord = {
-        id: sessionId,
         cwd: params.cwd,
         session,
-        state: "idle",
-        controller: undefined,
-        promptPromise: undefined,
-        disposed: undefined,
     };
     state.sessions.set(sessionId, record);
     return { sessionId };
@@ -151,43 +144,37 @@ async function runPrompt(
     requestSignal: AbortSignal,
 ): Promise<{ stopReason: "end_turn" | "max_tokens" | "max_turn_requests" | "refusal" | "cancelled"; _meta?: Record<string, unknown> }> {
     const record = state.sessions.get(params.sessionId);
-    if (state.closed || record === undefined || record.state === "disposed") {
+    if (state.closed || record === undefined) {
         throw RequestError.invalidParams(undefined, `Unknown ACP session ${params.sessionId}`);
     }
-    if (record.state !== "idle") {
+    if (record.prompt !== undefined) {
         throw RequestError.invalidParams(undefined, "ACP session already has a prompt in progress");
     }
-    const content = await validatePrompt(params.prompt, record.cwd);
-    const promptController = new AbortController();
-    record.controller = promptController;
-    const unlinkSignals = linkAbortSignals(
-        [state.connection?.signal, requestSignal, promptController.signal],
-        promptController,
-    );
-    record.state = "prompting";
-    const control = { signal: promptController.signal };
-    const prompt = record.session.prompt(content, control)
-        .then((result) => ({
-            stopReason: result.stopReason,
-            ...(result.meta === undefined ? {} : { _meta: result.meta as Record<string, unknown> }),
-        }))
+    const controller = new AbortController();
+    const unlinkSignals = linkAbortSignals([state.connection?.signal, requestSignal], controller);
+    const signal = controller.signal;
+    const settled = Promise.resolve()
+        .then(async () => {
+            if (signal.aborted) return { stopReason: "cancelled" as const };
+            const content = await validatePrompt(params.prompt, record.cwd);
+            if (signal.aborted) return { stopReason: "cancelled" as const };
+            const result = await record.session.prompt(content, { signal });
+            return {
+                stopReason: result.stopReason,
+                ...(result.meta === undefined ? {} : { _meta: result.meta as Record<string, unknown> }),
+            };
+        })
         .catch((error: unknown) => {
-            if (promptController.signal.aborted) return { stopReason: "cancelled" as const };
+            if (signal.aborted) return { stopReason: "cancelled" as const };
             throw error;
         })
         .finally(() => {
             unlinkSignals();
-            if (record.state !== "disposed") record.state = "idle";
-            record.controller = undefined;
-            record.promptPromise = undefined;
+            if (record.prompt === operation) delete record.prompt;
         });
-    record.promptPromise = prompt;
-    try {
-        return await prompt;
-    } finally {
-        // The SDK may close the request before the Session promise settles. The
-        // record remains owned by the connection cleanup until that promise ends.
-    }
+    const operation: PromptOperation = { controller, settled };
+    record.prompt = operation;
+    return settled;
 }
 
 function validateNewSession(params: NewSessionRequest): void {
@@ -304,16 +291,10 @@ async function cleanupAgentState(state: AgentState): Promise<void> {
     state.closed = true;
     state.cleanupPromise = (async () => {
         const records = [...state.sessions.values()];
-        for (const record of records) {
-            if (record.state === "disposed") continue;
-            record.state = "disposed";
-            record.controller?.abort();
-        }
+        for (const record of records) record.prompt?.controller.abort();
         await Promise.all(records.map(async (record) => {
-            try { await record.promptPromise; } catch { /* preserve original prompt failure */ }
-            if (record.disposed !== undefined) return record.disposed;
-            record.disposed = Promise.resolve().then(() => record.session.dispose());
-            try { await record.disposed; } catch { /* cleanup is best effort after disconnect */ }
+            try { await record.prompt?.settled; } catch { /* preserve original prompt failure */ }
+            try { await record.session.dispose(); } catch { /* cleanup is best effort after disconnect */ }
         }));
         state.sessions.clear();
     })();
