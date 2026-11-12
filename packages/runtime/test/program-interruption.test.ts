@@ -1,14 +1,19 @@
 import { ExecutionAbortedError } from "../../execution-control/src/index";
 import assert from "node:assert/strict";
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
-import { isSeatbeltSupported } from "../../sandbox/src/index";
-import { InMemoryGoalStore } from "../../storage/src/index";
+import { isSeatbeltSupported, resolveEffectiveSandboxScope } from "../../sandbox/src/index";
+import { InMemoryGoalStore, JsonFileGoalStore, JsonFileTrajectoryStore } from "../../storage/src/index";
 import { createExecuteProgramRegistration } from "../../tools/src/index";
 import {
     createGoal,
     GoalCoordinator,
     InlineScheduler,
     Runner,
+    type DecideStageResult,
+    type JsonValue,
     type StepExecutor,
 } from "../src/index";
 import {
@@ -299,6 +304,346 @@ test("PTC preserves an unknown write before settling a resource stop", {
         if (parent.payload.observation.kind === "failure") {
             assert.equal(parent.payload.observation.code, "PTC_FRAME_LIMIT");
         }
+    }
+});
+
+test("PTC pendingStop re-executes a revised child Action with its approved input", {
+    skip: !isSeatbeltSupported(),
+}, async () => {
+    const inputs: string[] = [];
+    const write = createTestToolRegistration({
+        definition: {
+            id: "large_write",
+            description: "Write and return a large value",
+            inputBinding: createTestBinding("test.tool", objectInputSchema({
+                path: { type: "string" },
+                content: { type: "string" },
+            })),
+            isReadOnly: false,
+        },
+        replayPolicy: "manual",
+        validate: () => ({ ok: true }),
+        async execute(request) {
+            inputs.push((request.input as { readonly path: string }).path);
+            return { kind: "success", output: "x".repeat(16 * 1024 * 1024), summary: "Wrote" };
+        },
+    });
+    const fixture = setup("await tools.large_write({path:'a.txt',content:'original'}); return 1;", write, true);
+    await fixture.store.save(fixture.goal);
+    const runner = new Runner({
+        store: fixture.store,
+        trajectoryStore: fixture.trajectoryStore,
+        executor: fixture.executor,
+        toolRegistry: fixture.registry,
+        toolPolicy: {
+            evaluate: ({ tool }) => tool.id === "execute_program" ? "allow" : "require_approval",
+        },
+    });
+    const ref = { goalId: fixture.goal.id, runId: fixture.goal.state.run.id };
+    const coordinator = new GoalCoordinator({
+        store: fixture.store,
+        trajectoryStore: fixture.trajectoryStore,
+        scheduler: new InlineScheduler(runner),
+        toolRegistry: fixture.registry,
+    });
+
+    const waitingForApproval = await runner.run(ref);
+    assert.equal(waitingForApproval.ok, true);
+    if (!waitingForApproval.ok) return;
+    assert.equal(waitingForApproval.state.pendingAction?.status, "awaiting_approval");
+    const actionId = waitingForApproval.state.pendingAction?.action.actionId;
+    assert.ok(actionId);
+    const review = await coordinator.reviewActionApproval({
+        ref,
+        actionId,
+        input: { path: "b.txt", content: "revised" },
+    });
+    assert.equal(review.ok, true, JSON.stringify(review));
+    if (!review.ok) return;
+
+    const stopped = await coordinator.resume({
+        ref,
+        action: {
+            kind: "approve_action_revision",
+            actionId,
+            input: { path: "b.txt", content: "revised" },
+            reviewRef: review.review.reviewRef,
+        },
+    });
+    assert.equal(stopped.ok, true);
+    if (!stopped.ok) return;
+    assert.equal(stopped.kind, "waiting");
+    assert.equal(stopped.goal.state.run.pendingAction?.status, "outcome_unknown");
+    assert.equal(stopped.goal.state.run.pendingProgram?.pendingStop?.code, "PTC_FRAME_LIMIT");
+    assert.deepEqual(inputs, ["b.txt"]);
+
+    const recoveryRef = stopped.goal.state.run.pendingAction?.recoveryRef;
+    assert.ok(recoveryRef);
+    const retried = await coordinator.resume({
+        ref,
+        action: { kind: "retry_unknown_action", actionId, recoveryRef },
+    });
+    assert.equal(retried.ok, true);
+    if (!retried.ok) return;
+    assert.equal(retried.kind, "waiting");
+    assert.equal(retried.goal.state.run.pendingProgram?.pendingStop?.code, "PTC_FRAME_LIMIT");
+    assert.deepEqual(inputs, ["b.txt", "b.txt"]);
+});
+
+test("重开 JSON Snapshot 后 pendingStop 的获批 Action 准备、沙箱计划和执行都使用最终参数", {
+    skip: !isSeatbeltSupported(),
+}, async () => {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-ptc-pending-stop-reopen-"));
+    try {
+        await Promise.all([
+            writeFile(join(workspaceRoot, "a.txt"), "original"),
+            writeFile(join(workspaceRoot, "b.txt"), "revised"),
+        ]);
+        const store = new JsonFileGoalStore(join(workspaceRoot, "goals"));
+        const trajectoryStore = new JsonFileTrajectoryStore(join(workspaceRoot, "trajectory"));
+        const preparedInputs: string[] = [];
+        const executedInputs: string[] = [];
+        const plannedInputs: Array<{ readonly path: string; readonly extraPaths: readonly string[] }> = [];
+        const largeWrite = createTestToolRegistration({
+            definition: {
+                id: "large_write",
+                description: "Write and return a resource-limited value",
+                inputBinding: createTestBinding("test.tool", openObjectSchema()),
+                isReadOnly: false,
+            },
+            replayPolicy: "manual",
+            validate(input) {
+                const value = input as { readonly path: string };
+                preparedInputs.push(value.path);
+                return { ok: true };
+            },
+            async execute(request) {
+                executedInputs.push((request.input as { readonly path: string }).path);
+                return { kind: "success", output: "x".repeat(16 * 1024 * 1024), summary: "Wrote" };
+            },
+        });
+        const registry = new InMemoryToolRegistry([
+            createExecuteProgramRegistration(),
+            largeWrite,
+        ]);
+        const code = [
+            "await tools.large_write({path:'a.txt',sandboxAccess:{files:[{path:'a.txt',access:'write',kind:'file',purpose:'write original'}]}});",
+            "return 1;",
+        ].join("");
+        const created = withDiscoveredProfileTools(createGoal({
+            ...currentProtocols,
+            id: "goal-ptc-pending-stop-reopen",
+            runId: "run-ptc-pending-stop-reopen",
+            intent: "Recover an approved PTC write after a resource stop",
+            promptBundleVersion: 1,
+            profile: {
+                id: "profile-ptc-pending-stop-reopen",
+                systemPrompt: "Test",
+                instructions: [],
+                toolIds: ["execute_program", "large_write"],
+            },
+            maxSteps: 3,
+        }));
+        const goal = {
+            ...created,
+            state: {
+                ...created.state,
+                run: {
+                    ...created.state.run,
+                    mode: "plan" as const,
+                    approvedTask: { objective: "Recover an approved PTC write", completionCriteria: [] },
+                    exposedToolIds: ["execute_program", "large_write"],
+                    currentStage: {
+                        stageId: "stage-1",
+                        revision: 1,
+                        status: "executing" as const,
+                        target: "Recover an approved PTC write",
+                        acceptanceCriteria: ["The actual write parameters match approval"],
+                    },
+                },
+            },
+        };
+        await store.save(goal);
+
+        let modelCalls = 0;
+        const executor: StepExecutor = {
+            async reviewCompletion() { return { kind: "accept" as const }; },
+            async decide(): Promise<DecideStageResult> {
+                modelCalls += 1;
+                return modelCalls === 1
+                    ? {
+                        kind: "decision",
+                        decision: {
+                            kind: "tool_call",
+                            action: { actionId: "pending-stop-parent", toolId: "execute_program", input: { code } },
+                        },
+                    }
+                    : { kind: "decision", decision: { kind: "complete", summary: "Done", completionEvidence: [] } };
+            },
+            async think(): Promise<never> { throw new Error("Unexpected Think"); },
+        };
+        const toolPolicy = {
+            evaluate: ({ tool }: { readonly tool: { readonly id: string; readonly isReadOnly?: boolean } }) =>
+                tool.id === "execute_program" || tool.isReadOnly === true
+                    ? "allow" as const
+                    : "require_approval" as const,
+        };
+        const sandboxPlanResolver = async ({ action, effectiveScope }: {
+            readonly action: { readonly toolId: string; readonly input: unknown };
+            readonly effectiveScope?: { readonly extraFiles: readonly { readonly canonicalPath: string }[] } | undefined;
+        }) => {
+            if (action.toolId === "large_write") {
+                plannedInputs.push({
+                    path: (action.input as { readonly path: string }).path,
+                    extraPaths: effectiveScope?.extraFiles.map((file) => file.canonicalPath) ?? [],
+                });
+            }
+            return undefined;
+        };
+        const firstRunner = new Runner({
+            store,
+            trajectoryStore,
+            executor,
+            toolRegistry: registry,
+            toolPolicy,
+            workspaceRoot,
+            sandboxPlanResolver,
+        });
+        const firstCoordinator = new GoalCoordinator({
+            store,
+            trajectoryStore,
+            scheduler: new InlineScheduler(firstRunner),
+            toolRegistry: registry,
+            workspaceId: "ws-1",
+            workspaceRoot,
+        });
+        const ref = { goalId: goal.id, runId: goal.state.run.id };
+        const revisedPath = await realpath(join(workspaceRoot, "b.txt"));
+
+        const waiting = await firstCoordinator.advance(ref);
+        assert.equal(waiting.ok, true);
+        if (!waiting.ok) return;
+        assert.equal(waiting.kind, "waiting");
+        assert.equal(waiting.waitingFor, "action_approval");
+        const actionId = waiting.goal.state.run.pendingAction?.action.actionId;
+        assert.ok(actionId);
+        const finalInput = {
+            path: "b.txt",
+            sandboxAccess: {
+                files: [{ path: "b.txt", access: "write", kind: "file", purpose: "write revised" }],
+            },
+        } as unknown as JsonValue;
+        const review = await firstCoordinator.reviewActionApproval({ ref, actionId, input: finalInput });
+        assert.equal(review.ok, true);
+        if (!review.ok) return;
+
+        const stopped = await firstCoordinator.resume({
+            ref,
+            action: {
+                kind: "approve_action_revision",
+                actionId,
+                input: finalInput,
+                reviewRef: review.review.reviewRef,
+            },
+        });
+        assert.equal(stopped.ok, true);
+        if (!stopped.ok) return;
+        assert.equal(stopped.kind, "waiting");
+        assert.equal(stopped.goal.state.run.pendingProgram?.pendingStop?.code, "PTC_FRAME_LIMIT");
+        const staleRecoveryRef = stopped.goal.state.run.pendingAction?.recoveryRef;
+        assert.ok(staleRecoveryRef);
+        assert.deepEqual(executedInputs, ["b.txt"]);
+        const stoppedProgram = stopped.goal.state.run.pendingProgram;
+        assert.ok(stoppedProgram);
+        const originalStopMessage = "The parent was already stopped at its return budget.";
+        await store.save({
+            ...stopped.goal,
+            state: {
+                ...stopped.goal.state,
+                run: {
+                    ...stopped.goal.state.run,
+                    pendingProgram: {
+                        ...stoppedProgram,
+                        pendingStop: { code: "PTC_RETURN_LIMIT", message: originalStopMessage },
+                    },
+                },
+            },
+        });
+        assert.deepEqual(plannedInputs.at(-1), {
+            path: "b.txt",
+            extraPaths: [revisedPath],
+        });
+
+        const reopenedStore = new JsonFileGoalStore(join(workspaceRoot, "goals"));
+        const reopenedTrajectory = new JsonFileTrajectoryStore(join(workspaceRoot, "trajectory"));
+        const reopenedRunner = new Runner({
+            store: reopenedStore,
+            trajectoryStore: reopenedTrajectory,
+            executor,
+            toolRegistry: registry,
+            toolPolicy,
+            workspaceRoot,
+            sandboxPlanResolver,
+        });
+        const reopenedCoordinator = new GoalCoordinator({
+            store: reopenedStore,
+            trajectoryStore: reopenedTrajectory,
+            scheduler: new InlineScheduler(reopenedRunner),
+            toolRegistry: registry,
+            workspaceId: "ws-1",
+            workspaceRoot,
+        });
+        const stale = await reopenedCoordinator.resume({
+            ref,
+            action: { kind: "retry_unknown_action", actionId, recoveryRef: "stale-recovery-ref" },
+        });
+        assert.equal(stale.ok, false);
+        assert.deepEqual(executedInputs, ["b.txt"]);
+
+        const retried = await reopenedCoordinator.resume({
+            ref,
+            action: { kind: "retry_unknown_action", actionId, recoveryRef: staleRecoveryRef },
+        });
+        assert.equal(retried.ok, true);
+        if (!retried.ok) return;
+        assert.equal(retried.kind, "waiting");
+        assert.equal(retried.goal.state.run.pendingProgram?.pendingStop?.code, "PTC_RETURN_LIMIT");
+        assert.equal(retried.goal.state.run.pendingProgram?.pendingStop?.message, originalStopMessage);
+        assert.deepEqual(executedInputs, ["b.txt", "b.txt"]);
+        assert.ok(preparedInputs.filter((path) => path === "b.txt").length >= 2);
+        assert.deepEqual(plannedInputs.at(-1), {
+            path: "b.txt",
+            extraPaths: [revisedPath],
+        });
+
+        const latest = await reopenedStore.restore(goal.id);
+        const nextRecoveryRef = latest?.state.run.pendingAction?.recoveryRef;
+        assert.ok(nextRecoveryRef);
+        const declined = await reopenedCoordinator.resume({
+            ref,
+            action: {
+                kind: "decline_unknown_action_retry",
+                actionId,
+                recoveryRef: nextRecoveryRef,
+                reason: "Do not retry again",
+            },
+        });
+        assert.equal(declined.ok, true);
+        if (!declined.ok) return;
+        assert.equal(declined.kind, "terminal");
+        assert.deepEqual(executedInputs, ["b.txt", "b.txt"]);
+        const finalEvents = await reopenedTrajectory.read(ref);
+        const parentFailure = finalEvents.find((event) =>
+            event.eventType === "observation_recorded" && event.actionId === "parent");
+        if (parentFailure?.eventType === "observation_recorded") {
+            assert.equal(parentFailure.payload.observation.kind, "failure");
+            if (parentFailure.payload.observation.kind === "failure") {
+                assert.equal(parentFailure.payload.observation.code, "PTC_RETURN_LIMIT");
+                assert.equal(parentFailure.payload.observation.message, originalStopMessage);
+            }
+        }
+    } finally {
+        await rm(workspaceRoot, { recursive: true, force: true });
     }
 });
 

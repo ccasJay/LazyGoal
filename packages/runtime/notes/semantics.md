@@ -44,10 +44,10 @@
 | 模型 Binding 对齐 | 新 Run 启动前按最新 Goal 的 `modelSelection` 重新对齐实例绑定。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
 | Goal 动态模型执行选择 | 保存非敏感 API 协议、容量和模型能力供宿主恢复 Binding；不含端点或凭据。 | [Goal Runtime](../README.md) | [领域契约](../src/domain.ts) |
 | 会话 Interrupt 受理 | 中断意图、账本收据与队列暂停在同一提交生效；受理使旧交互引用失效，受理后停止执行，记录已开始工具的未知结果并直接结算 cancelled，不再调用模型。 | [Goal Runtime](../README.md) | [Runner](../src/runner.ts) |
-| 停止与交互竞争 | 停止先受理时旧等待的回答／批准不再被接受；回答先提交时按最新 Run 状态处理停止，不回滚已提交事实。 | [Goal Runtime](../README.md) | [GoalCoordinator](../src/goal-coordinator.ts) |
+| 停止与交互竞争 | 等待决定与 Interrupt 在同一 Goal Gate 按 Snapshot 提交顺序裁决；先受理的停止使旧等待失效，先提交的决定在调度前释放 Gate，随后仍可受理停止；取消收尾重读最新状态并只结算一次。 | [Goal Runtime](../README.md) | [GoalCoordinator](../src/goal-coordinator.ts)、[Runner](../src/runner.ts) |
 | 后继 Run 绑定 | 队首消息、输入应用关联、队列修订与新 Run 创建在同一 Snapshot 提交中完成。 | [Goal Runtime](../README.md) | [GoalCoordinator](../src/goal-coordinator.ts) |
 | Goal 提交修订 | Goal 级单调提交修订，跨 Run 递增，用于恢复命令、状态同步与竞态判定。 | [Goal Runtime](../README.md) | [提交边界](../src/trajectory-checkpoint-committer.ts) |
-| 短 mutation Gate | 按 Store 与 Goal 串行化读取与 Snapshot 提交；同一异步调用链可安全重入。 | [Goal Runtime](../README.md) | [提交边界](../src/goal-mutation-gate.ts) |
+| 短 mutation Gate | 按 Store 与 Goal 串行化当前状态裁决及短 Snapshot 提交；恢复审批的准备/Grant 暂存在 Gate 外，决定提交后才调度 Runner；同一异步调用链可安全重入。 | [Goal Runtime](../README.md) | [提交边界](../src/goal-mutation-gate.ts)、[GoalCoordinator](../src/goal-coordinator.ts) |
 | 模型调用指标事实 | Provider 调用的用量及端到端请求耗时观测，不作为 Goal 恢复输入。 | [Goal Runtime](../README.md) | [模型调用指标 Port](../src/model-call-metrics.ts) |
 | 实例生命周期 | 与进程退出无关的 `open`/`closing`/`closed` 状态、受理边界与有界关闭。 | [Goal Runtime](../README.md) | [生命周期核心](../src/lifecycle/runtime-lifecycle.ts) |
 | 受管资源结算 | 实例自有资源按 `ManagedResource` 契约报告成功、拒绝或未完成，失败原因保留至结算或注销。 | [Goal Runtime](../README.md) | [资源注册表](../src/lifecycle/managed-resources.ts) |
@@ -56,7 +56,7 @@
 | Memory proposal 纠错 | 模型记忆提议在副作用前校验，拒绝进入同一 Decide 预算。 | [Goal Runtime](../README.md) | [阶段反馈](../src/runtime-feedback.ts) |
 | Run 阶段 | Run 内模型自主组织的阶段说明与完成条件；业务执行需活动阶段，最终审查拒绝后可重新打开已接受阶段。 | [Goal Runtime](../README.md) | [阶段规则](../src/run-stage.ts) |
 | Plan Run 路线 | 仅已批准 Plan Run 持有的完整有序阶段、状态、修订理由和 Runtime 恢复游标；范围内修订保留已接受结果。 | [Goal Runtime](../README.md) | [路线规则](../src/run-plan.ts) |
-| PTC 回放不匹配 | 恢复时程序身份或轨迹不符合回放契约会明确失败当前 Run；宿主关闭和中断仍可恢复。 | [Goal Runtime](../README.md) | [Runner](../src/runner.ts) |
+| PTC 回放不匹配 | 恢复时程序身份或轨迹不符合回放契约会明确失败当前 Run；PTC 子调用的修订元数据按最后已提交批准决定重建，延迟停止重试沿用获批参数与停止原因。 | [Goal Runtime](../README.md) | [Runner](../src/runner.ts) |
 | 轨迹查询上下文 | 浏览器查询固定首次读取的 `committedThroughSequence`，列表、详情、执行单元与时间线在同一可见边界内解释。 | [Goal Runtime](../README.md) | [轨迹查询契约](../src/trajectory-query.ts) |
 | 轨迹执行单元范围 | 只有显式携带 `executionUnitId` 的事件属于该单元；未归属事件与上下文邻居不进入单元结果集。 | [Goal Runtime](../README.md) | [轨迹查询契约](../src/trajectory-query.ts) |
 | 批次顺序执行 | 一次 Decide 返回的多个业务 Action 按模型返回顺序逐个暂存与执行。 | [Runtime](../README.md) | [Runner](../src/runner.ts) |

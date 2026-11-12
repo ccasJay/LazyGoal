@@ -205,6 +205,8 @@ export function transition(
                             status: "outcome_unknown",
                             ...(pendingAction.executionUnitId === undefined ? {} : { executionUnitId: pendingAction.executionUnitId }),
                             ...(pendingAction.attemptsStarted === undefined ? {} : { attemptsStarted: pendingAction.attemptsStarted }),
+                            ...(pendingAction.approvalKind === undefined ? {} : { approvalKind: pendingAction.approvalKind }),
+                            ...(pendingAction.effectiveSandboxScope === undefined ? {} : { effectiveSandboxScope: pendingAction.effectiveSandboxScope }),
                             ...(pendingAction.executionVersion === undefined ? {} : { executionVersion: pendingAction.executionVersion }),
                             recoveryRef: computeActionRecoveryRef(
                                 pendingAction.action.actionId,
@@ -595,6 +597,8 @@ export function transition(
                                     status: "outcome_unknown" as const,
                                     ...(pendingAction.executionUnitId === undefined ? {} : { executionUnitId: pendingAction.executionUnitId }),
                                     ...(pendingAction.attemptsStarted === undefined ? {} : { attemptsStarted: pendingAction.attemptsStarted }),
+                                    ...(pendingAction.approvalKind === undefined ? {} : { approvalKind: pendingAction.approvalKind }),
+                                    ...(pendingAction.effectiveSandboxScope === undefined ? {} : { effectiveSandboxScope: pendingAction.effectiveSandboxScope }),
                                     ...(pendingAction.executionVersion === undefined ? {} : { executionVersion: pendingAction.executionVersion }),
                                     recoveryRef: computeActionRecoveryRef(
                                         pendingAction.action.actionId,
@@ -626,6 +630,8 @@ export function transition(
                             status: "outcome_unknown",
                             ...(pendingAction.executionUnitId === undefined ? {} : { executionUnitId: pendingAction.executionUnitId }),
                             ...(pendingAction.attemptsStarted === undefined ? {} : { attemptsStarted: pendingAction.attemptsStarted }),
+                            ...(pendingAction.approvalKind === undefined ? {} : { approvalKind: pendingAction.approvalKind }),
+                            ...(pendingAction.effectiveSandboxScope === undefined ? {} : { effectiveSandboxScope: pendingAction.effectiveSandboxScope }),
                             ...(pendingAction.executionVersion === undefined ? {} : { executionVersion: pendingAction.executionVersion }),
                             recoveryRef: computeActionRecoveryRef(
                                 pendingAction.action.actionId,

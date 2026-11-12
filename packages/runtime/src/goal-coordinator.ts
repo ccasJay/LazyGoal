@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { isRecord } from "../../contracts/src/index";
+import { canonicalJson, isRecord } from "../../contracts/src/index";
 import type {
     CompletedRunRecord,
     Goal,
@@ -41,10 +41,12 @@ import { transition } from "./transition";
 import { appendGoalMessage } from "./goal-message";
 import { createRunPlanRoute, reviseRunPlanExecution } from "./run-plan";
 import {
+    createProgramCallEnvelope,
     computeActionApprovalReviewRef,
     computeApprovalInputId,
     resolveActionExecutionAction,
     resolveActionRecoveryRef,
+    resolveProgramCallRevision,
     type ActionApprovalCapability,
     type ActionApprovalReview,
     type ActionApprovalReviewRequest,
@@ -264,6 +266,38 @@ export type GoalProgressResult =
         };
     };
 
+const resumeSchedule = Symbol("resumeSchedule");
+
+type ResumeMutationResult = GoalProgressResult | {
+    readonly [resumeSchedule]: true;
+    readonly authorizedActionId?: string;
+};
+
+type PreparedResumeGrant =
+    | { readonly kind: "none" }
+    | {
+        readonly kind: "staged";
+        readonly actionId: string;
+        readonly scope: "goal" | "workspace";
+        readonly approvalInputId: string;
+        readonly grantId: string;
+        readonly finalInput: JsonValue;
+        readonly approvalKind: "tool" | "sandbox" | undefined;
+        readonly effectiveSandboxScope: EffectiveSandboxScope;
+        readonly pendingAction: NonNullable<Goal["state"]["run"]["pendingAction"]>;
+    }
+    | {
+        readonly kind: "failed";
+        readonly actionId: string;
+        readonly scope: "goal" | "workspace";
+        readonly approvalInputId: string;
+        readonly message: string;
+        readonly finalInput: JsonValue;
+        readonly approvalKind: "tool" | "sandbox" | undefined;
+        readonly effectiveSandboxScope: EffectiveSandboxScope;
+        readonly pendingAction: NonNullable<Goal["state"]["run"]["pendingAction"]>;
+    };
+
 
 /**
  * 创建 {@link GoalCoordinator} 所需的执行与持久化依赖。
@@ -400,6 +434,8 @@ export class GoalCoordinator {
      *
      * @param request - 目标 Run、Grant ID 和目标授权范围。
      * @returns 已撤销 Grant；撤销完成后后续匹配 Action 必须重新等待审批。
+     * @remarks 撤销与当前 Run 的审计事实和 Snapshot 保存按 Goal 串行；若后续审计提交失败，
+     *   Grant 仍保持已撤销，原始错误继续传播。
      * @throws Run 不存在、Grant 越权或存储/Trajectory 写入失败时拒绝。
      * @example
      * ```ts
@@ -414,29 +450,32 @@ export class GoalCoordinator {
         if (this.toolGrantStore === undefined || this.workspaceId === undefined) {
             throw new Error("Tool Grant storage is unavailable");
         }
-        const goal = await this.restore(request.ref);
-        if (goal === undefined) throw new Error("Run not found");
-        if (goal.state.run.id !== request.ref.runId) throw new Error("Run reference does not match the current Goal");
-        const visible = await this.toolGrantStore.list({
-            workspaceId: this.workspaceId,
-            ...(request.scope === "goal" ? { goalId: goal.id } : {}),
+        const toolGrantStore = this.toolGrantStore;
+        const workspaceId = this.workspaceId;
+        return withGoalMutationGate(this.store, request.ref.goalId, async () => {
+            const goal = await this.restore(request.ref);
+            if (goal === undefined) throw new Error("Run not found");
+            if (goal.state.run.id !== request.ref.runId) throw new Error("Run reference does not match the current Goal");
+            const visible = await toolGrantStore.list({
+                workspaceId,
+                ...(request.scope === "goal" ? { goalId: goal.id } : {}),
+            });
+            const grant = visible.find((candidate) => candidate.id === request.grantId && candidate.scope === request.scope);
+            if (grant === undefined) throw new Error("Tool Grant is outside the requested scope");
+            const revoked = await toolGrantStore.revoke({
+                grantId: request.grantId,
+                workspaceId,
+                ...(request.scope === "goal" ? { goalId: goal.id } : {}),
+            });
+            await this.commitGoalWithFacts(goal, [{
+                goalId: goal.id,
+                runId: goal.state.run.id,
+                phase: "executing",
+                eventType: "tool_grant_revoked",
+                payload: { type: "tool_grant_revoked", grantId: revoked.id, scope: revoked.scope },
+            }]);
+            return revoked;
         });
-        const grant = visible.find((candidate) => candidate.id === request.grantId && candidate.scope === request.scope);
-        if (grant === undefined) throw new Error("Tool Grant is outside the requested scope");
-        const revoked = await this.toolGrantStore.revoke({
-            grantId: request.grantId,
-            workspaceId: this.workspaceId,
-            ...(request.scope === "goal" ? { goalId: goal.id } : {}),
-        });
-        await this.appendTrajectory({
-            goalId: goal.id,
-            runId: goal.state.run.id,
-            phase: "executing",
-            eventType: "tool_grant_revoked",
-            payload: { type: "tool_grant_revoked", grantId: revoked.id, scope: revoked.scope },
-        });
-        await this.saveCheckpoint(goal);
-        return revoked;
     }
 
     /**
@@ -479,6 +518,8 @@ export class GoalCoordinator {
      * 统一撤销一条 Tool 或 Sandbox 持续授权。
      *
      * @param request - 目标 Run、类别和 Grant ID。
+     * @remarks Grant 撤销及其当前 Run 审计提交按 Goal 串行。授权 Store 已确认撤销后若
+     *   审计提交失败，授权仍保持撤销，原错误继续传播。
      * @throws Run 不存在、Grant 越权或存储写入失败时拒绝。
      * @example
      * ```ts
@@ -493,57 +534,50 @@ export class GoalCoordinator {
         if (this.workspaceId === undefined) {
             throw new Error("Workspace identity is unavailable");
         }
-        const goal = await this.restore(request.ref);
-        if (goal === undefined) throw new Error("Run not found");
-        if (goal.state.run.id !== request.ref.runId) throw new Error("Run reference does not match the current Goal");
+        const workspaceId = this.workspaceId;
+        await withGoalMutationGate(this.store, request.ref.goalId, async () => {
+            const goal = await this.restore(request.ref);
+            if (goal === undefined) throw new Error("Run not found");
+            if (goal.state.run.id !== request.ref.runId) throw new Error("Run reference does not match the current Goal");
 
-        let scope: "goal" | "workspace";
-        if (request.kind === "tool") {
-            if (this.toolGrantStore === undefined) throw new Error("Tool Grant storage is unavailable");
-            const revoked = await this.toolGrantStore.revoke({
-                grantId: request.grantId,
-                workspaceId: this.workspaceId,
-                goalId: goal.id,
-            });
-            scope = revoked.scope;
-        } else if (request.kind === "sandbox") {
-            if (this.sandboxGrantStore === undefined) throw new Error("Sandbox Grant storage is unavailable");
-            const revoked = await this.sandboxGrantStore.revoke({
-                grantId: request.grantId,
-                workspaceId: this.workspaceId,
-                goalId: goal.id,
-            });
-            scope = revoked.scope;
-        } else {
-            throw new Error(`Unsupported grant kind: ${request.kind as string}`);
-        }
+            let scope: "goal" | "workspace";
+            if (request.kind === "tool") {
+                if (this.toolGrantStore === undefined) throw new Error("Tool Grant storage is unavailable");
+                const revoked = await this.toolGrantStore.revoke({
+                    grantId: request.grantId,
+                    workspaceId,
+                    goalId: goal.id,
+                });
+                scope = revoked.scope;
+            } else if (request.kind === "sandbox") {
+                if (this.sandboxGrantStore === undefined) throw new Error("Sandbox Grant storage is unavailable");
+                const revoked = await this.sandboxGrantStore.revoke({
+                    grantId: request.grantId,
+                    workspaceId,
+                    goalId: goal.id,
+                });
+                scope = revoked.scope;
+            } else {
+                throw new Error(`Unsupported grant kind: ${request.kind as string}`);
+            }
 
-        if (request.kind === "tool") {
-            await this.appendTrajectory({
-                goalId: goal.id,
-                runId: goal.state.run.id,
-                phase: "executing",
-                eventType: "tool_grant_revoked",
-                payload: {
-                    type: "tool_grant_revoked",
-                    grantId: request.grantId,
-                    scope,
-                },
-            });
-        } else {
-            await this.appendTrajectory({
-                goalId: goal.id,
-                runId: goal.state.run.id,
-                phase: "executing",
-                eventType: "sandbox_grant_revoked",
-                payload: {
-                    type: "sandbox_grant_revoked",
-                    grantId: request.grantId,
-                    scope,
-                },
-            });
-        }
-        await this.saveCheckpoint(goal);
+            const fact: TrajectoryEventDraft = request.kind === "tool"
+                ? {
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    phase: "executing",
+                    eventType: "tool_grant_revoked",
+                    payload: { type: "tool_grant_revoked", grantId: request.grantId, scope },
+                }
+                : {
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    phase: "executing",
+                    eventType: "sandbox_grant_revoked",
+                    payload: { type: "sandbox_grant_revoked", grantId: request.grantId, scope },
+                };
+            await this.commitGoalWithFacts(goal, [fact]);
+        });
     }
 
     /**
@@ -685,6 +719,10 @@ export class GoalCoordinator {
     /**
      * 从最新快照自动推进 Goal。
      *
+     * @remarks
+     * 对运行中的已批准 Action，先在 Goal mutation Gate 内重读当前 Run；只有当前 Snapshot
+     * 仍包含匹配批准且未受理 Interrupt 时才激活 pending Grant。Gate 释放后再调度 Runner。
+     *
      * @param ref - Goal 与其当前 Run 的关联键。
      * @param control - 当前 Goal 推进调用共享的中止控制。
      * @returns 下一等待点、执行终态或稳定业务失败。
@@ -713,8 +751,32 @@ export class GoalCoordinator {
             goal.state.run.status === "created"
             || goal.state.run.status === "running"
         ) {
-            await this.activatePendingGrant(goal);
+            const latestGoal = await withGoalMutationGate(this.store, ref.goalId, async () => {
+                throwIfAborted(control);
+                const latest = await this.restore(ref, control);
+                if (
+                    latest !== undefined
+                    && (latest.state.run.status === "created" || latest.state.run.status === "running")
+                    && latest.state.run.interruption === undefined
+                ) {
+                    await this.activatePendingGrant(latest);
+                }
+                return latest;
+            });
             throwIfAborted(control);
+            if (latestGoal === undefined) return this.runNotFound(ref);
+            this.validateGoalProtocol(latestGoal);
+            if (latestGoal.state.run.status === "waiting") {
+                return this.executingWaitingResult(latestGoal);
+            }
+            if (isRunEnded(latestGoal.state.run.status)) {
+                return {
+                    ok: true,
+                    kind: "terminal",
+                    phase: "executing",
+                    goal: latestGoal,
+                };
+            }
             const scheduled = await this.scheduler.schedule(ref, undefined, control);
             throwIfAborted(control);
             return this.afterSchedule(ref, scheduled, control);
@@ -1343,6 +1405,9 @@ export class GoalCoordinator {
      * - `reject_action`: 拒绝首次未执行的工具调用；
      * - `retry_unknown_action`/`decline_unknown_action_retry`: 明确允许或拒绝结果未知的操作按获批版本再次执行；
      * - `message`: 解除因 wait 决策引起的 blocked 等待。
+     * 持续 Grant 预检与暂存先在 Gate 外开始；修订决定在 Gate 内重新核对审阅引用。随后按
+     * 最新等待、Run 与 Interrupt 复核并一次提交决定事实和 Snapshot。Gate 释放后才调度，
+     * 已受理的停止可以抢先取消旧等待，且耗时执行不占用提交边界。
      * Goal/Run 引用不匹配时返回 `RUN_NOT_FOUND`；任务请求 ID 过期时返回
      * `INVALID_GOAL_INPUT`，两者均保留当前等待点。有效恢复先保存快照，再调用
      * {@link advance}。
@@ -1364,6 +1429,166 @@ export class GoalCoordinator {
         request: ResumeGoalRequest,
         control?: ExecutionControl,
     ): Promise<GoalProgressResult> {
+        const preparedGrant = await this.prepareResumeGrant(request, control);
+        const result = await withGoalMutationGate(
+            this.store,
+            request.ref.goalId,
+            () => this.resumeWithinMutationGate(request, control, preparedGrant),
+        );
+        if (!(resumeSchedule in result)) return result;
+
+        if (result.authorizedActionId === undefined) {
+            return this.advance(request.ref, control);
+        }
+
+        const scheduled = await this.scheduler.schedule(
+            request.ref,
+            { authorizedActionId: result.authorizedActionId },
+            control,
+        );
+        throwIfAborted(control);
+        return this.afterSchedule(request.ref, scheduled, control);
+    }
+
+    private async prepareResumeGrant(
+        request: ResumeGoalRequest,
+        control?: ExecutionControl,
+    ): Promise<PreparedResumeGrant> {
+        if (
+            request.action.kind !== "approve_action"
+            && request.action.kind !== "approve_action_revision"
+        ) {
+            return { kind: "none" };
+        }
+
+        const scope = request.action.scope ?? "action";
+        if (scope === "action") return { kind: "none" };
+        const goal = await this.restore(request.ref, control);
+        const pending = goal?.state.run.pendingAction;
+        if (
+            goal === undefined
+            || goal.state.run.status !== "waiting"
+            || goal.state.run.interruption !== undefined
+            || pending?.status !== "awaiting_approval"
+            || request.action.actionId.trim().length === 0
+            || pending.action.actionId !== request.action.actionId
+            || !this.availableApprovalScopes(pending.approvalKind).includes(scope)
+        ) {
+            return { kind: "none" };
+        }
+        if (
+            request.action.kind === "approve_action_revision"
+            && request.action.reviewRef.trim().length === 0
+        ) {
+            return { kind: "none" };
+        }
+
+        let finalInput = pending.action.input;
+        let approvalKind = pending.approvalKind;
+        let effectiveSandboxScope = pending.effectiveSandboxScope ?? { extraFiles: [], network: "none" };
+        if (request.action.kind === "approve_action_revision") {
+            const prepared = await this.prepareApprovalReview(
+                goal,
+                pending.action.toolId,
+                request.action.input,
+                control,
+            );
+            if (!prepared.ok) return { kind: "none" };
+            const reviewRef = computeActionApprovalReviewRef({
+                actionId: pending.action.actionId,
+                toolId: pending.action.toolId,
+                originalInput: pending.action.input,
+                finalInput: prepared.finalInput,
+                scope,
+                capability: prepared.capability,
+            });
+            if (reviewRef !== request.action.reviewRef) return { kind: "none" };
+            finalInput = prepared.finalInput;
+            effectiveSandboxScope = prepared.effectiveSandboxScope;
+            if (prepared.requiresSandboxApproval) approvalKind = "sandbox";
+        }
+
+        const approvalInputId = request.action.approvalInputId
+            ?? computeApprovalInputId({
+                actionId: pending.action.actionId,
+                toolId: pending.action.toolId,
+                scope,
+                finalInput,
+            });
+        const staged = await this.stageApprovalGrant(
+            goal,
+            {
+                ...pending,
+                ...(approvalKind === undefined ? {} : { approvalKind }),
+                effectiveSandboxScope,
+            },
+            finalInput,
+            scope,
+            approvalInputId,
+            control,
+        );
+        if (!staged.ok) {
+            return {
+                kind: "failed",
+                actionId: pending.action.actionId,
+                scope,
+                approvalInputId,
+                message: staged.message,
+                finalInput,
+                approvalKind,
+                effectiveSandboxScope,
+                pendingAction: structuredClone(pending),
+            };
+        }
+        return {
+            kind: "staged",
+            actionId: pending.action.actionId,
+            scope,
+            approvalInputId,
+            grantId: staged.grantId,
+            finalInput,
+            approvalKind,
+            effectiveSandboxScope,
+            pendingAction: structuredClone(pending),
+        };
+    }
+
+    private resolvePreparedGrantId(
+        preparedGrant: PreparedResumeGrant,
+        pendingAction: NonNullable<Goal["state"]["run"]["pendingAction"]>,
+        scope: "goal" | "workspace",
+        approvalInputId: string,
+        finalInput: JsonValue,
+        approvalKind: "tool" | "sandbox" | undefined,
+        effectiveSandboxScope: EffectiveSandboxScope,
+    ): { readonly ok: true; readonly grantId: string } | { readonly ok: false; readonly message: string } {
+        const bindingMatches = preparedGrant.kind !== "none"
+            && preparedGrant.actionId === pendingAction.action.actionId
+            && preparedGrant.scope === scope
+            && preparedGrant.approvalInputId === approvalInputId
+            && canonicalJson(preparedGrant.finalInput) === canonicalJson(finalInput)
+            && preparedGrant.approvalKind === approvalKind
+            && canonicalJson(preparedGrant.effectiveSandboxScope)
+                === canonicalJson(effectiveSandboxScope)
+            && canonicalJson(preparedGrant.pendingAction)
+                === canonicalJson(pendingAction);
+        if (!bindingMatches) {
+            return {
+                ok: false,
+                message: "The approval Grant could not be prepared for the current decision",
+            };
+        }
+        if (preparedGrant.kind === "failed") {
+            return { ok: false, message: preparedGrant.message };
+        }
+        return { ok: true, grantId: preparedGrant.grantId };
+    }
+
+    private async resumeWithinMutationGate(
+        request: ResumeGoalRequest,
+        control: ExecutionControl | undefined,
+        preparedGrant: PreparedResumeGrant,
+    ): Promise<ResumeMutationResult> {
         throwIfAborted(control);
         const goal = await this.restore(request.ref, control);
         throwIfAborted(control);
@@ -1492,32 +1717,29 @@ export class GoalCoordinator {
                 };
 
                 throwIfAborted(control);
-                await this.appendTrajectory({
-                    goalId: goal.id,
-                    runId: goal.state.run.id,
-                    phase: "executing",
-                    eventType: "run_resumed",
-                    payload: { type: "run_resumed" },
-                }, control);
-
-                await this.appendTrajectory({
-                    goalId: goal.id,
-                    runId: goal.state.run.id,
-                    phase: "executing",
-                    eventType: "ask_user_answered",
-                    payload: {
-                        type: "ask_user_answered",
-                        requestId: pendingInteraction.requestId,
-                        answers: request.action.answers,
+                const facts: TrajectoryEventDraft[] = [
+                    {
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        phase: "executing",
+                        eventType: "run_resumed",
+                        payload: { type: "run_resumed" },
                     },
-                }, control);
-
-                if (revisedRouteEvent !== undefined) {
-                    await this.appendTrajectory(revisedRouteEvent, control);
-                }
-
-                await this.saveCheckpoint(resumedGoalWithRun, control);
-                return this.advance(request.ref, control);
+                    {
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        phase: "executing",
+                        eventType: "ask_user_answered",
+                        payload: {
+                            type: "ask_user_answered",
+                            requestId: pendingInteraction.requestId,
+                            answers: request.action.answers,
+                        },
+                    },
+                    ...(revisedRouteEvent === undefined ? [] : [revisedRouteEvent]),
+                ];
+                await this.commitGoalWithFacts(resumedGoalWithRun, facts, control);
+                return { [resumeSchedule]: true };
             }
 
             if (pendingInteraction.kind === "task_approval") {
@@ -1562,28 +1784,28 @@ export class GoalCoordinator {
                     };
 
                     throwIfAborted(control);
-                    await this.appendTrajectory({
-                        goalId: goal.id,
-                        runId: goal.state.run.id,
-                        phase: "executing",
-                        eventType: "run_resumed",
-                        payload: { type: "run_resumed" },
-                    }, control);
-                    await this.appendTrajectory(epoch.fact, control);
-                    await this.appendTrajectory({
-                        goalId: goal.id,
-                        runId: goal.state.run.id,
-                        phase: "executing",
-                        eventType: "task_approved",
-                        payload: {
-                            type: "task_approved",
-                            requestId: pendingInteraction.requestId,
-                            task: proposal,
+                    await this.commitGoalWithFacts(approvedGoal, [
+                        {
+                            goalId: goal.id,
+                            runId: goal.state.run.id,
+                            phase: "executing",
+                            eventType: "run_resumed",
+                            payload: { type: "run_resumed" },
                         },
-                    }, control);
-
-                    await this.saveCheckpoint(approvedGoal, control);
-                    return this.advance(request.ref, control);
+                        epoch.fact,
+                        {
+                            goalId: goal.id,
+                            runId: goal.state.run.id,
+                            phase: "executing",
+                            eventType: "task_approved",
+                            payload: {
+                                type: "task_approved",
+                                requestId: pendingInteraction.requestId,
+                                task: proposal,
+                            },
+                        },
+                    ], control);
+                    return { [resumeSchedule]: true };
                 }
 
                 if (request.action.kind === "feedback_task") {
@@ -1632,27 +1854,27 @@ export class GoalCoordinator {
                     };
 
                     throwIfAborted(control);
-                    await this.appendTrajectory({
-                        goalId: goal.id,
-                        runId: goal.state.run.id,
-                        phase: "executing",
-                        eventType: "run_resumed",
-                        payload: { type: "run_resumed" },
-                    }, control);
-                    await this.appendTrajectory({
-                        goalId: goal.id,
-                        runId: goal.state.run.id,
-                        phase: "executing",
-                        eventType: "task_feedback_received",
-                        payload: {
-                            type: "task_feedback_received",
-                            requestId: pendingInteraction.requestId,
-                            feedback: feedbackText,
+                    await this.commitGoalWithFacts(resumedGoal, [
+                        {
+                            goalId: goal.id,
+                            runId: goal.state.run.id,
+                            phase: "executing",
+                            eventType: "run_resumed",
+                            payload: { type: "run_resumed" },
                         },
-                    }, control);
-
-                    await this.saveCheckpoint(resumedGoal, control);
-                    return this.advance(request.ref, control);
+                        {
+                            goalId: goal.id,
+                            runId: goal.state.run.id,
+                            phase: "executing",
+                            eventType: "task_feedback_received",
+                            payload: {
+                                type: "task_feedback_received",
+                                requestId: pendingInteraction.requestId,
+                                feedback: feedbackText,
+                            },
+                        },
+                    ], control);
+                    return { [resumeSchedule]: true };
                 }
 
                 return this.invalidGoalInput(
@@ -1699,16 +1921,17 @@ export class GoalCoordinator {
 
                 let grantId: string | undefined;
                 if (approvalScope !== "action") {
-                    const staged = await this.stageApprovalGrant(
-                        goal,
+                    const grantResolution = this.resolvePreparedGrantId(
+                        preparedGrant,
                         pendingAction,
-                        pendingAction.action.input,
                         approvalScope,
                         approvalInputId,
-                        control,
+                        pendingAction.action.input,
+                        pendingAction.approvalKind,
+                        pendingAction.effectiveSandboxScope ?? { extraFiles: [], network: "none" },
                     );
-                    if (!staged.ok) return this.invalidGoalInput(staged.message);
-                    grantId = staged.grantId;
+                    if (!grantResolution.ok) return this.invalidGoalInput(grantResolution.message);
+                    grantId = grantResolution.grantId;
                 }
 
                 const approvedRun = transition(goal.state.run, {
@@ -1733,7 +1956,7 @@ export class GoalCoordinator {
                     },
                 };
                 throwIfAborted(control);
-                await this.appendTrajectory({
+                const savedGoal = await this.commitGoalWithFacts(approvedGoal, [{
                     goalId: goal.id,
                     runId: goal.state.run.id,
                     phase: "executing",
@@ -1749,19 +1972,15 @@ export class GoalCoordinator {
                         ...(grantId === undefined ? {} : { grantId }),
                         approvalInputId,
                     },
-                }, control);
-                await this.saveCheckpoint(approvedGoal, control);
+                }], control);
                 throwIfAborted(control);
                 if (grantId !== undefined) {
-                    await this.activatePendingGrant(approvedGoal);
+                    await this.activatePendingGrant(savedGoal);
                 }
-                const scheduled = await this.scheduler.schedule(
-                    request.ref,
-                    { authorizedActionId: request.action.actionId },
-                    control,
-                );
-                throwIfAborted(control);
-                return this.afterSchedule(request.ref, scheduled, control);
+                return {
+                    [resumeSchedule]: true,
+                    authorizedActionId: request.action.actionId,
+                };
             }
 
             if (request.action.kind === "approve_action_revision") {
@@ -1834,18 +2053,17 @@ export class GoalCoordinator {
 
                 let grantId: string | undefined;
                 if (approvalScope !== "action") {
-                    const staged = await this.stageApprovalGrant(
-                        goal,
-                        approvalKind === undefined
-                            ? pendingAction
-                            : { ...pendingAction, approvalKind },
-                        prepared.finalInput,
+                    const grantResolution = this.resolvePreparedGrantId(
+                        preparedGrant,
+                        pendingAction,
                         approvalScope,
                         approvalInputId,
-                        control,
+                        prepared.finalInput,
+                        approvalKind,
+                        prepared.effectiveSandboxScope,
                     );
-                    if (!staged.ok) return this.invalidGoalInput(staged.message);
-                    grantId = staged.grantId;
+                    if (!grantResolution.ok) return this.invalidGoalInput(grantResolution.message);
+                    grantId = grantResolution.grantId;
                 }
 
                 const executionVersion: ActionExecutionVersion = {
@@ -1898,7 +2116,7 @@ export class GoalCoordinator {
                     programId: revisionProgram.programId,
                     callIndex: revisionProgram.nextCallIndex,
                 };
-                await this.appendTrajectory({
+                const savedGoal = await this.commitGoalWithFacts(approvedGoal, [{
                     goalId: goal.id,
                     runId: goal.state.run.id,
                     phase: "executing",
@@ -1920,19 +2138,15 @@ export class GoalCoordinator {
                             ? {}
                             : { invalidatedBatchActionIds }),
                     },
-                }, control);
-                await this.saveCheckpoint(approvedGoal, control);
+                }], control);
                 throwIfAborted(control);
                 if (grantId !== undefined) {
-                    await this.activatePendingGrant(approvedGoal);
+                    await this.activatePendingGrant(savedGoal);
                 }
-                const scheduled = await this.scheduler.schedule(
-                    request.ref,
-                    { authorizedActionId: request.action.actionId },
-                    control,
-                );
-                throwIfAborted(control);
-                return this.afterSchedule(request.ref, scheduled, control);
+                return {
+                    [resumeSchedule]: true,
+                    authorizedActionId: request.action.actionId,
+                };
             }
 
             if (request.action.kind === "retry_unknown_action") {
@@ -1978,7 +2192,7 @@ export class GoalCoordinator {
                     },
                 };
                 throwIfAborted(control);
-                await this.appendTrajectory({
+                await this.commitGoalWithFacts(approvedGoal, [{
                     goalId: goal.id,
                     runId: goal.state.run.id,
                     phase: "executing",
@@ -1989,16 +2203,12 @@ export class GoalCoordinator {
                         actionId: request.action.actionId,
                         recoveryRef: request.action.recoveryRef,
                     },
-                }, control);
-                await this.saveCheckpoint(approvedGoal, control);
+                }], control);
                 throwIfAborted(control);
-                const scheduled = await this.scheduler.schedule(
-                    request.ref,
-                    { authorizedActionId: request.action.actionId },
-                    control,
-                );
-                throwIfAborted(control);
-                return this.afterSchedule(request.ref, scheduled, control);
+                return {
+                    [resumeSchedule]: true,
+                    authorizedActionId: request.action.actionId,
+                };
             }
 
             if (request.action.kind === "decline_unknown_action_retry") {
@@ -2053,14 +2263,18 @@ export class GoalCoordinator {
                     programId: program.programId,
                     callIndex: program.nextCallIndex,
                 };
+                const declinedResultBytes = program === undefined ? 0 : Buffer.byteLength(JSON.stringify(
+                    createProgramCallEnvelope(
+                        declinedObservation,
+                        0,
+                        resolveProgramCallRevision(pendingAction),
+                    ),
+                ));
                 const updatedRun = program === undefined ? declinedRun.state : {
                     ...declinedRun.state,
                     pendingProgram: {
                         ...declinedRun.state.pendingProgram!,
-                        resultBytes: program.resultBytes + Buffer.byteLength(JSON.stringify({
-                            observation: declinedObservation,
-                            sourceReferences: [0],
-                        })),
+                        resultBytes: program.resultBytes + declinedResultBytes,
                     },
                 };
 
@@ -2072,35 +2286,36 @@ export class GoalCoordinator {
                     },
                 };
                 throwIfAborted(control);
-                await this.appendTrajectory({
-                    goalId: goal.id,
-                    runId: goal.state.run.id,
-                    phase: "executing",
-                    actionId: request.action.actionId,
-                    ...programAssociation,
-                    eventType: "action_reexecution_declined",
-                    payload: {
-                        type: "action_reexecution_declined",
+                await this.commitGoalWithFacts(declinedGoal, [
+                    {
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        phase: "executing",
                         actionId: request.action.actionId,
-                        recoveryRef: request.action.recoveryRef,
-                        reason: request.action.reason,
+                        ...programAssociation,
+                        eventType: "action_reexecution_declined",
+                        payload: {
+                            type: "action_reexecution_declined",
+                            actionId: request.action.actionId,
+                            recoveryRef: request.action.recoveryRef,
+                            reason: request.action.reason,
+                        },
                     },
-                }, control);
-                await this.appendTrajectory({
-                    goalId: goal.id,
-                    runId: goal.state.run.id,
-                    phase: "executing",
-                    actionId: request.action.actionId,
-                    ...programAssociation,
-                    eventType: "observation_recorded",
-                    payload: {
-                        type: "observation_recorded",
+                    {
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        phase: "executing",
                         actionId: request.action.actionId,
-                        observation: declinedObservation,
+                        ...programAssociation,
+                        eventType: "observation_recorded",
+                        payload: {
+                            type: "observation_recorded",
+                            actionId: request.action.actionId,
+                            observation: declinedObservation,
+                        },
                     },
-                }, control);
-                await this.saveCheckpoint(declinedGoal, control);
-                return this.advance(request.ref, control);
+                ], control);
+                return { [resumeSchedule]: true };
             }
 
             if (request.action.kind === "reject_action") {
@@ -2143,14 +2358,18 @@ export class GoalCoordinator {
                     programId: program.programId,
                     callIndex: program.nextCallIndex,
                 };
+                const rejectedResultBytes = program === undefined ? 0 : Buffer.byteLength(JSON.stringify(
+                    createProgramCallEnvelope(
+                        rejectedObservation,
+                        0,
+                        resolveProgramCallRevision(pendingAction),
+                    ),
+                ));
                 const updatedRun = program === undefined ? rejectedRun.state : {
                     ...rejectedRun.state,
                     pendingProgram: {
                         ...rejectedRun.state.pendingProgram!,
-                        resultBytes: program.resultBytes + Buffer.byteLength(JSON.stringify({
-                            observation: rejectedObservation,
-                            sourceReferences: [0],
-                        })),
+                        resultBytes: program.resultBytes + rejectedResultBytes,
                     },
                 };
 
@@ -2162,34 +2381,35 @@ export class GoalCoordinator {
                     },
                 };
                 throwIfAborted(control);
-                await this.appendTrajectory({
-                    goalId: goal.id,
-                    runId: goal.state.run.id,
-                    phase: "executing",
-                    actionId: request.action.actionId,
-                    ...programAssociation,
-                    eventType: "action_rejected",
-                    payload: {
-                        type: "action_rejected",
+                await this.commitGoalWithFacts(rejectedGoal, [
+                    {
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        phase: "executing",
                         actionId: request.action.actionId,
-                        reason: request.action.reason,
+                        ...programAssociation,
+                        eventType: "action_rejected",
+                        payload: {
+                            type: "action_rejected",
+                            actionId: request.action.actionId,
+                            reason: request.action.reason,
+                        },
                     },
-                }, control);
-                await this.appendTrajectory({
-                    goalId: goal.id,
-                    runId: goal.state.run.id,
-                    phase: "executing",
-                    actionId: request.action.actionId,
-                    ...programAssociation,
-                    eventType: "observation_recorded",
-                    payload: {
-                        type: "observation_recorded",
+                    {
+                        goalId: goal.id,
+                        runId: goal.state.run.id,
+                        phase: "executing",
                         actionId: request.action.actionId,
-                        observation: rejectedObservation,
+                        ...programAssociation,
+                        eventType: "observation_recorded",
+                        payload: {
+                            type: "observation_recorded",
+                            actionId: request.action.actionId,
+                            observation: rejectedObservation,
+                        },
                     },
-                }, control);
-                await this.saveCheckpoint(rejectedGoal, control);
-                return this.advance(request.ref, control);
+                ], control);
+                return { [resumeSchedule]: true };
             }
 
             return this.invalidGoalInput(
@@ -2235,15 +2455,14 @@ export class GoalCoordinator {
             },
         };
         throwIfAborted(control);
-        await this.appendTrajectory({
+        await this.commitGoalWithFacts(resumedGoalWithRun, [{
             goalId: goal.id,
             runId: goal.state.run.id,
             phase: "executing",
             eventType: "run_resumed",
             payload: { type: "run_resumed" },
-        }, control);
-        await this.saveCheckpoint(resumedGoalWithRun, control);
-        return this.advance(request.ref, control);
+        }], control);
+        return { [resumeSchedule]: true };
     }
 
     /**
@@ -2260,7 +2479,7 @@ export class GoalCoordinator {
         action: Extract<GoalUserAction, { readonly kind: "reply_to_question" | "skip_question" }>,
         ref: RunRef,
         control?: ExecutionControl,
-    ): Promise<GoalProgressResult> {
+    ): Promise<ResumeMutationResult> {
         if (action.requestId !== pending.requestId) {
             return this.invalidGoalInput(
                 `Submitted requestId "${action.requestId}" does not match pendingInteraction requestId "${pending.requestId}"`,
@@ -2303,33 +2522,38 @@ export class GoalCoordinator {
         };
 
         throwIfAborted(control);
-        await this.appendTrajectory({
+        const resumedFact: TrajectoryEventDraft = {
             goalId: goal.id,
             runId: goal.state.run.id,
             phase: "executing",
             eventType: "run_resumed",
             payload: { type: "run_resumed" },
-        }, control);
+        };
         if (action.kind === "reply_to_question") {
-            await this.appendTrajectory({
-                goalId: goal.id,
-                runId: goal.state.run.id,
-                phase: "executing",
-                eventType: "ask_user_replied",
-                payload: { type: "ask_user_replied", requestId: pending.requestId, content: action.content },
-            }, control);
+            await this.commitGoalWithFacts(resumedGoalWithRun, [
+                resumedFact,
+                {
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    phase: "executing",
+                    eventType: "ask_user_replied",
+                    payload: { type: "ask_user_replied", requestId: pending.requestId, content: action.content },
+                },
+            ], control);
         } else {
-            await this.appendTrajectory({
-                goalId: goal.id,
-                runId: goal.state.run.id,
-                phase: "executing",
-                eventType: "ask_user_skipped",
-                payload: { type: "ask_user_skipped", requestId: pending.requestId },
-            }, control);
+            await this.commitGoalWithFacts(resumedGoalWithRun, [
+                resumedFact,
+                {
+                    goalId: goal.id,
+                    runId: goal.state.run.id,
+                    phase: "executing",
+                    eventType: "ask_user_skipped",
+                    payload: { type: "ask_user_skipped", requestId: pending.requestId },
+                },
+            ], control);
         }
 
-        await this.saveCheckpoint(resumedGoalWithRun, control);
-        return this.advance(ref, control);
+        return { [resumeSchedule]: true };
     }
 
     private advanceGoalContextEpoch(
@@ -2408,6 +2632,25 @@ export class GoalCoordinator {
         return result.goal;
     }
 
+    private async commitGoalWithFacts(
+        goal: Goal,
+        facts: readonly TrajectoryEventDraft[],
+        control?: ExecutionControl,
+    ): Promise<Goal> {
+        const result = await this.checkpointCommitter.commit(goal, {
+            facts,
+            ...(control === undefined ? {} : { control }),
+        });
+        if (result.events.length > 0) {
+            this.publishCommittedEvents(result, result.events, "trajectory");
+        } else {
+            for (const fact of facts) {
+                this.publishTrajectoryEvent(fact, undefined, fact.eventType);
+            }
+        }
+        return result.goal;
+    }
+
     private async appendTrajectory(
         draft: TrajectoryEventDraft,
         control?: ExecutionControl,
@@ -2460,6 +2703,7 @@ export class GoalCoordinator {
     private publishCommittedEvents(
         result: TrajectoryCheckpointCommitResult,
         events: readonly TrajectoryEvent[],
+        durability: "checkpoint" | "trajectory" = "checkpoint",
     ): void {
         for (const event of events) {
             const executionUnitId = event.executionUnitId;
@@ -2469,7 +2713,7 @@ export class GoalCoordinator {
                 ...(actionId === undefined ? {} : { actionId }),
                 kind: event.eventType,
                 visibility: "public",
-                durability: "checkpoint",
+                durability,
                 delivery: isStreamDeltaKind(event.eventType) ? "delta" : "control",
                 ...(isStreamDeltaKind(event.eventType)
                     ? { coalescingKey: streamCoalescingKey(executionUnitId, actionId, event.eventType) }
@@ -2524,11 +2768,7 @@ export class GoalCoordinator {
                 executionAction.input,
                 effectiveScope,
             );
-            if (
-                grant.matcher.toolId !== matcher.toolId
-                || grant.matcher.inputDigest !== matcher.inputDigest
-                || grant.matcher.scope.network !== matcher.scope.network
-            ) {
+            if (canonicalJson(grant.matcher) !== canonicalJson(matcher)) {
                 throw new Error("Approved Action Grant matcher does not match the committed Sandbox capability");
             }
             await this.sandboxGrantStore.activate(pending.grantId, source);

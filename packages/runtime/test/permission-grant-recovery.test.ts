@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { setImmediate } from "node:timers/promises";
 import {
     createGoal as createUnexposedGoal,
     createRun,
@@ -10,6 +11,7 @@ import {
     GoalCoordinator,
     InlineScheduler,
     Runner,
+    transition,
     type AgentDecision,
     type AgentProfile,
     type Goal,
@@ -28,16 +30,20 @@ import {
 } from "../../tool-core/src/index";
 import {
     InMemoryGoalStore,
+    JsonFileGoalStore,
     JsonFileSandboxGrantStore,
+    JsonFileTrajectoryStore,
 } from "../../storage/src/index";
 import { bindMessagesToRun, currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
 import {
     createApprovalCoordinator,
     createApprovalFixture,
     createAwaitingApprovalGoal,
+    REQUIRE_APPROVAL_POLICY,
 } from "./action-approval-fixtures";
 import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
+import { resolveEffectiveSandboxScope } from "../../sandbox/src/index";
 
 const TEST_INPUT_SCHEMA = sandboxCommandSchema();
 
@@ -91,6 +97,12 @@ const TEST_PROFILE: AgentProfile = {
     instructions: [],
     systemPrompt: "system prompt",
 };
+
+function deferred() {
+    let resolve!: () => void;
+    const promise = new Promise<void>((done) => { resolve = done; });
+    return { promise, resolve };
+}
 
 test("持续授权生命周期：沙箱审批选择 Goal 范围并在后续 Action 中自动复用放行", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "lazygoal-grant-recovery-"));
@@ -444,6 +456,24 @@ class FailingSaveGoalStore implements GoalStore {
     }
 }
 
+class PersistThenFailGoalStore implements GoalStore {
+    private shouldFail = true;
+
+    constructor(private readonly delegate: GoalStore) {}
+
+    async restore(goalId: string): Promise<Goal | undefined> {
+        return this.delegate.restore(goalId);
+    }
+
+    async save(goal: Goal): Promise<void> {
+        await this.delegate.save(goal);
+        if (this.shouldFail) {
+            this.shouldFail = false;
+            throw new Error("snapshot save acknowledgment lost");
+        }
+    }
+}
+
 test("修订参数后选择 Goal 授权：matcher 与最终版本一致，单次批准不产生 Grant", async () => {
     const fixture = await createApprovalFixture();
     try {
@@ -497,6 +527,129 @@ test("修订参数后选择 Goal 授权：matcher 与最终版本一致，单次
         if (revised?.eventType === "action_revised") {
             assert.equal(revised.payload.approvalInputId, grant?.source.approvalInputId);
         }
+    } finally {
+        await fixture.dispose();
+    }
+});
+
+test("修订 Sandbox Action 时 pending Grant 使用最终批准的完整文件范围", async () => {
+    const fixture = await createApprovalFixture();
+    try {
+        await Promise.all([
+            writeFile(join(fixture.workspaceRoot, "a.txt"), "original"),
+            writeFile(join(fixture.workspaceRoot, "b.txt"), "revised"),
+        ]);
+        const inputA: SandboxTestInput = {
+            command: "inspect a.txt",
+            sandboxAccess: {
+                files: [{
+                    path: "a.txt",
+                    access: "write",
+                    kind: "file",
+                    purpose: "write the original target",
+                }],
+            },
+        };
+        const inputB: SandboxTestInput = {
+            command: "inspect b.txt",
+            sandboxAccess: {
+                files: [{
+                    path: "b.txt",
+                    access: "write",
+                    kind: "file",
+                    purpose: "write the revised target",
+                }],
+            },
+        };
+        const created = createGoal({
+            ...currentProtocols,
+            promptBundleVersion: 1,
+            id: "goal-sandbox-revision-scope",
+            intent: "revise a sandboxed action",
+            profile: TEST_PROFILE,
+            runId: "run-sandbox-revision-scope",
+        });
+        const started = transition(created.state.run, { kind: "start" });
+        assert.equal(started.ok, true);
+        if (!started.ok) return;
+        const originalScope = await resolveEffectiveSandboxScope(
+            fixture.workspaceRoot,
+            inputA.sandboxAccess!,
+        );
+        const staged = transition(started.state, {
+            kind: "stage_action",
+            status: "awaiting_approval",
+            approvalKind: "sandbox",
+            effectiveSandboxScope: originalScope,
+            action: {
+                actionId: "action-sandbox-revision-scope",
+                toolId: "bash",
+                input: inputA as unknown as JsonValue,
+            },
+        });
+        assert.equal(staged.ok, true);
+        if (!staged.ok) return;
+        const goal: Goal = {
+            ...created,
+            state: { ...created.state, run: staged.state },
+        };
+        await fixture.store.save(goal);
+
+        const trajectoryStore = trajectoryStoreFor(fixture.store);
+        const registry = new InMemoryToolRegistry([
+            createTestToolRegistration(createMockBashTool()),
+        ]);
+        const runner = new Runner({
+            store: fixture.store,
+            trajectoryStore,
+            executor: createStepExecutor([{
+                kind: "complete",
+                summary: "done",
+                completionEvidence: [],
+            }], async () => ({ kind: "accept" })),
+            toolRegistry: registry,
+            toolPolicy: REQUIRE_APPROVAL_POLICY,
+            workspaceRoot: fixture.workspaceRoot,
+            workspaceId: "ws-1",
+        });
+        const coordinator = new GoalCoordinator({
+            store: fixture.store,
+            trajectoryStore,
+            scheduler: new InlineScheduler(runner),
+            toolRegistry: registry,
+            toolGrantStore: fixture.toolGrantStore,
+            sandboxGrantStore: fixture.sandboxGrantStore,
+            workspaceId: "ws-1",
+            workspaceRoot: fixture.workspaceRoot,
+        });
+        const ref = { goalId: goal.id, runId: goal.state.run.id };
+        const review = await coordinator.reviewActionApproval({
+            ref,
+            actionId: "action-sandbox-revision-scope",
+            input: inputB as unknown as JsonValue,
+            scope: "goal",
+        });
+        assert.equal(review.ok, true);
+        if (!review.ok) return;
+
+        await coordinator.resume({
+            ref,
+            action: {
+                kind: "approve_action_revision",
+                actionId: "action-sandbox-revision-scope",
+                input: inputB as unknown as JsonValue,
+                reviewRef: review.review.reviewRef,
+                scope: "goal",
+            },
+        });
+
+        const grants = await fixture.sandboxGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
+        assert.equal(grants.length, 1);
+        assert.equal(grants[0]?.status, "active");
+        assert.deepEqual(grants[0]?.matcher.scope, await resolveEffectiveSandboxScope(
+            fixture.workspaceRoot,
+            inputB.sandboxAccess!,
+        ));
     } finally {
         await fixture.dispose();
     }
@@ -558,6 +711,7 @@ test("授权暂存后批准保存失败：新决定可以继续，旧 pending �
         assert.equal(afterFailure.length, 1);
         assert.equal(afterFailure[0]?.status, "pending");
 
+
         // 第二次决定：更换参数与决定身份，不被旧 pending 阻塞。
         const secondReview = await coordinator.reviewActionApproval({
             ref,
@@ -595,6 +749,444 @@ test("授权暂存后批准保存失败：新决定可以继续，旧 pending �
             active?.matcher.kind === "target_path" ? active.matcher.path : "",
             `${await realpath(fixture.workspaceRoot)}/c.txt`,
         );
+    } finally {
+        await fixture.dispose();
+    }
+});
+
+test("Snapshot 保存失败后的批准事实尾不会授权被 Interrupt 取消的 Action", async () => {
+    const fixture = await createApprovalFixture();
+    try {
+        const goal = createAwaitingApprovalGoal({ goalId: "goal-interrupt-after-approval-save-failure" });
+        const store = new FailingSaveGoalStore(1);
+        await store.seed(goal);
+        const { coordinator, runner, trajectoryStore } = createApprovalCoordinator(fixture, { store });
+        const ref = { goalId: goal.id, runId: goal.state.run.id };
+
+        await assert.rejects(coordinator.resume({
+            ref,
+            action: {
+                kind: "approve_action",
+                actionId: "action-approval",
+                scope: "goal",
+            },
+        }), /snapshot save failed/);
+        assert.equal(
+            (await fixture.toolGrantStore.list({ workspaceId: "ws-1", goalId: goal.id }))[0]?.status,
+            "pending",
+        );
+
+        const interrupted = await runner.interrupt(ref, "interrupt-after-approval-save-failure");
+        assert.equal(interrupted.ok, true);
+        const saved = await store.restore(goal.id);
+        assert.equal(saved?.state.run.status, "cancelled");
+        assert.equal(saved?.state.run.pendingAction, undefined);
+        assert.equal(fixture.calls.length, 0);
+        assert.equal(
+            (await fixture.toolGrantStore.list({ workspaceId: "ws-1", goalId: goal.id }))[0]?.status,
+            "pending",
+        );
+        const events = await trajectoryStore.read(ref);
+        assert.equal(events.some((event) => event.eventType === "tool_started"), false);
+        const advanced = await coordinator.advance(ref);
+        assert.equal(advanced.ok, true);
+        assert.equal(advanced.ok && advanced.kind, "terminal");
+        assert.equal(
+            (await fixture.toolGrantStore.list({ workspaceId: "ws-1", goalId: goal.id }))[0]?.status,
+            "pending",
+        );
+    } finally {
+        await fixture.dispose();
+    }
+});
+
+test("重开 JSON Snapshot 后仅激活与已保存批准绑定的 pending Grant", async () => {
+    const fixture = await createApprovalFixture();
+    try {
+        const goal = createAwaitingApprovalGoal({ goalId: "goal-persisted-grant-approval" });
+        const diskStore = new JsonFileGoalStore(join(fixture.workspaceRoot, "goals"));
+        const persistentStore = new PersistThenFailGoalStore(diskStore);
+        const trajectoryStore = new JsonFileTrajectoryStore(join(fixture.workspaceRoot, "trajectory"));
+        await diskStore.save(goal);
+
+        const coordinator = new GoalCoordinator({
+            store: persistentStore,
+            trajectoryStore,
+            scheduler: {
+                async schedule() { throw new Error("scheduler boundary reached"); },
+            },
+            toolRegistry: fixture.registry,
+            toolGrantStore: fixture.toolGrantStore,
+            sandboxGrantStore: fixture.sandboxGrantStore,
+            workspaceId: "ws-1",
+            workspaceRoot: fixture.workspaceRoot,
+        });
+        const ref = { goalId: goal.id, runId: goal.state.run.id };
+
+        await assert.rejects(coordinator.resume({
+            ref,
+            action: {
+                kind: "approve_action",
+                actionId: "action-approval",
+                scope: "goal",
+            },
+        }), /snapshot save acknowledgment lost/);
+
+        const committed = await diskStore.restore(goal.id);
+        assert.equal(committed?.state.run.pendingAction?.status, "approved");
+        const grantId = committed?.state.run.pendingAction?.grantId;
+        assert.ok(grantId);
+        const pending = await fixture.toolGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
+        assert.equal(pending.find((grant) => grant.id === grantId)?.status, "pending");
+        const events = await trajectoryStore.read(ref);
+        assert.equal(events.some((event) => event.eventType === "action_approved"), true);
+        assert.equal(events.some((event) => event.eventType === "tool_started"), false);
+
+        const recovered = new GoalCoordinator({
+            store: diskStore,
+            trajectoryStore,
+            scheduler: {
+                async schedule() { throw new Error("scheduler boundary reached"); },
+            },
+            toolRegistry: fixture.registry,
+            toolGrantStore: fixture.toolGrantStore,
+            sandboxGrantStore: fixture.sandboxGrantStore,
+            workspaceId: "ws-1",
+            workspaceRoot: fixture.workspaceRoot,
+        });
+        await assert.rejects(recovered.advance(ref), /scheduler boundary reached/);
+        const activated = await fixture.toolGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
+        assert.equal(activated.find((grant) => grant.id === grantId)?.status, "active");
+        assert.equal(fixture.calls.length, 0);
+    } finally {
+        await fixture.dispose();
+    }
+});
+
+test("state_committed marker 故障不改变已保存批准的 Grant 绑定", async () => {
+    const fixture = await createApprovalFixture();
+    try {
+        const goal = createAwaitingApprovalGoal({ goalId: "goal-marker-with-persisted-approval" });
+        const store = new JsonFileGoalStore(join(fixture.workspaceRoot, "goals"));
+        const diskTrajectory = new JsonFileTrajectoryStore(join(fixture.workspaceRoot, "trajectory"));
+        const trajectoryStore = new Proxy(diskTrajectory, {
+            get(target, property, receiver) {
+                if (property === "append") {
+                    return async (...args: Parameters<typeof target.append>) => {
+                        if (args[0].eventType === "state_committed") {
+                            throw new Error("marker write failed");
+                        }
+                        return target.append(...args);
+                    };
+                }
+                const value = Reflect.get(target, property, receiver) as unknown;
+                return typeof value === "function" ? value.bind(target) : value;
+            },
+        });
+        await store.save(goal);
+        const coordinator = new GoalCoordinator({
+            store,
+            trajectoryStore,
+            scheduler: {
+                async schedule() { throw new Error("scheduler boundary reached"); },
+            },
+            toolRegistry: fixture.registry,
+            toolGrantStore: fixture.toolGrantStore,
+            sandboxGrantStore: fixture.sandboxGrantStore,
+            workspaceId: "ws-1",
+            workspaceRoot: fixture.workspaceRoot,
+        });
+        const ref = { goalId: goal.id, runId: goal.state.run.id };
+
+        await assert.rejects(coordinator.resume({
+            ref,
+            action: {
+                kind: "approve_action",
+                actionId: "action-approval",
+                scope: "goal",
+            },
+        }), /marker write failed/);
+
+        const saved = await store.restore(goal.id);
+        assert.equal(saved?.state.run.pendingAction?.status, "approved");
+        const grantId = saved?.state.run.pendingAction?.grantId;
+        assert.ok(grantId);
+        const grants = await fixture.toolGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
+        assert.equal(grants.find((grant) => grant.id === grantId)?.status, "pending");
+        const events = await diskTrajectory.read(ref);
+        assert.equal(events.some((event) => event.eventType === "action_approved"), true);
+        assert.equal(events.some((event) => event.eventType === "state_committed"), false);
+        assert.equal(events.some((event) => event.eventType === "tool_started"), false);
+
+        const recovered = new GoalCoordinator({
+            store,
+            trajectoryStore: diskTrajectory,
+            scheduler: {
+                async schedule() { throw new Error("scheduler boundary reached"); },
+            },
+            toolRegistry: fixture.registry,
+            toolGrantStore: fixture.toolGrantStore,
+            sandboxGrantStore: fixture.sandboxGrantStore,
+            workspaceId: "ws-1",
+            workspaceRoot: fixture.workspaceRoot,
+        });
+        await assert.rejects(recovered.advance(ref), /scheduler boundary reached/);
+        const active = await fixture.toolGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
+        assert.equal(active.find((grant) => grant.id === grantId)?.status, "active");
+    } finally {
+        await fixture.dispose();
+    }
+});
+
+test("advance 不会在已有 Interrupt 的旧 Snapshot 上激活 pending Grant", async () => {
+    const fixture = await createApprovalFixture();
+    try {
+        const awaiting = createAwaitingApprovalGoal({ goalId: "goal-advance-skips-interrupted-grant" });
+        const approvalInputId = "approval-input-before-interrupt";
+        const grant = await fixture.toolGrantStore.stage({
+            scope: "goal",
+            workspaceId: "ws-1",
+            goalId: awaiting.id,
+            source: {
+                goalId: awaiting.id,
+                runId: awaiting.state.run.id,
+                actionId: "action-approval",
+                approvalInputId,
+            },
+            matcher: {
+                kind: "target_path",
+                toolId: "write_file",
+                version: 1,
+                path: `${await realpath(fixture.workspaceRoot)}/a.txt`,
+            },
+        });
+        const approved = transition(awaiting.state.run, {
+            kind: "approve_action",
+            actionId: "action-approval",
+            approvalScope: "goal",
+            grantId: grant.id,
+            approvalInputId,
+        });
+        assert.equal(approved.ok, true);
+        if (!approved.ok) return;
+        const goal: Goal = {
+            ...awaiting,
+            state: {
+                ...awaiting.state,
+                messageQueue: {
+                    revision: 0,
+                    items: [],
+                    pause: { reason: "user_interrupt", runId: awaiting.state.run.id },
+                },
+                run: {
+                    ...approved.state,
+                    interruption: { requestId: "interrupt-before-advance", status: "requested" },
+                },
+            },
+        };
+        await fixture.store.save(goal);
+        const coordinator = new GoalCoordinator({
+            store: fixture.store,
+            trajectoryStore: trajectoryStoreFor(fixture.store),
+            scheduler: {
+                async schedule() { throw new Error("scheduler boundary reached"); },
+            },
+            toolRegistry: fixture.registry,
+            toolGrantStore: fixture.toolGrantStore,
+            sandboxGrantStore: fixture.sandboxGrantStore,
+            workspaceId: "ws-1",
+            workspaceRoot: fixture.workspaceRoot,
+        });
+
+        await assert.rejects(coordinator.advance({ goalId: goal.id, runId: goal.state.run.id }), /scheduler boundary reached/);
+        const grants = await fixture.toolGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
+        assert.equal(grants.find((candidate) => candidate.id === grant.id)?.status, "pending");
+        assert.equal(fixture.calls.length, 0);
+    } finally {
+        await fixture.dispose();
+    }
+});
+
+test("Interrupt wins while persistent approval is being staged outside the Goal mutation gate", async () => {
+    const fixture = await createApprovalFixture();
+    try {
+        const goal = createAwaitingApprovalGoal({ goalId: "goal-interrupt-during-grant-stage" });
+        await fixture.store.save(goal);
+        const staged = deferred();
+        const releaseStage = deferred();
+        const toolGrantStore = new Proxy(fixture.toolGrantStore, {
+            get(target, property, receiver) {
+                if (property === "stage") {
+                    return async (...args: Parameters<typeof target.stage>) => {
+                        staged.resolve();
+                        await releaseStage.promise;
+                        return target.stage(...args);
+                    };
+                }
+                const value = Reflect.get(target, property, receiver) as unknown;
+                return typeof value === "function" ? value.bind(target) : value;
+            },
+        });
+        const base = createApprovalCoordinator(fixture);
+        const coordinator = new GoalCoordinator({
+            store: fixture.store,
+            trajectoryStore: base.trajectoryStore,
+            scheduler: new InlineScheduler(base.runner),
+            toolRegistry: fixture.registry,
+            toolGrantStore,
+            sandboxGrantStore: fixture.sandboxGrantStore,
+            workspaceId: "ws-1",
+            workspaceRoot: fixture.workspaceRoot,
+        });
+        const ref = { goalId: goal.id, runId: goal.state.run.id };
+
+        const approval = coordinator.resume({
+            ref,
+            action: {
+                kind: "approve_action",
+                actionId: "action-approval",
+                scope: "goal",
+            },
+        });
+        await staged.promise;
+
+        const interrupt = await base.runner.interrupt(ref, "interrupt-before-approval-commit");
+        assert.equal(interrupt.ok, true);
+        releaseStage.resolve();
+
+        const result = await approval;
+        assert.equal(result.ok, false);
+        assert.equal(result.ok === false && result.error.code, "GOAL_NOT_WAITING");
+        const saved = await fixture.store.restore(goal.id);
+        assert.equal(saved?.state.run.status, "cancelled");
+        assert.equal(saved?.state.run.pendingAction, undefined);
+        assert.equal(fixture.calls.length, 0);
+
+        const grants = await fixture.toolGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
+        assert.equal(grants.length, 1);
+        assert.equal(grants[0]?.status, "pending");
+        assert.equal(
+            base.trajectoryStore.events.some((event) => event.eventType === "action_approved"),
+            false,
+        );
+    } finally {
+        await fixture.dispose();
+    }
+});
+
+test("Grant revocation does not restore a stale waiting snapshot over an accepted Interrupt", async () => {
+    const fixture = await createApprovalFixture();
+    try {
+        const goal = createAwaitingApprovalGoal({ goalId: "goal-revoke-during-interrupt" });
+        await fixture.store.save(goal);
+        const grant = await fixture.toolGrantStore.stage({
+            scope: "goal",
+            workspaceId: "ws-1",
+            goalId: goal.id,
+            source: {
+                goalId: goal.id,
+                runId: goal.state.run.id,
+                actionId: "previous-action",
+                approvalInputId: "previous-approval",
+            },
+            matcher: {
+                kind: "target_path",
+                toolId: "write_file",
+                version: 1,
+                path: join(fixture.workspaceRoot, "a.txt"),
+            },
+        });
+        await fixture.toolGrantStore.activate(grant.id, grant.source);
+
+        const revoking = deferred();
+        const releaseRevoke = deferred();
+        const toolGrantStore = new Proxy(fixture.toolGrantStore, {
+            get(target, property, receiver) {
+                if (property === "revoke") {
+                    return async (...args: Parameters<typeof target.revoke>) => {
+                        revoking.resolve();
+                        await releaseRevoke.promise;
+                        return target.revoke(...args);
+                    };
+                }
+                const value = Reflect.get(target, property, receiver) as unknown;
+                return typeof value === "function" ? value.bind(target) : value;
+            },
+        });
+        const base = createApprovalCoordinator(fixture);
+        const coordinator = new GoalCoordinator({
+            store: fixture.store,
+            trajectoryStore: base.trajectoryStore,
+            scheduler: new InlineScheduler(base.runner),
+            toolRegistry: fixture.registry,
+            toolGrantStore,
+            sandboxGrantStore: fixture.sandboxGrantStore,
+            workspaceId: "ws-1",
+            workspaceRoot: fixture.workspaceRoot,
+        });
+        const ref = { goalId: goal.id, runId: goal.state.run.id };
+
+        const revoke = coordinator.revokeGrant({ ref, kind: "tool", grantId: grant.id });
+        await revoking.promise;
+        const interrupt = base.runner.interrupt(ref, "interrupt-during-grant-revoke");
+        await setImmediate();
+        assert.equal((await fixture.store.restore(goal.id))?.state.run.status, "waiting");
+
+        releaseRevoke.resolve();
+        await revoke;
+        const accepted = await interrupt;
+        assert.equal(accepted.ok, true);
+        const saved = await fixture.store.restore(goal.id);
+        assert.equal(saved?.state.run.status, "cancelled");
+        assert.equal(saved?.state.run.interruption?.requestId, "interrupt-during-grant-revoke");
+        assert.equal(
+            base.trajectoryStore.events.filter((event) => event.eventType === "run_cancelled").length,
+            1,
+        );
+        const grants = await fixture.toolGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
+        assert.equal(grants.find((item) => item.id === grant.id)?.status, "revoked");
+    } finally {
+        await fixture.dispose();
+    }
+});
+
+test("Tool Grant 撤销的审计提交失败时仍保留已撤销授权与原 Snapshot", async () => {
+    const fixture = await createApprovalFixture();
+    try {
+        const goal = createAwaitingApprovalGoal({ goalId: "goal-tool-grant-revoke-save-failure" });
+        const source = {
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            actionId: "previous-action",
+            approvalInputId: "previous-approval",
+        };
+        const grant = await fixture.toolGrantStore.stage({
+            scope: "goal",
+            workspaceId: "ws-1",
+            goalId: goal.id,
+            source,
+            matcher: {
+                kind: "target_path",
+                toolId: "write_file",
+                version: 1,
+                path: join(fixture.workspaceRoot, "a.txt"),
+            },
+        });
+        await fixture.toolGrantStore.activate(grant.id, source);
+
+        const store = new FailingSaveGoalStore(1);
+        await store.seed(goal);
+        const { coordinator } = createApprovalCoordinator(fixture, { store });
+
+        await assert.rejects(coordinator.revokeToolGrant({
+            ref: { goalId: goal.id, runId: goal.state.run.id },
+            grantId: grant.id,
+            scope: "goal",
+        }), /snapshot save failed/);
+
+        assert.equal((await store.restore(goal.id))?.state.run.status, "waiting");
+        const grants = await fixture.toolGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
+        assert.equal(grants.find((candidate) => candidate.id === grant.id)?.status, "revoked");
     } finally {
         await fixture.dispose();
     }

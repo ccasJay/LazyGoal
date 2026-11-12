@@ -627,6 +627,40 @@ function isPlanRunAwaitingTaskApproval(goal: Goal): boolean {
     return goal.state.run.mode === "plan" && goal.state.run.approvedTask === undefined;
 }
 
+function resolveCommittedProgramCallRevision(
+    events: readonly TrajectoryEvent[],
+    program: Pick<NonNullable<RunState["pendingProgram"]>, "programId" | "executionUnitId">,
+    callIndex: number,
+    actionId: string,
+): ProgramCallRevision | undefined {
+    let latestDecision: Extract<TrajectoryEvent, { readonly eventType: "action_revised" }> | undefined;
+    const executionUnitId = `${program.executionUnitId}:call:${callIndex}`;
+    for (const event of events) {
+        if (
+            event.actionId !== actionId
+            || (event.programId !== program.programId || event.callIndex !== callIndex)
+                && event.executionUnitId !== executionUnitId
+        ) {
+            continue;
+        }
+        if (event.eventType === "action_revised") {
+            latestDecision = event;
+        } else if (
+            event.eventType === "action_approved"
+            || event.eventType === "action_rejected"
+        ) {
+            latestDecision = undefined;
+        }
+    }
+    if (latestDecision === undefined) return undefined;
+    return {
+        reviewRef: latestDecision.payload.reviewRef,
+        originalInput: latestDecision.payload.originalInput,
+        finalInput: latestDecision.payload.finalInput,
+        source: latestDecision.payload.revisionSource ?? "user",
+    };
+}
+
 function prepareToolAction(
     goal: Goal,
     action: Extract<AgentDecision, { readonly kind: "tool_call" }>['action'],
@@ -1250,7 +1284,7 @@ class RunExecutor {
             return this.runNotFound(ref);
         }
 
-        if (goal.state.run.interruption !== undefined && options.authorizedActionId === undefined) {
+        if (goal.state.run.interruption !== undefined) {
             return this.resumeInterruptedRun(goal, control);
         }
 
@@ -1533,58 +1567,62 @@ class RunExecutor {
     }
 
     private async resumeInterruptedRun(goal: Goal, control?: ExecutionControl): Promise<RunnerResult> {
-        const interruption = goal.state.run.interruption;
-        if (interruption === undefined) return { ok: true, state: goal.state.run };
-        if (interruption.status === "finished" || goal.state.run.status === "cancelled") {
-            return { ok: true, state: goal.state.run };
-        }
-        if (interruption.status === "requested") {
-            const pending = goal.state.run.pendingAction;
-            const program = goal.state.run.pendingProgram;
-            const unknownActions = [
-                ...(pending?.status === "approved" && (pending.attemptsStarted ?? 0) > 0 ? [pending.action] : []),
-                ...(program === undefined ? [] : [program.action]),
-            ].filter((action, index, actions) => actions.findIndex((candidate) => candidate.actionId === action.actionId) === index);
-            if (unknownActions.length === 0) return this.cancelInterruptedRun(goal, control);
-            const attempt = pending?.attemptsStarted ?? Math.max(1, program?.nextCallIndex ?? 1);
-            const nextInterruption: RunInterruption = {
-                ...interruption,
-                interruptedActions: unknownActions,
-                outcomeUnknown: true,
-            };
-            const nextGoalWithRun = this.withRun(goal, {
-                ...goal.state.run,
-                interruption: nextInterruption,
-            });
-            const facts: TrajectoryEventDraft[] = unknownActions.flatMap((action) => {
-                const unknownObservation: ToolObservation = {
-                    kind: "failure",
-                    code: "TOOL_INTERRUPTED_OUTCOME_UNKNOWN",
-                    message: `Tool ${action.toolId} was interrupted; its external effect is unknown. The operation was not replayed.`,
-                    retryable: false,
-                    details: { actionId: action.actionId, requestId: interruption.requestId, outcome: "unknown" },
+        return withGoalMutationGate(this.store, goal.id, async () => {
+            const latest = await this.restore({ goalId: goal.id, runId: goal.state.run.id }, control);
+            if (latest === undefined) return { ok: true, state: goal.state.run };
+            const interruption = latest.state.run.interruption;
+            if (interruption === undefined) return { ok: true, state: latest.state.run };
+            if (interruption.status === "finished" || latest.state.run.status === "cancelled") {
+                return { ok: true, state: latest.state.run };
+            }
+            if (interruption.status === "requested") {
+                const pending = latest.state.run.pendingAction;
+                const program = latest.state.run.pendingProgram;
+                const unknownActions = [
+                    ...(pending?.status === "approved" && (pending.attemptsStarted ?? 0) > 0 ? [pending.action] : []),
+                    ...(program === undefined ? [] : [program.action]),
+                ].filter((action, index, actions) => actions.findIndex((candidate) => candidate.actionId === action.actionId) === index);
+                if (unknownActions.length === 0) return this.cancelInterruptedRun(latest, control);
+                const attempt = pending?.attemptsStarted ?? Math.max(1, program?.nextCallIndex ?? 1);
+                const nextInterruption: RunInterruption = {
+                    ...interruption,
+                    interruptedActions: unknownActions,
+                    outcomeUnknown: true,
                 };
-                return [
-                    {
-                        goalId: goal.id, runId: goal.state.run.id, phase: "executing", actionId: action.actionId,
-                        eventType: "tool_attempt_failed",
-                        payload: { type: "tool_attempt_failed", actionId: action.actionId, attempt, reason: "outcome_unknown" },
-                    },
-                    {
-                        goalId: goal.id, runId: goal.state.run.id, phase: "executing", actionId: action.actionId,
-                        eventType: "observation_recorded",
-                        payload: { type: "observation_recorded", actionId: action.actionId, observation: unknownObservation },
-                    },
-                    {
-                        goalId: goal.id, runId: goal.state.run.id, phase: "executing", actionId: action.actionId,
-                        eventType: "run_interrupted_action_unknown",
-                        payload: { type: "run_interrupted_action_unknown", requestId: interruption.requestId, actionId: action.actionId, toolId: action.toolId },
-                    },
-                ];
-            });
-            return this.cancelInterruptedRun(nextGoalWithRun, control, facts);
-        }
-        return this.cancelInterruptedRun(goal, control);
+                const nextGoalWithRun = this.withRun(latest, {
+                    ...latest.state.run,
+                    interruption: nextInterruption,
+                });
+                const facts: TrajectoryEventDraft[] = unknownActions.flatMap((action) => {
+                    const unknownObservation: ToolObservation = {
+                        kind: "failure",
+                        code: "TOOL_INTERRUPTED_OUTCOME_UNKNOWN",
+                        message: `Tool ${action.toolId} was interrupted; its external effect is unknown. The operation was not replayed.`,
+                        retryable: false,
+                        details: { actionId: action.actionId, requestId: interruption.requestId, outcome: "unknown" },
+                    };
+                    return [
+                        {
+                            goalId: latest.id, runId: latest.state.run.id, phase: "executing", actionId: action.actionId,
+                            eventType: "tool_attempt_failed",
+                            payload: { type: "tool_attempt_failed", actionId: action.actionId, attempt, reason: "outcome_unknown" },
+                        },
+                        {
+                            goalId: latest.id, runId: latest.state.run.id, phase: "executing", actionId: action.actionId,
+                            eventType: "observation_recorded",
+                            payload: { type: "observation_recorded", actionId: action.actionId, observation: unknownObservation },
+                        },
+                        {
+                            goalId: latest.id, runId: latest.state.run.id, phase: "executing", actionId: action.actionId,
+                            eventType: "run_interrupted_action_unknown",
+                            payload: { type: "run_interrupted_action_unknown", requestId: interruption.requestId, actionId: action.actionId, toolId: action.toolId },
+                        },
+                    ];
+                });
+                return this.cancelInterruptedRun(nextGoalWithRun, control, facts);
+            }
+            return this.cancelInterruptedRun(latest, control);
+        });
     }
 
     private async cancelInterruptedRun(goal: Goal, control?: ExecutionControl, interruptedFacts: readonly TrajectoryEventDraft[] = []): Promise<RunnerResult> {
@@ -6218,8 +6256,9 @@ class RunExecutor {
         if (program.pendingStop !== undefined) {
             const pending = goal.state.run.pendingAction;
             if (pending?.status === "approved") {
+                const executionAction = resolveActionExecutionAction(pending);
                 const prepared = prepareToolAction(
-                    goal, pending.action, this.toolRegistry, this.toolPolicy, false, control,
+                    goal, executionAction, this.toolRegistry, this.toolPolicy, false, control,
                     undefined, this.traceSink,
                 );
                 const callIndex = program.nextCallIndex;
@@ -6227,14 +6266,28 @@ class RunExecutor {
                 if (this.sandboxPlanResolver !== undefined && this.workspaceRoot !== undefined) {
                     plan = await this.sandboxPlanResolver({
                         workspaceRoot: this.workspaceRoot,
-                        action: pending.action,
+                        action: executionAction,
                         effectiveScope: pending.effectiveSandboxScope,
                     });
                 }
-                const outcome = await this.executeToolAndObserve(
-                    goal, prepared, `${program.executionUnitId}:call:${callIndex}`,
-                    control, plan, { programId: program.programId, callIndex },
-                );
+                let outcome: { readonly kind: "observed"; readonly goal: Goal }
+                    | { readonly kind: "stopped"; readonly result: RunnerResult };
+                try {
+                    outcome = await this.executeToolAndObserve(
+                        goal, prepared, `${program.executionUnitId}:call:${callIndex}`,
+                        control, plan, { programId: program.programId, callIndex },
+                    );
+                } catch (error) {
+                    if (error instanceof ProgramResourceError) {
+                        return this.stopProgram(
+                            goal,
+                            program.pendingStop.code,
+                            program.pendingStop.message,
+                            control,
+                        );
+                    }
+                    throw error;
+                }
                 if (outcome.kind === "stopped") {
                     const latest = await this.restore({ goalId: goal.id, runId: goal.state.run.id }, control);
                     if (latest === undefined) throw new Error("PTC_REPLAY_MISMATCH");
@@ -6308,22 +6361,17 @@ class RunExecutor {
                 || staged[0]!.sequence >= result.sequence) {
                 throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "PTC_REPLAY_MISMATCH");
             }
-            const revised = committed.find((event) => event.eventType === "action_revised"
-                && event.actionId === actionId
-                && event.programId === program.programId
-                && event.callIndex === index);
+            const revision = resolveCommittedProgramCallRevision(
+                committed,
+                program,
+                index,
+                actionId,
+            );
             committedResultBytes += Buffer.byteLength(JSON.stringify(
                 createProgramCallEnvelope(
                     result.payload.observation,
                     0,
-                    revised?.eventType === "action_revised"
-                        ? {
-                            reviewRef: revised.payload.reviewRef,
-                            originalInput: revised.payload.originalInput,
-                            finalInput: revised.payload.finalInput,
-                            source: revised.payload.revisionSource ?? "user",
-                        }
-                        : undefined,
+                    revision,
                 ),
             ));
         }
@@ -6416,18 +6464,12 @@ class RunExecutor {
                             throw new Error("PTC_REPLAY_MISMATCH");
                         }
                         // 已结算子调用只返回保存结果；修订说明与首次执行保持一致。
-                        const revised = committed.find((event) => event.eventType === "action_revised"
-                            && event.actionId === actionId
-                            && event.programId === program.programId
-                            && event.callIndex === callIndex);
-                        const revision = revised?.eventType === "action_revised"
-                            ? {
-                                reviewRef: revised.payload.reviewRef,
-                                originalInput: revised.payload.originalInput,
-                                finalInput: revised.payload.finalInput,
-                                source: revised.payload.revisionSource ?? "user",
-                            }
-                            : undefined;
+                        const revision = resolveCommittedProgramCallRevision(
+                            committed,
+                            program,
+                            callIndex,
+                            actionId,
+                        );
                         return createProgramCallEnvelope(
                             result.payload.observation,
                             result.sequence,
