@@ -12,7 +12,7 @@
 
 [`TrajectoryModelContextAssembler`](../src/trajectory-model-context-assembler.ts) 在一次调用内完成：按提交边界、Goal/Run、阶段、Epoch 与 Conversation 起点筛选已提交 frame；选择 Hot 连续后缀；用 `WarmReducer` 归约省略单元派生的有损 Warm 条目；把固定输入计量与 Hot/Warm 配额写入预算报告。Epoch 切换、历史裁剪或缺少有效基线时 Section 当前投影会重新完整注入；必需内容超限时在调用前抛出 `MODEL_CONTEXT_HARD_OVERFLOW`。
 
-[`context-lookup-projection`](../src/context-lookup-projection.ts) 与 [`goal-context-navigation`](../src/goal-context-navigation.ts) 把 Runtime Lookup 结果、阶段路线与重要信息目录投影为带来源范围与时效提示的模型 DTO。
+[`context-lookup-projection`](../src/context-lookup-projection.ts) 与 [`goal-context-navigation`](../src/goal-context-navigation.ts) 把 Runtime Lookup 结果、阶段路线与重要信息目录投影为带来源范围与时效提示的模型 DTO。目标工作导航只消费 Runtime 已按各 `(goalId, runId)` 提交水位重建的瞬时历史阶段与 notes 投影，不自行读取旧 Run 的 Trajectory，也不把旧 Run 事实升级为当前 Run 的完成证据。
 
 ## 组件单元
 

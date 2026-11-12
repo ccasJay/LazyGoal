@@ -159,6 +159,7 @@ import {
 } from "./run-stage";
 import {
     acceptRunPlanStage,
+    reopenRunPlanStage,
     reviseRunPlanExecution,
     reviseRunPlanRoute,
     updateRunPlanStage,
@@ -175,6 +176,8 @@ import {
 } from "./tool-input-diagnostic";
 import {
     TrajectoryAppendError,
+    TrajectoryCommitMarkerError,
+    trajectoryWatermark,
     type DiagnosticTraceSink,
     type TrajectoryEvent,
     type TrajectoryEventDraft,
@@ -1080,6 +1083,15 @@ class RunExecutor {
     private readonly sandboxPlanResolver: SandboxPlanResolver | undefined;
     private readonly permissionModeStore: ProjectPermissionModeStore | undefined;
     private readonly activeRunControllers = new Map<string, AbortController>();
+    /** 当前 Run 的瞬时导航投影；Goal 字段已定义时优先使用 Goal 上的增量结果。 */
+    private navigationProjection:
+        | {
+            readonly goalId: string;
+            readonly runId: string;
+            readonly stages: readonly RunStageState[];
+            readonly notes: readonly RuntimeContextNote[];
+        }
+        | undefined;
 
     /** @param dependencies - GoalStore、Executor 与可选 Tool 边界依赖。 */
     constructor(dependencies: RunnerDependencies) {
@@ -1830,22 +1842,27 @@ class RunExecutor {
 
     /**
      * 恢复并填充运行时 Goal 的历史阶段和 notes，用于支持模型请求中的工作导航投影。
+     *
+     * @remarks
+     * 每个 `(goalId, runId)` 只读取自身 Snapshot 提交边界内的事实；读取失败或非零
+     * 水位缺少提交边界时抛出 `RunNavigationRecoveryError`，停止本次依赖该导航的模型推进。
      */
     private async populateHistoricalContext(goal: Goal, control?: ExecutionControl): Promise<Goal> {
         if (goal.state.historicalStages !== undefined && goal.state.notes !== undefined) {
             return goal;
         }
 
+        const cached = this.navigationProjection;
+        if (cached !== undefined && cached.goalId === goal.id && cached.runId === goal.state.run.id) {
+            return this.withNavigationProjection(goal, cached.stages, cached.notes);
+        }
+
         const trajectoryStore = this.trajectoryStore;
         if (trajectoryStore === undefined) {
-            return {
-                ...goal,
-                state: {
-                    ...goal.state,
-                    historicalStages: goal.state.historicalStages ?? Object.freeze([]),
-                    notes: goal.state.notes ?? Object.freeze([]),
-                },
-            };
+            const stages = Object.freeze([]) as readonly RunStageState[];
+            const notes = Object.freeze([]) as readonly RuntimeContextNote[];
+            this.navigationProjection = { goalId: goal.id, runId: goal.state.run.id, stages, notes };
+            return this.withNavigationProjection(goal, stages, notes);
         }
 
         const runIds = [
@@ -1858,12 +1875,11 @@ class RunExecutor {
 
         for (const runId of runIds) {
             throwIfAborted(control);
-            let events: readonly TrajectoryEvent[] = [];
-            try {
-                events = await trajectoryStore.read({ goalId: goal.id, runId });
-            } catch {
-                events = [];
-            }
+            const events = await this.recoveryReader.readNavigationHistory(
+                { goalId: goal.id, runId },
+                trajectoryWatermark(goal, runId),
+                control,
+            );
 
             const stagesByStageId = new Map<string, RunStageState>();
             for (const event of events) {
@@ -1914,16 +1930,28 @@ class RunExecutor {
             }
         }
 
-        if (stagesList.length === 0 && notesMap.size === 0) {
+        const stages = Object.freeze(stagesList);
+        const notes = Object.freeze([...notesMap.values()]);
+        this.navigationProjection = { goalId: goal.id, runId: goal.state.run.id, stages, notes };
+        return this.withNavigationProjection(goal, stages, notes);
+    }
+
+    private withNavigationProjection(
+        goal: Goal,
+        stages: readonly RunStageState[],
+        notes: readonly RuntimeContextNote[],
+    ): Goal {
+        const historicalStages = goal.state.historicalStages ?? stages;
+        const projectedNotes = goal.state.notes ?? notes;
+        if (historicalStages.length === 0 && projectedNotes.length === 0) {
             return goal;
         }
-
         return {
             ...goal,
             state: {
                 ...goal.state,
-                historicalStages: goal.state.historicalStages ?? Object.freeze(stagesList),
-                notes: goal.state.notes ?? Object.freeze([...notesMap.values()]),
+                historicalStages,
+                notes: projectedNotes,
             },
         };
     }
@@ -4242,7 +4270,7 @@ class RunExecutor {
         initialPreparedAction?: PreparedToolAction,
         initialSandboxPlan?: SandboxExecutionPlan,
     ): Promise<RunnerResult> {
-        let goal = await this.populateHistoricalContext(initialGoal, control);
+        let goal = initialGoal;
         let transientAuthorization = authorizedActionId;
         let transientSandboxPlan = initialSandboxPlan;
         let contextLookupResult = initialContextLookupResult;
@@ -4347,6 +4375,7 @@ class RunExecutor {
 
                 if (validated.registration.kind === "program") {
                     const executionUnitId = await this.findProgramExecutionUnit(goal, validated.action.actionId, control);
+                    // 审批等待检查点已经消费该批次项；此处只接手已暂存的程序。
                     goal = await this.beginProgram(goal, validated.action, executionUnitId, undefined, control);
                     transientAuthorization = undefined;
                     continue;
@@ -4411,6 +4440,8 @@ class RunExecutor {
                 );
                 return { ok: true, state: checkpoint.state.run };
             }
+
+            goal = await this.populateHistoricalContext(goal, control);
 
             const executionUnitId = goal.state.run.pendingThink?.executionUnitId
                 ?? goal.state.run.pendingModelRepair?.executionUnitId
@@ -4826,6 +4857,9 @@ class RunExecutor {
                     if (error instanceof StageCheckpointFailure) {
                         throw error.original;
                     }
+                    if (error instanceof TrajectoryCommitMarkerError) {
+                        throw error;
+                    }
                     if (error instanceof StaleStageRequestError) throw error;
 
                     throwIfAborted(control);
@@ -4838,6 +4872,9 @@ class RunExecutor {
                         return this.invalidContextLookup(error.message);
                     }
                     if (error instanceof StageExecutionFailure) {
+                        if (error.original instanceof TrajectoryCommitMarkerError) {
+                            throw error.original;
+                        }
                         const stageError = toStableExecutionError(error.original);
                         if (stageError !== undefined) {
                             return this.stopWithExecutionError(goal, stageError, control);
@@ -5429,7 +5466,15 @@ class RunExecutor {
                             }, ...contextNoteDrafts], acceptedPatch, control);
                             continue;
                         }
-                        goal = await this.beginProgram(goal, validated.action, executionUnitId, acceptedPatch, control, contextNoteDrafts);
+                        goal = await this.beginProgram(
+                            goal,
+                            validated.action,
+                            executionUnitId,
+                            acceptedPatch,
+                            control,
+                            contextNoteDrafts,
+                            { decided: decidedBatch, consumed: consumedFromBatch },
+                        );
                         continue;
                     }
 
@@ -5963,11 +6008,19 @@ class RunExecutor {
 
                     if (reviewed.kind === "reject") {
                         const rejectedStage = rejectCurrentRunStage(goal.state.run.currentStage, reviewed.feedback, undefined, true);
-                        const nextRun = this.applyTransition(goal.state.run, {
+                        // 已接受的末阶段与路线游标必须在同一检查点一起重开。
+                        const rejectedPlanRoute = goal.state.run.planRoute !== undefined
+                            && goal.state.run.currentStage.status === "accepted"
+                            ? reopenRunPlanStage(goal.state.run.planRoute, rejectedStage.stageId)
+                            : goal.state.run.planRoute;
+                        const transitionedRun = this.applyTransition(goal.state.run, {
                             kind: "stage_settle",
                             stage: rejectedStage,
                             decision: normalized.decision,
                         });
+                        const nextRun = rejectedPlanRoute === undefined
+                            ? transitionedRun
+                            : { ...transitionedRun, planRoute: rejectedPlanRoute };
                         // 被审查拒绝的完成候选不提交其公开正文。
                         const nextGoal = this.withRun(goalBeforeProcessText ?? goal, nextRun);
                         goal = await this.commitDecision(
@@ -6185,6 +6238,10 @@ class RunExecutor {
         acceptedPatch?: AcceptedMemoryPatchInput,
         control?: ExecutionControl,
         contextNoteDrafts: readonly TrajectoryEventDraft[] = [],
+        batch?: {
+            readonly decided: PendingActionBatch | undefined;
+            readonly consumed: boolean;
+        },
     ): Promise<Goal> {
         if (this.trajectoryStore === undefined || goal.state.run.pendingProgram !== undefined) {
             throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "PTC requires a fresh program and Trajectory store");
@@ -6204,12 +6261,18 @@ class RunExecutor {
         };
         const {
             pendingAction: _pendingAction,
+            pendingActionBatch: _pendingActionBatch,
             pendingModelRepair: _pendingModelRepair,
             pendingThink: _pendingThink,
             ...runForProgram
         } = goal.state.run;
+        // 程序开始与消费批次队首共用同一检查点，恢复时剩余 Action 仍按原顺序继续。
+        const nextBatch = batch === undefined
+            ? goal.state.run.pendingActionBatch
+            : this.pendingBatchPatch(goal, batch.decided, batch.consumed).pendingActionBatch;
         return this.commitDecision(this.withRun(goal, {
             ...runForProgram,
+            ...(nextBatch === undefined ? {} : { pendingActionBatch: nextBatch }),
             pendingProgram,
         }), [{
             goalId: goal.id,

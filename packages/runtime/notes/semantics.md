@@ -56,12 +56,13 @@
 | 工具发现 | 在授权目录中排序并累积当前 Run 可见工具。 | [Goal Runtime](../README.md) | [模块说明](./overview.md) |
 | Memory proposal 纠错 | 模型记忆提议在副作用前校验，拒绝进入同一 Decide 预算。 | [Goal Runtime](../README.md) | [阶段反馈](../src/runtime-feedback.ts) |
 | Run 阶段 | Run 内模型自主组织的阶段说明与完成条件；业务执行需活动阶段，最终审查拒绝后可重新打开已接受阶段。 | [Goal Runtime](../README.md) | [阶段规则](../src/run-stage.ts) |
-| Plan Run 路线 | 仅已批准 Plan Run 持有的完整有序阶段、状态、修订理由和 Runtime 恢复游标；范围内修订保留已接受结果。 | [Goal Runtime](../README.md) | [路线规则](../src/run-plan.ts) |
+| Plan Run 路线 | 仅已批准 Plan Run 持有的完整有序阶段、状态、修订理由和 Runtime 恢复游标；范围内修订保留已接受结果，最终审查拒绝末阶段时回拨游标并清除两处接受指针。 | [Goal Runtime](../README.md) | [路线规则](../src/run-plan.ts) |
 | PTC 回放不匹配 | 恢复时程序身份或轨迹不符合回放契约会明确失败当前 Run；PTC 子调用的修订元数据按最后已提交批准决定重建，延迟停止重试沿用获批参数与停止原因。 | [Goal Runtime](../README.md) | [Runner](../src/runner.ts) |
 | 轨迹查询上下文 | 浏览器查询固定首次读取的 `committedThroughSequence`，列表、详情、执行单元与时间线在同一可见边界内解释。 | [Goal Runtime](../README.md) | [轨迹查询契约](../src/trajectory-query.ts) |
 | 轨迹执行单元范围 | 只有显式携带 `executionUnitId` 的事件属于该单元；未归属事件与上下文邻居不进入单元结果集。 | [Goal Runtime](../README.md) | [轨迹查询契约](../src/trajectory-query.ts) |
 | 批次顺序执行 | 一次 Decide 返回的多个业务 Action 按模型返回顺序逐个暂存与执行。 | [Runtime](../README.md) | [Runner](../src/runner.ts) |
-| 批次恢复点 | `pendingAction` 与 `pendingActionBatch` 共同构成"从第一个未产生结果的 Action 继续"的指针。 | [Runtime](../README.md) | [Goal 领域模型](../src/domain.ts) |
+| 批次恢复点 | `pendingAction` 与 `pendingActionBatch` 共同构成"从第一个未产生结果的 Action 继续"的指针；程序开始检查点与消费队首共用同一次提交。 | [Runtime](../README.md) | [Goal 领域模型](../src/domain.ts)、[Runner](../src/runner.ts) |
+| 导航恢复 | 每个 `(goalId, runId)` 按自身提交水位恢复历史阶段与 notes；读取失败或非零水位缺少边界时显式失败并停止依赖该导航的模型推进。 | [Goal Runtime](../README.md) | [恢复读取边界](../src/run-recovery-reader.ts)、[Runner](../src/runner.ts) |
 | 不推进类预算 | 零调用正文与无可用结果的独立有界计数，与协议类纠错预算互不占用。 | [Runtime](../README.md) | [Runner](../src/runner.ts) |
 | 审批参数修订 | 审批者可为同一工具提交最终参数版本；原请求引用与最终 canonical 参数一并冻结，获批后不可再编辑。 | [Goal Runtime](../README.md) | [审批修订规则](../src/action-approval.ts) |
 | 审批只读预检 | 重新准备参数、规划执行准入、权限与沙箱范围并返回可审阅结果；不保存批准、不暂存授权、不解除等待。 | [Goal Runtime](../README.md) | [审批修订规则](../src/action-approval.ts) |

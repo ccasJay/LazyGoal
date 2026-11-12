@@ -31,6 +31,7 @@ export {
     createRunPlanRoute,
     reviseRunPlanRoute,
     reviseRunPlanExecution,
+    reopenRunPlanStage,
     updateRunPlanStage,
     RunPlanTransitionError,
 } from "./run-plan";
@@ -485,7 +486,11 @@ export type {
     SessionQueryResult,
 } from "./session-manager";
 export { Runner, type InterruptRunResult, type SteerInputResult } from "./runner";
-export { RunRecoveryReader, type RunRecoveryReaderDependencies } from "./run-recovery-reader";
+export {
+    RunNavigationRecoveryError,
+    RunRecoveryReader,
+    type RunRecoveryReaderDependencies,
+} from "./run-recovery-reader";
 export type { RunnerDependencies, RunnerResult, SandboxPlanResolver } from "./runner";
 export { InlineScheduler } from "./inline-scheduler";
 export type {
