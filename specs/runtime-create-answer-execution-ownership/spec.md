@@ -63,7 +63,7 @@ superseded_by: null
 
 ## 执行记录
 
-- 状态：已执行，等待评审
-- 验证：`npx tsc --noEmit`；`npx tsx --test packages/runtime/test/*.test.ts`（645 通过）；`TMPDIR=/tmp/lgtest npm test`（2940 通过）；`npm run check:docs`；`npm run check:dependencies`
+- 状态：passed
+- 验证：提交 `1162804a`。`npx tsc --noEmit`；`npx tsx --test packages/runtime/test/*.test.ts`（645 通过，含新增 12 项定向用例）；`TMPDIR=/tmp/lgtest npm test`（2940 + 99 通过）；`npm run check:docs`；`npm run check:dependencies`
 - 结果：全部通过。沙箱默认 TMPDIR 路径过长会让 Supervisor/Worker 的 Unix socket 绑定用例失败，与本次改动无关；使用短 TMPDIR 后全量通过。
 - 未决：无
