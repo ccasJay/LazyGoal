@@ -1,16 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { setImmediate } from "node:timers/promises";
 import { GitMutex } from "../src/git-runner";
 
 function deferred() {
     let resolve!: () => void;
-    let reject!: (reason?: unknown) => void;
-    const promise = new Promise<void>((resolvePromise, rejectPromise) => {
+    const promise = new Promise<void>((resolvePromise) => {
         resolve = () => resolvePromise();
-        reject = rejectPromise;
     });
 
-    return { promise, resolve, reject };
+    return { promise, resolve };
 }
 
 function lockRecords(): Map<string, Promise<void>> {
@@ -23,7 +22,6 @@ test("GitMutex 对同一键按顺序执行并保持回调互斥", async () => {
     const secondGate = deferred();
     const firstStarted = deferred();
     const secondStarted = deferred();
-    const thirdStarted = deferred();
     const order: string[] = [];
     let active = 0;
     let maximumActive = 0;
@@ -43,7 +41,6 @@ test("GitMutex 对同一键按顺序执行并保持回调互斥", async () => {
         active += 1;
         maximumActive = Math.max(maximumActive, active);
         order.push("third");
-        thirdStarted.resolve();
         active -= 1;
     });
 
@@ -54,7 +51,6 @@ test("GitMutex 对同一键按顺序执行并保持回调互斥", async () => {
     assert.equal(maximumActive, 1);
 
     secondGate.resolve();
-    await thirdStarted.promise;
     await Promise.all([first, second, third]);
     assert.deepEqual(order, ["first", "second", "third"]);
     assert.equal(maximumActive, 1);
@@ -114,7 +110,6 @@ test("GitMutex 清理时保留当前队尾并将晚到请求排在队尾之后",
     const secondGate = deferred();
     const firstStarted = deferred();
     const secondStarted = deferred();
-    const thirdStarted = deferred();
     const order: string[] = [];
 
     const first = GitMutex.withLock(key, async () => {
@@ -138,13 +133,12 @@ test("GitMutex 清理时保留当前队尾并将晚到请求排在队尾之后",
 
     const third = GitMutex.withLock(key, async () => {
         order.push("third");
-        thirdStarted.resolve();
     });
     assert.notEqual(lockRecords().get(key), secondTail);
+    await setImmediate();
     assert.deepEqual(order, ["first", "second"]);
 
     secondGate.resolve();
-    await thirdStarted.promise;
     await Promise.all([first, second, third]);
     assert.deepEqual(order, ["first", "second", "third"]);
     assert.equal(lockRecords().has(key), false);
