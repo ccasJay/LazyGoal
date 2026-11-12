@@ -26,13 +26,13 @@
 | 会话推进交接 | 受理提交后把目标 Run 与执行身份交给后台执行者；同一 Goal 已有执行者时由它接手，关闭开始后不再接受新推进。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
 | 交互视图 | 由当前已提交等待派生的类型化请求：种类、Goal／Run 与请求身份、可用决定；不复制可变请求正文。 | [Goal Runtime](../README.md) | [交互视图](../src/interaction-view.ts) |
 | 交互详情读取 | 按稳定引用返回当前等待的完整问题、任务范围或 Action 输入；引用过期时拒绝且不推进等待。 | [Goal Runtime](../README.md) | [交互视图](../src/interaction-view.ts) |
-| 交互处理器 | 会话边界按种类分派的宿主处理函数入口：单一自动所有者、按引用去重、Gate 外调用；故障、迟到结果、解除与关闭都不默认决定。 | [Goal Runtime](../README.md) | [交互处理器](../src/interaction-handlers.ts) |
+| 交互处理器 | 会话边界按种类分派的宿主处理函数入口：单一自动所有者、按引用去重、Gate 外调用；基线一致同步完成前不启动宿主函数，派发读取在途时解除后也不再启动；故障、迟到结果、解除与关闭都不默认决定。 | [Goal Runtime](../README.md) | [交互处理器](../src/interaction-handlers.ts)、[会话所有者](../src/session-manager.ts) |
 | 问答响应分支 | 逐题答案、整体回复与跳过三种互斥分支；整体回复保留用户原文，跳过提交未回答并要求继续的控制语义，都不伪造选项。 | [Goal Runtime](../README.md) | [输入契约](../src/session-input.ts) |
 | 显式恢复 | 匹配最新 Run 与提交修订的恢复命令唤醒执行所有者或已受理队首；已受理 Interrupt 可恢复取消结算，但不解除队列暂停或代答等待。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
-| 异步输入消费 | `consume` 逐条等待持久化受理；业务拒绝继续，基础设施失败停止来源，迟到项不受理。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
+| 异步输入消费 | `consume` 逐条等待持久化受理；业务拒绝继续，基础设施失败停止来源，迟到项不受理；至多请求一次来源清理，清理故障按 Goal、阶段与原因单独诊断。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
 | 单消息封装 | 等待指定 Run 的等待或终态结果并返回可恢复身份；只释放自己的资源。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
 | 有界关闭 | 停止接受与订阅后按期限结算；未结算时保留类型化错误，不伪造取消。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
-| 会话输出订阅 | Goal 范围实时输出：先 `state_sync`，再输入结果与公开执行活动；不随 Run 结束关闭。 | [Goal Runtime](../README.md) | [会话流](../src/session-stream.ts) |
+| 会话输出订阅 | Goal 范围实时输出：先 `state_sync`，再输入结果与公开执行活动；不随 Run 结束关闭。同步按提交修订单调接纳，后继 Run 经一致快照确认后接管临时增量，迟到的前一 Run 增量被过滤而正式事实仍交付。 | [Goal Runtime](../README.md) | [会话流](../src/session-stream.ts) |
 | 类型化会话输出 | 可辨识联合区分状态同步、输入结果、公开生成、正式消息、工具活动、交互、Run 状态与终态、流故障与提交边界；消费者不按任意 `kind` 猜测。 | [Goal Runtime](../README.md) | [会话输出分类器](../src/session-output.ts) |
 | 提交边界元数据 | `commit_boundary` 携带本批次来源事件类型与可用的 Action／执行单元，供消费者声明实际失效范围。 | [Goal Runtime](../README.md) | [会话输出分类器](../src/session-output.ts) |
 | 正式消息通知 | 保存成功后按稳定 `messageId`、用途、来源与提交修订通知；重复同步只更新同一条消息。 | [Goal Runtime](../README.md) | [会话输出分类器](../src/session-output.ts) |
@@ -41,7 +41,7 @@
 | 有界消息查询 | 按稳定身份分页读取正式消息与正文：页大小 50／100，正文上限 64,000，翻页区间由首批固定。 | [Goal Runtime](../README.md) | [消息查询](../src/session-message-query.ts) |
 | 完成候选生命周期 | 候选预览始终未确认；审查拒绝、Steer 弃用、中断或被新候选替代时明确作废，只有审查接受且消息已保存才成为正式答复。 | [Goal Runtime](../README.md) | [Runner](../src/runner.ts) |
 | 提交核对 | 有观察者时按不超过一秒的间隔只读核对最新提交修订，弥补末次通知丢失。 | [Goal Runtime](../README.md) | [会话流](../src/session-stream.ts) |
-| 流背压 | 控制事件无法保留时以 `backpressure` 结束该订阅，不静默丢弃也不阻塞执行。 | [Goal Runtime](../README.md) | [事件 Core](../../execution-stream/src/publisher.ts) |
+| 流背压 | 从 Core 到最终消费者共享固定待交付上限；不足时先合并相邻同 Run 增量，临时内容仍不完整时报告缺口并重新核对，控制事件无法保留时以 `backpressure` 结束该订阅，不静默丢弃也不阻塞执行。 | [Goal Runtime](../README.md) | [事件 Core](../../execution-stream/src/publisher.ts)、[会话流](../src/session-stream.ts) |
 | 模型 Binding 对齐 | 新 Run 启动前按最新 Goal 的 `modelSelection` 重新对齐实例绑定。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
 | Goal 动态模型执行选择 | 保存非敏感 API 协议、容量和模型能力供宿主恢复 Binding；不含端点或凭据。 | [Goal Runtime](../README.md) | [领域契约](../src/domain.ts) |
 | 会话 Interrupt 受理 | 中断意图、账本收据与队列暂停在同一提交生效；受理使旧交互引用失效，受理后停止执行，记录已开始工具的未知结果并直接结算 cancelled，不再调用模型。 | [Goal Runtime](../README.md) | [Runner](../src/runner.ts) |

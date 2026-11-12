@@ -274,3 +274,84 @@ test("缺失前缀的候选增量带位置，不会被当作完整回答", async
     stream.close();
     await consumed;
 });
+
+test("乱序完成的同步读取不撤回已显示的 Run 与状态", async () => {
+    const store = new MemoryStore();
+    const base = goalFor("goal-sync-order", "run-a");
+    await store.save(base);
+    const publisher = new InMemoryExecutionStreamPublisher();
+    const pending: Array<(state: ReturnType<typeof projectGoalSessionState> | undefined) => void> = [];
+    const stream = new GoalSessionStream({
+        publisher,
+        goalId: base.id,
+        readState: () => new Promise((resolve) => { pending.push(resolve); }),
+    });
+    const events: SessionOutputEvent[] = [];
+    const consumed = (async () => {
+        for await (const event of stream) events.push(event);
+    })();
+
+    const variant = (revision: number, runId: string): ReturnType<typeof projectGoalSessionState> => projectGoalSessionState({
+        goal: {
+            ...base,
+            state: { ...base.state, commitRevision: revision, run: { ...base.state.run, id: runId } },
+        },
+        executionOwner: true,
+    });
+    const baseline = variant(4, "run-a");
+    const newer = variant(9, "run-c");
+    const older = variant(5, "run-b");
+
+    // 初始读取在途时，两次并发核对已各自开始读取。
+    const firstCheck = stream.resync();
+    const secondCheck = stream.resync();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(pending.length, 3);
+    pending[0]!(baseline);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    // 较新的读取先完成，较旧的读取晚到。
+    pending[2]!(newer);
+    await new Promise((resolve) => setImmediate(resolve));
+    pending[1]!(older);
+    await Promise.all([firstCheck, secondCheck]);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const syncs = events.filter((event) => event.type === "state_sync");
+    assert.deepEqual(
+        syncs.map((event) => event.type === "state_sync" ? [event.state.runId, event.state.commitRevision] : []),
+        [["run-a", 4], ["run-c", 9]],
+    );
+
+    // 旧快照不能把观察身份切回前一 Run：迟到的 run-b 增量仍被过滤。
+    publisher.publish({
+        goalId: base.id,
+        runId: "run-c",
+        kind: "model_block_delta",
+        visibility: "public",
+        durability: "live",
+        delivery: "delta",
+        coalescingKey: "model-block:current",
+        payload: { modelCallId: "call-current", deltaKind: "text", delta: "当前片段" },
+    });
+    publisher.publish({
+        goalId: base.id,
+        runId: "run-b",
+        kind: "model_block_delta",
+        visibility: "public",
+        durability: "live",
+        delivery: "delta",
+        coalescingKey: "model-block:superseded",
+        payload: { modelCallId: "call-superseded", deltaKind: "text", delta: "已撤回片段" },
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(
+        events.filter((event) => event.type === "generation_event")
+            .map((event) => event.type === "generation_event" ? event.event.source.runId : ""),
+        ["run-c"],
+    );
+
+    stream.close();
+    await consumed;
+});

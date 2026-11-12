@@ -2,14 +2,18 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
+    createGoal,
     GoalCoordinator,
     GoalRevisionMonitor,
+    GoalSessionStream,
     InlineScheduler,
+    projectGoalSessionState,
     Runner,
     SessionManager,
     TrajectoryCheckpointCommitter,
     type AgentProfile,
     type AgentProfileRegistry,
+    type Goal,
     type SessionOutputEvent,
     type StepExecutionInput,
     type StepExecutor,
@@ -33,6 +37,61 @@ function deferred() {
     let resolve!: () => void;
     const promise = new Promise<void>((done) => { resolve = done; });
     return { promise, resolve };
+}
+
+async function tick(): Promise<void> {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+}
+
+async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs = 5_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        if (await predicate()) return;
+        await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    throw new Error("condition was not reached before the test deadline");
+}
+
+function standaloneGoal(goalId: string): Goal {
+    return createGoal({
+        ...currentProtocols,
+        id: goalId,
+        runId: `${goalId}-run`,
+        intent: "会话输出",
+        promptBundleVersion: 1,
+        profile: { id: "default", systemPrompt: "test", instructions: [], toolIds: [] },
+    });
+}
+
+function openBoundedStream(options: {
+    readonly store: InMemoryGoalStore;
+    readonly publisher: InMemoryExecutionStreamPublisher;
+    readonly goalId: string;
+    readonly maxQueueSize: number;
+}): GoalSessionStream {
+    return new GoalSessionStream({
+        publisher: options.publisher,
+        goalId: options.goalId,
+        policy: { maxQueueSize: options.maxQueueSize },
+        readState: async (target) => {
+            const goal = await options.store.restore(target);
+            return goal === undefined ? undefined : projectGoalSessionState({ goal, executionOwner: true });
+        },
+    });
+}
+
+function textDelta(goalId: string, runId: string, text: string, key: string) {
+    return {
+        goalId,
+        runId,
+        kind: "model_block_delta",
+        visibility: "public" as const,
+        durability: "live" as const,
+        delivery: "delta" as const,
+        coalescingKey: `model-block:${key}`,
+        payload: { modelCallId: `call-${key}`, deltaKind: "text", delta: text },
+    };
 }
 
 /** 可控 fake clock：只执行显式推进的定时器回调。 */
@@ -499,4 +558,244 @@ test("GoalRevisionMonitor 使用 readRevision，仅在实际变化时通知", as
     await new Promise<void>((resolve) => setImmediate(resolve));
     assert.deepEqual(signals, [2]);
     unsubscribe();
+});
+
+test("successor Run 的首个实时片段在原订阅上交付，迟到的前一 Run 增量被过滤", async () => {
+    const store = new InMemoryGoalStore();
+    const clock = createFakeClock();
+    const firstGate = deferred();
+    const secondGate = deferred();
+    const harness = createHarness({
+        store,
+        prefix: "run-successor",
+        clock,
+        decide: async (input, callIndex) => {
+            if (callIndex === 1) await firstGate.promise;
+            if (callIndex === 2) await secondGate.promise;
+            return completeDecision(input);
+        },
+    });
+
+    const created = await harness.sessions.create({
+        goalId: "goal-successor",
+        inputId: "input-first",
+        content: "首个任务",
+        profileId: profile.id,
+    });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+
+    const events: SessionOutputEvent[] = [];
+    const stream = created.session.events();
+    const consumed = (async () => {
+        for await (const event of stream) events.push(event);
+    })();
+    await waitFor(() => events.some((event) => event.type === "state_sync"));
+    const firstSync = events.find((event) => event.type === "state_sync");
+    assert.ok(firstSync?.type === "state_sync");
+    const firstRunId = firstSync.state.runId;
+
+    // 真实 Session FIFO：排入的消息在首个 Run 结束后启动后继 Run。
+    const queued = await created.session.send({ kind: "message", inputId: "input-next", content: "后继任务" });
+    assert.equal(queued.ok, true);
+    firstGate.resolve();
+
+    // 后继 Run 已提交成为当前 Run；这里不推进任何定时核对。
+    await waitFor(async () => {
+        const goal = await store.restore("goal-successor");
+        return goal !== undefined && goal.state.run.id !== firstRunId && goal.state.run.status === "running";
+    });
+    const secondRunId = (await store.restore("goal-successor"))!.state.run.id;
+
+    harness.publisher.publish(textDelta("goal-successor", secondRunId, "后继片段", "successor"));
+    harness.publisher.publish(textDelta("goal-successor", firstRunId, "迟到旧片段", "stale"));
+    harness.publisher.publish({
+        goalId: "goal-successor",
+        runId: firstRunId,
+        kind: "run_waiting",
+        visibility: "public",
+        durability: "checkpoint",
+        delivery: "control",
+        payload: {},
+    });
+    await waitFor(() => events.some((event) => event.type === "run_status"
+        && event.event.kind === "waiting"
+        && event.event.source.runId === firstRunId
+        && event.event.source.durability === "checkpoint"));
+
+    // 后继 Run 的片段先于定时核对交付，未确认的旧 Run 增量不冒充当前进度。
+    const deltas = events.filter((event) => event.type === "generation_event" && event.event.kind === "text_delta");
+    assert.deepEqual(
+        deltas.map((event) => event.type === "generation_event" && event.event.kind === "text_delta"
+            ? [event.event.source.runId, event.event.text] : []),
+        [[secondRunId, "后继片段"]],
+    );
+    // 前一 Run 已提交的控制事实仍按来源交付。
+    const deltaIndex = events.findIndex((event) => event.type === "generation_event"
+        && event.event.kind === "text_delta"
+        && event.event.source.runId === secondRunId);
+    const lateControlIndex = events.findIndex((event) => event.type === "run_status"
+        && event.event.kind === "waiting"
+        && event.event.source.runId === firstRunId
+        && event.event.source.durability === "checkpoint");
+    assert.ok(deltaIndex >= 0, JSON.stringify(events.map((event) => event.type)));
+    assert.ok(lateControlIndex > deltaIndex, "previous Run control fact must follow the successor fragment");
+    assert.equal(clock.activeCount() >= 1, true);
+    assert.equal(stream.closed, false);
+
+    secondGate.resolve();
+    await harness.sessions.waitForIdle();
+    stream.close();
+    await consumed;
+});
+
+test("最终消费者缓冲有固定上限：相邻片段合并，临时内容缺口显式报告且不关闭订阅", async () => {
+    const store = new InMemoryGoalStore();
+    const goal = standaloneGoal("goal-bounded");
+    await store.save(goal);
+    const publisher = new InMemoryExecutionStreamPublisher();
+    const stream = openBoundedStream({ store, publisher, goalId: goal.id, maxQueueSize: 4 });
+    const initial = await stream.next();
+    assert.equal(initial.done, false);
+    assert.equal(initial.value?.type, "state_sync");
+
+    // 分六批生产同 Run 的公开正文：队列从未超过固定上限，正文按顺序保留。
+    for (let index = 0; index < 6; index += 1) {
+        publisher.publish(textDelta(goal.id, goal.state.run.id, `${index}`, `text-${index}`));
+        await tick();
+    }
+    assert.ok(stream.pending <= 4, `queue exceeded its bound: ${stream.pending}`);
+    const merged: SessionOutputEvent[] = [];
+    while (stream.pending > 0) {
+        const result = await stream.next();
+        if (result.done) break;
+        merged.push(result.value);
+    }
+    assert.ok(merged.length <= 4, `delivered more than the bound: ${merged.length}`);
+    assert.equal(
+        merged.map((event) => event.type === "generation_event" && event.event.kind === "text_delta"
+            ? event.event.text : "").join(""),
+        "012345",
+    );
+    assert.equal(merged.some((event) => event.type === "stream_fault"), false);
+
+    // 无法合并的临时内容：报告一次缺口并保持订阅开放。
+    for (let index = 0; index < 6; index += 1) {
+        publisher.publish({
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            kind: "candidate_preview",
+            visibility: "public",
+            durability: "live",
+            delivery: "control",
+            payload: { candidateId: `candidate-${index}`, text: `${index}`, startOffset: 0, truncated: false, complete: false },
+        });
+        await tick();
+    }
+    assert.ok(stream.pending <= 5, `queue exceeded its bound: ${stream.pending}`);
+    const afterGap: SessionOutputEvent[] = [];
+    while (stream.pending > 0) {
+        const result = await stream.next();
+        if (result.done) break;
+        afterGap.push(result.value);
+    }
+    assert.equal(stream.closed, false);
+    assert.ok(afterGap.some((event) => event.type === "stream_fault" && event.event.kind === "gap"));
+    // 缺口后在容量恢复时重新核对。
+    await tick();
+    while (stream.pending > 0) {
+        const result = await stream.next();
+        if (result.done) break;
+        afterGap.push(result.value);
+    }
+    assert.ok(afterGap.some((event) => event.type === "state_sync"));
+
+    stream.close();
+});
+
+test("控制事件无法保留时只结束该订阅，其他订阅与执行继续", async () => {
+    const store = new InMemoryGoalStore();
+    const goal = standaloneGoal("goal-control-bound");
+    await store.save(goal);
+    const publisher = new InMemoryExecutionStreamPublisher();
+    const slow = openBoundedStream({ store, publisher, goalId: goal.id, maxQueueSize: 4 });
+    const fast = openBoundedStream({ store, publisher, goalId: goal.id, maxQueueSize: 4 });
+    assert.equal((await slow.next()).value?.type, "state_sync");
+    assert.equal((await fast.next()).value?.type, "state_sync");
+
+    const fastEvents: SessionOutputEvent[] = [];
+    const draining = (async () => {
+        while (true) {
+            const result = await fast.next();
+            if (result.done) return;
+            fastEvents.push(result.value);
+        }
+    })();
+
+    for (let index = 0; index < 6; index += 1) {
+        publisher.publish({
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            kind: "run_waiting",
+            visibility: "public",
+            durability: "live",
+            delivery: "control",
+            payload: {},
+        });
+        await tick();
+    }
+
+    assert.equal(slow.closed, true);
+    assert.equal(slow.closeReason, "backpressure");
+    const terminal = await slow.next();
+    assert.equal(terminal.done, false);
+    assert.equal(terminal.value?.type, "closed");
+    if (terminal.value?.type === "closed") assert.equal(terminal.value.reason, "backpressure");
+    assert.equal((await slow.next()).done, true);
+
+    // 另一订阅仍完整收到控制事件。
+    assert.equal(
+        fastEvents.filter((event) => event.type === "run_status" && event.event.kind === "waiting").length,
+        6,
+    );
+    fast.close();
+    await draining;
+});
+
+test("关闭释放积压与挂起读取，迟到的同步结果不再派生输出", async () => {
+    const store = new InMemoryGoalStore();
+    const goal = standaloneGoal("goal-close-release");
+    await store.save(goal);
+    const publisher = new InMemoryExecutionStreamPublisher();
+    const pending: Array<(state: ReturnType<typeof projectGoalSessionState> | undefined) => void> = [];
+    const stream = new GoalSessionStream({
+        publisher,
+        goalId: goal.id,
+        readState: () => new Promise((resolve) => { pending.push(resolve); }),
+    });
+    await tick();
+    assert.equal(pending.length, 1);
+    const projected = projectGoalSessionState({ goal, executionOwner: true });
+    pending[0]!(projected);
+    await tick();
+    assert.equal(stream.pending, 1);
+
+    publisher.publish(textDelta(goal.id, goal.state.run.id, "积压片段", "close"));
+    await tick();
+    const late = stream.resync();
+    await tick();
+    assert.equal(pending.length, 2);
+
+    stream.close();
+    stream.close();
+    assert.equal(stream.closeReason, "closed");
+    pending[1]!(projected);
+    await late;
+    await tick();
+
+    // 积压已释放，只保留一次可观察的终止结果。
+    assert.equal(stream.pending, 1);
+    const terminal = await stream.next();
+    assert.equal(terminal.value?.type, "closed");
+    assert.equal((await stream.next()).done, true);
 });

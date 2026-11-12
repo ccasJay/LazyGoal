@@ -1,13 +1,15 @@
-import type {
-    ExecutionStreamEvent,
-    ExecutionStreamPublisher,
-    ExecutionStreamSubscription,
-    StreamSubscriptionPolicy,
+import {
+    resolveMaxQueueSize,
+    type ExecutionStreamEvent,
+    type ExecutionStreamPublisher,
+    type ExecutionStreamSubscription,
+    type StreamSubscriptionPolicy,
 } from "../../execution-stream/src/index";
 import type { GoalSessionState } from "./session";
 import type { SessionInputKind, SessionInputReceipt, SessionInputRejectionCode } from "./session-input";
 import type { Goal } from "./domain";
 import {
+    MAX_LIVE_TEXT_LENGTH,
     classifySessionStreamEvent,
     type SessionOutputEvent,
 } from "./session-output";
@@ -47,8 +49,14 @@ export { SESSION_INPUT_RESULT_KIND } from "./session-output";
  *
  * @remarks
  * 调用时立即建立订阅（不延迟到首次 `next()`）；首项是 `state_sync`，其后按
- * 来源顺序输出输入结果与执行活动。Run 结束与切换不关闭订阅；只有调用方退出、
- * 取消订阅、指定 Goal 的所有订阅关闭或背压无法保留控制事件时才结束。
+ * 来源顺序输出输入结果与执行活动。Run 结束与切换不关闭订阅：订阅按已提交快照
+ * 切换到后继 Run，仍保留前一 Run 已提交的正式事实与控制结果。
+ *
+ * 从事件 Core 到调用方的待交付输出共享一个固定上限，初始同步、派生通知与实时
+ * 事件都计入该上限。上限不足时先合并相邻同 Run、同来源的公开正文增量；仍无法
+ * 保留临时内容时报告一次缺口并在消费者腾出容量后重新核对，无法保留控制事件时
+ * 以 `backpressure` 结束该订阅。只有调用方退出、取消订阅、指定 Goal 的所有订阅
+ * 关闭或上述背压终点才结束。
  *
  * @example
  * ```ts
@@ -59,7 +67,7 @@ export { SESSION_INPUT_RESULT_KIND } from "./session-output";
  * ```
  */
 export interface SessionOutputStream extends AsyncIterable<SessionOutputEvent> {
-    /** 幂等结束该订阅；只释放本订阅的队列与监听，不改变执行。 */
+    /** 幂等结束该订阅；释放本订阅的积压、监听与核对注册，不改变执行。 */
     close(): void;
     /** 当前订阅是否已关闭。 */
     readonly closed: boolean;
@@ -81,7 +89,7 @@ export interface GoalSessionStreamDependencies {
     readonly onClosed?: ((stream: GoalSessionStream) => void) | undefined;
 }
 
-/** Go 会话输出队列的异步消费原语。 */
+/** Goal 会话输出队列的异步消费原语。 */
 export class GoalSessionStream implements SessionOutputStream {
     private readonly queue: SessionOutputEvent[] = [];
     private readonly waiters: Array<(result: IteratorResult<SessionOutputEvent>) => void> = [];
@@ -90,21 +98,26 @@ export class GoalSessionStream implements SessionOutputStream {
     private readonly readState: (goalId: string) => Promise<GoalSessionState | undefined>;
     private readonly onClosed: ((stream: GoalSessionStream) => void) | undefined;
     private readonly goalId: string;
-    private initialized = false;
+    private readonly maxQueueSize: number;
     private closedState = false;
-    private reason: "closed" | "backpressure" | "publisher_closed" | undefined;
+    private closedReason: "closed" | "backpressure" | "publisher_closed" | undefined;
     private unsubscribeMonitor: (() => void) | undefined;
+    /** 已接纳的最大提交修订；更旧的快照不能切回前一 Run 或撤回已显示状态。 */
+    private acceptedRevision: number | undefined;
+    /** 当前观察的 Run；后继 Run 经一致快照确认后切换。 */
+    private observedRunId: string | undefined;
+    private confirmingRun: Promise<void> | undefined;
+    private needsResync = false;
 
     /** @param dependencies - 发布端口、状态读取与观察 Goal。 */
     constructor(dependencies: GoalSessionStreamDependencies) {
         this.goalId = dependencies.goalId;
         this.readState = dependencies.readState;
         this.onClosed = dependencies.onClosed;
+        const policy = dependencies.policy ?? {};
+        this.maxQueueSize = resolveMaxQueueSize(policy);
         // 先注册缓冲，再读取一致快照：两者之间提交的变更不会被遗漏。
-        this.subscription = dependencies.publisher.subscribeGoal(
-            dependencies.goalId,
-            dependencies.policy ?? {},
-        );
+        this.subscription = dependencies.publisher.subscribeGoal(dependencies.goalId, policy);
         void this.initialize();
     }
 
@@ -122,15 +135,22 @@ export class GoalSessionStream implements SessionOutputStream {
     }
 
     get closeReason(): "closed" | "backpressure" | "publisher_closed" | undefined {
-        return this.reason;
+        return this.closedReason;
+    }
+
+    /** @internal 当前待消费输出数量；用于验证有界缓冲与背压边界。 */
+    get pending(): number {
+        return this.queue.length;
     }
 
     /**
      * 按最新提交修订重新同步状态。
      *
-     * @remarks 由提交核对任务或缺口事件触发；读取失败报告同步故障，不伪装业务结果。
-     * 同步同时比对已提交消息范围与当前等待：订阅期间新保存的消息按稳定身份
-     * 发出 `message_committed`，新建立的等待发出 `interaction_required`。
+     * @remarks 由提交核对任务、缺口事件或后继 Run 首次出现触发；读取失败报告同步
+     * 故障，不伪装业务结果。同步修订单调接纳：低于已接纳提交修订的快照被丢弃，不能
+     * 切回前一 Run 或撤回已显示状态。同步同时比对已提交消息范围与当前等待：订阅期间
+     * 新保存的消息按稳定身份发出 `message_committed`，新建立的等待发出
+     * `interaction_required`。
      */
     async resync(): Promise<void> {
         if (this.closedState) return;
@@ -138,34 +158,45 @@ export class GoalSessionStream implements SessionOutputStream {
         try {
             state = await this.readState(this.goalId);
         } catch (error) {
-            this.push({
-                type: "stream_fault",
-                event: { kind: "read_failed", message: error instanceof Error ? error.message : String(error) },
-            });
+            this.pushStreamFault(error instanceof Error ? error.message : String(error));
             return;
         }
+        // 挂起读取晚到时订阅可能已经结束：不再派生任何输出。
+        if (this.closedState) return;
         if (state === undefined) {
-            this.push({
-                type: "stream_fault",
-                event: { kind: "read_failed", message: `Goal "${this.goalId}" was not found` },
-            });
+            this.pushStreamFault(`Goal "${this.goalId}" was not found`);
             return;
         }
-        this.push({ type: "state_sync", state });
-        this.publishDerivedNotifications(state);
+        this.admitState(state);
     }
 
     close(reason: "closed" | "backpressure" | "publisher_closed" = "closed"): void {
         if (this.closedState) return;
-        // 结束事件先入队，使消费者能观察到关闭原因（含 backpressure）。
-        this.push({ type: "closed", reason });
         this.closedState = true;
-        this.reason = reason;
+        this.closedReason = reason;
+        // 终止时释放积压，只保留可观察的终止结果。
+        this.queue.length = 0;
+        this.needsResync = false;
         this.unsubscribeMonitor?.();
         this.unsubscribeMonitor = undefined;
         this.subscription.close();
-        const waiters = this.waiters.splice(0);
-        for (const waiter of waiters) waiter({ value: undefined, done: true });
+        const terminal: SessionOutputEvent = { type: "closed", reason };
+        const waiter = this.waiters.shift();
+        if (waiter !== undefined) {
+            waiter({ value: terminal, done: false });
+        } else if (this.listeners.size > 0) {
+            for (const listener of this.listeners) {
+                try {
+                    listener(terminal);
+                } catch {
+                    // 监听器故障隔离在回调边界。
+                }
+            }
+        } else {
+            this.queue.push(terminal);
+        }
+        const remaining = this.waiters.splice(0);
+        for (const pending of remaining) pending({ value: undefined, done: true });
         this.listeners.clear();
         this.onClosed?.(this);
     }
@@ -190,7 +221,10 @@ export class GoalSessionStream implements SessionOutputStream {
 
     next(): Promise<IteratorResult<SessionOutputEvent>> {
         const event = this.queue.shift();
-        if (event !== undefined) return Promise.resolve({ value: event, done: false });
+        if (event !== undefined) {
+            this.resumeInterruptedChecks();
+            return Promise.resolve({ value: event, done: false });
+        }
         if (this.closedState) return Promise.resolve({ value: undefined, done: true });
         return new Promise((resolve) => {
             this.waiters.push(resolve);
@@ -209,11 +243,9 @@ export class GoalSessionStream implements SessionOutputStream {
     private async initialize(): Promise<void> {
         await this.resync();
         if (this.closedState) return;
-        this.initialized = true;
-        // 缓冲交接：丢弃旧执行单元的暂时增量，保留当前 Run 的实时片段。
-        const currentRunId = this.lastSyncedRunId;
         while (true) {
             const result = await this.subscription.next();
+            if (this.closedState) return;
             if (result.done) {
                 this.close(this.subscription.closeReason === "backpressure" ? "backpressure" : "publisher_closed");
                 return;
@@ -223,15 +255,43 @@ export class GoalSessionStream implements SessionOutputStream {
                 await this.resync();
                 continue;
             }
-            if (event.delivery === "delta" && currentRunId !== undefined && event.runId !== currentRunId) {
-                continue;
+            if (event.delivery === "delta" && event.runId !== this.observedRunId) {
+                // 临时片段只属于当前观察的 Run：先按一致快照确认切换，再决定是否交接。
+                await this.confirmObservedRun(event.runId);
+                if (this.closedState) return;
+                if (event.runId !== this.observedRunId) continue;
             }
             const output = this.toOutputEvent(event);
             if (output !== undefined) this.push(output);
         }
     }
 
-    private lastSyncedRunId: string | undefined;
+    /** 接纳一份一致快照；更旧的修订不改写已建立的观察身份。 */
+    private admitState(state: GoalSessionState): void {
+        if (this.acceptedRevision !== undefined && state.commitRevision < this.acceptedRevision) return;
+        this.acceptedRevision = state.commitRevision;
+        this.observedRunId = state.runId;
+        this.push({ type: "state_sync", state });
+        this.publishDerivedNotifications(state);
+    }
+
+    /**
+     * 确认后继 Run 已成为当前观察身份。
+     *
+     * @remarks 并发临时片段共享同一次读取；读取结果仍不包含该 Run 时，片段被丢弃，
+     * 后续提交通知或定时核对会重新建立身份。
+     */
+    private confirmObservedRun(runId: string): Promise<void> {
+        if (this.closedState || this.observedRunId === runId) return Promise.resolve();
+        const pending = this.confirmingRun;
+        if (pending !== undefined) return pending;
+        const confirmation = this.resync().finally(() => {
+            if (this.confirmingRun === confirmation) this.confirmingRun = undefined;
+        });
+        this.confirmingRun = confirmation;
+        return confirmation;
+    }
+
     private readonly notifiedMessageIds = new Set<string>();
     private knownInteractionId: string | undefined;
     private interactionBaselineReady = false;
@@ -303,7 +363,6 @@ export class GoalSessionStream implements SessionOutputStream {
 
     private push(event: SessionOutputEvent): void {
         if (this.closedState) return;
-        if (event.type === "state_sync") this.lastSyncedRunId = event.state.runId;
         const waiter = this.waiters.shift();
         if (waiter !== undefined) {
             waiter({ value: event, done: false });
@@ -319,12 +378,85 @@ export class GoalSessionStream implements SessionOutputStream {
             }
             return;
         }
-        this.queue.push(event);
+        if (this.queue.length < this.maxQueueSize) {
+            this.queue.push(event);
+            return;
+        }
+        if (this.coalesceTextDelta(event)) return;
+        if (isTransientOutput(event)) {
+            // 临时内容无法保留：以缺口通知替换或占用预留槽位，消费者据缺口重新核对。
+            this.reportDeltaGap(event);
+            return;
+        }
+        this.close("backpressure");
+    }
+
+    private pushStreamFault(message: string): void {
+        this.push({ type: "stream_fault", event: { kind: "read_failed", message } });
+    }
+
+    /**
+     * 合并已排队的相邻公开正文增量。
+     *
+     * @remarks 只合并同 Run、同来源提交边界且未截断的相邻片段；合并结果超过公开
+     * 投影上限时不合并，避免出现无法解释的文本。
+     */
+    private coalesceTextDelta(event: SessionOutputEvent): boolean {
+        const last = this.queue.at(-1);
+        if (last === undefined || last.type !== "generation_event" || event.type !== "generation_event") return false;
+        if (last.event.kind !== "text_delta" || event.event.kind !== "text_delta") return false;
+        if (last.event.truncated || event.event.truncated) return false;
+        if (last.event.source.goalId !== event.event.source.goalId) return false;
+        if (last.event.source.runId !== event.event.source.runId) return false;
+        if (last.event.source.durability !== event.event.source.durability) return false;
+        const text = last.event.text + event.event.text;
+        if (text.length > MAX_LIVE_TEXT_LENGTH) return false;
+        this.queue[this.queue.length - 1] = {
+            ...last,
+            event: { ...last.event, source: event.event.source, text },
+        };
+        return true;
+    }
+
+    /** 报告不完整的临时内容，并在消费者腾出容量后重新核对。 */
+    private reportDeltaGap(event: SessionOutputEvent): void {
+        this.needsResync = true;
+        if (event.type !== "generation_event") return;
+        const notice: SessionOutputEvent = {
+            type: "stream_fault",
+            event: { kind: "gap", source: event.event.source },
+        };
+        const lastIndex = this.queue.length - 1;
+        const last = this.queue[lastIndex];
+        if (last !== undefined && (isTransientOutput(last) || isGapNotice(last))) {
+            this.queue[lastIndex] = notice;
+            return;
+        }
+        // 预留一个缺口槽位：上限仍是固定值，且缺口通知不会因背压被静默丢弃。
+        this.queue.push(notice);
+    }
+
+    /** 缓冲重新有余量时补做被缺口中断的核对。 */
+    private resumeInterruptedChecks(): void {
+        if (this.closedState || !this.needsResync) return;
+        if (this.queue.length >= this.maxQueueSize) return;
+        this.needsResync = false;
+        void this.resync();
     }
 
     private toOutputEvent(event: ExecutionStreamEvent): SessionOutputEvent | undefined {
         return classifySessionStreamEvent(event);
     }
+}
+
+/** 只表达实时正文的临时输出；缺失不会伪造已提交事实。 */
+function isTransientOutput(event: SessionOutputEvent): event is Extract<SessionOutputEvent, { type: "generation_event" }> {
+    if (event.type !== "generation_event") return false;
+    return event.event.kind === "text_delta" || event.event.kind === "candidate_preview";
+}
+
+function isGapNotice(event: SessionOutputEvent): boolean {
+    return event.type === "stream_fault" && event.event.kind === "gap";
 }
 
 function resolveInteractionKind(

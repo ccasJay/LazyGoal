@@ -238,6 +238,13 @@ interface SessionInteractionAttachment {
     readonly onFailure: ((failure: InteractionHandlerFailure) => void) | undefined;
     /** 连接之前已经存在的等待身份；不会被自动回答。 */
     readonly baselineInteractionId: string | undefined;
+    /**
+     * 是否已经建立一致基线。
+     *
+     * @remarks 建立前不启动宿主函数：否则初始读取在途时到达的通知会把连接之前的
+     * 历史等待当成新请求自动回答。读取失败时保持未就绪，基线与空历史严格区分。
+     */
+    baselineReady: boolean;
     /** 已经启动过处理的交互身份；同一请求至多启动一次调用。 */
     readonly invoked: Set<string>;
     /** 本地在途调用与其交互身份。 */
@@ -1427,6 +1434,7 @@ export class SessionManager implements SessionHandlePort {
             handlers,
             onFailure: options?.onFailure,
             baselineInteractionId: undefined,
+            baselineReady: false,
             invoked: new Set(),
             pending: new Map(),
             unlocked: new Set(),
@@ -1510,6 +1518,9 @@ export class SessionManager implements SessionHandlePort {
      *
      * @remarks
      * 每次投递前重新读取快照：等待已变化、Run 已终态或处理器缺少对应函数时不投递。
+     * 读取在途期间连接解除或被替换时，读取完成后不再启动宿主函数。
+     * 建立一致基线前不投递：连接之前已有的等待是历史请求，只有宿主显式恢复才解锁；
+     * 基线建立后重新核对一次，初始化期间到达的通知与解锁不会丢失。
      * 同一交互身份至多启动一次调用；在途调用不再匹配当前等待时被中止。
      * @param goalId - 目标 Goal。
      * @param attachment - 自动所有者连接状态。
@@ -1528,10 +1539,18 @@ export class SessionManager implements SessionHandlePort {
             this.onBackgroundFailure?.(goalId, error);
             return;
         }
+        if (attachment.detached || this.interactionAttachments.get(goalId) !== attachment) return;
         const view = goal === undefined ? undefined : projectInteractionView(goal);
         if (options?.attachSync === true) {
             // 连接时的一致同步：当前等待是历史请求，只有显式恢复才解锁。
-            Object.assign(attachment, { baselineInteractionId: view?.interactionId });
+            Object.assign(attachment, { baselineInteractionId: view?.interactionId, baselineReady: true });
+            // 基线建立后补一次核对：初始化期间的解锁与新等待都按稳定身份处理一次。
+            void this.dispatchInteractionHandlers(goalId, attachment);
+            return;
+        }
+        if (!attachment.baselineReady) {
+            // 基线尚未建立（初始读取在途或失败）：把本次通知当成重试一致同步的机会。
+            void this.dispatchInteractionHandlers(goalId, attachment, { attachSync: true });
             return;
         }
         for (const [controller, interactionId] of [...attachment.pending]) {
@@ -1578,8 +1597,9 @@ export class SessionManager implements SessionHandlePort {
             if (attachment.detached || result.kind === "unhandled") return;
             // 结果冻结后再核验连接与请求仍然有效；其他响应或 Interrupt 先提交时本结果失效。
             const latest = await this.store.restore(attachment.goalId);
+            if (attachment.detached || this.interactionAttachments.get(attachment.goalId) !== attachment) return;
             const current = latest === undefined ? undefined : projectInteractionView(latest);
-            if (attachment.detached || current?.interactionId !== view.interactionId) return;
+            if (current?.interactionId !== view.interactionId) return;
             let admitted: SessionInputAdmissionResult;
             try {
                 admitted = await this.sendSessionInput(attachment.goalId, {
@@ -1814,14 +1834,15 @@ export class SessionManager implements SessionHandlePort {
                 }
                 // 停止消费后不再等待挂起的 next()，也不受理迟到项；来源资源归宿主。
                 if (next === STOPPED || consumer.stopped) {
-                    void iterator.return?.();
+                    this.requestInputSourceCleanup(goalId, iterator, "stopped");
                     return { reason: "stopped" };
                 }
                 if (next.done === true) return { reason: "completed" };
                 try {
                     await this.sendSessionInput(goalId, next.value);
                 } catch (error) {
-                    void iterator.return?.().catch(() => undefined);
+                    // 受理失败是主错误；来源清理故障单独诊断，不改变该结果。
+                    this.requestInputSourceCleanup(goalId, iterator, "admission_failed");
                     return { reason: "failed", error };
                 }
             }
@@ -1829,6 +1850,43 @@ export class SessionManager implements SessionHandlePort {
             consumers.delete(consumer);
             if (consumers.size === 0) this.sessionConsumers.delete(sessionId);
         }
+    }
+
+    /**
+     * 请求宿主输入来源结束一次，并观察清理结果。
+     *
+     * @remarks
+     * 至多调用一次 `iterator.return()`。同步抛错与异步拒绝都通过后台诊断通道报告
+     * Goal、清理阶段与原因；消费结算与关闭不等待来源真正结束，受理失败仍是主错误。
+     * @param goalId - 正在消费输入的 Goal。
+     * @param iterator - 宿主提供的输入来源迭代器。
+     * @param phase - 触发清理的原因。
+     */
+    private requestInputSourceCleanup(
+        goalId: string,
+        iterator: AsyncIterator<SessionInput>,
+        phase: "stopped" | "admission_failed",
+    ): void {
+        let returned: unknown;
+        try {
+            returned = iterator.return?.();
+        } catch (error) {
+            this.reportInputSourceCleanupFailure(goalId, phase, error);
+            return;
+        }
+        if (returned === undefined) return;
+        void Promise.resolve(returned).catch((error: unknown) => {
+            this.reportInputSourceCleanupFailure(goalId, phase, error);
+        });
+    }
+
+    private reportInputSourceCleanupFailure(
+        goalId: string,
+        phase: "stopped" | "admission_failed",
+        error: unknown,
+    ): void {
+        const message = error instanceof Error ? error.message : String(error);
+        this.onBackgroundFailure?.(goalId, new Error(`input_source_cleanup:${phase}: ${message}`));
     }
 
     /**
