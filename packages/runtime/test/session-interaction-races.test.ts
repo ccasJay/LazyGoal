@@ -1,3 +1,10 @@
+import { after as afterAllTests } from "node:test";
+import { mkdtemp as createBoundaryWorkspace, rm as removeBoundaryWorkspace } from "node:fs/promises";
+import { tmpdir as boundaryTmpdir } from "node:os";
+import { join as joinBoundaryPath } from "node:path";
+
+const boundaryWorkspaceRoot = await createBoundaryWorkspace(joinBoundaryPath(boundaryTmpdir(), "lazygoal-permission-boundary-"));
+afterAllTests(async () => { await removeBoundaryWorkspace(boundaryWorkspaceRoot, { recursive: true, force: true }); });
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
@@ -18,7 +25,7 @@ import {
 import { ExecutionAbortedError } from "../../execution-control/src/index";
 import { createToolRegistration, type Tool } from "../../tool-core/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
-import { currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
+import { currentProtocols, trajectoryStoreFor, withBoundaryCrossingTools, withDiscoveredProfileTools } from "./current-fixtures";
 import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
@@ -98,6 +105,7 @@ function createHarness(options: {
     };
     const tool = options.tool;
     const runner = new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store: options.store,
         trajectoryStore: trajectory,
         executor,
@@ -333,12 +341,15 @@ test("工具审批等待：Interrupt 先受理后迟到批准不执行工具", a
         async think() { throw new Error("unexpected Think call"); },
     };
     const runner = new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store,
         trajectoryStore: trajectory,
         executor,
         checkpointCommitter: committer,
-        toolRegistry: { get: (toolId) => toolId === "write_probe" ? createTestToolRegistration(tool) : undefined },
-        toolPolicy: { evaluate: () => "require_approval" },
+        toolRegistry: withBoundaryCrossingTools(
+            { get: (toolId) => toolId === "write_probe" ? createTestToolRegistration(tool) : undefined },
+            ["write_probe"],
+        ),
     });
     const waiting = await runner.runUntilBlocked({ goalId, runId: fixture.state.run.id });
     assert.equal(waiting.ok, true);
@@ -502,6 +513,7 @@ test("未知效果中断直接取消，不调用模型或提出新的审批请�
         },
     };
     const runner = new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store,
         trajectoryStore: trajectory,
         executor,

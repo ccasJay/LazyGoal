@@ -37,7 +37,7 @@ import {
     IndexedContextLookupService,
     hasUnsettledSessionWork,
 } from "../../../../packages/runtime/src/index";
-import type { ProjectPermissionModeStore } from "../../../../packages/permission/src/index";
+import type { ProjectPermissionProfileStore } from "../../../../packages/permission/src/index";
 import {
     DEFAULT_WORKING_MEMORY_LIMITS,
     type WorkingMemoryLimits,
@@ -53,7 +53,7 @@ import {
     JsonFileContextRetrievalIndexStore,
     JsonFileToolGrantStore,
     JsonFileSandboxGrantStore,
-    JsonFileProjectPermissionModeStore,
+    JsonFileProjectPermissionProfileStore,
     JsonFileModelPreferenceStore,
     JsonFileProcessSessionStore,
 } from "../../../../packages/storage/src/index";
@@ -113,12 +113,9 @@ import {
 import {
     DEFAULT_TOOL_IDS,
     createDefaultToolRegistrations,
-    BASH_TOOL_ID,
     BashTool,
-    EXECUTE_PROGRAM_TOOL_ID,
     createExecuteProgramRegistration,
     EditFileTool,
-    READ_FILE_TOOL_ID,
     ReadFileTool,
     WriteFileTool,
 } from "../../../../packages/tools/src/index";
@@ -136,24 +133,21 @@ import {
 const DEFAULT_PROFILE_ID = "default";
 
 /**
- * 默认 Tool 授权策略。
+ * 默认 Tool 执行策略。
+ *
+ * @remarks
+ * 工具不再逐条申请审批：资源边界由工作区权限档位的 `sandbox`、`approvals` 与
+ * `reviewer` 在执行期裁决，Tool 的暴露与输入校验由 Registry 和 Input Contract
+ * 负责。因此该策略对已注册 Tool 一律返回 `allow`，不产生 Tool 级审批或授权记录。
+ *
+ * @returns 允许所有已注册 Tool 的确定性策略。
+ * @example
+ * ```ts
+ * const policy = createDefaultToolPolicy();
+ * ```
  */
-export function createDefaultToolPolicy(options?: {
-    readonly platform?: NodeJS.Platform;
-}): ToolPolicy {
-    const platform = options?.platform ?? process.platform;
-    const autoAllowedToolIds = new Set(
-        platform === "darwin"
-            ? [READ_FILE_TOOL_ID, BASH_TOOL_ID, EXECUTE_PROGRAM_TOOL_ID]
-            : [READ_FILE_TOOL_ID, EXECUTE_PROGRAM_TOOL_ID],
-    );
-
-    return {
-        evaluate: ({ tool }) =>
-            autoAllowedToolIds.has(tool.id)
-                ? "allow"
-                : "require_approval",
-    };
+export function createDefaultToolPolicy(): ToolPolicy {
+    return { evaluate: () => "allow" };
 }
 
 /**
@@ -294,8 +288,8 @@ export interface RuntimeCompositionOptions {
     readonly toolRegistry?: InMemoryToolRegistry;
     readonly toolPolicy?: ToolPolicy;
     readonly abortController?: AbortController;
-    /** 项目权限执行模式存储；省略时使用工作区下的默认文件存储。 */
-    readonly permissionModeStore?: ProjectPermissionModeStore;
+    /** 项目权限档位存储；省略时使用工作区下的默认文件存储。 */
+    readonly permissionProfileStore?: ProjectPermissionProfileStore;
     /**
      * 实例自有资源集合；省略时由本装配创建。
      *
@@ -358,6 +352,8 @@ export interface RuntimeInteractionPort {
 
 export interface RuntimeComposition {
     readonly workspaceRoot: string;
+    /** 本工作区的稳定身份；权限档位、授权账本与 Trigger 绑定都使用它。 */
+    readonly workspaceId: string;
     readonly workspaceHomeDirectory: string;
     readonly dataDirectory: string;
     readonly goalsDirectory: string;
@@ -368,6 +364,8 @@ export interface RuntimeComposition {
     readonly llmConfig?: LLMConfig;
     /** 受管 Provider 档案存储，供 Settings 管理接口使用。 */
     readonly providerProfileStore: JsonFileProviderProfileStore;
+    /** 当前工作区权限档位的持久化存储；worker 与 Web 共用同一记录。 */
+    readonly permissionProfileStore: ProjectPermissionProfileStore;
     /** 启动时读取的受管 Provider 档案快照；最新状态以 `providerProfileStore` 为准。 */
     readonly providerProfiles: readonly ProviderProfile[];
     /** 受管档案变更后刷新运行时解析视图。 */
@@ -763,8 +761,8 @@ async function assembleRuntimeComposition(
     const primaryTrajectoryStore = new JsonFileTrajectoryStore(trajectoriesDirectory);
     const toolGrantStore = new JsonFileToolGrantStore(workspaceHomePaths.workspaceDirectory);
     const sandboxGrantStore = new JsonFileSandboxGrantStore(workspaceHomePaths.workspaceDirectory);
-    const permissionModeStore = options.permissionModeStore
-        ?? new JsonFileProjectPermissionModeStore(workspaceHomePaths.workspaceDirectory);
+    const permissionProfileStore = options.permissionProfileStore
+        ?? new JsonFileProjectPermissionProfileStore(workspaceHomePaths.workspaceDirectory);
     const trajectoryStore = primaryTrajectoryStore;
     const retrievalIndexStore = new JsonFileContextRetrievalIndexStore(contextSidecarsDirectory);
     const contextLookupService = new IndexedContextLookupService({
@@ -951,7 +949,7 @@ async function assembleRuntimeComposition(
         toolPolicy,
         toolGrantStore,
         sandboxGrantStore,
-        permissionModeStore,
+        permissionProfileStore,
         workspaceId: workspaceHomePaths.workspaceId,
         workspaceRoot,
         sandboxPlanResolver: ({ workspaceRoot, action, effectiveScope }) => effectiveScope === undefined
@@ -1038,15 +1036,12 @@ async function assembleRuntimeComposition(
             runTrackedOperation("interrupt", () => rawCommands.interrupt(ref, requestId, ledger)),
         enterPlanMode: (ref, control) =>
             runTrackedOperation("enter_plan_mode", () => rawCommands.enterPlanMode(ref, control)),
-        getPermissionMode: (workspaceId) => rawCommands.getPermissionMode(workspaceId),
-        setPermissionMode: (mode, expectedRevision, workspaceId) =>
-            runTrackedOperation("set_permission_mode", () => rawCommands.setPermissionMode(mode, expectedRevision, workspaceId)),
+        getPermissionProfile: () => rawCommands.getPermissionProfile(),
+        setPermissionProfile: (profile, expectedRevision) =>
+            runTrackedOperation("set_permission_profile", () => rawCommands.setPermissionProfile(profile, expectedRevision)),
         listGrants: (ref) => rawCommands.listGrants(ref),
         revokeGrant: (request) =>
             runTrackedOperation("revoke_grant", () => rawCommands.revokeGrant(request)),
-        listToolGrants: (ref) => rawCommands.listToolGrants(ref),
-        revokeToolGrant: (request) =>
-            runTrackedOperation("revoke_tool_grant", () => rawCommands.revokeToolGrant(request)),
         reviewActionApproval: (request, control) =>
             runTrackedOperation("review_action_approval", () => rawCommands.reviewActionApproval(request, control)),
     };
@@ -1099,6 +1094,7 @@ async function assembleRuntimeComposition(
 
     return {
         workspaceRoot,
+        workspaceId: workspaceHomePaths.workspaceId,
         workspaceHomeDirectory: workspaceHomePaths.workspaceDirectory,
         dataDirectory,
         goalsDirectory,
@@ -1108,6 +1104,7 @@ async function assembleRuntimeComposition(
         contextSidecarsDirectory,
         ...(llmConfig === undefined ? {} : { llmConfig }),
         providerProfileStore,
+        permissionProfileStore,
         providerProfiles,
         refreshProviderProfiles,
         resolveProviderProfileConfig,

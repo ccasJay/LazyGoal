@@ -8,9 +8,9 @@ import type { LLMAdapter } from "../../../packages/llm-core/src/index";
 import { toolCallResponse } from "../../../packages/llm-core/test/response-fixtures";
 import type { LLMRequest, LLMResponse } from "../../../packages/llm-core/src/index";
 import type {
-    PermissionMode,
-    ProjectPermissionMode,
-    ProjectPermissionModeStore,
+    PermissionProfile,
+    ProjectPermissionProfile,
+    ProjectPermissionProfileStore,
 } from "../../../packages/permission/src/index";
 import {
     ManagedResourceRegistry,
@@ -117,11 +117,11 @@ function readFileTool(): Tool {
     };
 }
 
-/** 正常阶段阻塞的权限模式存储，用于制造在途写操作。 */
-class BlockingPermissionModeStore implements ProjectPermissionModeStore {
+/** 正常阶段阻塞的权限档位存储，用于制造在途写操作。 */
+class BlockingPermissionProfileStore implements ProjectPermissionProfileStore {
     private releaseSet!: () => void;
     private resolveEntered!: () => void;
-    private current: ProjectPermissionMode | undefined;
+    private current: ProjectPermissionProfile | undefined;
     readonly entered = new Promise<void>((resolve) => {
         this.resolveEntered = resolve;
     });
@@ -129,18 +129,22 @@ class BlockingPermissionModeStore implements ProjectPermissionModeStore {
         this.releaseSet = resolve;
     });
 
-    async get(workspaceId: string): Promise<ProjectPermissionMode> {
-        return this.current ?? { workspaceId, mode: "default", revision: 0 };
+    async get(workspaceId: string): Promise<ProjectPermissionProfile> {
+        return this.current ?? {
+            workspaceId,
+            profile: { sandbox: "workspace-write", approvals: "on-request", reviewer: "user", writableRoots: [] },
+            revision: 0,
+        };
     }
 
-    async set(
+    async update(
         workspaceId: string,
-        mode: PermissionMode,
+        profile: PermissionProfile,
         expectedRevision: number,
-    ): Promise<ProjectPermissionMode> {
+    ): Promise<ProjectPermissionProfile> {
         this.resolveEntered();
         await this.released;
-        this.current = { workspaceId, mode, revision: expectedRevision + 1 };
+        this.current = { workspaceId, profile, revision: expectedRevision + 1 };
         return this.current;
     }
 
@@ -320,7 +324,7 @@ test("构造中途失败结算自有资源、保留初始故障且不关闭借�
 
 test("在途权限、模型与归档删除操作参与关闭结算，关闭后写控制拒绝而读取可用", async () => {
     const fixture = await setupFixture();
-    const permissionModeStore = new BlockingPermissionModeStore();
+    const permissionProfileStore = new BlockingPermissionProfileStore();
     const adapter = new AskUserAdapter();
     const runtime = await createRuntimeComposition({
         cwd: fixture.workspace,
@@ -329,7 +333,7 @@ test("在途权限、模型与归档删除操作参与关闭结算，关闭后�
         adapter,
         profile,
         toolRegistry: new InMemoryToolRegistry([]),
-        permissionModeStore,
+        permissionProfileStore,
         goalIdGenerator: () => "goal-tracking",
         runIdGenerator: () => "run-1",
     });
@@ -357,8 +361,11 @@ test("在途权限、模型与归档删除操作参与关闭结算，关闭后�
         assert.equal(runtime.lifecycle.activeOperationCount, 0);
 
         // 在途权限写入阻塞时，关闭等待其结算并保持 closing。
-        const pendingPermission = runtime.commands.setPermissionMode("yolo", 0);
-        await permissionModeStore.entered;
+        const pendingPermission = runtime.commands.setPermissionProfile(
+            { sandbox: "danger-full-access", approvals: "never", reviewer: "user", writableRoots: [] },
+            0,
+        );
+        await permissionProfileStore.entered;
         const closing = runtime.lifecycle.close();
         assert.equal(runtime.lifecycle.state, "closing");
         assert.equal(runtime.lifecycle.activeOperationCount, 1);
@@ -380,17 +387,17 @@ test("在途权限、模型与归档删除操作参与关闭结算，关闭后�
             runtime.goalModelSelectionCoordinator.updateModelSelection({ ref, selection }),
             RuntimeLifecycleUnavailableError,
         );
-        const mode = await runtime.commands.getPermissionMode();
-        assert.equal(mode.mode, "default");
+        const currentPermission = await runtime.commands.getPermissionProfile();
+        assert.equal(currentPermission.profile.sandbox, "workspace-write");
         assert.ok(await runtime.workspaceGoalStore.restore(ref.goalId));
 
-        permissionModeStore.release();
+        permissionProfileStore.release();
         const completedPermission = await pendingPermission;
-        assert.equal(completedPermission.mode, "yolo");
+        assert.equal(completedPermission.profile.sandbox, "danger-full-access");
         await closing;
         assert.equal(runtime.lifecycle.state, "closed");
     } finally {
-        permissionModeStore.release();
+        permissionProfileStore.release();
         await runtime.lifecycle.close().catch(() => undefined);
         await fixture.cleanup();
     }

@@ -15,6 +15,8 @@ import type {
 } from "../src/index";
 import type { Goal } from "../src/index";
 import { createAssistantMessage, createUserMessage } from "../src/goal-message";
+import type { ToolRegistration, ToolRegistry } from "../../tool-core/src/index";
+import type { SandboxAccessRequest } from "../../sandbox/src/index";
 import {
     allocateImmutableEvent,
     type TrajectoryEvent,
@@ -51,6 +53,72 @@ export function withDiscoveredProfileTools(goal: Goal): Goal {
                     acceptanceCriteria: ["测试条件"],
                 },
             },
+        },
+    };
+}
+
+/**
+ * 让 Tool 每次准备都声明一个越界写入范围。
+ *
+ * @remarks
+ * 测试用它把“该 Tool 必须经人工审批”表达为真实的边界越界：默认档位为
+ * workspace-write，`.git` 写入属于 `git_write` 风险项，需要人工裁决。
+ * 省略 `request` 时声明工作区内 `.git/index` 写入。
+ *
+ * @param registration - 被包装的 Tool 注册项。
+ * @param request - 可选的沙箱访问申请；省略时使用 `.git` 写入。
+ * @returns 每次准备都携带越界申请的新注册项。
+ * @example
+ * ```ts
+ * const registry = new InMemoryToolRegistry([withBoundaryCrossingScope(registration)]);
+ * ```
+ */
+export function withBoundaryCrossingScope(
+    registration: ToolRegistration,
+    request?: SandboxAccessRequest,
+): ToolRegistration {
+    const access: SandboxAccessRequest = request ?? {
+        files: [{ path: ".git/index", access: "write", kind: "file", purpose: "测试越界审批" }],
+    };
+    return {
+        ...registration,
+        prepare(input, control) {
+            const prepared = registration.prepare(input, control);
+            if (!prepared.ok) return prepared;
+            return {
+                ...prepared,
+                resolveSandboxAccess: () => access,
+            };
+        },
+    };
+}
+
+/**
+ * 让指定 Tool 的每次准备都声明越界写入范围。
+ *
+ * @remarks
+ * 默认档位为 workspace-write，`.git` 写入属于 `git_write` 风险项，新 Action 因
+ * 此进入人工裁决。其余 Tool 保持原注册项不变。
+ *
+ * @param registry - 原始 Tool 注册表。
+ * @param toolIds - 需要越界审批的 Tool 标识。
+ * @param request - 可选的沙箱访问申请；省略时使用 `.git` 写入。
+ * @returns 对指定 Tool 叠加越界申请的注册表。
+ * @example
+ * ```ts
+ * const runnerRegistry = withBoundaryCrossingTools(registry, ["write_file"]);
+ * ```
+ */
+export function withBoundaryCrossingTools(
+    registry: ToolRegistry,
+    toolIds: readonly string[],
+    request?: SandboxAccessRequest,
+): ToolRegistry {
+    return {
+        get(toolId) {
+            const registration = registry.get(toolId);
+            if (registration === undefined || !toolIds.includes(toolId)) return registration;
+            return withBoundaryCrossingScope(registration, request);
         },
     };
 }

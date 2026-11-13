@@ -13,7 +13,7 @@ import {
     JsonFileModelInputStore,
     JsonFileModelPreferenceStore,
     JsonFileProcessSessionStore,
-    JsonFileProjectPermissionModeStore,
+    JsonFileProjectPermissionProfileStore,
     JsonFileSandboxGrantStore,
     JsonFileToolGrantStore,
     goalSnapshotCodec,
@@ -95,7 +95,7 @@ test("Sandbox Grant 账本拒绝未知字段和错误版本", async () => {
     }
 });
 
-test("模型偏好和权限模式文件拒绝未知字段", async () => {
+test("模型偏好和权限档位文件拒绝未知字段", async () => {
     const preferenceDirectory = await mkdtemp(join(tmpdir(), "lazygoal-generated-preference-"));
     const permissionDirectory = await mkdtemp(join(tmpdir(), "lazygoal-generated-permission-"));
     try {
@@ -110,13 +110,22 @@ test("模型偏好和权限模式文件拒绝未知字段", async () => {
         );
 
         await writeFile(
-            join(permissionDirectory, "permission-mode.json"),
-            JSON.stringify({ version: 1, workspaceId: "ws-1", mode: "default", revision: 0, extra: true }),
+            join(permissionDirectory, "permission-profile.json"),
+            JSON.stringify({
+                version: 1,
+                workspaceId: "ws-1",
+                sandbox: "workspace-write",
+                approvals: "on-request",
+                reviewer: "user",
+                writableRoots: [],
+                revision: 0,
+                extra: true,
+            }),
             "utf8",
         );
         await assert.rejects(
-            new JsonFileProjectPermissionModeStore(permissionDirectory).get("ws-1"),
-            /结构损坏/,
+            new JsonFileProjectPermissionProfileStore(permissionDirectory).get("ws-1"),
+            /structurally invalid/,
         );
     } finally {
         await rm(preferenceDirectory, { recursive: true, force: true });

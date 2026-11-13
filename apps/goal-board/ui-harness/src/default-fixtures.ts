@@ -6,7 +6,8 @@ import type {
   BrowserGoalSessionState,
   BrowserGoalSessionStateEnvelope,
   BrowserModelCatalog,
-  BrowserPermissionModeResult,
+  BrowserPermissionExemptionSummary,
+  BrowserPermissionProfileResult,
   BrowserProviderSettings,
   BrowserSessionState,
   BrowserTrajectoryDetail,
@@ -203,14 +204,23 @@ export function createDefaultProviderSettings(): BrowserProviderSettings {
   };
 }
 
-/** 创建符合契约的默认权限模式结果。 */
-export function createDefaultPermissionModeResult(): BrowserPermissionModeResult {
+/** 创建符合契约的默认权限档位结果。 */
+export function createDefaultPermissionProfileResult(): BrowserPermissionProfileResult {
   return {
     ok: true,
-    mode: "default",
+    profile: {
+      sandbox: "workspace-write",
+      approvals: "on-request",
+      reviewer: "user",
+      writableRoots: [],
+    },
     revision: 1,
-    workspaceId: "ws-fixture",
   };
+}
+
+/** 创建符合契约的空边界豁免列表。 */
+export function createDefaultPermissionExemptions(): readonly BrowserPermissionExemptionSummary[] {
+  return [];
 }
 
 /** 创建符合契约的默认指标快照。 */

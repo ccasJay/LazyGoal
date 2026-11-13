@@ -5,7 +5,7 @@
 | 概念 | 简明含义 | 归属模块 | 权威说明 |
 | --- | --- | --- | --- |
 | Goal | 可恢复的会话聚合。 | [Goal Runtime](../README.md) | [模块说明](./overview.md) |
-| Work Trigger material | `work.submitted` 的 `material` 只承载原始文本；Goal 配置与权限上限由 Worker Runtime 和 Supervisor 分别提供，不从 Trigger payload 注入。 | [Goal Runtime](../README.md) | [Trigger 契约](../src/trigger.ts)、[Goal 定义](../src/domain.ts)、[Worker Goal 构造](../../../apps/goal-server/src/runtime/worker-process.ts) |
+| Work Trigger material | `work.submitted` 的 `material` 只承载原始文本；Goal 配置与工具集由 Worker Runtime 和 Supervisor 分别提供，权限档位属于 workspace 且不从 Trigger payload 注入。 | [Goal Runtime](../README.md) | [Trigger 契约](../src/trigger.ts)、[Goal 定义](../src/domain.ts)、[Worker Goal 构造](../../../apps/goal-server/src/runtime/worker-process.ts) |
 | Goal 目录扫描 | 正式快照目录的摘要边界：历史扫描返回可解码摘要与不可解码快照数量，可恢复扫描保持损坏即拒绝。 | [Goal Runtime](../README.md) | [Goal Store 端口](../src/goal-store.ts) |
 | Run | Goal 内的一次执行边界。 | [Goal Runtime](../README.md) | [模块说明](./overview.md) |
 | Run 结束状态 | `RunEndStatus` 表示当前 Run 已结束；`waiting` 仍可恢复。 | [Goal Runtime](../README.md) | [Run 领域契约](../src/domain.ts) |
@@ -73,4 +73,4 @@
 | 模型请求失败 | 适配边界确认的请求错误以 `MODEL_REQUEST_FAILED` 结算，不进入协议纠错。 | [Goal Runtime](../README.md) | [错误分类](../src/runner.ts) |
 | 阶段请求状态核对 | 在接受与提交前核对请求的阶段和路线版本，拒绝过期结果并重新决策。 | [Goal Runtime](../README.md) | [执行循环](../src/runner.ts) |
 
-| GoalTriggerContext | 记录创建 Goal 的 Trigger ID 和动作权限上限；Runner 在工具准备与授权时强制工具 ID 和实际沙箱范围不越界。 | [Runtime](../README.md) | [领域契约](../src/domain.ts)、[Runner](../src/runner.ts) |
+| GoalTriggerContext | 记录创建 Goal 的 Trigger ID 与冻结的工作区身份、工具 ID 集合；Runner 在工具准备时强制工具 ID 不越界，沙箱边界由决策期读取的 workspace 权限档位决定。 | [Runtime](../README.md) | [领域契约](../src/domain.ts)、[Runner](../src/runner.ts) |

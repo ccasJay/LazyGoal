@@ -13,7 +13,6 @@ import {
     createApprovalFixture,
     createAwaitingApprovalGoal,
     createExecutingApprovalGoal,
-    REQUIRE_APPROVAL_POLICY,
 } from "./action-approval-fixtures";
 import { trajectoryStoreFor } from "./current-fixtures";
 
@@ -41,7 +40,6 @@ function createRevisionHarness(
         trajectoryStore,
         executor,
         toolRegistry: fixture.registry,
-        toolPolicy: REQUIRE_APPROVAL_POLICY,
         workspaceRoot: fixture.workspaceRoot,
         workspaceId: "ws-1",
     });
@@ -64,7 +62,7 @@ const COMPLETE: DecideStageResult = {
 };
 
 test("修订批准后实际执行最终参数，原请求与暂存事实保持不变", async () => {
-    const fixture = await createApprovalFixture();
+    const fixture = await createApprovalFixture({ boundaryApproval: true });
     try {
         const goal = createExecutingApprovalGoal();
         await fixture.store.save(goal);
@@ -142,7 +140,7 @@ test("修订批准后实际执行最终参数，原请求与暂存事实保持�
 });
 
 test("审阅内容变化后旧确认被拒绝，且不执行工具", async () => {
-    const fixture = await createApprovalFixture();
+    const fixture = await createApprovalFixture({ boundaryApproval: true });
     try {
         const goal = createAwaitingApprovalGoal();
         await fixture.store.save(goal);
@@ -193,7 +191,7 @@ test("审阅内容变化后旧确认被拒绝，且不执行工具", async () =>
 });
 
 test("修订后旧批次未开始项失效，模型在知晓变化后重新决策", async () => {
-    const fixture = await createApprovalFixture();
+    const fixture = await createApprovalFixture({ boundaryApproval: true });
     try {
         const goal = createExecutingApprovalGoal();
         await fixture.store.save(goal);
@@ -266,7 +264,7 @@ test("修订后旧批次未开始项失效，模型在知晓变化后重新决�
 });
 
 test("修订批准保存失败时不执行工具，等待保持可重试", async () => {
-    const fixture = await createApprovalFixture();
+    const fixture = await createApprovalFixture({ boundaryApproval: true });
     try {
         const goal = createAwaitingApprovalGoal();
         await fixture.store.save(goal);
@@ -330,7 +328,7 @@ test("修订批准保存失败时不执行工具，等待保持可重试", async
 });
 
 test("同一决定重复提交只生效一次，不产生第二次批准", async () => {
-    const fixture = await createApprovalFixture();
+    const fixture = await createApprovalFixture({ boundaryApproval: true });
     try {
         const goal = createAwaitingApprovalGoal();
         await fixture.store.save(goal);
@@ -366,7 +364,7 @@ test("同一决定重复提交只生效一次，不产生第二次批准", async
 });
 
 test("拒绝并给出建议仍走原拒绝路径，不执行建议内容", async () => {
-    const fixture = await createApprovalFixture();
+    const fixture = await createApprovalFixture({ boundaryApproval: true });
     try {
         const goal = createAwaitingApprovalGoal();
         await fixture.store.save(goal);

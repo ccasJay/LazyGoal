@@ -5,7 +5,11 @@
 
 `@lazygoal/sandbox` 提供工作区路径边界、业务 Tool 的 macOS Seatbelt 范围、受限命令与专用 Git 执行底座，以及 PTC 专用的独立 Node.js 计算进程。它不决定 Goal 状态、Profile 授权或工具审批；PTC worker 只能通过宿主控制的管道请求业务 Tool。
 
-`isEffectiveSandboxScopeWithin` 比较已解析的 Action 能力与可信 Goal 上限：网络范围不能扩大，额外文件必须由相同访问方向的授权文件或目录树覆盖。它只判断集合包含关系，不替代 Permission Grant 或 Seatbelt 强制执行。
+`isEffectiveSandboxScopeWithin` 比较两个已解析的能力范围：网络范围不能扩大，额外文件必须由相同访问方向的授权文件或目录树覆盖。它只判断集合包含关系，不替代权限档位裁决或 Seatbelt 强制执行。
+
+`buildSeatbeltPolicy` 按 `sandboxMode` 生成文件边界：缺省 `workspace-write` 允许工作区与额外写入路径写入；`read-only` 仅保留 `/dev` 与私有临时目录可写；`danger-full-access` 放行整机读写，但仍拒绝写入工作区与用户主目录下的 `.lazygoal` 及调用方传入的 `protectedPaths`。三档都按 `network` 参数决定出站网络，`.git` 等受保护路径的写拒绝不受档位影响。
+
+`getSandboxProtectionStatus` 报告平台是否实际强制文件与网络边界：非 darwin 或 `sandbox-exec` 不可用时 `isProtected` 为 `false`，`description` 说明边界未强制及原因，调用方不得据此宣称已隔离。
 
 ## 受限进程与 Git 执行底座
 

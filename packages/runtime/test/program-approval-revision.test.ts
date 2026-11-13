@@ -1,3 +1,10 @@
+import { after as afterAllTests } from "node:test";
+import { mkdtemp as createBoundaryWorkspace, rm as removeBoundaryWorkspace } from "node:fs/promises";
+import { tmpdir as boundaryTmpdir } from "node:os";
+import { join as joinBoundaryPath } from "node:path";
+
+const boundaryWorkspaceRoot = await createBoundaryWorkspace(joinBoundaryPath(boundaryTmpdir(), "lazygoal-permission-boundary-"));
+afterAllTests(async () => { await removeBoundaryWorkspace(boundaryWorkspaceRoot, { recursive: true, force: true }); });
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -21,7 +28,7 @@ import {
     type StepExecutionInput,
     type StepExecutor,
 } from "../src/index";
-import { currentProtocols, InMemoryTrajectoryStore } from "./current-fixtures";
+import { currentProtocols, InMemoryTrajectoryStore, withBoundaryCrossingTools } from "./current-fixtures";
 import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 import { createProgramCallEnvelope } from "../src/action-approval";
@@ -45,14 +52,6 @@ function createRecordingWriteTool(inputs: { path: string; content: string }[]) {
         },
     };
 }
-
-/** 写类 Tool 必须先经用户审批的策略。 */
-const REQUIRE_APPROVAL = {
-    evaluate: ({ tool }: { readonly tool: { readonly id: string; readonly isReadOnly?: boolean } }) =>
-        tool.id === "execute_program" || tool.isReadOnly === true
-            ? "allow" as const
-            : "require_approval" as const,
-};
 
 function deferred() {
     let resolve!: () => void;
@@ -131,17 +130,17 @@ test("PTC 子调用按修订后的最终参数执行，并把修订说明返回�
         async think(): Promise<never> { throw new Error("Unexpected Think"); },
     };
     const runner = new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store,
         trajectoryStore,
         executor,
-        toolRegistry: registry,
-        toolPolicy: REQUIRE_APPROVAL,
+        toolRegistry: withBoundaryCrossingTools(registry, ["write_file"]),
     });
     const coordinator = new GoalCoordinator({
         store,
         trajectoryStore,
         scheduler: new InlineScheduler(runner),
-        toolRegistry: registry,
+        toolRegistry: withBoundaryCrossingTools(registry, ["write_file"]),
         workspaceId: "ws-1",
         workspaceRoot,
     });
@@ -300,18 +299,18 @@ test("未保存的旧 action_revised 不覆盖后来提交的原样批准", {
             async think(): Promise<never> { throw new Error("Unexpected Think"); },
         };
         const makeRunner = () => new Runner({
+            workspaceRoot: boundaryWorkspaceRoot,
             store,
             trajectoryStore,
             executor,
-            toolRegistry: registry,
-            toolPolicy: REQUIRE_APPROVAL,
+            toolRegistry: withBoundaryCrossingTools(registry, ["write_file"]),
         });
         const initialRunner = makeRunner();
         const coordinator = new GoalCoordinator({
             store,
             trajectoryStore,
             scheduler: new InlineScheduler(initialRunner),
-            toolRegistry: registry,
+            toolRegistry: withBoundaryCrossingTools(registry, ["write_file"]),
             workspaceId: "ws-1",
             workspaceRoot,
         });
@@ -337,7 +336,7 @@ test("未保存的旧 action_revised 不覆盖后来提交的原样批准", {
             store: failingStore,
             trajectoryStore,
             scheduler: new InlineScheduler(initialRunner),
-            toolRegistry: registry,
+            toolRegistry: withBoundaryCrossingTools(registry, ["write_file"]),
             workspaceId: "ws-1",
             workspaceRoot,
         }).resume({
@@ -476,11 +475,11 @@ test("PTC 拒绝未知重试后重开 worker，按同一修订信封恢复结算
             async think(): Promise<never> { throw new Error("Unexpected Think"); },
         };
         const runner = new Runner({
+            workspaceRoot: boundaryWorkspaceRoot,
             store,
             trajectoryStore,
             executor,
-            toolRegistry: registry,
-            toolPolicy: REQUIRE_APPROVAL,
+            toolRegistry: withBoundaryCrossingTools(registry, ["write_file"]),
         });
         const declineScheduleEntered = deferred();
         const releaseDeclineSchedule = deferred();
@@ -502,7 +501,7 @@ test("PTC 拒绝未知重试后重开 worker，按同一修订信封恢复结算
                     return runner.runUntilBlocked(scheduleRef, options, control);
                 },
             },
-            toolRegistry: registry,
+            toolRegistry: withBoundaryCrossingTools(registry, ["write_file"]),
             workspaceId: "ws-1",
             workspaceRoot,
         });
@@ -587,11 +586,11 @@ test("PTC 拒绝未知重试后重开 worker，按同一修订信封恢复结算
         assert.deepEqual(inputs, [{ path: "b.txt", content: "revised" }]);
 
         const reopenedRunner = new Runner({
+            workspaceRoot: boundaryWorkspaceRoot,
             store: persistedStore,
             trajectoryStore: persistedTrajectory,
             executor,
-            toolRegistry: registry,
-            toolPolicy: REQUIRE_APPROVAL,
+            toolRegistry: withBoundaryCrossingTools(registry, ["write_file"]),
         });
         const resumed = await reopenedRunner.runUntilBlocked(ref);
         assert.equal(resumed.ok, true);

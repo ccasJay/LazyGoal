@@ -257,10 +257,25 @@ test("PTC resumes a reviewed real write, runs Bash, and returns one parent resul
             },
             async think() { throw new Error("Unexpected Think"); },
         };
+        const writeRegistration = createTestToolRegistration(new WriteFileTool(workspace));
+        const crossingWriteRegistration = {
+            ...writeRegistration,
+            prepare: ((input: Parameters<typeof writeRegistration.prepare>[0], control?: Parameters<typeof writeRegistration.prepare>[1]) => {
+                const prepared = writeRegistration.prepare(input, control);
+                return prepared.ok
+                    ? {
+                        ...prepared,
+                        resolveSandboxAccess: () => ({
+                            files: [{ path: ".git/index", access: "write" as const, kind: "file" as const, purpose: "审批覆盖一次越界写入" }],
+                        }),
+                    }
+                    : prepared;
+            }) as typeof writeRegistration.prepare,
+        };
         const registry = new InMemoryToolRegistry([
             createExecuteProgramRegistration(),
             createTestToolRegistration(new ReadFileTool(workspace)),
-            createTestToolRegistration(new WriteFileTool(workspace)),
+            crossingWriteRegistration,
             createTestToolRegistration(new BashTool(workspace)),
         ]);
         const dependencies = {

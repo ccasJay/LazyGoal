@@ -1,3 +1,10 @@
+import { after as afterAllTests } from "node:test";
+import { mkdtemp as createBoundaryWorkspace, rm as removeBoundaryWorkspace } from "node:fs/promises";
+import { tmpdir as boundaryTmpdir } from "node:os";
+import { join as joinBoundaryPath } from "node:path";
+
+const boundaryWorkspaceRoot = await createBoundaryWorkspace(joinBoundaryPath(boundaryTmpdir(), "lazygoal-permission-boundary-"));
+afterAllTests(async () => { await removeBoundaryWorkspace(boundaryWorkspaceRoot, { recursive: true, force: true }); });
 import { ExecutionAbortedError } from "../../execution-control/src/index";
 import assert from "node:assert/strict";
 import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
@@ -20,7 +27,7 @@ import {
     createToolRegistration,
     InMemoryToolRegistry,
 } from "../../tool-core/src/index";
-import { currentProtocols, InMemoryTrajectoryStore, withDiscoveredProfileTools } from "./current-fixtures";
+import { currentProtocols, InMemoryTrajectoryStore, withBoundaryCrossingTools, withDiscoveredProfileTools } from "./current-fixtures";
 import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
@@ -81,6 +88,7 @@ test("PTC reports a stable failure without exposing a program exception", {
     const fixture = setup("throw new Error('private intermediate content');");
     await fixture.store.save(fixture.goal);
     const result = await new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store: fixture.store,
         trajectoryStore: fixture.trajectoryStore,
         executor: fixture.executor,
@@ -121,6 +129,7 @@ test("PTC reports the rejected child Tool input field", {
     const fixture = setup("await tools.read_file({path:'README.md',cursor:null}); return 'done';", read, true);
     await fixture.store.save(fixture.goal);
     const result = await new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store: fixture.store,
         trajectoryStore: fixture.trajectoryStore,
         executor: fixture.executor,
@@ -160,6 +169,7 @@ test("PTC stops before a 129th tool call", {
     const fixture = setup("for (let i = 0; i < 129; i++) await tools.count_read({}); return 1;", read);
     await fixture.store.save(fixture.goal);
     const result = await new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store: fixture.store,
         trajectoryStore: fixture.trajectoryStore,
         executor: fixture.executor,
@@ -186,6 +196,7 @@ test("PTC refuses nested programs and system tools", {
         const fixture = setup(code);
         await fixture.store.save(fixture.goal);
         const result = await new Runner({
+            workspaceRoot: boundaryWorkspaceRoot,
             store: fixture.store,
             trajectoryStore: fixture.trajectoryStore,
             executor: fixture.executor,
@@ -225,6 +236,7 @@ test("PTC rejects an oversized read result without committing a partial observat
     await fixture.store.save(fixture.goal);
     const ref = { goalId: fixture.goal.id, runId: fixture.goal.state.run.id };
     const result = await new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store: fixture.store,
         trajectoryStore: fixture.trajectoryStore,
         executor: fixture.executor,
@@ -266,6 +278,7 @@ test("PTC preserves an unknown write before settling a resource stop", {
     const fixture = setup("await tools.large_write({}); return 1;", write, true);
     await fixture.store.save(fixture.goal);
     const runner = new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store: fixture.store,
         trajectoryStore: fixture.trajectoryStore,
         executor: fixture.executor,
@@ -331,13 +344,11 @@ test("PTC pendingStop re-executes a revised child Action with its approved input
     const fixture = setup("await tools.large_write({path:'a.txt',content:'original'}); return 1;", write, true);
     await fixture.store.save(fixture.goal);
     const runner = new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store: fixture.store,
         trajectoryStore: fixture.trajectoryStore,
         executor: fixture.executor,
-        toolRegistry: fixture.registry,
-        toolPolicy: {
-            evaluate: ({ tool }) => tool.id === "execute_program" ? "allow" : "require_approval",
-        },
+        toolRegistry: withBoundaryCrossingTools(fixture.registry, ["large_write"]),
     });
     const ref = { goalId: fixture.goal.id, runId: fixture.goal.state.run.id };
     const coordinator = new GoalCoordinator({
@@ -655,6 +666,7 @@ test("PTC shutdown leaves a resumable program without a fabricated failure", {
     const controller = new AbortController();
     setTimeout(() => controller.abort("shutdown"), 100);
     const runner = new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store: fixture.store,
         trajectoryStore: fixture.trajectoryStore,
         executor: fixture.executor,
@@ -675,6 +687,7 @@ test("PTC replay mismatch settles the still-running Run as failed", {
     const controller = new AbortController();
     setTimeout(() => controller.abort("shutdown"), 100);
     const runner = new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store: fixture.store,
         trajectoryStore: fixture.trajectoryStore,
         executor: fixture.executor,
@@ -726,6 +739,7 @@ test("PTC user cancellation settles one parent failure", {
     const controller = new AbortController();
     setTimeout(() => controller.abort("user_cancel_program"), 100);
     const result = await new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store: fixture.store,
         trajectoryStore: fixture.trajectoryStore,
         executor: fixture.executor,
@@ -754,6 +768,7 @@ test("PTC recovery does not reset durably reserved active time", {
     const controller = new AbortController();
     setTimeout(() => controller.abort("shutdown"), 100);
     const runner = new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store: fixture.store,
         trajectoryStore: fixture.trajectoryStore,
         executor: fixture.executor,
@@ -808,6 +823,7 @@ test("PTC does not start a worker when its time reservation cannot be persisted"
         return append(draft);
     };
     const runner = new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store: fixture.store,
         trajectoryStore: fixture.trajectoryStore,
         executor: fixture.executor,
@@ -838,11 +854,11 @@ test("PTC can be cancelled while a child approval is waiting without executing i
     const fixture = setup("await tools.write_file({}); return 1;", write);
     await fixture.store.save(fixture.goal);
     const runner = new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store: fixture.store,
         trajectoryStore: fixture.trajectoryStore,
         executor: fixture.executor,
-        toolRegistry: fixture.registry,
-        toolPolicy: { evaluate: ({ action }) => action.toolId === "write_file" ? "require_approval" : "allow" },
+        toolRegistry: withBoundaryCrossingTools(fixture.registry, ["write_file"]),
     });
     const ref = { goalId: fixture.goal.id, runId: fixture.goal.state.run.id };
     const waiting = await runner.run(ref);
@@ -895,6 +911,7 @@ test("User Interrupt records unknown PTC parent and child outcomes, then cancels
         async think() { throw new Error("Unexpected Think"); },
     };
     const runner = new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store: fixture.store,
         trajectoryStore: fixture.trajectoryStore,
         executor,

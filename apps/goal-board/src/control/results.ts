@@ -2,39 +2,41 @@ import type {
   BrowserActionReview,
   BrowserControlIntentResult,
   BrowserModelSelectionResult,
-  BrowserPermissionModeResult,
-  BrowserToolGrantSummary,
+  BrowserPermissionExemptionSummary,
+  BrowserPermissionProfileResult,
 } from "../../../../packages/web-contracts/src/index";
 
 /**
- * 从统一控制结果中取出 Grant 摘要。
+ * 从统一控制结果中取出边界豁免摘要。
  *
- * @param result - `grant_revoke` 的控制结果信封。
- * @returns 更新后的摘要；命令类型不符或结果失败时返回 `undefined`。
+ * @param result - `exemption_revoke` 的控制结果信封。
+ * @returns 更新后的豁免列表；命令类型不符或结果失败时返回 `undefined`。
  * @example
  * ```ts
- * const grants = grantsOf(receipt.result);
+ * const exemptions = exemptionsOf(receipt.result);
  * ```
  */
-export function grantsOf(result: BrowserControlIntentResult): readonly BrowserToolGrantSummary[] | undefined {
-  if (result.kind !== "grant_revoke" || !result.result.ok) return undefined;
-  return result.result.grants;
+export function exemptionsOf(
+  result: BrowserControlIntentResult,
+): readonly BrowserPermissionExemptionSummary[] | undefined {
+  if (result.kind !== "exemption_revoke" || !result.result.ok) return undefined;
+  return result.result.exemptions;
 }
 
 /**
- * 从统一控制结果中取出权限模式投影。
+ * 从统一控制结果中取出权限档位投影。
  *
- * @param result - `permission_mode` 的控制结果信封。
+ * @param result - `permission_profile` 的控制结果信封。
  * @returns 成功结果；命令类型不符或结果失败时返回 `undefined`。
  * @example
  * ```ts
- * const permission = permissionOf(receipt.result);
+ * const permission = permissionProfileOf(receipt.result);
  * ```
  */
-export function permissionOf(
+export function permissionProfileOf(
   result: BrowserControlIntentResult,
-): Extract<BrowserPermissionModeResult, { readonly ok: true }> | undefined {
-  if (result.kind !== "permission_mode" || !result.result.ok) return undefined;
+): Extract<BrowserPermissionProfileResult, { readonly ok: true }> | undefined {
+  if (result.kind !== "permission_profile" || !result.result.ok) return undefined;
   return result.result;
 }
 

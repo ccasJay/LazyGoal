@@ -14,8 +14,9 @@ import {
     type InteractionDetail,
 } from "../../runtime/src/index";
 import {
-    PermissionModeConflictError,
-    type PermissionMode,
+    PermissionProfileConflictError,
+    type PermissionProfile,
+    type ProjectPermissionProfile,
 } from "../../permission/src/index";
 import type {
     BrowserActionDetailsResult,
@@ -28,11 +29,12 @@ import type {
     BrowserModelPreferenceOutcome,
     BrowserModelSelectionCommand,
     BrowserModelSelectionResult,
-    BrowserPermissionModeCommand,
-    BrowserPermissionModeResult,
-    BrowserToolGrantResult,
-    BrowserToolGrantRevokeCommand,
-    BrowserToolGrantSummary,
+    BrowserPermissionExemptionResult,
+    BrowserPermissionExemptionRevokeCommand,
+    BrowserPermissionExemptionSummary,
+    BrowserPermissionProfile,
+    BrowserPermissionProfileCommand,
+    BrowserPermissionProfileResult,
 } from "../../web-contracts/src/index";
 
 export type {
@@ -45,11 +47,12 @@ export type {
     BrowserInteractionDetailResult,
     BrowserModelSelectionCommand,
     BrowserModelSelectionResult,
-    BrowserPermissionModeCommand,
-    BrowserPermissionModeResult,
-    BrowserToolGrantResult,
-    BrowserToolGrantRevokeCommand,
-    BrowserToolGrantSummary,
+    BrowserPermissionExemptionResult,
+    BrowserPermissionExemptionRevokeCommand,
+    BrowserPermissionExemptionSummary,
+    BrowserPermissionProfile,
+    BrowserPermissionProfileCommand,
+    BrowserPermissionProfileResult,
 };
 
 /**
@@ -73,18 +76,20 @@ export interface BrowserGoalCoordinator {
         control?: Parameters<GoalCoordinator["enterPlanMode"]>[1],
     ): ReturnType<GoalCoordinator["enterPlanMode"]>;
 
-    /** 当前 Goal 下列出 goal 与 workspace 授权。 */
-    listToolGrants?(ref: Parameters<GoalCoordinator["listToolGrants"]>[0]): ReturnType<GoalCoordinator["listToolGrants"]>;
-    /** 撤销由当前 Goal/Run 限定的持续授权。 */
-    revokeToolGrant?(request: Parameters<GoalCoordinator["revokeToolGrant"]>[0]): ReturnType<GoalCoordinator["revokeToolGrant"]>;
-    /** 当前 Goal 下统一列出 Tool 与 Sandbox 持续授权。 */
-    listGrants?(ref: Parameters<GoalCoordinator["listGrants"]>[0]): ReturnType<GoalCoordinator["listGrants"]>;
-    /** 统一撤销由当前 Goal/Run 限定的 Tool 或 Sandbox 持续授权。 */
-    revokeGrant?(request: Parameters<GoalCoordinator["revokeGrant"]>[0]): ReturnType<GoalCoordinator["revokeGrant"]>;
-    /** 查询项目权限执行模式。 */
-    getPermissionMode?(workspaceId?: string): ReturnType<GoalCoordinator["getPermissionMode"]>;
-    /** 设置项目权限执行模式。 */
-    setPermissionMode?(mode: PermissionMode, expectedRevision: number, workspaceId?: string): ReturnType<GoalCoordinator["setPermissionMode"]>;
+    /** 当前 Goal 下列出 goal 与 workspace 边界豁免。 */
+    listPermissionExemptions?(ref: {
+        readonly goalId: string;
+        readonly runId: string;
+    }): Promise<readonly BrowserPermissionExemptionSummary[]>;
+    /** 撤销由当前 Goal/Run 限定的一条边界豁免。 */
+    revokePermissionExemption?(request: {
+        readonly ref: { readonly goalId: string; readonly runId: string };
+        readonly exemptionId: string;
+    }): Promise<void>;
+    /** 查询当前工作区权限档位。 */
+    getPermissionProfile?(): Promise<ProjectPermissionProfile>;
+    /** 以乐观并发写入当前工作区权限档位。 */
+    setPermissionProfile?(profile: PermissionProfile, expectedRevision: number): Promise<ProjectPermissionProfile>;
     /**
      * 只读预检同一工具的最终参数与实际权限范围。
      *
@@ -417,152 +422,146 @@ export class BrowserGoalCommandService {
         };
     }
 
-    /** 列出当前 Goal 与 workspace 的授权白名单摘要。 */
-    async listToolGrants(goalId: string, runId: string): Promise<BrowserToolGrantResult> {
+    /** 列出当前 Goal 与 workspace 的边界豁免摘要。 */
+    async listPermissionExemptions(goalId: string, runId: string): Promise<BrowserPermissionExemptionResult> {
         const coordinator = this.dependencies.coordinator;
-        if (coordinator.listGrants === undefined && coordinator.listToolGrants === undefined) {
+        if (coordinator.listPermissionExemptions === undefined) {
             return { ok: false, error: "permissions_unavailable" };
         }
         let goal: Goal | undefined;
         try { goal = await this.dependencies.store.restore(goalId); }
-        catch { return { ok: false, error: "grant_failed" }; }
+        catch { return { ok: false, error: "exemption_failed" }; }
         if (goal === undefined) return { ok: false, error: "goal_not_found" };
         if (goal.state.run.id !== runId) return { ok: false, error: "stale_run" };
         try {
-            if (coordinator.listGrants !== undefined) {
-                const grants = await coordinator.listGrants({ goalId, runId });
-                return {
-                    ok: true,
-                    goalId,
-                    runId,
-                    grants: grants.map((grant) => ({
-                        grantId: grant.id,
-                        kind: grant.kind,
-                        scope: grant.scope,
-                        toolId: grant.toolId,
-                        status: grant.status,
-                        ...(grant.kind === "tool" && grant.targetPath !== undefined ? { targetPath: grant.targetPath } : {}),
-                        ...(grant.kind === "sandbox" ? {
-                            inputDigest: grant.inputDigest,
-                            network: grant.network,
-                            extraFiles: grant.extraFiles,
-                        } : {}),
-                    })),
-                };
-            }
-            const grants = await coordinator.listToolGrants!({ goalId, runId });
-            return {
-                ok: true,
-                goalId,
-                runId,
-                grants: grants.map((grant) => ({
-                    grantId: grant.id,
-                    kind: "tool" as const,
-                    scope: grant.scope,
-                    toolId: grant.matcher.toolId,
-                    status: grant.status,
-                    ...(grant.matcher.kind === "target_path" ? { targetPath: grant.matcher.path } : {}),
-                })),
-            };
-        } catch { return { ok: false, error: "grant_failed" }; }
+            const exemptions = await coordinator.listPermissionExemptions({ goalId, runId });
+            return { ok: true, goalId, runId, exemptions };
+        } catch { return { ok: false, error: "exemption_failed" }; }
     }
 
     /**
-     * 撤销绑定当前 Goal/Run 身份的 Tool 授权。
+     * 撤销绑定当前 Goal/Run 身份的边界豁免。
      *
-     * @param goalId - 授权所属 Goal。
-     * @param command - 当前 Run 与待撤销 Grant 身份。
-     * @returns 更新后的授权列表；关闭期间返回 `service_shutting_down` 且不写入。
+     * @param goalId - 豁免所属 Goal。
+     * @param command - 当前 Run 与待撤销豁免身份。
+     * @returns 更新后的豁免列表；关闭期间返回 `service_shutting_down` 且不写入。
      * @example
      * ```ts
-     * await service.revokeToolGrant("goal-1", { runId: "run-1", grantId: "grant-1", scope: "goal" });
+     * await service.revokePermissionExemption("goal-1", { runId: "run-1", exemptionId: "grant-1" });
      * ```
      */
-    async revokeToolGrant(goalId: string, command: BrowserToolGrantRevokeCommand): Promise<BrowserToolGrantResult> {
+    async revokePermissionExemption(goalId: string, command: BrowserPermissionExemptionRevokeCommand): Promise<BrowserPermissionExemptionResult> {
         if (this.isShuttingDown()) return { ok: false, error: "service_shutting_down" };
         const coordinator = this.dependencies.coordinator;
-        if (coordinator.revokeGrant === undefined && coordinator.revokeToolGrant === undefined) {
+        if (coordinator.revokePermissionExemption === undefined) {
             return { ok: false, error: "permissions_unavailable" };
         }
         let goal: Goal | undefined;
         try { goal = await this.dependencies.store.restore(goalId); }
-        catch { return { ok: false, error: "grant_failed" }; }
+        catch { return { ok: false, error: "exemption_failed" }; }
         if (goal === undefined) return { ok: false, error: "goal_not_found" };
         if (goal.state.run.id !== command.runId) return { ok: false, error: "stale_run" };
         if (this.isShuttingDown()) return { ok: false, error: "service_shutting_down" };
         try {
-            if (coordinator.revokeGrant !== undefined) {
-                await coordinator.revokeGrant({
-                    ref: { goalId, runId: command.runId },
-                    kind: command.kind ?? "tool",
-                    grantId: command.grantId,
-                });
-            } else {
-                await coordinator.revokeToolGrant!({
-                    ref: { goalId, runId: command.runId },
-                    grantId: command.grantId,
-                    scope: command.scope,
-                });
-            }
-            return this.listToolGrants(goalId, command.runId);
-        } catch { return { ok: false, error: "grant_failed" }; }
+            await coordinator.revokePermissionExemption({
+                ref: { goalId, runId: command.runId },
+                exemptionId: command.exemptionId,
+            });
+            return this.listPermissionExemptions(goalId, command.runId);
+        } catch { return { ok: false, error: "exemption_failed" }; }
     }
 
     /**
-     * 查询项目权限执行模式。
+     * 查询当前工作区的权限档位。
      *
-     * @returns 当前项目权限模式快照；服务不可用时返回稳定错误。
+     * @returns 当前完整档位与版本；服务不可用时返回稳定错误。
      * @example
      * ```ts
-     * const result = await service.getPermissionMode();
+     * const result = await service.getPermissionProfile();
      * ```
      */
-    async getPermissionMode(): Promise<
-        | { readonly ok: true; readonly mode: PermissionMode; readonly revision: number; readonly workspaceId: string }
-        | { readonly ok: false; readonly error: "permissions_unavailable" }
-    > {
+    async getPermissionProfile(): Promise<BrowserPermissionProfileResult> {
         const coordinator = this.dependencies.coordinator;
-        if (coordinator.getPermissionMode === undefined) {
+        if (coordinator.getPermissionProfile === undefined) {
             return { ok: false, error: "permissions_unavailable" };
         }
         try {
-            const result = await coordinator.getPermissionMode();
-            return { ok: true, mode: result.mode, revision: result.revision, workspaceId: result.workspaceId };
+            const current = await coordinator.getPermissionProfile();
+            return { ok: true, profile: toBrowserPermissionProfile(current.profile), revision: current.revision };
         } catch {
             return { ok: false, error: "permissions_unavailable" };
         }
     }
 
     /**
-     * 切换项目权限执行模式。
+     * 切换当前工作区的权限档位。
      *
-     * @param command - 目标模式与期望修订号。
-     * @returns 成功切换后的权限模式结果；关闭期间拒绝、版本冲突或底层存储故障时返回稳定错误。
+     * @param command - 目标档位与期望修订号。
+     * @returns 成功切换后的权限档位；版本冲突时返回当前已持久化的档位与版本，
+     * 关闭或底层存储故障时返回稳定错误。
      * @example
      * ```ts
-     * const result = await service.setPermissionMode({ mode: "yolo", expectedRevision: 0 });
+     * const result = await service.setPermissionProfile({ profile, expectedRevision: 0 });
      * ```
      */
-    async setPermissionMode(command: BrowserPermissionModeCommand): Promise<BrowserPermissionModeResult> {
+    async setPermissionProfile(command: BrowserPermissionProfileCommand): Promise<BrowserPermissionProfileResult> {
         if (this.isShuttingDown()) return { ok: false, error: "service_shutting_down" };
         const coordinator = this.dependencies.coordinator;
-        if (coordinator.setPermissionMode === undefined) {
+        if (coordinator.setPermissionProfile === undefined) {
             return { ok: false, error: "permissions_unavailable" };
         }
         try {
-            const result = await coordinator.setPermissionMode(command.mode, command.expectedRevision);
-            return { ok: true, mode: result.mode, revision: result.revision, workspaceId: result.workspaceId };
+            const updated = await coordinator.setPermissionProfile(
+                toPermissionProfile(command.profile),
+                command.expectedRevision,
+            );
+            return { ok: true, profile: toBrowserPermissionProfile(updated.profile), revision: updated.revision };
         } catch (error) {
-            if (error instanceof PermissionModeConflictError) {
-                return { ok: false, error: "conflict", actualRevision: error.actualRevision };
-            }
+            if (error instanceof PermissionProfileConflictError) return this.conflictPermissionProfileResult();
             return { ok: false, error: "permissions_unavailable" };
+        }
+    }
+
+    /** 冲突时重新读取当前档位；读取失败也只报告冲突，不退回任何默认档。 */
+    private async conflictPermissionProfileResult(): Promise<BrowserPermissionProfileResult> {
+        const coordinator = this.dependencies.coordinator;
+        if (coordinator.getPermissionProfile === undefined) return { ok: false, error: "conflict" };
+        try {
+            const current = await coordinator.getPermissionProfile();
+            return {
+                ok: false,
+                error: "conflict",
+                profile: toBrowserPermissionProfile(current.profile),
+                revision: current.revision,
+            };
+        } catch {
+            return { ok: false, error: "conflict" };
         }
     }
 
     private isShuttingDown(): boolean {
         return this.dependencies.control?.signal?.aborted === true;
     }
+}
+
+/** 把已持久化的权限档位投影为 wire 形状。 */
+function toBrowserPermissionProfile(profile: PermissionProfile): BrowserPermissionProfile {
+    return {
+        sandbox: profile.sandbox,
+        approvals: profile.approvals,
+        reviewer: profile.reviewer,
+        writableRoots: [...profile.writableRoots],
+    };
+}
+
+/** 把 wire 权限档位投影为持久化档位，避免把请求体数组直接交给存储。 */
+function toPermissionProfile(profile: BrowserPermissionProfile): PermissionProfile {
+    return {
+        sandbox: profile.sandbox,
+        approvals: profile.approvals,
+        reviewer: profile.reviewer,
+        writableRoots: [...profile.writableRoots],
+    };
 }
 
 /** 把 Runtime 审批预检拒绝码投影为 wire 稳定错误码。 */

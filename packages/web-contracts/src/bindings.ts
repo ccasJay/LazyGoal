@@ -30,10 +30,10 @@ export { browserModelSelectionCommandBinding } from "./generated/model-selection
 export { browserModelSelectionResultBinding } from "./generated/model-selection-result-binding";
 export { browserModelPreferenceCommandBinding } from "./generated/model-preference-command-binding";
 export { browserModelPreferenceResultBinding } from "./generated/model-preference-result-binding";
-export { browserPermissionModeCommandBinding } from "./generated/permission-mode-command-binding";
-export { browserPermissionModeResultBinding } from "./generated/permission-mode-result-binding";
-export { browserToolGrantRevokeBodyBinding } from "./generated/tool-grant-revoke-body-binding";
-export { browserToolGrantResultBinding } from "./generated/tool-grant-result-binding";
+export { browserPermissionExemptionResultBinding } from "./generated/permission-exemption-result-binding";
+export { browserPermissionExemptionRevokeBodyBinding } from "./generated/permission-exemption-revoke-body-binding";
+export { browserPermissionProfileCommandBinding } from "./generated/permission-profile-command-binding";
+export { browserPermissionProfileResultBinding } from "./generated/permission-profile-result-binding";
 export { browserActionDetailsResultBinding } from "./generated/action-details-binding";
 export { browserGoalArchiveCommandBinding } from "./generated/goal-archive-command-binding";
 export { browserWorkspaceContextBinding } from "./generated/workspace-context-binding";

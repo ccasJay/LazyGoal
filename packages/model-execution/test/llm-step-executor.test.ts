@@ -1,4 +1,5 @@
 import { toolResponseFixture } from "../../agent/test/tool-response-fixture";
+import { tmpdir } from "node:os";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
@@ -1314,7 +1315,7 @@ test("Runner 在批次中途需要审批时停止后续执行并保留已执行�
     ];
     const registry = new InMemoryToolRegistry(definitions.map(definition => createTestToolRegistration({
         definition, replayPolicy: "safe", validate: () => ({ ok: true }),
-        ...(definition.id === "write_b" ? { evaluatePolicy: () => "require_approval" as const } : {}),
+        ...(definition.id === "write_b" ? { resolveSandboxAccess: () => ({ files: [{ path: ".git/index", access: "write" as const, kind: "file" as const, purpose: "审批覆盖一次越界写入" }] }) } : {}),
         async execute({ input }: any) { executed.push((input as { path: string }).path); return { kind: "success", output: { text: "ok" }, summary: "Observed" }; },
     })));
     const requests: LLMRequest[] = [];
@@ -1341,8 +1342,7 @@ test("Runner 在批次中途需要审批时停止后续执行并保留已执行�
             currentStage: { stageId: "stage-1", revision: 1, status: "executing" as const, target: "Read and write", acceptanceCriteria: ["done"] } } },
     });
     const runner = new Runner({
-        store, trajectoryStore, executor: createExecutor(adapter), toolRegistry: registry,
-        toolPolicy: { evaluate: ({ action }) => action.toolId === "write_b" ? "require_approval" : "allow" },
+        store, trajectoryStore, workspaceRoot: tmpdir(), executor: createExecutor(adapter), toolRegistry: registry,
     });
     const result = await runner.run({ goalId, runId: "run-batch-approval" });
     assert.equal(result.ok, true);

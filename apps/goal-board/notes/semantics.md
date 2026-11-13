@@ -23,7 +23,9 @@
 | 交互提交状态 | 从控制意图派生的展示阶段（编辑、提交中、待核验、已受理、失效）；冻结身份只用于核验与原身份重试，不再维护第二份状态机。 | [Goal Board](../README.md) | [interaction-state.ts](../src/interaction-state.ts)、[控制 reducer](../src/control/reducer.ts) |
 | 控制 reducer | 页面唯一的 `ControlState`：权威快照、意图生命周期、工具活动、独立资源与失效作用域。 | [Goal Board](../README.md) | [reducer.ts](../src/control/reducer.ts)、[模块说明](./overview.md#控制-reducer) |
 | 控制意图生命周期 | `pending → accepted → applied` 或 `rejected`／`unknown`；同一 `intentId` 保留冻结载荷，重复登记不改写。 | [Goal Board](../README.md) | [reducer.ts](../src/control/reducer.ts)、[控制命令 DTO](../../../packages/web-contracts/src/control.ts) |
-| 统一核验 | 结果不明时按 `inputId` 收据、权限 revision、`grantId`、Goal 状态、模型选择与 `pendingAction` 重新核对；只有 `not_applied` 允许原身份重试。 | [Goal Board](../README.md) | [verify.ts](../src/control/verify.ts) |
+| 统一核验 | 结果不明时按 `inputId` 收据、权限档位三轴与 revision、边界豁免 `id`、Goal 状态、模型选择与 `pendingAction` 重新核对；只有 `not_applied` 允许原身份重试。 | [Goal Board](../README.md) | [verify.ts](../src/control/verify.ts) |
+| 权限档位入口 | 工作区级三轴档位选择：按钮显示当前档位，展开后展示 Sandbox／Approvals／Reviewer 真实取值；提交携带 `expectedRevision`，冲突展示服务端当前档位与 revision 并保留重试。 | [Goal Board](../README.md) | [PermissionControl](../src/components/PermissionControl.tsx)、[档位映射](../src/permission-profile.ts) |
+| 边界豁免 | 越界后持续放行的网络与文件范围；展示 `network`、`extraFiles` 的路径与读写方向、作用域与状态。撤销后同一越界重新进入裁决，Tool 级授权不再展示。 | [Goal Board](../README.md) | [usePermissions](../src/hooks/usePermissions.ts)、[Goal details 面板](../src/panels.tsx) |
 | 权威控制快照 | `state_sync.snapshot` 与窄 HTTP 共用控制快照，按视图代次、连接与同 Goal 修订接纳。 | [Goal Board](../README.md) | [useGoalSession](../src/hooks/useGoalSession.ts)、[useRunStream](../src/hooks/useRunStream.ts) |
 | 定向失效与读取 | `state_committed.changed` 与 `stream_fault.resync` 只触发声明范围的读取；需要确认等待或终态时只读窄状态。 | [Goal Board](../README.md) | [事件路由](../src/control/event-routing.ts)、[useRunStream](../src/hooks/useRunStream.ts) |
 | 审批会话 | 由 `pendingAction`、同一视图与等待的预检及 `respond` 提交派生的 `unreviewed`／`reviewing`／`reviewed`／`submitting`／`accepted`／`settled`／`invalidated`／`unknown`。 | [Goal Board](../README.md) | [审批会话 selector](../src/control/approval-session.ts) |

@@ -3,8 +3,8 @@
   "version": 1,
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
-    "path": "packages/web-contracts/src/wire.ts#BrowserControlIntentCommand,BrowserSessionInputCommand,BrowserQueueBinding,BrowserSessionInteractionResponse,BrowserGrantScope,BrowserPermissionMode,BrowserActionReviewScope,BrowserJsonValue",
-    "sha256": "2cd09fcbb5247b33f1692cd68f72178fe73072f61e25746a25a82d5185552de2"
+    "path": "packages/web-contracts/src/wire.ts#BrowserControlIntentCommand,BrowserSessionInputCommand,BrowserQueueBinding,BrowserSessionInteractionResponse,BrowserGrantScope,BrowserPermissionProfile,BrowserActionReviewScope,BrowserJsonValue",
+    "sha256": "18961333cd06a156e10bbb4f23b08ea3f4fc52d4f935d093f1a1bb0908090015"
   },
   "generator": {
     "name": "ts-json-schema-generator",

@@ -1,3 +1,10 @@
+import { after as afterAllTests } from "node:test";
+import { mkdtemp as createBoundaryWorkspace, rm as removeBoundaryWorkspace } from "node:fs/promises";
+import { tmpdir as boundaryTmpdir } from "node:os";
+import { join as joinBoundaryPath } from "node:path";
+
+const boundaryWorkspaceRoot = await createBoundaryWorkspace(joinBoundaryPath(boundaryTmpdir(), "lazygoal-permission-boundary-"));
+afterAllTests(async () => { await removeBoundaryWorkspace(boundaryWorkspaceRoot, { recursive: true, force: true }); });
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { isSeatbeltSupported } from "../../sandbox/src/index";
@@ -18,7 +25,7 @@ import {
 import {
     InMemoryToolRegistry,
 } from "../../tool-core/src/index";
-import { currentProtocols, InMemoryTrajectoryStore } from "./current-fixtures";
+import { currentProtocols, InMemoryTrajectoryStore, withBoundaryCrossingScope } from "./current-fixtures";
 import { createTestBinding, objectInputSchema } from "../../tool-core/test/binding-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
@@ -69,14 +76,16 @@ interface BatchFixture {
     readonly reads: () => number;
 }
 
-function createBatchFixture(): BatchFixture {
+function createBatchFixture(options: { readonly approveProgram?: boolean } = {}): BatchFixture {
     const calls: string[] = [];
     let writes = 0;
     let reads = 0;
     const ReadInput = objectInputSchema({ path: { type: "string" } });
     const WriteInput = objectInputSchema({ path: { type: "string" }, content: { type: "string" } });
     const registry = new InMemoryToolRegistry([
-        createExecuteProgramRegistration(),
+        options.approveProgram === true
+            ? withBoundaryCrossingScope(createExecuteProgramRegistration())
+            : createExecuteProgramRegistration(),
         createTestToolRegistration({
             definition: {
                 id: "read_file",
@@ -92,7 +101,7 @@ function createBatchFixture(): BatchFixture {
                 return { kind: "success", output: "content", summary: "Read" };
             },
         }),
-        createTestToolRegistration({
+        withBoundaryCrossingScope(createTestToolRegistration({
             definition: {
                 id: "write_file",
                 description: "Write test content",
@@ -106,7 +115,7 @@ function createBatchFixture(): BatchFixture {
                 calls.push(`write:${(input as { path: string }).path}`);
                 return { kind: "success", output: "ok", summary: "Wrote" };
             },
-        }),
+        })),
     ]);
     return {
         store: new InMemoryGoalStore(),
@@ -171,6 +180,7 @@ test("程序位于新批次队首时，开始检查点保存剩余 Action 并在
             : completeDecision("Done");
     });
     const runner = new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store: fixture.store,
         trajectoryStore: fixture.trajectoryStore,
         executor,
@@ -229,6 +239,7 @@ test("程序位于批次中间时，开始检查点只消费队首并保留后�
             : completeDecision("Done");
     });
     const runner = new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store: fixture.store,
         trajectoryStore: fixture.trajectoryStore,
         executor,
@@ -278,6 +289,7 @@ test("程序位于批次末尾时，开始检查点清空批次游标", {
         )
         : completeDecision("Done"));
     const runner = new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store: fixture.store,
         trajectoryStore: fixture.trajectoryStore,
         executor,
@@ -309,7 +321,7 @@ test("程序位于批次末尾时，开始检查点清空批次游标", {
 test("父程序审批等待已消费批次项，批准启动时不会二次推进游标", {
     skip: !isSeatbeltSupported(),
 }, async () => {
-    const fixture = createBatchFixture();
+    const fixture = createBatchFixture({ approveProgram: true });
     const goal = programGoal("program-batch-parent-approval", "run-program-batch-parent-approval");
     await fixture.store.save(goal);
     const ref = { goalId: goal.id, runId: goal.state.run.id };
@@ -320,6 +332,7 @@ test("父程序审批等待已消费批次项，批准启动时不会二次推�
         )
         : completeDecision("Done"));
     const runner = new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store: fixture.store,
         trajectoryStore: fixture.trajectoryStore,
         executor,
@@ -396,6 +409,7 @@ test("程序开始检查点保存前失败时不启动 worker，恢复后仍从�
         )
         : completeDecision("Done"));
     const runner = new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store,
         trajectoryStore: fixture.trajectoryStore,
         executor,
@@ -411,6 +425,7 @@ test("程序开始检查点保存前失败时不启动 worker，恢复后仍从�
     assert.equal(unchanged.state.run.pendingActionBatch, undefined);
 
     const recoveredRunner = new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store: fixture.store,
         trajectoryStore: fixture.trajectoryStore,
         executor: scriptedExecutor((_input, call) => call === 1
@@ -472,6 +487,7 @@ test("程序开始检查点保存后、worker 启动前中断时以同一检查�
         )
         : completeDecision("Done"));
     const runner = new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store,
         trajectoryStore: fixture.trajectoryStore,
         executor,
@@ -496,6 +512,7 @@ test("程序开始检查点保存后、worker 启动前中断时以同一检查�
     }
 
     const recoveredRunner = new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store: fixture.store,
         trajectoryStore: fixture.trajectoryStore,
         executor: scriptedExecutor((_input, call) => call === 1

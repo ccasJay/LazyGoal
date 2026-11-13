@@ -354,13 +354,19 @@ test("真实 Web 入口使用 Trigger 并行启动 Worker、观察状态、拒�
         const stopped = await request("/api/goals/goal-alpha", "GET");
         assert.equal(stopped.body.goal.runStatus, "cancelled");
         assert.equal(stopped.body.goal.execution.state, "inactive");
-        const permissionMode = await request("/api/project/permission-mode", "GET");
-        assert.equal(permissionMode.status, 200);
-        assert.equal(permissionMode.body.mode, "default");
-        const setMode = await request("/api/project/permission-mode", "POST", { mode: "yolo", expectedRevision: 0 });
-        assert.equal(setMode.status, 200);
-        const grants = await request(`/api/goals/goal-alpha/grants?runId=${String(createAlpha.body.runId)}`, "GET");
-        assert.equal(grants.status, 200);
+        const permissionProfile = await request("/api/project/permission-profile", "GET");
+        assert.equal(permissionProfile.status, 200);
+        assert.equal(permissionProfile.body.profile.sandbox, "workspace-write");
+        assert.equal(permissionProfile.body.profile.reviewer, "user");
+        const setProfile = await request("/api/project/permission-profile", "POST", {
+            profile: { sandbox: "workspace-write", approvals: "on-request", reviewer: "auto_review", writableRoots: [] },
+            expectedRevision: permissionProfile.body.revision,
+        });
+        assert.equal(setProfile.status, 200);
+        assert.equal(setProfile.body.profile.reviewer, "auto_review");
+        const exemptions = await request(`/api/goals/goal-alpha/exemptions?runId=${String(createAlpha.body.runId)}`, "GET");
+        assert.equal(exemptions.status, 200);
+        assert.deepEqual(exemptions.body.exemptions, []);
         const history = await request("/api/goals", "GET");
         assert.ok((history.body.goals as Array<Record<string, any>>).some((goal) => goal.goalId === "goal-alpha"));
         const runs = await request("/api/goals/goal-alpha/trajectory/runs", "GET");

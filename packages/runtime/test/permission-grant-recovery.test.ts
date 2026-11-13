@@ -39,7 +39,6 @@ import {
     createApprovalCoordinator,
     createApprovalFixture,
     createAwaitingApprovalGoal,
-    REQUIRE_APPROVAL_POLICY,
 } from "./action-approval-fixtures";
 import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
@@ -608,7 +607,6 @@ test("修订 Sandbox Action 时 pending Grant 使用最终批准的完整文件�
                 completionEvidence: [],
             }], async () => ({ kind: "accept" })),
             toolRegistry: registry,
-            toolPolicy: REQUIRE_APPROVAL_POLICY,
             workspaceRoot: fixture.workspaceRoot,
             workspaceId: "ws-1",
         });

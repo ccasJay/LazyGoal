@@ -434,34 +434,25 @@ test("关闭 Execution details 保留工具摘要、正文与 Run 边界", async
   assert.match(html, /Review complete/);
 });
 
-test("PermissionControl 单选框包含 id 和 name 属性并正确关联 label", async () => {
+test("权限档位单选框包含 id 和 name 属性并正确关联 label", async () => {
   const React = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
-  const { PermissionModeOptions } = await import("../src/components/PermissionControl");
+  const { PermissionPresetOptions } = await import("../src/components/PermissionControl");
 
   const html = renderToStaticMarkup(
-    React.createElement(PermissionModeOptions, {
-      mode: "default",
-      open: true,
-      modeBusy: false,
-      modeError: null,
-      hasGoal: true,
-      grants: [],
-      grantsLoading: false,
-      grantsError: null,
-      revokingGrantId: null,
-      onToggle: () => {},
-      onClose: () => {},
-      onChooseMode: () => {},
-      onRevokeGrant: () => {},
+    React.createElement(PermissionPresetOptions, {
+      profile: { sandbox: "workspace-write", approvals: "on-request", reviewer: "user", writableRoots: [] },
+      profileError: null,
+      profileBusy: false,
+      onChoosePreset: () => {},
     })
   );
 
-  assert.match(html, /id="permission-mode-default"/);
-  assert.match(html, /id="permission-mode-yolo"/);
-  assert.match(html, /name="project-permission-mode"/);
-  assert.match(html, /for="permission-mode-default"/);
-  assert.match(html, /for="permission-mode-yolo"/);
+  for (const id of ["ask", "auto", "full", "read-only"]) {
+    assert.match(html, new RegExp(`id="permission-preset-${id}"`));
+    assert.match(html, new RegExp(`for="permission-preset-${id}"`));
+  }
+  assert.match(html, /name="project-permission-preset"/);
 });
 
 test("TrajectoryRecords 渲染记录行时保留选择按钮且不使用 option 语义", async () => {

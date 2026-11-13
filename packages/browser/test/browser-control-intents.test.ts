@@ -50,9 +50,9 @@ test("control intent returns a receipt with the client intent identity", async (
 
 test("control intent reports an unavailable command as a rejected receipt", async () => {
     const response = await postControl(createApi(), {
-        kind: "permission_mode",
+        kind: "permission_profile",
         intentId: "intent-permission-1",
-        mode: "yolo",
+        profile: { sandbox: "workspace-write", approvals: "on-request", reviewer: "auto_review", writableRoots: [] },
         expectedRevision: 1,
     });
 

@@ -8,9 +8,9 @@ import type {
   BrowserGoalSessionStateEnvelope,
   BrowserInteractionDetailResult,
   BrowserModelCatalog,
-  BrowserPermissionModeResult,
+  BrowserPermissionExemptionSummary,
+  BrowserPermissionProfileResult,
   BrowserProviderSettings,
-  BrowserToolGrantSummary,
   BrowserTrajectoryDetail,
   BrowserTrajectoryPage,
   BrowserTrajectoryRuns,
@@ -95,10 +95,10 @@ export interface FixtureScenario {
     readonly delayMs?: number;
     readonly initialEvents?: readonly BrowserGoalEvent[];
   }>;
-  /** 工具授权记录（按 goalId 索引）。 */
-  readonly toolGrants?: Record<string, FixtureEndpointConfig<readonly BrowserToolGrantSummary[]>>;
-  /** 权限模式配置。 */
-  readonly permissionMode?: FixtureEndpointConfig<BrowserPermissionModeResult>;
+  /** 边界豁免摘要（按 goalId 索引）。 */
+  readonly permissionExemptions?: Record<string, FixtureEndpointConfig<readonly BrowserPermissionExemptionSummary[]>>;
+  /** 工作区权限档位配置。 */
+  readonly permissionProfile?: FixtureEndpointConfig<BrowserPermissionProfileResult>;
   /** 模型目录配置。 */
   readonly models?: FixtureEndpointConfig<BrowserModelCatalog>;
   /** 供应商设置配置。 */

@@ -61,7 +61,7 @@ Storage 文件族使用 `typescript-binding` 策略，从 TS 文件 DTO 生成�
 | Tool Grant 账本 | `ToolGrantLedgerFile` | [`JsonFileToolGrantStore`](../packages/storage/src/json-file-tool-grant-store.ts) |
 | Sandbox Grant 账本 | `SandboxGrantLedgerFile` | [`JsonFileSandboxGrantStore`](../packages/storage/src/json-file-sandbox-grant-store.ts) |
 | 模型偏好 | `ModelPreferenceFile` | [`JsonFileModelPreferenceStore`](../packages/storage/src/json-file-model-preference-store.ts) |
-| 项目权限模式 | `PermissionModeFile` | [`JsonFileProjectPermissionModeStore`](../packages/storage/src/json-file-project-permission-mode-store.ts) |
+| 项目权限档位 | `PermissionProfileFile` | [`JsonFileProjectPermissionProfileStore`](../packages/storage/src/json-file-project-permission-profile-store.ts) |
 | 模型调用指标 | `ModelCallMetricFileRecord`、`ModelCallMetricsCoverageFileRecord` | [`JsonFileMetricsStore`](../packages/storage/src/json-file-metrics-store.ts) |
 | 进程会话 | `ProcessSessionFileRecord`、`ProcessChannelMetaFile` | [`JsonFileProcessSessionStore`](../packages/storage/src/json-file-process-session-store.ts) |
 | 模型输入清单 | `ModelInputManifest` | [`JsonFileModelInputStore`](../packages/storage/src/json-file-model-input-store.ts) |

@@ -347,7 +347,6 @@ export function createTriggerBrowserSessionPort(dependencies: TriggerBrowserSess
                     const authorization: GoalTriggerContext["authorization"] = {
                         workspace,
                         toolIds: goal.definition.profile.toolIds.filter((toolId) => root.toolRegistry.get(toolId) !== undefined),
-                        sandbox: { extraFiles: [], network: "none" },
                     };
                     return { goal, authorization };
                 });

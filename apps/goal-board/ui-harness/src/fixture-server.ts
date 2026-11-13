@@ -12,9 +12,9 @@ import {
   browserModelCatalogBinding,
   browserModelInputsBinding,
   browserModelPreferenceResultBinding,
-  browserPermissionModeResultBinding,
+  browserPermissionExemptionResultBinding,
+  browserPermissionProfileResultBinding,
   browserProviderSettingsBinding,
-  browserToolGrantResultBinding,
   browserTrajectoryDetailBinding,
   browserTrajectoryPageBinding,
   browserTrajectoryRunsBinding,
@@ -30,9 +30,9 @@ import {
   type BrowserGoalSessionStateEnvelope,
   type BrowserInteractionDetailResult,
   type BrowserModelCatalog,
-  type BrowserPermissionModeResult,
+  type BrowserPermissionExemptionSummary,
+  type BrowserPermissionProfileResult,
   type BrowserProviderSettings,
-  type BrowserToolGrantSummary,
   type BrowserTrajectoryDetail,
   type BrowserTrajectoryPage,
   type BrowserTrajectoryRuns,
@@ -47,7 +47,8 @@ import {
   createDefaultGoalSessionEnvelope,
   createDefaultGoalSessionStateEnvelope,
   createDefaultModelCatalog,
-  createDefaultPermissionModeResult,
+  createDefaultPermissionExemptions,
+  createDefaultPermissionProfileResult,
   createDefaultProviderSettings,
   createDefaultTrajectoryDetail,
   createDefaultTrajectoryPage,
@@ -139,6 +140,18 @@ async function handleEndpointMode<T>(
   sendValidatedJson(res, binding, config.data);
 }
 
+/** 读取并解析请求体；空体或非对象 JSON 返回 `undefined`。 */
+async function readJsonBody(req: IncomingMessage): Promise<Record<string, unknown> | undefined> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(chunk as Buffer);
+  try {
+    const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    return typeof parsed === "object" && parsed !== null ? parsed as Record<string, unknown> : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** 静态资源服务，支持 SPA HTML fallback。 */
 async function serveStaticFile(
   res: ServerResponse,
@@ -192,6 +205,14 @@ export async function createFixtureServer(
   const goalEventClients = new Map<string, Set<ServerResponse>>();
   const receivedIntents: BrowserControlIntentCommand[] = [];
   let closed = false;
+
+  /** 当前场景对指定 Goal 声明的边界豁免；未声明或标记为空时返回空列表。 */
+  const currentExemptions = (goalId: string): readonly BrowserPermissionExemptionSummary[] => {
+    const config = scenario.permissionExemptions?.[goalId];
+    return config === undefined || config.mode === "empty" || config.data === undefined
+      ? createDefaultPermissionExemptions()
+      : config.data;
+  };
 
   const pushEvent = (goalId: string, event: BrowserGoalEvent): void => {
     const validated = browserGoalEventBinding.read(event, "strip");
@@ -308,20 +329,52 @@ export async function createFixtureServer(
       return;
     }
 
-    // 5. GET /api/goals/:goalId/grants
-    const grantsMatch = path.match(/^\/api\/goals\/([^/]+)\/grants$/);
-    if (method === "GET" && grantsMatch) {
-      const goalId = decodeURIComponent(grantsMatch[1]);
-      const grantsConfig = scenario.toolGrants?.[goalId];
-      const mode = grantsConfig?.mode ?? "success";
-      if (mode === "error") {
-        res.writeHead(500, { "content-type": "application/json" });
-        res.end(JSON.stringify({ code: "grants_error" }));
+    // 5. GET /api/goals/:goalId/exemptions and DELETE /api/goals/:goalId/exemptions/:exemptionId
+    const exemptionRevokeMatch = path.match(/^\/api\/goals\/([^/]+)\/exemptions\/([^/]+)$/);
+    if (method === "DELETE" && exemptionRevokeMatch) {
+      const goalId = decodeURIComponent(exemptionRevokeMatch[1]);
+      const exemptionId = decodeURIComponent(exemptionRevokeMatch[2]);
+      const body = await readJsonBody(req);
+      const runId = typeof body?.runId === "string" ? body.runId : "run-1";
+      const config = scenario.permissionExemptions?.[goalId];
+      if (config?.mode === "error") {
+        res.writeHead(config.errorStatus ?? 500, { "content-type": "application/json" });
+        res.end(JSON.stringify({ code: config.errorCode ?? "exemption_failed" }));
         return;
       }
-      const data: readonly BrowserToolGrantSummary[] =
-        mode === "empty" || grantsConfig?.data === undefined ? [] : grantsConfig.data;
-      sendValidatedJson(res, browserToolGrantResultBinding, { ok: true, grants: data });
+      const remaining = currentExemptions(goalId).filter((exemption) => exemption.id !== exemptionId);
+      scenario = {
+        ...scenario,
+        permissionExemptions: {
+          ...scenario.permissionExemptions,
+          [goalId]: { ...(scenario.permissionExemptions?.[goalId] ?? {}), data: remaining },
+        },
+      };
+      sendValidatedJson(res, browserPermissionExemptionResultBinding, {
+        ok: true,
+        goalId,
+        runId,
+        exemptions: remaining,
+      });
+      return;
+    }
+
+    const exemptionsMatch = path.match(/^\/api\/goals\/([^/]+)\/exemptions$/);
+    if (method === "GET" && exemptionsMatch) {
+      const goalId = decodeURIComponent(exemptionsMatch[1]);
+      const runId = url.searchParams.get("runId") ?? "run-1";
+      const config = scenario.permissionExemptions?.[goalId];
+      if (config?.mode === "error") {
+        res.writeHead(config.errorStatus ?? 500, { "content-type": "application/json" });
+        res.end(JSON.stringify({ code: config.errorCode ?? "exemptions_error" }));
+        return;
+      }
+      sendValidatedJson(res, browserPermissionExemptionResultBinding, {
+        ok: true,
+        goalId,
+        runId,
+        exemptions: currentExemptions(goalId),
+      });
       return;
     }
 
@@ -382,13 +435,13 @@ export async function createFixtureServer(
       return;
     }
 
-    // 7. GET /api/project/permission-mode / POST /api/project/permission-mode
-    if (path === "/api/project/permission-mode") {
-      await handleEndpointMode<BrowserPermissionModeResult>(
+    // 7. GET /api/project/permission-profile
+    if (method === "GET" && path === "/api/project/permission-profile") {
+      await handleEndpointMode<BrowserPermissionProfileResult>(
         res,
-        scenario.permissionMode,
-        browserPermissionModeResultBinding,
-        createDefaultPermissionModeResult,
+        scenario.permissionProfile,
+        browserPermissionProfileResultBinding,
+        createDefaultPermissionProfileResult,
       );
       return;
     }

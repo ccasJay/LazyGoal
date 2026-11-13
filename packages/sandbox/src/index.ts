@@ -68,5 +68,6 @@ export {
     type SandboxAccessRequest,
     type SandboxExecutionPlan,
     type SandboxFileAccessRequest,
+    type SandboxMode,
     type SandboxNetworkAccessRequest,
 } from "./capability";

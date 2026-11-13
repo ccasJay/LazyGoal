@@ -1,4 +1,5 @@
 import type { BrowserControlIntentCommand } from "../../../../packages/web-contracts/src/index";
+import { permissionProfilesEqual } from "../permission-profile";
 import { browserApi } from "../api";
 
 /** 核验结论；只有 `not_applied` 允许以原身份重试。 */
@@ -9,8 +10,8 @@ export type ControlVerification = "applied" | "not_applied" | "unknown";
  *
  * @remarks
  * 复用各资源现有身份与修订，不建立通用收据存储：SessionInput 查 `inputId`
- * 收据，权限查当前 revision，Grant 查摘要中 `grantId`，Goal 查存在与归档状态，
- * 模型选择查当前目录，审批预检查当前 `pendingAction`。读取失败一律返回
+ * 收据，权限档位查当前三轴值与 revision，边界豁免查列表中的 `id`，Goal 查存在与
+ * 归档状态，模型选择查当前目录，审批预检查当前 `pendingAction`。读取失败一律返回
  * `unknown`，不推断“未执行”。
  *
  * @param intent - 原始冻结意图。
@@ -30,10 +31,10 @@ export async function verifyControlIntent(intent: BrowserControlIntentCommand): 
       return verifyRunStillWaiting(intent.goalId, intent.runId);
     case "model_selection":
       return verifyModelSelection(intent.modelId);
-    case "permission_mode":
-      return verifyPermissionMode(intent.mode, intent.expectedRevision);
-    case "grant_revoke":
-      return verifyGrantRevoked(intent.goalId, intent.runId, intent.grantId);
+    case "permission_profile":
+      return verifyPermissionProfile(intent.profile, intent.expectedRevision);
+    case "exemption_revoke":
+      return verifyExemptionRevoked(intent.goalId, intent.runId, intent.exemptionId);
     case "goal_archive":
       return verifyGoalArchive(intent.goalId, intent.archived);
     case "goal_delete":
@@ -87,25 +88,31 @@ async function verifyModelSelection(modelId: string): Promise<ControlVerificatio
   }
 }
 
-async function verifyPermissionMode(
-  mode: "default" | "yolo",
+async function verifyPermissionProfile(
+  profile: Extract<BrowserControlIntentCommand, { readonly kind: "permission_profile" }>["profile"],
   expectedRevision: number,
 ): Promise<ControlVerification> {
   try {
-    const result = await browserApi.getPermissionMode();
+    const result = await browserApi.getPermissionProfile();
     if (!result.ok) return "unknown";
-    if (result.mode === mode) return "applied";
+    if (permissionProfilesEqual(result.profile, profile)) return "applied";
     return result.revision === expectedRevision ? "not_applied" : "unknown";
   } catch {
     return "unknown";
   }
 }
 
-async function verifyGrantRevoked(goalId: string, runId: string, grantId: string): Promise<ControlVerification> {
+async function verifyExemptionRevoked(
+  goalId: string,
+  runId: string,
+  exemptionId: string,
+): Promise<ControlVerification> {
   try {
-    const result = await browserApi.listToolGrants(goalId, runId);
+    const result = await browserApi.listPermissionExemptions(goalId, runId);
     if (!result.ok) return "unknown";
-    return result.grants.some((grant) => grant.grantId === grantId) ? "not_applied" : "applied";
+    return result.exemptions.some((exemption) => exemption.id === exemptionId && exemption.status !== "revoked")
+      ? "not_applied"
+      : "applied";
   } catch {
     return "unknown";
   }

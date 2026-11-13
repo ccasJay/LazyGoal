@@ -80,8 +80,8 @@ export {
 export { JsonFileTrajectoryStore } from "./json-file-trajectory-store";
 export { JsonFileToolGrantStore } from "./json-file-tool-grant-store";
 export { JsonFileSandboxGrantStore } from "./json-file-sandbox-grant-store";
-export { JsonFileProjectPermissionModeStore } from "./json-file-project-permission-mode-store";
-export type { PermissionModeFile } from "./permission-mode-file";
+export { JsonFileProjectPermissionProfileStore } from "./json-file-project-permission-profile-store";
+export type { PermissionProfileFile } from "./permission-profile-file";
 export { JsonFileModelPreferenceStore } from "./json-file-model-preference-store";
 export type { ModelPreferenceFile } from "./model-preference-file";
 export {

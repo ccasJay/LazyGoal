@@ -24,7 +24,7 @@ import {
     type ToolValidationResult,
 } from "../../tool-core/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
-import type { ProjectPermissionModeStore } from "../../permission/src/index";
+import { PERMISSION_PRESETS, type PermissionProfile, type ProjectPermissionProfileStore } from "../../permission/src/index";
 import { BaseTestStepExecutor, currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
 import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
@@ -138,18 +138,18 @@ function createTestGoal(_workspaceRoot: string, goalId = "goal-sandbox-action-1"
     }));
 }
 
-function createMockModeStore(mode: "default" | "yolo"): ProjectPermissionModeStore {
+function createMockProfileStore(profile: PermissionProfile): ProjectPermissionProfileStore {
     return {
         async get(workspaceId: string) {
-            return { workspaceId, mode, revision: 1 };
+            return { workspaceId, profile, revision: 1 };
         },
-        async set(workspaceId: string, newMode: "default" | "yolo", expectedRevision: number) {
-            return { workspaceId, mode: newMode, revision: expectedRevision + 1 };
+        async update(workspaceId: string, nextProfile: PermissionProfile, expectedRevision: number) {
+            return { workspaceId, profile: nextProfile, revision: expectedRevision + 1 };
         },
     };
 }
 
-test("macOS 默认沙箱内的 Bash 在 YOLO 模式下自动放行执行", async () => {
+test("workspace-write 档位下工作区内的 Bash 直接执行", async () => {
     const tmpDir = await mkdtemp(join(tmpdir(), "lg-sandbox-perm-"));
     try {
         const store = new InMemoryGoalStore();
@@ -180,7 +180,7 @@ test("macOS 默认沙箱内的 Bash 在 YOLO 模式下自动放行执行", async
             toolRegistry: registry,
             workspaceRoot: tmpDir,
             workspaceId: "ws-1",
-            permissionModeStore: createMockModeStore("yolo"),
+            permissionProfileStore: createMockProfileStore(PERMISSION_PRESETS.ask),
         });
 
         const goal = createTestGoal(tmpDir);
@@ -196,7 +196,7 @@ test("macOS 默认沙箱内的 Bash 在 YOLO 模式下自动放行执行", async
     }
 });
 
-test("越界文件访问在 Default 模式下挂起审批并标明 approvalKind 为 sandbox", async () => {
+test("越界文件访问在 workspace-write 档位下挂起审批并标明 approvalKind 为 sandbox", async () => {
     const tmpDir = await mkdtemp(join(tmpdir(), "lg-sandbox-perm-"));
     try {
         const store = new InMemoryGoalStore();
@@ -232,7 +232,7 @@ test("越界文件访问在 Default 模式下挂起审批并标明 approvalKind 
             toolRegistry: registry,
             workspaceRoot: tmpDir,
             workspaceId: "ws-1",
-            permissionModeStore: createMockModeStore("default"),
+            permissionProfileStore: createMockProfileStore(PERMISSION_PRESETS.ask),
         });
 
         const goal = createTestGoal(tmpDir);
@@ -254,7 +254,7 @@ test("越界文件访问在 Default 模式下挂起审批并标明 approvalKind 
     }
 });
 
-test("越界文件与网络访问即使在 YOLO 模式下也必须挂起审批，严禁绕过沙箱边界", async () => {
+test("越界文件与网络访问始终挂起审批，严禁绕过沙箱边界", async () => {
     const tmpDir = await mkdtemp(join(tmpdir(), "lg-sandbox-perm-"));
     try {
         const store = new InMemoryGoalStore();
@@ -290,7 +290,7 @@ test("越界文件与网络访问即使在 YOLO 模式下也必须挂起审批�
             toolRegistry: registry,
             workspaceRoot: tmpDir,
             workspaceId: "ws-1",
-            permissionModeStore: createMockModeStore("yolo"),
+            permissionProfileStore: createMockProfileStore(PERMISSION_PRESETS.ask),
         });
 
         const goal = createTestGoal(tmpDir);
@@ -348,7 +348,7 @@ test("单次审批通过后，恢复执行能携带核准沙箱能力并成功�
             toolRegistry: registry,
             workspaceRoot: tmpDir,
             workspaceId: "ws-1",
-            permissionModeStore: createMockModeStore("default"),
+            permissionProfileStore: createMockProfileStore(PERMISSION_PRESETS.ask),
             sandboxPlanResolver: async ({ action, effectiveScope }) => {
                 if (effectiveScope === undefined) return undefined;
                 return {
@@ -439,7 +439,7 @@ test("审批拒绝（reject_action）后，终止该 Action 调度，受限命�
             toolRegistry: registry,
             workspaceRoot: tmpDir,
             workspaceId: "ws-1",
-            permissionModeStore: createMockModeStore("default"),
+            permissionProfileStore: createMockProfileStore(PERMISSION_PRESETS.ask),
         });
 
         const goal = createTestGoal(tmpDir);

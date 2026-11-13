@@ -15,7 +15,6 @@ import {
     createApprovalFixture,
     createAwaitingApprovalGoal,
     createExecutingApprovalGoal,
-    REQUIRE_APPROVAL_POLICY,
 } from "./action-approval-fixtures";
 import { trajectoryStoreFor } from "./current-fixtures";
 
@@ -43,7 +42,6 @@ function createReexecutionHarness(
         trajectoryStore,
         executor,
         toolRegistry: fixture.registry,
-        toolPolicy: REQUIRE_APPROVAL_POLICY,
         workspaceRoot: fixture.workspaceRoot,
         workspaceId: "ws-1",
     });
@@ -66,7 +64,7 @@ const COMPLETE: DecideStageResult = {
 };
 
 test("首次批准不消费未知结果等待，重执行命令不消费首次审批", async () => {
-    const fixture = await createApprovalFixture({ throws: () => true });
+    const fixture = await createApprovalFixture({ throws: () => true, boundaryApproval: true });
     try {
         const goal = createAwaitingApprovalGoal();
         await fixture.store.save(goal);
@@ -114,7 +112,7 @@ test("首次批准不消费未知结果等待，重执行命令不消费首次�
 });
 
 test("重执行绑定本次恢复身份，按获批版本再次执行", async () => {
-    const fixture = await createApprovalFixture({ throws: () => true });
+    const fixture = await createApprovalFixture({ throws: () => true, boundaryApproval: true });
     try {
         const goal = createExecutingApprovalGoal();
         await fixture.store.save(goal);
@@ -203,7 +201,7 @@ test("重执行绑定本次恢复身份，按获批版本再次执行", async ()
 });
 
 test("重执行不产生持续授权，拒绝重执行保留此前未知效果事实", async () => {
-    const fixture = await createApprovalFixture({ throws: () => true });
+    const fixture = await createApprovalFixture({ throws: () => true, boundaryApproval: true });
     try {
         const goal = createExecutingApprovalGoal();
         await fixture.store.save(goal);
@@ -274,7 +272,7 @@ test("重执行不产生持续授权，拒绝重执行保留此前未知效果�
 });
 
 test("显式恢复只重建等待，不授权再次执行", async () => {
-    const fixture = await createApprovalFixture({ throws: () => true });
+    const fixture = await createApprovalFixture({ throws: () => true, boundaryApproval: true });
     try {
         const goal = createAwaitingApprovalGoal();
         await fixture.store.save(goal);
@@ -337,7 +335,7 @@ test("状态层拒绝用首次批准消费未知结果等待", () => {
 });
 
 test("已被中断的 Run 拒绝重执行决定，原任务不越过中断", async () => {
-    const fixture = await createApprovalFixture({ throws: () => true });
+    const fixture = await createApprovalFixture({ throws: () => true, boundaryApproval: true });
     try {
         const goal = createExecutingApprovalGoal();
         await fixture.store.save(goal);

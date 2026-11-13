@@ -4,7 +4,8 @@ import { createServer } from "node:http";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { LLMAdapter, LLMRequest } from "../../../packages/llm-core/src/index";
+import type { LLMAdapter } from "../../../packages/llm-core/src/index";
+import { PERMISSION_PRESETS } from "../../../packages/permission/src/index";
 import { createGoal } from "../../../packages/runtime/src/domain";
 import { currentProtocols } from "../../../packages/runtime/test/current-fixtures";
 import { externalTestActor, permissionDecisionTrigger, workTrigger } from "../../../packages/runtime/test/trigger-fixtures";
@@ -16,6 +17,13 @@ import { admitTrigger } from "../src/runtime/trigger-admission";
 import { WorkerScheduler } from "../src/runtime/worker-scheduler";
 
 const unusedContinuation = async () => ({ ok: false as const, code: "RUN_NOT_FOUND", message: "continuation is not wired in this test" });
+
+/** 无人宿主读取到的档位：`user` 审阅在 Worker 侧退化为确定性规则表裁决。 */
+const readPermissionProfile = async () => ({
+    workspaceId: "test-workspace",
+    profile: PERMISSION_PRESETS.ask,
+    revision: 0,
+});
 
 function chatChunk(delta: Record<string, unknown>, finishReason: string | null = null): Record<string, unknown> {
     return { id: "worker-permission-test", object: "chat.completion.chunk", created: 0, model: "test-model",
@@ -38,17 +46,19 @@ async function waitFor(predicate: () => boolean, timeoutMs = 15000, onTimeout = 
     }
 }
 
-test("Worker 的一次性 Action 权限经 Trigger 由 Supervisor 决定并在执行前结算", { timeout: 30000 }, async () => {
+test("Worker 的越界 Action 按权限档位自动裁决，命中规则表时保留人工等待", { timeout: 30000 }, async () => {
     const root = await mkdtemp(join(tmpdir(), "lg-worker-permission-"));
     const workspace = join(root, "workspace");
     const home = join(root, "home");
     const dataDirectory = join(root, "data");
     const profileDirectory = join(home, "agent-profiles");
+    const outsideReference = join(root, "outside-reference.txt");
     await Promise.all([
         mkdir(workspace, { recursive: true }), mkdir(profileDirectory, { recursive: true }), mkdir(dataDirectory, { recursive: true }),
+        writeFile(outsideReference, "reference\n"),
     ]);
     await writeFile(join(profileDirectory, "default.json"), JSON.stringify({ schemaVersion: 1, id: "default", name: "Test",
-        description: "Test", systemPrompt: "Test", instructions: ["Test"], toolIds: ["write_file"] }));
+        description: "Test", systemPrompt: "Test", instructions: ["Test"], toolIds: ["bash"] }));
 
     const requests: Record<string, unknown>[] = [];
     const requestsByScenario = new Map<string, number>();
@@ -59,7 +69,7 @@ test("Worker 的一次性 Action 权限经 Trigger 由 Supervisor 决定并在�
             for await (const chunk of request) bodyText += chunk;
             const body = JSON.parse(bodyText) as Record<string, unknown>;
             requests.push(body);
-            const scenario = bodyText.includes("人工授权动作") ? "manual" : "automatic";
+            const scenario = bodyText.includes("人工规则命中动作") ? "manual" : "automatic";
             const toolNames = Array.isArray(body.tools)
                 ? body.tools.flatMap((tool) => typeof tool === "object" && tool !== null && "function" in tool
                     && typeof tool.function === "object" && tool.function !== null && "name" in tool.function
@@ -73,11 +83,16 @@ test("Worker 的一次性 Action 权限经 Trigger 由 Supervisor 决定并在�
             const position = (requestsByScenario.get(scenario) ?? 0) + 1;
             requestsByScenario.set(scenario, position);
             const scripted = position === 1
-                ? ["system_start_run_stage", { target: "写入受控文件", acceptanceCriteria: ["动作经权限往返后执行"] }]
+                ? ["system_start_run_stage", { target: "写入受控文件", acceptanceCriteria: ["动作经边界裁决后执行"] }]
                 : position === 2
-                    ? ["system_find_tools", { query: "write_file" }]
+                    ? ["system_find_tools", { query: "bash" }]
                     : position === 3
-                        ? ["write_file", { path: `${scenario}-permission-result.txt`, content: `${scenario} authorized once` }]
+                        ? ["bash", {
+                            command: `printf '${scenario} authorized once' > ${scenario}-permission-result.txt`,
+                            sandboxAccess: scenario === "automatic"
+                                ? { files: [{ path: outsideReference, access: "read", kind: "file", purpose: "读取工作区外参考文件" }] }
+                                : { network: { targets: ["127.0.0.1:9"], purpose: "访问工作区外服务" } },
+                        }]
                         : undefined;
             if (scripted === undefined) {
                 response.writeHead(500);
@@ -108,83 +123,69 @@ test("Worker 的一次性 Action 权限经 Trigger 由 Supervisor 决定并在�
     const owner = new SupervisorOwnership(join(dataDirectory, "owner.db"));
     const triggers = new TriggerStore(join(dataDirectory, "triggers.db"));
     const goals = new JsonFileGoalStore(join(dataDirectory, "goals"));
-    let reviewerCalls = 0;
-    const permissionAdapter: LLMAdapter = {
+    const admissionAdapter: LLMAdapter = {
         structuredOutputMode: "strict",
-        async generate(request: LLMRequest) {
-            reviewerCalls += 1;
-            const content = request.messages.at(-1)?.content;
-            const permissionRequest = typeof content === "string" ? JSON.parse(content) as { goalIntent?: string } : {};
-            if (permissionRequest.goalIntent?.includes("人工授权动作")) throw new Error("Supervisor permission model is unavailable");
-            return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({ kind: "approve", reason: null }) }] };
+        async generate() {
+            return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({ kind: "accept", reason: null }) }] };
         },
     };
-    const scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, permissionAdapter, commitContinuation: unusedContinuation });
+    const scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, readPermissionProfile, commitContinuation: unusedContinuation });
     const principal = { role: "user", externalId: "test-actor", mayCreateGoal: true, goalIds: [] } as const;
     try {
         const admitGoal = async (suffix: string, intent: string): Promise<string> => {
             const trigger = workTrigger(`worker-permission-event-${suffix}`, intent);
-            const admitted = await admitTrigger(owner, triggers, goals, permissionAdapter, trigger, principal, async (goalIntent, reservedGoalId) => ({
+            const admitted = await admitTrigger(owner, triggers, goals, admissionAdapter, trigger, principal, async (goalIntent, reservedGoalId) => ({
                 goal: createGoal({ ...currentProtocols, id: reservedGoalId ?? `permission-goal-${suffix}`, runId: `permission-run-${suffix}`, intent: goalIntent,
                     promptBundleVersion: 1,
                     modelSelection: { provider: "openai-compatible", modelId: "test-model", contextWindowTokens: 16000,
                         maxOutputTokens: 4096, inputEstimator: { kind: "character-v1" } },
-                    profile: { id: "default", systemPrompt: "Test", instructions: ["Write the requested file."], toolIds: ["write_file"] } }),
+                    profile: { id: "default", systemPrompt: "Test", instructions: ["Run the requested command."], toolIds: ["bash"] } }),
                 authorization: { workspace: { mode: "shared" as const, projectRoot: workspace, executionRoot: workspace },
-                    toolIds: ["write_file"], sandbox: { extraFiles: [], network: "none" } },
+                    toolIds: ["bash"] },
             }));
             if (admitted.kind !== "accepted") throw new Error("Expected Trigger admission to accept the Goal");
             return admitted.goalId;
         };
 
-        const goalId = await admitGoal("automatic", "自动授权动作");
+        // 无规则命中的越界（工作区外读取）在无人宿主自动放行。
+        const goalId = await admitGoal("automatic", "自动边界裁决动作");
         await scheduler.pump();
         await waitFor(() => scheduler.actionPermissionStatuses(goalId).length > 0);
         await waitFor(() => scheduler.actionPermissionStatuses(goalId).some((status) => !status.pending), 15000, () =>
-            `Permission exchange remains pending: statuses=${JSON.stringify(scheduler.actionPermissionStatuses(goalId))}, queue=${JSON.stringify(triggers.queueRecord(goalId))}, requests=${requests.length}, reviewerCalls=${reviewerCalls}`);
+            `Permission exchange remains pending: statuses=${JSON.stringify(scheduler.actionPermissionStatuses(goalId))}, queue=${JSON.stringify(triggers.queueRecord(goalId))}, requests=${requests.length}`);
         await waitFor(() => triggers.queueRecord(goalId)?.status === "terminal");
 
-        const statuses = scheduler.actionPermissionStatuses(goalId);
-        assert.equal(statuses.length, 1);
-        assert.equal(statuses[0]?.request.type, "action_approval_request");
-        assert.equal(statuses[0]?.pending, false);
-        const storedRequest = triggers.read(statuses[0]!.requestId);
+        const automaticStatuses = scheduler.actionPermissionStatuses(goalId);
+        assert.equal(automaticStatuses.length, 1);
+        assert.equal(automaticStatuses[0]?.request.type, "action_approval_request");
+        assert.equal(automaticStatuses[0]?.pending, false);
+        assert.equal(automaticStatuses[0]?.failure, undefined);
+        const storedRequest = triggers.read(automaticStatuses[0]!.requestId);
         assert.ok(storedRequest !== undefined && storedRequest.type === "permission" && storedRequest.payload.action === "requested");
-        assert.equal(storedRequest.id, statuses[0]!.requestId);
         assert.equal(storedRequest.goalId, goalId);
         assert.equal(storedRequest.target, "supervisor");
-        assert.deepEqual(storedRequest.payload, {
-            action: "requested",
-            runId: statuses[0]!.request.runId,
-            actionId: statuses[0]!.request.actionId,
-            interactionId: statuses[0]!.request.interactionId,
-            commitRevision: statuses[0]!.request.commitRevision,
-        });
-        assert.equal(reviewerCalls, 1);
         assert.equal(await readFile(join(workspace, "automatic-permission-result.txt"), "utf8"), "automatic authorized once");
-        const replies = triggers.listGoalTriggers(goalId).filter((trigger) => trigger.type === "permission"
+        const automaticReplies = triggers.listGoalTriggers(goalId).filter((trigger) => trigger.type === "permission"
             && trigger.payload.action === "decided" && trigger.source.role === "supervisor");
-        assert.equal(replies.length, 1);
-        const replyTrigger = replies[0];
-        if (replyTrigger?.type !== "permission" || replyTrigger.payload.action !== "decided" || !("replyTo" in replyTrigger)) {
+        assert.equal(automaticReplies.length, 1);
+        const automaticReply = automaticReplies[0];
+        if (automaticReply?.type !== "permission" || automaticReply.payload.action !== "decided" || !("replyTo" in automaticReply)) {
             throw new Error("Expected a permission decision Trigger");
         }
-        assert.equal(replyTrigger.goalId, goalId);
-        assert.equal(replyTrigger.replyTo, statuses[0]!.requestId);
-        assert.equal(replyTrigger.target, "worker");
-        assert.equal(triggers.routeStatus(replyTrigger.id), "routed");
-        assert.equal(triggers.routeStatus(statuses[0]!.requestId), "routed");
-        assert.deepEqual(replyTrigger.payload, { action: "decided", decision: "approve", scope: "action" });
-        assert.equal(requests.length >= 3, true);
+        assert.equal(automaticReply.replyTo, automaticStatuses[0]!.requestId);
+        assert.equal(triggers.routeStatus(automaticReply.id), "routed");
+        assert.equal(triggers.routeStatus(automaticStatuses[0]!.requestId), "routed");
+        assert.deepEqual(automaticReply.payload, { action: "decided", decision: "approve", scope: "action" });
 
-        const manualGoalId = await admitGoal("manual", "人工授权动作");
+        // 命中规则表（出站网络）的越界保持人工等待，由外部批准后仅执行该次 Action。
+        const manualGoalId = await admitGoal("manual", "人工规则命中动作");
         await scheduler.pump();
-        await waitFor(() => scheduler.actionPermissionStatuses(manualGoalId).some((status) => status.failure === "model-failed"));
+        await waitFor(() => scheduler.actionPermissionStatuses(manualGoalId).length > 0);
         const manualRequest = scheduler.actionPermissionStatuses(manualGoalId)[0]!;
         assert.equal(manualRequest.pending, true);
-        assert.equal(manualRequest.failure, "model-failed");
+        assert.equal(manualRequest.failure, undefined);
         assert.equal(triggers.queueRecord(manualGoalId)?.status, "waiting");
-        assert.equal(reviewerCalls, 2);
+        assert.equal(await readFile(join(workspace, "manual-permission-result.txt")).then(() => true, () => false), false);
 
         const manualPrincipal = { role: "user", externalId: "test-actor", mayCreateGoal: false, goalIds: [manualGoalId] } as const;
         const staleReply = permissionDecisionTrigger("old-worker-permission-event", manualGoalId, "retired-request", "approve", undefined, externalTestActor);
@@ -194,7 +195,6 @@ test("Worker 的一次性 Action 权限经 Trigger 由 Supervisor 决定并在�
             manualRequest.requestId, "approve", undefined, externalTestActor);
         await assert.rejects(scheduler.handleActionPermissionReply(crossGoalReply, manualPrincipal), /stored request Trigger/);
         assert.equal(triggers.routeStatus(crossGoalReply.id), undefined);
-        assert.equal(await readFile(join(workspace, "manual-permission-result.txt")).then(() => true, () => false), false);
 
         const validReply = permissionDecisionTrigger("manual-worker-permission-event", manualGoalId, manualRequest.requestId, "approve", undefined, externalTestActor);
         if (validReply.type !== "permission" || validReply.payload.action !== "decided" || !("replyTo" in validReply)) {
@@ -208,7 +208,6 @@ test("Worker 的一次性 Action 权限经 Trigger 由 Supervisor 决定并在�
         await waitFor(() => scheduler.actionPermissionStatuses(manualGoalId).some((status) => !status.pending));
         await waitFor(() => triggers.queueRecord(manualGoalId)?.status === "terminal");
         assert.equal(await readFile(join(workspace, "manual-permission-result.txt"), "utf8"), "manual authorized once");
-        assert.equal(scheduler.actionPermissionStatuses(manualGoalId)[0]?.failure, undefined);
         assert.equal(triggers.routeStatus(manualRequest.requestId), "routed");
         assert.equal(triggers.routeStatus(validReply.id), "routed");
     } finally {

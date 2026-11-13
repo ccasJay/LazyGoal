@@ -4,10 +4,8 @@ import type {
   BrowserGoalSessionState,
   BrowserSessionMessage,
   BrowserSessionStep,
-  BrowserToolGrantSummary,
   BrowserModelCatalog,
   BrowserModelOption,
-  BrowserPermissionModeResult,
   BrowserWorkspaceContext,
   SessionMetricsSnapshot,
 } from "../../../packages/web-contracts/src/index";

@@ -95,14 +95,15 @@ import {
     createSandboxGrantMatcher,
     createToolGrantMatcher,
     toolGrantMatchersEqual,
-    type PermissionMode,
-    type ProjectPermissionMode,
-    type ProjectPermissionModeStore,
+    type PermissionProfile,
+    type ProjectPermissionProfile,
+    type ProjectPermissionProfileStore,
     type SandboxGrantStore,
     type ToolGrantScope,
     type ToolGrantStore,
     type UnifiedGrantSummary,
 } from "./tool-grant";
+import { DEFAULT_PERMISSION_PROFILE } from "../../permission/src/index";
 
 function isStreamDeltaKind(kind: string): boolean {
     return kind.endsWith("_delta");
@@ -399,8 +400,8 @@ export interface GoalCoordinatorDependencies {
     readonly checkpointCommitter?: TrajectoryCheckpointCommitterPort;
     /** 只读 committed Trajectory 检索端口；缺失时 lookup 产生 unavailable 结果。 */
     readonly contextLookupPort?: ContextLookupPort;
-    /** 可选的项目权限执行模式存储端口。 */
-    readonly permissionModeStore?: ProjectPermissionModeStore;
+    /** 可选的项目权限档位存储端口。 */
+    readonly permissionProfileStore?: ProjectPermissionProfileStore;
     /** 可选的 Goal/Run 实时事件发布端口；发布故障不得改变执行语义。 */
     readonly executionStream?: ExecutionStreamPublisher;
 }
@@ -428,7 +429,7 @@ export class GoalCoordinator {
     private readonly toolRegistry: ToolRegistry;
     private readonly toolGrantStore: ToolGrantStore | undefined;
     private readonly sandboxGrantStore: SandboxGrantStore | undefined;
-    private readonly permissionModeStore: ProjectPermissionModeStore | undefined;
+    private readonly permissionProfileStore: ProjectPermissionProfileStore | undefined;
     private readonly workspaceId: string | undefined;
     private readonly workspaceRoot: string | undefined;
     private readonly checkpointCommitter: TrajectoryCheckpointCommitterPort;
@@ -448,7 +449,7 @@ export class GoalCoordinator {
         this.toolRegistry = dependencies.toolRegistry ?? new InMemoryToolRegistry();
         this.toolGrantStore = dependencies.toolGrantStore;
         this.sandboxGrantStore = dependencies.sandboxGrantStore;
-        this.permissionModeStore = dependencies.permissionModeStore;
+        this.permissionProfileStore = dependencies.permissionProfileStore;
         this.workspaceId = dependencies.workspaceId;
         this.workspaceRoot = dependencies.workspaceRoot;
         this.trajectoryStore = dependencies.trajectoryStore;
@@ -641,46 +642,47 @@ export class GoalCoordinator {
     }
 
     /**
-     * 查询指定或当前工作区的权限执行模式。
+     * 查询指定或当前工作区的权限档位。
      *
      * @param workspaceId - 可选的工作区标识，省略时使用当前 Coordinator 绑定的 workspaceId。
-     * @returns 权限模式事实。若无存储或未配置，返回默认 default 模式。
+     * @returns 当前档位与版本；未配置存储时返回默认档位与 `0`。
+     * @throws 档位记录损坏、版本不受支持或底层读取失败时抛出；不回退默认档位。
      * @example
      * ```ts
-     * const mode = await coordinator.getPermissionMode();
+     * const current = await coordinator.getPermissionProfile();
      * ```
      */
-    async getPermissionMode(workspaceId?: string): Promise<ProjectPermissionMode> {
+    async getPermissionProfile(workspaceId?: string): Promise<ProjectPermissionProfile> {
         const targetWorkspace = workspaceId ?? this.workspaceId ?? "default";
-        if (this.permissionModeStore === undefined) {
-            return { workspaceId: targetWorkspace, mode: "default", revision: 0 };
+        if (this.permissionProfileStore === undefined) {
+            return { workspaceId: targetWorkspace, profile: DEFAULT_PERMISSION_PROFILE, revision: 0 };
         }
-        return this.permissionModeStore.get(targetWorkspace);
+        return this.permissionProfileStore.get(targetWorkspace);
     }
 
     /**
-     * 切换指定或当前工作区的权限执行模式。
+     * 切换指定或当前工作区的权限档位。
      *
-     * @param mode - 目标权限模式。
+     * @param profile - 目标权限档位的三轴取值。
      * @param expectedRevision - 期望修订号。
      * @param workspaceId - 可选的工作区标识，省略时使用当前 Coordinator 绑定的 workspaceId。
-     * @returns 更新后的权限模式事实。
-     * @throws 版本冲突或存储故障时抛出异常。
+     * @returns 更新后的权限档位与递增版本。
+     * @throws 修订号不匹配时抛出 `PermissionProfileConflictError`；存储未配置或存储故障时抛出。
      * @example
      * ```ts
-     * const updated = await coordinator.setPermissionMode("yolo", current.revision);
+     * const updated = await coordinator.setPermissionProfile(PERMISSION_PRESETS.auto, current.revision);
      * ```
      */
-    async setPermissionMode(
-        mode: PermissionMode,
+    async setPermissionProfile(
+        profile: PermissionProfile,
         expectedRevision: number,
         workspaceId?: string,
-    ): Promise<ProjectPermissionMode> {
+    ): Promise<ProjectPermissionProfile> {
         const targetWorkspace = workspaceId ?? this.workspaceId ?? "default";
-        if (this.permissionModeStore === undefined) {
-            throw new Error("Permission mode store is not configured");
+        if (this.permissionProfileStore === undefined) {
+            throw new Error("Permission profile store is not configured");
         }
-        return this.permissionModeStore.set(targetWorkspace, mode, expectedRevision);
+        return this.permissionProfileStore.update(targetWorkspace, profile, expectedRevision);
     }
 
     /**

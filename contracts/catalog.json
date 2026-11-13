@@ -163,18 +163,18 @@
         {
             "boundary": "durable",
             "section": "边界入口",
-            "entry": "Model Preference / Project Permission Mode",
-            "root": "Model Preference / Project Permission Mode",
-            "sources": "[Preference Schema](../../../packages/storage/src/json-file-model-preference-store.ts#L11)、[Permission Mode Schema](../../../packages/storage/src/json-file-project-permission-mode-store.ts#L16)；领域类型归 `runtime` / `permission`",
+            "entry": "Model Preference / Project Permission Profile",
+            "root": "Model Preference / Project Permission Profile",
+            "sources": "[Preference Schema](../../../packages/storage/src/json-file-model-preference-store.ts#L11)、[Permission Profile Schema](../../../packages/storage/src/permission-profile-file.ts#L21)；领域类型归 `runtime` / `permission`",
             "protocol": "各记录含 version 1",
             "consumers": "JSON Store 生成绑定读取；无旧结构解析",
             "sourcePaths": [
                 "packages/storage/src/json-file-model-preference-store.ts",
-                "packages/storage/src/json-file-project-permission-mode-store.ts"
+                "packages/storage/src/json-file-project-permission-profile-store.ts"
             ],
             "catalogKeys": [
                 "storage/src/json-file-model-preference-store#ModelPreferenceFile",
-                "storage/src/json-file-project-permission-mode-store#PermissionModeFile"
+                "storage/src/permission-profile-file#PermissionProfileFile"
             ]
         },
         {
@@ -410,7 +410,7 @@
                     "BrowserQueueBinding",
                     "BrowserSessionInteractionResponse",
                     "BrowserGrantScope",
-                    "BrowserPermissionMode",
+                    "BrowserPermissionProfile",
                     "BrowserActionReviewScope",
                     "BrowserJsonValue"
                 ],
@@ -482,17 +482,17 @@
                     "BrowserModelSelectionResult",
                     "BrowserModelSelectionCommit",
                     "BrowserModelPreferenceOutcome",
-                    "BrowserPermissionModeResult",
-                    "BrowserToolGrantResult",
+                    "BrowserPermissionProfileResult",
+                    "BrowserPermissionExemptionResult",
                     "BrowserGoalArchiveResult",
                     "BrowserGoalDeleteResult",
                     "BrowserActionReviewResult",
                     "BrowserSessionInputReceipt",
-                    "BrowserToolGrantSummary",
+                    "BrowserPermissionExemptionSummary",
                     "BrowserActionReview",
                     "BrowserActionCapability",
-                    "BrowserToolGrantExtraFile",
-                    "BrowserPermissionMode",
+                    "BrowserPermissionExtraFile",
+                    "BrowserPermissionProfile",
                     "BrowserGrantScope",
                     "BrowserSessionInputStatus",
                     "BrowserSessionInputKind",
@@ -531,7 +531,7 @@
             "declaration": "GoalSnapshotV1",
             "source": {
                 "path": "packages/storage/src/goal-snapshot.ts",
-                "line": 905
+                "line": 976
             },
             "owner": "storage",
             "module": "storage",
@@ -915,11 +915,11 @@
             "role": "boundary-root"
         },
         {
-            "key": "storage/src/json-file-project-permission-mode-store#PermissionModeFile",
-            "declaration": "PermissionModeFile",
+            "key": "storage/src/permission-profile-file#PermissionProfileFile",
+            "declaration": "PermissionProfileFile",
             "source": {
-                "path": "packages/storage/src/permission-mode-file.ts",
-                "line": 2
+                "path": "packages/storage/src/permission-profile-file.ts",
+                "line": 21
             },
             "owner": "storage",
             "module": "storage",
@@ -929,12 +929,12 @@
             "definitionKind": "native-ts",
             "relations": [],
             "consumers": [
-                "packages/storage/src/json-file-project-permission-mode-store.ts"
+                "packages/storage/src/json-file-project-permission-profile-store.ts"
             ],
             "protocol": {
                 "identity": {
                     "state": "declared",
-                    "value": "storage.project-permission-mode"
+                    "value": "storage.project-permission-profile"
                 },
                 "version": {
                     "state": "declared",
@@ -944,29 +944,29 @@
             },
             "generation": {
                 "state": "enabled",
-                "detail": "项目权限模式文件 Schema、校验器和绑定由 TS 文件 DTO 生成；Store 消费生成绑定。",
+                "detail": "工作区权限档位文件 Schema、校验器和绑定由 TS 文件 DTO 生成；Store 消费生成绑定。",
                 "strategy": "typescript-binding",
-                "rootType": "PermissionModeFile",
+                "rootType": "PermissionProfileFile",
                 "declaredTypes": [
-                    "PermissionModeFile"
+                    "PermissionProfileFile"
                 ],
                 "outputDirectory": "packages/storage/src/generated",
                 "artifacts": {
-                    "schemaModule": "permission-mode-schema.ts",
-                    "validator": "permission-mode-validator.mjs",
-                    "validatorTypes": "permission-mode-validator.d.mts",
-                    "manifest": "permission-mode-manifest.json",
-                    "binding": "permission-mode-binding.ts"
+                    "schemaModule": "permission-profile-schema.ts",
+                    "validator": "permission-profile-validator.mjs",
+                    "validatorTypes": "permission-profile-validator.d.mts",
+                    "manifest": "permission-profile-manifest.json",
+                    "binding": "permission-profile-binding.ts"
                 },
                 "binding": {
                     "module": "../../../contract-binding/src/index",
-                    "dataType": "PermissionModeFile",
-                    "dataTypeModule": "../permission-mode-file",
-                    "exportName": "permissionModeFileBinding",
+                    "dataType": "PermissionProfileFile",
+                    "dataTypeModule": "../permission-profile-file",
+                    "exportName": "permissionProfileFileBinding",
                     "names": {
-                        "schema": "permissionModeFileSchema",
-                        "metadata": "permissionModeFileMetadata",
-                        "validator": "validatePermissionModeFile"
+                        "schema": "permissionProfileFileSchema",
+                        "metadata": "permissionProfileFileMetadata",
+                        "validator": "validatePermissionProfileFile"
                     }
                 }
             },
@@ -6056,7 +6056,7 @@
                     "BrowserInteractionDecision",
                     "BrowserPendingAction",
                     "BrowserSandboxReview",
-                    "BrowserToolGrantExtraFile",
+                    "BrowserPermissionExtraFile",
                     "BrowserParentProgram"
                 ],
                 "outputDirectory": "packages/web-contracts/src/generated",
@@ -6135,7 +6135,7 @@
                     "BrowserInteractionDecision",
                     "BrowserPendingAction",
                     "BrowserSandboxReview",
-                    "BrowserToolGrantExtraFile",
+                    "BrowserPermissionExtraFile",
                     "BrowserParentProgram",
                     "BrowserActivityHistoryMarker"
                 ],
@@ -6227,7 +6227,7 @@
                     "BrowserInteractionDecision",
                     "BrowserPendingAction",
                     "BrowserSandboxReview",
-                    "BrowserToolGrantExtraFile",
+                    "BrowserPermissionExtraFile",
                     "BrowserParentProgram",
                     "BrowserSessionState",
                     "BrowserSessionStateInteraction",
@@ -6311,7 +6311,7 @@
                     "BrowserInteractionDecision",
                     "BrowserPendingAction",
                     "BrowserSandboxReview",
-                    "BrowserToolGrantExtraFile",
+                    "BrowserPermissionExtraFile",
                     "BrowserParentProgram",
                     "BrowserActivityHistoryMarker",
                     "BrowserSessionState",
@@ -7142,7 +7142,7 @@
                 "declaredTypes": [
                     "BrowserPendingAction",
                     "BrowserSandboxReview",
-                    "BrowserToolGrantExtraFile",
+                    "BrowserPermissionExtraFile",
                     "BrowserParentProgram"
                 ],
                 "outputDirectory": "packages/web-contracts/src/generated",
@@ -7528,11 +7528,11 @@
             "role": "boundary-root"
         },
         {
-            "key": "web-contracts/src/wire#BrowserPermissionModeCommand",
-            "declaration": "BrowserPermissionModeCommand",
+            "key": "web-contracts/src/wire#BrowserPermissionProfileCommand",
+            "declaration": "BrowserPermissionProfileCommand",
             "source": {
                 "path": "packages/web-contracts/src/wire.ts",
-                "line": 1692
+                "line": 1710
             },
             "owner": "@lazygoal/web-contracts",
             "module": "web-contracts",
@@ -7545,7 +7545,7 @@
             "protocol": {
                 "identity": {
                     "state": "declared",
-                    "value": "web.commands.permission_mode.command"
+                    "value": "web.commands.permission_profile.command"
                 },
                 "version": {
                     "state": "declared",
@@ -7556,28 +7556,28 @@
                 "state": "enabled",
                 "detail": "由 wire.ts 生成 Schema、Ajv standalone 校验器、Manifest 与 contract-binding 绑定。",
                 "strategy": "typescript-binding",
-                "rootType": "BrowserPermissionModeCommand",
+                "rootType": "BrowserPermissionProfileCommand",
                 "declaredTypes": [
-                    "BrowserPermissionModeCommand",
-                    "BrowserPermissionMode"
+                    "BrowserPermissionProfileCommand",
+                    "BrowserPermissionProfile"
                 ],
                 "outputDirectory": "packages/web-contracts/src/generated",
                 "artifacts": {
-                    "schemaModule": "permission-mode-command-schema.ts",
-                    "validator": "permission-mode-command-validator.mjs",
-                    "validatorTypes": "permission-mode-command-validator.d.mts",
-                    "manifest": "permission-mode-command-manifest.json",
-                    "binding": "permission-mode-command-binding.ts"
+                    "schemaModule": "permission-profile-command-schema.ts",
+                    "validator": "permission-profile-command-validator.mjs",
+                    "validatorTypes": "permission-profile-command-validator.d.mts",
+                    "manifest": "permission-profile-command-manifest.json",
+                    "binding": "permission-profile-command-binding.ts"
                 },
                 "binding": {
                     "module": "../../../contract-binding/src/index",
-                    "dataType": "BrowserPermissionModeCommand",
+                    "dataType": "BrowserPermissionProfileCommand",
                     "dataTypeModule": "../wire",
-                    "exportName": "browserPermissionModeCommandBinding",
+                    "exportName": "browserPermissionProfileCommandBinding",
                     "names": {
-                        "schema": "browserPermissionModeCommandSchema",
-                        "metadata": "browserPermissionModeCommandMetadata",
-                        "validator": "browserPermissionModeCommandValidator"
+                        "schema": "browserPermissionProfileCommandSchema",
+                        "metadata": "browserPermissionProfileCommandMetadata",
+                        "validator": "browserPermissionProfileCommandValidator"
                     }
                 }
             },
@@ -7588,11 +7588,11 @@
             "role": "boundary-root"
         },
         {
-            "key": "web-contracts/src/wire#BrowserPermissionModeResult",
-            "declaration": "BrowserPermissionModeResult",
+            "key": "web-contracts/src/wire#BrowserPermissionProfileResult",
+            "declaration": "BrowserPermissionProfileResult",
             "source": {
                 "path": "packages/web-contracts/src/wire.ts",
-                "line": 1701
+                "line": 1725
             },
             "owner": "@lazygoal/web-contracts",
             "module": "web-contracts",
@@ -7605,7 +7605,7 @@
             "protocol": {
                 "identity": {
                     "state": "declared",
-                    "value": "web.commands.permission_mode.result"
+                    "value": "web.commands.permission_profile.result"
                 },
                 "version": {
                     "state": "declared",
@@ -7616,28 +7616,28 @@
                 "state": "enabled",
                 "detail": "由 wire.ts 生成 Schema、Ajv standalone 校验器、Manifest 与 contract-binding 绑定。",
                 "strategy": "typescript-binding",
-                "rootType": "BrowserPermissionModeResult",
+                "rootType": "BrowserPermissionProfileResult",
                 "declaredTypes": [
-                    "BrowserPermissionModeResult",
-                    "BrowserPermissionMode"
+                    "BrowserPermissionProfileResult",
+                    "BrowserPermissionProfile"
                 ],
                 "outputDirectory": "packages/web-contracts/src/generated",
                 "artifacts": {
-                    "schemaModule": "permission-mode-result-schema.ts",
-                    "validator": "permission-mode-result-validator.mjs",
-                    "validatorTypes": "permission-mode-result-validator.d.mts",
-                    "manifest": "permission-mode-result-manifest.json",
-                    "binding": "permission-mode-result-binding.ts"
+                    "schemaModule": "permission-profile-result-schema.ts",
+                    "validator": "permission-profile-result-validator.mjs",
+                    "validatorTypes": "permission-profile-result-validator.d.mts",
+                    "manifest": "permission-profile-result-manifest.json",
+                    "binding": "permission-profile-result-binding.ts"
                 },
                 "binding": {
                     "module": "../../../contract-binding/src/index",
-                    "dataType": "BrowserPermissionModeResult",
+                    "dataType": "BrowserPermissionProfileResult",
                     "dataTypeModule": "../wire",
-                    "exportName": "browserPermissionModeResultBinding",
+                    "exportName": "browserPermissionProfileResultBinding",
                     "names": {
-                        "schema": "browserPermissionModeResultSchema",
-                        "metadata": "browserPermissionModeResultMetadata",
-                        "validator": "browserPermissionModeResultValidator"
+                        "schema": "browserPermissionProfileResultSchema",
+                        "metadata": "browserPermissionProfileResultMetadata",
+                        "validator": "browserPermissionProfileResultValidator"
                     }
                 }
             },
@@ -7648,11 +7648,11 @@
             "role": "boundary-root"
         },
         {
-            "key": "web-contracts/src/wire#BrowserToolGrantRevokeBody",
-            "declaration": "BrowserToolGrantRevokeBody",
+            "key": "web-contracts/src/wire#BrowserPermissionExemptionRevokeBody",
+            "declaration": "BrowserPermissionExemptionRevokeBody",
             "source": {
                 "path": "packages/web-contracts/src/wire.ts",
-                "line": 1671
+                "line": 1804
             },
             "owner": "@lazygoal/web-contracts",
             "module": "web-contracts",
@@ -7665,7 +7665,7 @@
             "protocol": {
                 "identity": {
                     "state": "declared",
-                    "value": "web.commands.tool_grant.revoke_body"
+                    "value": "web.commands.permission_exemption.revoke_body"
                 },
                 "version": {
                     "state": "declared",
@@ -7676,27 +7676,27 @@
                 "state": "enabled",
                 "detail": "由 wire.ts 生成 Schema、Ajv standalone 校验器、Manifest 与 contract-binding 绑定。",
                 "strategy": "typescript-binding",
-                "rootType": "BrowserToolGrantRevokeBody",
+                "rootType": "BrowserPermissionExemptionRevokeBody",
                 "declaredTypes": [
-                    "BrowserToolGrantRevokeBody"
+                    "BrowserPermissionExemptionRevokeBody"
                 ],
                 "outputDirectory": "packages/web-contracts/src/generated",
                 "artifacts": {
-                    "schemaModule": "tool-grant-revoke-body-schema.ts",
-                    "validator": "tool-grant-revoke-body-validator.mjs",
-                    "validatorTypes": "tool-grant-revoke-body-validator.d.mts",
-                    "manifest": "tool-grant-revoke-body-manifest.json",
-                    "binding": "tool-grant-revoke-body-binding.ts"
+                    "schemaModule": "permission-exemption-revoke-body-schema.ts",
+                    "validator": "permission-exemption-revoke-body-validator.mjs",
+                    "validatorTypes": "permission-exemption-revoke-body-validator.d.mts",
+                    "manifest": "permission-exemption-revoke-body-manifest.json",
+                    "binding": "permission-exemption-revoke-body-binding.ts"
                 },
                 "binding": {
                     "module": "../../../contract-binding/src/index",
-                    "dataType": "BrowserToolGrantRevokeBody",
+                    "dataType": "BrowserPermissionExemptionRevokeBody",
                     "dataTypeModule": "../wire",
-                    "exportName": "browserToolGrantRevokeBodyBinding",
+                    "exportName": "browserPermissionExemptionRevokeBodyBinding",
                     "names": {
-                        "schema": "browserToolGrantRevokeBodySchema",
-                        "metadata": "browserToolGrantRevokeBodyMetadata",
-                        "validator": "browserToolGrantRevokeBodyValidator"
+                        "schema": "browserPermissionExemptionRevokeBodySchema",
+                        "metadata": "browserPermissionExemptionRevokeBodyMetadata",
+                        "validator": "browserPermissionExemptionRevokeBodyValidator"
                     }
                 }
             },
@@ -7707,11 +7707,11 @@
             "role": "boundary-root"
         },
         {
-            "key": "web-contracts/src/wire#BrowserToolGrantResult",
-            "declaration": "BrowserToolGrantResult",
+            "key": "web-contracts/src/wire#BrowserPermissionExemptionResult",
+            "declaration": "BrowserPermissionExemptionResult",
             "source": {
                 "path": "packages/web-contracts/src/wire.ts",
-                "line": 1651
+                "line": 1777
             },
             "owner": "@lazygoal/web-contracts",
             "module": "web-contracts",
@@ -7724,7 +7724,7 @@
             "protocol": {
                 "identity": {
                     "state": "declared",
-                    "value": "web.commands.tool_grant.result"
+                    "value": "web.commands.permission_exemption.result"
                 },
                 "version": {
                     "state": "declared",
@@ -7735,29 +7735,29 @@
                 "state": "enabled",
                 "detail": "由 wire.ts 生成 Schema、Ajv standalone 校验器、Manifest 与 contract-binding 绑定。",
                 "strategy": "typescript-binding",
-                "rootType": "BrowserToolGrantResult",
+                "rootType": "BrowserPermissionExemptionResult",
                 "declaredTypes": [
-                    "BrowserToolGrantResult",
-                    "BrowserToolGrantSummary",
-                    "BrowserToolGrantExtraFile"
+                    "BrowserPermissionExemptionResult",
+                    "BrowserPermissionExemptionSummary",
+                    "BrowserPermissionExtraFile"
                 ],
                 "outputDirectory": "packages/web-contracts/src/generated",
                 "artifacts": {
-                    "schemaModule": "tool-grant-result-schema.ts",
-                    "validator": "tool-grant-result-validator.mjs",
-                    "validatorTypes": "tool-grant-result-validator.d.mts",
-                    "manifest": "tool-grant-result-manifest.json",
-                    "binding": "tool-grant-result-binding.ts"
+                    "schemaModule": "permission-exemption-result-schema.ts",
+                    "validator": "permission-exemption-result-validator.mjs",
+                    "validatorTypes": "permission-exemption-result-validator.d.mts",
+                    "manifest": "permission-exemption-result-manifest.json",
+                    "binding": "permission-exemption-result-binding.ts"
                 },
                 "binding": {
                     "module": "../../../contract-binding/src/index",
-                    "dataType": "BrowserToolGrantResult",
+                    "dataType": "BrowserPermissionExemptionResult",
                     "dataTypeModule": "../wire",
-                    "exportName": "browserToolGrantResultBinding",
+                    "exportName": "browserPermissionExemptionResultBinding",
                     "names": {
-                        "schema": "browserToolGrantResultSchema",
-                        "metadata": "browserToolGrantResultMetadata",
-                        "validator": "browserToolGrantResultValidator"
+                        "schema": "browserPermissionExemptionResultSchema",
+                        "metadata": "browserPermissionExemptionResultMetadata",
+                        "validator": "browserPermissionExemptionResultValidator"
                     }
                 }
             },
@@ -7772,7 +7772,7 @@
             "declaration": "BrowserActionDetailsResult",
             "source": {
                 "path": "packages/web-contracts/src/wire.ts",
-                "line": 1628
+                "line": 1825
             },
             "owner": "@lazygoal/web-contracts",
             "module": "web-contracts",
@@ -8039,7 +8039,7 @@
                     "BrowserActionReview",
                     "BrowserActionReviewScope",
                     "BrowserActionCapability",
-                    "BrowserToolGrantExtraFile",
+                    "BrowserPermissionExtraFile",
                     "BrowserActionReviewIssue"
                 ],
                 "outputDirectory": "packages/web-contracts/src/generated",
@@ -9543,7 +9543,7 @@
                     "BrowserInteractionDecision",
                     "BrowserPendingAction",
                     "BrowserSandboxReview",
-                    "BrowserToolGrantExtraFile",
+                    "BrowserPermissionExtraFile",
                     "BrowserParentProgram",
                     "BrowserActivityHistoryMarker",
                     "BrowserToolActivity",

@@ -31,4 +31,4 @@
 | 轨迹查询索引 | 单 Run 的 SQLite 元数据索引：事件顺序、JSONL 字节位置与 Action/ModelCall/Program 关联；可删除并从 JSONL 重建。 | [持久化实现](../README.md) | [轨迹索引](../src/trajectory-index.ts) |
 | TriggerStore | 按 Trigger ID 保存不可变事件；分别持久化路由位、准入失败分类、冻结 Goal 创建意图、宿主确认的创建来源、按终态唯一的续接占位、FIFO Worker 状态与恢复记录，权限请求与已应用回复可原子标记路由。 | [持久化实现](../README.md) | [Trigger 契约](../../runtime/src/trigger.ts)、[TriggerStore](../src/trigger-store.ts) |
 | Action 权限 Trigger | `permission.requested` 携带 Run、Action、交互与提交修订，Worker 身份位于 source；`permission.decided` 仅携带决定并通过 `goalId`/`replyTo` 关联请求。失败原因留在待处理请求上。 | [持久化实现](../README.md) | [Trigger 契约](../../runtime/src/trigger.ts)、[权限投影 Codec](../src/trigger-permission-codec.ts) |
-| GoalTriggerContext 快照 | 随 Goal 保存创建它的 Trigger ID 和可信宿主冻结的动作权限上限。 | [Runtime](../../runtime/README.md) | [Snapshot DTO](../src/goal-snapshot.ts)、[领域契约](../../runtime/src/domain.ts) |
+| GoalTriggerContext 快照 | 随 Goal 保存创建它的 Trigger ID、冻结的工作区与工具暴露范围；资源边界由 workspace 级权限档位在执行期决定。 | [Runtime](../../runtime/README.md) | [Snapshot DTO](../src/goal-snapshot.ts)、[领域契约](../../runtime/src/domain.ts) |

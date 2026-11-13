@@ -29,10 +29,16 @@ const admissionAdapter: LLMAdapter = {
         return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({ kind: "accept", workspaceMode: "shared" }) }] };
     },
 };
-const permissionAdapter: LLMAdapter = {
-    structuredOutputMode: "prompt_only",
-    async generate() { throw new Error("Waiting Goals must not call a model"); },
-};
+const permissionProfileReader = async () => ({
+    workspaceId: "test-workspace",
+    profile: {
+        sandbox: "workspace-write" as const,
+        approvals: "on-request" as const,
+        reviewer: "user" as const,
+        writableRoots: [],
+    },
+    revision: 0,
+});
 const createRecoveredGoal = async (intent: string, reservedGoalId: string | undefined) => {
     const goal = createGoal({ ...currentProtocols, id: reservedGoalId ?? `goal-${intent}`, runId: `run-${intent}`, intent,
         promptBundleVersion: 1,
@@ -45,7 +51,7 @@ const createRecoveredGoal = async (intent: string, reservedGoalId: string | unde
     return {
         goal: { ...goal, state: { ...goal.state, run: waiting.state } },
         authorization: { workspace: { mode: "shared" as const, projectRoot: workspace, executionRoot: workspace },
-            toolIds: [], sandbox: { extraFiles: [], network: "none" as const } },
+            toolIds: [] },
     };
 };
 const scheduler = new WorkerScheduler({
@@ -55,7 +61,7 @@ const scheduler = new WorkerScheduler({
     cwd: workspace,
     dataDirectory,
     env: { LAZYGOAL_HOME: home, LLM_PROVIDER: "openai", LLM_MODEL: "gpt-4o-mini", LLM_API_KEY: "test" },
-    permissionAdapter,
+    readPermissionProfile: permissionProfileReader,
     commitContinuation: unusedContinuation,
 });
 

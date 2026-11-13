@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createFixtureServer } from "../src/fixture-server";
+import type { FixtureScenario } from "../src/fixture-types";
 import { sessionWaitingScenario } from "../src/scenarios/session-scenarios";
 import { trajectoryScenario } from "../src/scenarios/trajectory-scenarios";
 import { settingsScenario } from "../src/scenarios/settings-scenarios";
@@ -79,7 +80,7 @@ test("trajectory scenario serves valid runs, page, timeline, and detail", async 
   }
 });
 
-test("settings scenario serves valid provider profiles, models, and permission mode", async () => {
+test("settings scenario serves valid provider profiles, models, and permission profile", async () => {
   const server = await createFixtureServer({ scenario: settingsScenario });
   try {
     // 1. Providers 设置
@@ -97,12 +98,71 @@ test("settings scenario serves valid provider profiles, models, and permission m
     assert.equal(modelsData.currentModelId, "gpt-4o");
     assert.equal(modelsData.models.length, 3);
 
-    // 3. Permission 模式
-    const permRes = await fetch(`${server.origin}/api/project/permission-mode`);
-    assert.equal(permRes.status, 200);
-    const permData = (await permRes.json()) as { ok: boolean; mode: string };
-    assert.equal(permData.ok, true);
-    assert.equal(permData.mode, "default");
+    // 3. 权限档位三轴
+    const profileRes = await fetch(`${server.origin}/api/project/permission-profile`);
+    assert.equal(profileRes.status, 200);
+    const profileData = (await profileRes.json()) as {
+      ok: boolean;
+      profile: { sandbox: string; approvals: string; reviewer: string; writableRoots: string[] };
+      revision: number;
+    };
+    assert.equal(profileData.ok, true);
+    assert.equal(profileData.profile.sandbox, "workspace-write");
+    assert.equal(profileData.profile.approvals, "on-request");
+    assert.equal(profileData.profile.reviewer, "user");
+    assert.deepEqual(profileData.profile.writableRoots, []);
+    assert.equal(profileData.revision, 1);
+  } finally {
+    await server.close();
+  }
+});
+
+test("exemption endpoints return the boundary scope and drop revoked exemptions", async () => {
+  const scenario: FixtureScenario = {
+    id: "exemptions",
+    permissionExemptions: {
+      "goal-1": {
+        data: [
+          {
+            id: "exemption-1",
+            scope: "workspace",
+            network: "all_outbound",
+            extraFiles: [{ canonicalPath: "/tmp/shared", access: "write", kind: "directory_tree" }],
+            status: "active",
+          },
+        ],
+      },
+    },
+  };
+  const server = await createFixtureServer({ scenario });
+  try {
+    const listRes = await fetch(`${server.origin}/api/goals/goal-1/exemptions?runId=run-1`);
+    assert.equal(listRes.status, 200);
+    const listData = (await listRes.json()) as {
+      ok: boolean;
+      goalId: string;
+      runId: string;
+      exemptions: Array<{ id: string; network: string; extraFiles: Array<{ canonicalPath: string }> }>;
+    };
+    assert.equal(listData.ok, true);
+    assert.equal(listData.runId, "run-1");
+    assert.equal(listData.exemptions.length, 1);
+    assert.equal(listData.exemptions[0]?.network, "all_outbound");
+    assert.equal(listData.exemptions[0]?.extraFiles[0]?.canonicalPath, "/tmp/shared");
+
+    const revokeRes = await fetch(`${server.origin}/api/goals/goal-1/exemptions/exemption-1`, {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ runId: "run-1" }),
+    });
+    assert.equal(revokeRes.status, 200);
+    const revokeData = (await revokeRes.json()) as { runId: string; exemptions: Array<{ id: string }> };
+    assert.equal(revokeData.runId, "run-1");
+    assert.deepEqual(revokeData.exemptions, []);
+
+    const afterRes = await fetch(`${server.origin}/api/goals/goal-1/exemptions?runId=run-1`);
+    const afterData = (await afterRes.json()) as { exemptions: Array<{ id: string }> };
+    assert.deepEqual(afterData.exemptions, []);
   } finally {
     await server.close();
   }

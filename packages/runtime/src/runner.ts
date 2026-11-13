@@ -94,15 +94,18 @@ import { TransientToolExecutionFailure } from "../../tool-core/src/index";
 import type { ToolPolicy } from "./tool";
 import { resolveAuthorizedToolDefinitions } from "./tool";
 import {
-    isSeatbeltSupported,
-    isEffectiveSandboxScopeWithin,
     resolveEffectiveSandboxScope,
     type DerivedSandboxAccess,
     type EffectiveSandboxScope,
     type SandboxAccessRequest,
     type SandboxExecutionPlan,
 } from "../../sandbox/src/index";
-import { evaluateSandboxAuthorization } from "../../permission/src/index";
+import {
+    DEFAULT_PERMISSION_PROFILE,
+    evaluatePermissionBoundary,
+    isDestructiveCommand,
+    type PermissionProfile,
+} from "../../permission/src/index";
 
 /**
  * 沙箱执行计划解析器接口。
@@ -216,11 +219,8 @@ import { withGoalMutationGate } from "./goal-mutation-gate";
 import { RunRecoveryReader } from "./run-recovery-reader";
 import {
     createSandboxGrantMatcher,
-    createToolGrantMatcher,
-    type PermissionMode,
-    type ProjectPermissionModeStore,
+    type ProjectPermissionProfileStore,
     type SandboxGrantLookup,
-    type ToolGrantLookup,
 } from "./tool-grant";
 
 const EMPTY_TOOL_REGISTRY: ToolRegistry = {
@@ -626,6 +626,27 @@ interface PreparedToolAction {
     stream?(control?: ExecutionControl, plan?: SandboxExecutionPlan): AsyncIterable<ToolStreamEvent>;
 }
 
+/**
+ * 一次待执行 Action 的权限判定结果。
+ *
+ * @remarks
+ * 三种结果都携带派生出的 `effectiveSandboxScope`：`allow` 直接暂存并执行，
+ * `approval` 暂存为等待人工裁决，`deny` 只向模型回灌失败 Observation，不执行 Tool。
+ */
+type ActionAuthorization =
+    | { readonly kind: "allow"; readonly effectiveSandboxScope: EffectiveSandboxScope }
+    | {
+        readonly kind: "approval";
+        readonly approvalKind: "sandbox";
+        readonly effectiveSandboxScope: EffectiveSandboxScope;
+        readonly reason: string;
+    }
+    | {
+        readonly kind: "deny";
+        readonly effectiveSandboxScope: EffectiveSandboxScope;
+        readonly reason: string;
+    };
+
 function isPlanRunAwaitingTaskApproval(goal: Goal): boolean {
     return goal.state.run.mode === "plan" && goal.state.run.approvedTask === undefined;
 }
@@ -995,13 +1016,13 @@ export interface RunnerDependencies {
      */
     readonly toolRegistry?: ToolRegistry;
     /**
-     * Tool 执行前的策略边界；省略时使用允许策略。返回
-     * `require_approval` 时 Runner 保存等待中的 Action，由 Coordinator 接收
-     * 用户批准或拒绝。
+     * Tool 执行前的策略边界；省略时使用允许策略。
+     *
+     * @remarks
+     * Policy 只决定 Tool 自身是否可用于该 Action，不再产生审批等待；越界裁决由
+     * 工作区权限档位的边界判定负责。
      */
     readonly toolPolicy?: ToolPolicy;
-    /** 读取会话或 Workspace 级持续 Tool 授权；缺省时所有受 Policy 门控的 Action 仍需审批。 */
-    readonly toolGrantLookup?: ToolGrantLookup;
     /** 读取会话或 Workspace 级持续 Sandbox 授权；缺省时所有越界沙箱能力仍需审批。 */
     readonly sandboxGrantLookup?: SandboxGrantLookup;
     /** 用于隔离 Workspace 授权的稳定身份；必须与授权账本位置一致。 */
@@ -1032,8 +1053,13 @@ export interface RunnerDependencies {
      * Runner 在受限 Action 获准执行前调用此解析器以生成或验证沙箱执行计划。
      */
     readonly sandboxPlanResolver?: SandboxPlanResolver;
-    /** 可选的项目权限执行模式存储端口。 */
-    readonly permissionModeStore?: ProjectPermissionModeStore;
+    /**
+     * 当前工作区的权限档位存储；省略或缺少 `workspaceId` 时使用默认档位。
+     *
+     * @remarks
+     * 每个待判定 Action 都在决策期重新读取档位；读取失败向上抛出，不回退默认档位。
+     */
+    readonly permissionProfileStore?: ProjectPermissionProfileStore;
 }
 
 /**
@@ -1069,7 +1095,6 @@ class RunExecutor {
     private readonly executor: StepExecutor;
     private readonly toolRegistry: ToolRegistry;
     private readonly toolPolicy: ToolPolicy;
-    private readonly toolGrantLookup: ToolGrantLookup | undefined;
     private readonly sandboxGrantLookup: SandboxGrantLookup | undefined;
     private readonly workspaceId: string | undefined;
     private readonly workspaceRoot: string | undefined;
@@ -1081,7 +1106,7 @@ class RunExecutor {
     private readonly executionStream: ExecutionStreamPublisher | undefined;
     private readonly traceSink: DiagnosticTraceSink | undefined;
     private readonly sandboxPlanResolver: SandboxPlanResolver | undefined;
-    private readonly permissionModeStore: ProjectPermissionModeStore | undefined;
+    private readonly permissionProfileStore: ProjectPermissionProfileStore | undefined;
     private readonly activeRunControllers = new Map<string, AbortController>();
     /** 当前 Run 的瞬时导航投影；Goal 字段已定义时优先使用 Goal 上的增量结果。 */
     private navigationProjection:
@@ -1105,9 +1130,8 @@ class RunExecutor {
         this.executor = dependencies.executor;
         this.toolRegistry = dependencies.toolRegistry ?? EMPTY_TOOL_REGISTRY;
         this.toolPolicy = dependencies.toolPolicy ?? ALLOW_ALL_TOOL_POLICY;
-        this.toolGrantLookup = dependencies.toolGrantLookup;
         this.sandboxGrantLookup = dependencies.sandboxGrantLookup;
-        this.permissionModeStore = dependencies.permissionModeStore;
+        this.permissionProfileStore = dependencies.permissionProfileStore;
         this.workspaceId = dependencies.workspaceId;
         this.workspaceRoot = dependencies.workspaceRoot;
         this.sandboxPlanResolver = dependencies.sandboxPlanResolver;
@@ -5440,14 +5464,26 @@ class RunExecutor {
                             ), control);
                         }
                         const authorization = await this.authorizeToolAction(goal, validated, control);
-                        if (authorization.requiresApproval) {
+                        if (authorization.kind === "deny") {
+                            goal = (await this.settleDeniedToolAction({
+                                goal,
+                                prepared: validated,
+                                executionUnitId,
+                                reason: authorization.reason,
+                                control,
+                                batchPatch: this.pendingBatchPatch(goal, decidedBatch, consumedFromBatch),
+                                acceptedPatch,
+                                extraFacts: contextNoteDrafts,
+                            })).goal;
+                            continue;
+                        }
+                        if (authorization.kind === "approval") {
                             const stagedRun = this.applyTransition(goal.state.run, {
                                 kind: "stage_action",
                                 action: validated.action,
                                 executionUnitId,
                                 status: "awaiting_approval",
-                                ...(authorization.approvalKind === undefined
-                                    ? {} : { approvalKind: authorization.approvalKind }),
+                                approvalKind: authorization.approvalKind,
                             });
                             Object.assign(stagedRun, this.pendingBatchPatch(goal, decidedBatch, consumedFromBatch));
                             goal = await this.commitDecision(this.withRun(goal, stagedRun), [{
@@ -5460,8 +5496,7 @@ class RunExecutor {
                                     type: "action_staged",
                                     action: validated.action,
                                     approvalStatus: "awaiting_approval",
-                                    ...(authorization.approvalKind === undefined
-                                        ? {} : { approvalKind: authorization.approvalKind }),
+                                    approvalKind: authorization.approvalKind,
                                 },
                             }, ...contextNoteDrafts], acceptedPatch, control);
                             continue;
@@ -5478,28 +5513,35 @@ class RunExecutor {
                         continue;
                     }
 
-                    let authorization;
-                    try {
-                        authorization = await this.authorizeToolAction(goal, validated, control);
-                    } catch (error) {
-                        if (isExecutionAbortedError(error)) throw error;
-                        throwIfAborted(control);
-                        return this.stopWithExecutionError(goal, new RunnerExecutionError(
-                            "TOOL_EXECUTION_ERROR",
-                            error instanceof Error ? error.message : String(error),
-                        ), control);
-                    }
-                    const { requiresApproval, effectiveSandboxScope, approvalKind } = authorization;
+                    const authorization = await this.authorizeToolAction(goal, validated, control);
+                    const { effectiveSandboxScope } = authorization;
 
-                    if (requiresApproval) {
+                    if (authorization.kind === "deny") {
+                        goal = (await this.settleDeniedToolAction({
+                            goal,
+                            prepared: validated,
+                            executionUnitId,
+                            reason: authorization.reason,
+                            control,
+                            batchPatch: this.pendingBatchPatch(goal, decidedBatch, consumedFromBatch),
+                            acceptedPatch,
+                            extraFacts: contextNoteDrafts,
+                        })).goal;
+                        contextLookupResult = undefined;
+                        contextLookupChainCount = 0;
+                        continue;
+                    }
+
+                    if (authorization.kind === "approval") {
                         throwIfAborted(control);
                         const hasCustomSandboxScope = effectiveSandboxScope.extraFiles.length > 0 || effectiveSandboxScope.network !== "none";
+                        const approvalKind = authorization.approvalKind;
                         const stagedRun = this.applyTransition(goal.state.run, {
                             kind: "stage_action",
                             action: validated.action,
                             executionUnitId,
                             status: "awaiting_approval",
-                            ...(approvalKind === undefined ? {} : { approvalKind }),
+                            approvalKind,
                             ...(hasCustomSandboxScope ? { effectiveSandboxScope } : {}),
                         });
                         Object.assign(stagedRun, this.pendingBatchPatch(goal, decidedBatch, consumedFromBatch));
@@ -5518,7 +5560,7 @@ class RunExecutor {
                                     type: "action_staged",
                                     action: validated.action,
                                     approvalStatus: "awaiting_approval",
-                                    ...(approvalKind === undefined ? {} : { approvalKind }),
+                                    approvalKind,
                                     ...(hasCustomSandboxScope ? { effectiveSandboxScope } : {}),
                                 },
                             }, ...contextNoteDrafts],
@@ -6549,14 +6591,31 @@ class RunExecutor {
                     }
                     if (pending === undefined) {
                         const authorization = await this.authorizeToolAction(goal, prepared, toolControl);
+                        if (authorization.kind === "deny") {
+                            const denied = await this.settleDeniedToolAction({
+                                goal,
+                                prepared,
+                                executionUnitId: childExecutionUnitId,
+                                reason: authorization.reason,
+                                control: toolControl,
+                                program: { programId: program.programId, callIndex },
+                            });
+                            goal = denied.goal;
+                            return createProgramCallEnvelope(
+                                denied.observation,
+                                denied.sourceSequence ?? 0,
+                                undefined,
+                            );
+                        }
+                        const awaitingApproval = authorization.kind === "approval";
                         const hasCustomScope = authorization.effectiveSandboxScope.extraFiles.length > 0
                             || authorization.effectiveSandboxScope.network !== "none";
                         const stagedRun = this.applyTransition(goal.state.run, {
                             kind: "stage_action",
                             action: prepared.action,
                             executionUnitId: childExecutionUnitId,
-                            status: authorization.requiresApproval ? "awaiting_approval" : "approved",
-                            ...(authorization.approvalKind === undefined ? {} : { approvalKind: authorization.approvalKind }),
+                            status: awaitingApproval ? "awaiting_approval" : "approved",
+                            ...(authorization.kind === "approval" ? { approvalKind: authorization.approvalKind } : {}),
                             ...(hasCustomScope ? { effectiveSandboxScope: authorization.effectiveSandboxScope } : {}),
                         });
                         goal = await this.commitDecision(this.withRun(goal, stagedRun), [{
@@ -6571,13 +6630,13 @@ class RunExecutor {
                             payload: {
                                 type: "action_staged",
                                 action: prepared.action,
-                                approvalStatus: authorization.requiresApproval ? "awaiting_approval" : "approved",
-                                ...(authorization.approvalKind === undefined ? {} : { approvalKind: authorization.approvalKind }),
+                                approvalStatus: awaitingApproval ? "awaiting_approval" : "approved",
+                                ...(authorization.kind === "approval" ? { approvalKind: authorization.approvalKind } : {}),
                                 ...(hasCustomScope ? { effectiveSandboxScope: authorization.effectiveSandboxScope } : {}),
                             },
                         }], undefined, toolControl);
                         pending = goal.state.run.pendingAction;
-                        if (authorization.requiresApproval) throw new ProgramWaitingError();
+                        if (awaitingApproval) throw new ProgramWaitingError();
                     }
                     if (pending?.status !== "approved") throw new ProgramWaitingError();
                     const childExecutionAction = resolveActionExecutionAction(pending);
@@ -6781,37 +6840,97 @@ class RunExecutor {
         }], undefined, control);
     }
 
+    /**
+     * 判定一次待执行 Action 是否越过当前工作区权限边界。
+     *
+     * @remarks
+     * 每个待判定 Action 都在决策期重新读取工作区档位。边界内的 Action 直接放行；
+     * 越界 Action 在已有匹配的边界豁免时放行，否则按档位的 `approvals` 与 `reviewer`
+     * 得到人工裁决或拒绝。档位读取失败向上抛出，不回退默认档位。
+     *
+     * @param goal - 当前已提交的 Goal。
+     * @param validated - 已校验并 canonical 化的待执行 Action。
+     * @param control - 共享取消控制。
+     * @returns 放行、等待审批或拒绝的判定结果及其实际能力范围。
+     * @throws 档位读取失败、能力范围解析失败或取消时抛出。
+     */
     private async authorizeToolAction(
         goal: Goal,
         validated: PreparedToolAction,
         control?: ExecutionControl,
-    ): Promise<{
-        readonly requiresApproval: boolean;
-        readonly approvalKind?: "sandbox";
-        readonly effectiveSandboxScope: EffectiveSandboxScope;
-    }> {
+    ): Promise<ActionAuthorization> {
         throwIfAborted(control);
-        let projectMode: PermissionMode = "default";
-        if (this.permissionModeStore !== undefined && this.workspaceId !== undefined) {
-            projectMode = (await this.permissionModeStore.get(this.workspaceId)).mode;
+        const profile = await this.readPermissionProfile();
+        throwIfAborted(control);
+        let effectiveSandboxScope: EffectiveSandboxScope;
+        try {
+            effectiveSandboxScope = await this.deriveEffectiveSandboxScope(validated, control);
+        } catch (error) {
+            if (isExecutionAbortedError(error)) throw error;
+            throwIfAborted(control);
+            // 能力申请本身被沙箱拒绝（例如 `.lazygoal` 内部状态）时按拒绝边界处理，
+            // 不把权限拒绝降级为执行错误。
+            return {
+                kind: "deny",
+                effectiveSandboxScope: { extraFiles: [], network: "none" },
+                reason: error instanceof Error ? error.message : String(error),
+            };
         }
-        let grantMatched = false;
-        if (validated.policy === "require_approval"
-            && this.toolGrantLookup !== undefined
-            && this.workspaceId !== undefined) {
-            const matcher = await createToolGrantMatcher(
-                validated.action.toolId,
-                validated.action.input,
-                this.workspaceRoot,
-            );
-            grantMatched = await this.toolGrantLookup.findActiveMatching({
-                workspaceId: this.workspaceId,
-                goalId: goal.id,
-                matcher,
-            }) !== undefined;
+        throwIfAborted(control);
+
+        // 权限边界以工作区根目录为基准；未绑定工作区时没有可判定的边界。
+        if (this.workspaceRoot === undefined) {
+            return { kind: "allow", effectiveSandboxScope };
         }
+
+        const action = validated.action;
+        const decision = evaluatePermissionBoundary({
+            profile,
+            request: {
+                toolId: action.toolId,
+                effectiveScope: effectiveSandboxScope,
+                workspaceRoot: this.workspaceRoot,
+                ...(action.toolId === "bash"
+                    && isRecord(action.input)
+                    && typeof action.input.command === "string"
+                    ? { destructiveCommand: isDestructiveCommand(action.input.command) }
+                    : {}),
+            },
+        });
+
+        if (decision.kind === "allow") {
+            return { kind: "allow", effectiveSandboxScope };
+        }
+
+        if (decision.kind === "deny") {
+            return { kind: "deny", effectiveSandboxScope, reason: decision.reason };
+        }
+
+        if (await this.hasMatchingSandboxGrant(goal, action, effectiveSandboxScope)) {
+            return { kind: "allow", effectiveSandboxScope };
+        }
+
+        return {
+            kind: "approval",
+            approvalKind: "sandbox",
+            effectiveSandboxScope,
+            reason: decision.reason,
+        };
+    }
+
+    private async readPermissionProfile(): Promise<PermissionProfile> {
+        if (this.permissionProfileStore === undefined || this.workspaceId === undefined) {
+            return DEFAULT_PERMISSION_PROFILE;
+        }
+        const current = await this.permissionProfileStore.get(this.workspaceId);
+        return current.profile;
+    }
+
+    private async deriveEffectiveSandboxScope(
+        validated: PreparedToolAction,
+        control?: ExecutionControl,
+    ): Promise<EffectiveSandboxScope> {
         const rawInput = validated.action.input;
-        let effectiveSandboxScope: EffectiveSandboxScope = { extraFiles: [], network: "none" };
         let sandboxAccessRequest: SandboxAccessRequest | undefined;
         if (typeof validated.resolveSandboxAccess === "function") {
             const derived = await validated.resolveSandboxAccess(control);
@@ -6821,48 +6940,163 @@ class RunExecutor {
         } else if (isRecord(rawInput) && isRecord(rawInput.sandboxAccess)) {
             sandboxAccessRequest = rawInput.sandboxAccess as SandboxAccessRequest;
         }
-        if (this.workspaceRoot !== undefined && sandboxAccessRequest !== undefined) {
-            effectiveSandboxScope = await resolveEffectiveSandboxScope(
-                this.workspaceRoot,
-                sandboxAccessRequest,
-            );
+
+        if (this.workspaceRoot === undefined || sandboxAccessRequest === undefined) {
+            return { extraFiles: [], network: "none" };
         }
-        const goalSandboxCeiling = goal.definition.triggerContext?.authorization.sandbox;
-        if (goalSandboxCeiling !== undefined
-            && !isEffectiveSandboxScopeWithin(effectiveSandboxScope, goalSandboxCeiling)) {
-            throw new RunnerExecutionError(
-                "TOOL_NOT_AUTHORIZED",
-                `Action "${validated.action.actionId}" exceeds the frozen Goal sandbox authorization`,
-            );
+
+        return resolveEffectiveSandboxScope(this.workspaceRoot, sandboxAccessRequest);
+    }
+
+    private async hasMatchingSandboxGrant(
+        goal: Goal,
+        action: ToolCallAction,
+        effectiveSandboxScope: EffectiveSandboxScope,
+    ): Promise<boolean> {
+        if (this.sandboxGrantLookup === undefined || this.workspaceId === undefined) {
+            return false;
         }
-        const sandboxDecision = evaluateSandboxAuthorization({
-            isSeatbeltSupported: isSeatbeltSupported(),
-            workspaceRoot: this.workspaceRoot,
-            effectiveScope: effectiveSandboxScope,
-        });
-        let sandboxGrantMatched = false;
-        if (sandboxDecision.decision === "approval_required"
-            && this.sandboxGrantLookup !== undefined
-            && this.workspaceId !== undefined) {
-            const matcher = createSandboxGrantMatcher(
-                validated.action.toolId,
-                validated.action.input,
-                effectiveSandboxScope,
-            );
-            sandboxGrantMatched = await this.sandboxGrantLookup.findActiveMatching({
-                workspaceId: this.workspaceId,
-                goalId: goal.id,
-                matcher,
-            }) !== undefined;
-        }
-        const requiresSandboxApproval = sandboxDecision.decision === "approval_required"
-            && !sandboxGrantMatched;
-        const requiresToolApproval = validated.policy !== "allow"
-            && !grantMatched && projectMode !== "yolo";
-        return {
-            requiresApproval: requiresSandboxApproval || requiresToolApproval,
-            ...(requiresSandboxApproval ? { approvalKind: "sandbox" as const } : {}),
+        const matcher = createSandboxGrantMatcher(
+            action.toolId,
+            action.input,
             effectiveSandboxScope,
+        );
+        return await this.sandboxGrantLookup.findActiveMatching({
+            workspaceId: this.workspaceId,
+            goalId: goal.id,
+            matcher,
+        }) !== undefined;
+    }
+
+    /**
+     * 以一次失败 Observation 结算被权限边界拒绝的 Action。
+     *
+     * @remarks
+     * 拒绝发生在 Tool 执行之前：调用本方法的路径不会调用 Tool，也不产生
+     * `tool_started`、`tool_attempt_started` 或 `tool_finished`。`action_staged` 与
+     * `observation_recorded` 在同一提交写入，Observation 的 `code` 为
+     * `TOOL_NOT_AUTHORIZED`，Run 保持 running，模型在下一步读取该反馈。
+     *
+     * @param input - 被拒绝的 Action、实际拒绝依据与同一提交的附加内容。
+     * @returns 结算后的 Goal、失败 Observation 与它在 Trajectory 中的序号。
+     * @throws 提交失败、PTC 结果额度超限或取消时抛出。
+     */
+    private async settleDeniedToolAction(input: {
+        readonly goal: Goal;
+        readonly prepared: PreparedToolAction;
+        readonly executionUnitId: string;
+        readonly reason: string;
+        readonly control?: ExecutionControl | undefined;
+        readonly program?: { readonly programId: string; readonly callIndex: number } | undefined;
+        readonly batchPatch?: { readonly pendingActionBatch?: PendingActionBatch | undefined } | undefined;
+        readonly acceptedPatch?: AcceptedMemoryPatchInput | undefined;
+        readonly extraFacts?: readonly TrajectoryEventDraft[] | undefined;
+    }): Promise<{
+        readonly goal: Goal;
+        readonly observation: ToolObservation;
+        readonly sourceSequence?: number;
+    }> {
+        const actionId = input.prepared.action.actionId;
+        const association = input.program === undefined
+            ? {}
+            : { programId: input.program.programId, callIndex: input.program.callIndex };
+        const observation: ToolObservation = {
+            kind: "failure",
+            code: "TOOL_NOT_AUTHORIZED",
+            message: input.reason,
+            retryable: false,
+        };
+
+        let programResultBytes = 0;
+        if (input.program !== undefined) {
+            const current = input.goal.state.run.pendingProgram;
+            if (current === undefined) throw new Error("PTC_REPLAY_MISMATCH");
+            programResultBytes = Buffer.byteLength(JSON.stringify(
+                createProgramCallEnvelope(observation, 0, undefined),
+            ));
+            if (programResultBytes > 16 * 1024 * 1024) throw new ProgramResourceError("PTC_FRAME_LIMIT");
+            if (current.resultBytes + programResultBytes > 256 * 1024 * 1024) {
+                throw new ProgramResourceError("PTC_LOG_LIMIT");
+            }
+        }
+
+        throwIfAborted(input.control);
+        const settleFact: TrajectoryEventDraft = {
+            goalId: input.goal.id,
+            runId: input.goal.state.run.id,
+            phase: "executing",
+            executionUnitId: input.executionUnitId,
+            actionId,
+            ...association,
+            eventType: "observation_recorded",
+            payload: { type: "observation_recorded", actionId, observation },
+        };
+        const stagedFact: TrajectoryEventDraft = {
+            goalId: input.goal.id,
+            runId: input.goal.state.run.id,
+            phase: "executing",
+            executionUnitId: input.executionUnitId,
+            actionId,
+            ...association,
+            eventType: "action_staged",
+            payload: {
+                type: "action_staged",
+                action: input.prepared.action,
+                approvalStatus: "approved",
+            },
+        };
+
+        const committed = await this.checkpointCommitter.commit(input.goal, {
+            facts: [stagedFact, settleFact, ...(input.extraFacts ?? [])],
+            ...(input.acceptedPatch === undefined ? {} : { acceptedPatch: input.acceptedPatch }),
+            prepare: (latest) => {
+                if (latest === undefined || latest.state.run.id !== input.goal.state.run.id) {
+                    throw new RunnerExecutionError(
+                        "TOOL_EXECUTION_ERROR",
+                        "Run disappeared before Observation commit",
+                    );
+                }
+                const staged = this.applyTransition(latest.state.run, {
+                    kind: "stage_action",
+                    action: input.prepared.action,
+                    executionUnitId: input.executionUnitId,
+                    status: "approved",
+                });
+                if (input.program === undefined) {
+                    const settled = this.applyTransition(staged, {
+                        kind: "observe_action",
+                        actionId,
+                        observation,
+                    });
+                    if (input.batchPatch !== undefined) Object.assign(settled, input.batchPatch);
+                    return this.withRun(latest, settled);
+                }
+
+                const { pendingAction: _pendingAction, ...run } = staged;
+                const current = run.pendingProgram;
+                if (current?.programId !== input.program.programId
+                    || current.nextCallIndex !== input.program.callIndex) {
+                    throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "PTC_REPLAY_MISMATCH");
+                }
+                return this.withRun(latest, {
+                    ...run,
+                    pendingProgram: {
+                        ...current,
+                        nextCallIndex: current.nextCallIndex + 1,
+                        resultBytes: current.resultBytes + programResultBytes,
+                    },
+                });
+            },
+            ...(input.control === undefined ? {} : { control: input.control }),
+        });
+        this.publishCommittedEvents(committed);
+        this.publishCheckpointCommitted(committed, [stagedFact, settleFact]);
+        const sourceSequence = committed.events.find((event) =>
+            event.eventType === "observation_recorded" && event.actionId === actionId)?.sequence;
+        return {
+            goal: committed.goal,
+            observation,
+            ...(sourceSequence === undefined ? {} : { sourceSequence }),
         };
     }
 

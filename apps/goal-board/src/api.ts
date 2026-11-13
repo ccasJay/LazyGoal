@@ -13,7 +13,8 @@ import {
   browserModelInputDetailBinding,
   browserModelInputsBinding,
   browserModelPreferenceResultBinding,
-  browserPermissionModeResultBinding,
+  browserPermissionExemptionResultBinding,
+  browserPermissionProfileResultBinding,
   browserProviderModelsBinding,
   browserProviderProfileActivationResultBinding,
   browserProviderProfileDeleteResultBinding,
@@ -22,7 +23,6 @@ import {
   browserProviderSettingsBinding,
   browserSessionInputQueryResultBinding,
   browserSessionInputResultBinding,
-  browserToolGrantResultBinding,
   browserTrajectoryDetailBinding,
   browserTrajectoryPageBinding,
   browserTrajectoryRunsBinding,
@@ -51,8 +51,9 @@ import {
   type BrowserModelCatalog,
   type BrowserModelInputDetail,
   type BrowserModelInputs,
-  type BrowserPermissionModeCommand,
-  type BrowserPermissionModeResult,
+  type BrowserPermissionExemptionResult,
+  type BrowserPermissionExemptionRevokeCommand,
+  type BrowserPermissionProfileResult,
   type BrowserProviderModelQuery,
   type BrowserProviderModels,
   type BrowserProviderProfileActivationResult,
@@ -65,8 +66,6 @@ import {
   type BrowserSessionInputQueryResult,
   type BrowserSessionInputResult,
   type BrowserSessionState,
-  type BrowserToolGrantResult,
-  type BrowserToolGrantRevokeCommand,
   type BrowserTrajectoryDetail,
   type BrowserTrajectoryEntry,
   type BrowserTrajectoryPage,
@@ -399,36 +398,35 @@ export const browserApi = {
     return result.data;
   },
 
-  listToolGrants(goalId: string, runId: string): Promise<BrowserToolGrantResult> {
+  listPermissionExemptions(goalId: string, runId: string): Promise<BrowserPermissionExemptionResult> {
     return requestContract(
-      `/api/goals/${encodeURIComponent(goalId)}/grants?runId=${encodeURIComponent(runId)}`,
-      browserToolGrantResultBinding,
+      `/api/goals/${encodeURIComponent(goalId)}/exemptions?runId=${encodeURIComponent(runId)}`,
+      browserPermissionExemptionResultBinding,
     );
   },
 
-  revokeToolGrant(goalId: string, command: BrowserToolGrantRevokeCommand): Promise<BrowserToolGrantResult> {
+  revokePermissionExemption(
+    goalId: string,
+    command: BrowserPermissionExemptionRevokeCommand,
+  ): Promise<BrowserPermissionExemptionResult> {
     return requestContract(
-      `/api/goals/${encodeURIComponent(goalId)}/grants/${encodeURIComponent(command.grantId)}`,
-      browserToolGrantResultBinding,
+      `/api/goals/${encodeURIComponent(goalId)}/exemptions/${encodeURIComponent(command.exemptionId)}`,
+      browserPermissionExemptionResultBinding,
       undefined,
       {
         method: "DELETE",
         headers: authorizedHeaders({ "content-type": "application/json" }),
-        body: JSON.stringify({ runId: command.runId, scope: command.scope }),
+        body: JSON.stringify({ runId: command.runId }),
       },
     );
   },
 
-  getPermissionMode(): Promise<BrowserPermissionModeResult> {
-    return requestContract("/api/project/permission-mode", browserPermissionModeResultBinding);
+  getPermissionProfile(): Promise<BrowserPermissionProfileResult> {
+    return requestContract("/api/project/permission-profile", browserPermissionProfileResultBinding);
   },
 
   readWorkspace(signal?: AbortSignal): Promise<BrowserWorkspaceContext> {
     return requestContract("/api/project/workspace", browserWorkspaceContextBinding, signal);
-  },
-
-  setPermissionMode(command: BrowserPermissionModeCommand): Promise<BrowserPermissionModeResult> {
-    return postContract("/api/project/permission-mode", command, browserPermissionModeResultBinding);
   },
 
   /** 订阅覆盖整个 Goal 的安全事件流；Run 切换不关闭订阅。 */

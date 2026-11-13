@@ -1,6 +1,7 @@
 import type {
     EffectiveExtraFile,
     EffectiveSandboxScope,
+    SandboxMode,
 } from "../../sandbox/src/index";
 
 export type {
@@ -9,18 +10,19 @@ export type {
 };
 
 /**
- * 项目权限模式。
+ * 技术沙箱边界档位。
  *
  * @remarks
- * - `default`：默认模式。只读工具与 macOS 默认 Seatbelt 沙箱内的 bash 自动执行，其他工具和越界沙箱能力需经用户逐项审批。
- * - `yolo`：自动执行模式。对当前 Profile 和输入合法的 Tool 自动批准，但不创建持续授权，也不放宽沙箱文件或网络边界。
+ * 取值与 `@lazygoal/sandbox` 的 Seatbelt 策略生成共用：`read-only` 只允许读取，
+ * `workspace-write` 允许工作区树读写，`danger-full-access` 取消本机文件与网络边界。
+ * 该档位只描述内核强制的边界，不含审批策略。
  *
  * @example
  * ```ts
- * const mode: PermissionMode = "default";
+ * const sandbox: SandboxMode = "workspace-write";
  * ```
  */
-export type PermissionMode = "default" | "yolo";
+export type { SandboxMode };
 
 /**
  * 授权申请的作用域范围。
@@ -218,91 +220,149 @@ export interface ToolGrantStore extends ToolGrantLookup {
 }
 
 /**
- * 项目持久化权限模式事实记录。
+ * 越界 Action 的审批策略。
  *
  * @remarks
- * 记录项目工作区的默认与当前执行模式，包含用于并发更新校验的单调递增修订号。
+ * `on-request` 只对越过权限边界的 Action 发起裁决，边界内的 Action 直接执行；
+ * `never` 直接拒绝越界 Action，不产生等待。该策略不改变内核强制的文件与网络边界。
  *
  * @example
  * ```ts
- * const projectMode: ProjectPermissionMode = {
+ * const approvals: ApprovalPolicy = "on-request";
+ * ```
+ */
+export type ApprovalPolicy = "on-request" | "never";
+
+/**
+ * 越界 Action 的裁决者。
+ *
+ * @remarks
+ * `user` 交由人工审阅；`auto_review` 按确定性规则表裁决，只在命中规则表时等待人工。
+ * 该取值仅在 `approvals` 为 `on-request` 时生效。
+ *
+ * @example
+ * ```ts
+ * const reviewer: ApprovalReviewer = "auto_review";
+ * ```
+ */
+export type ApprovalReviewer = "user" | "auto_review";
+
+/**
+ * 一个工作区的权限档位。
+ *
+ * @remarks
+ * `sandbox` 决定内核强制的文件与网络边界；`approvals` 与 `reviewer` 只决定越界 Action 的裁决方式。
+ * `writableRoots` 列出自工作区树之外额外允许读写的工作区外根目录，为空表示只允许工作区树。
+ * 创建 Goal 不再冻结沙箱上限，执行期以工作区当前档位为准。
+ *
+ * @example
+ * ```ts
+ * const profile: PermissionProfile = {
+ *   sandbox: "workspace-write",
+ *   approvals: "on-request",
+ *   reviewer: "user",
+ *   writableRoots: ["/Users/me/shared"],
+ * };
+ * ```
+ */
+export interface PermissionProfile {
+    /** 内核强制的沙箱边界档位。 */
+    readonly sandbox: SandboxMode;
+    /** 越界 Action 的审批策略。 */
+    readonly approvals: ApprovalPolicy;
+    /** 越界 Action 的裁决者。 */
+    readonly reviewer: ApprovalReviewer;
+    /** 工作区树之外额外允许读写的工作区外根目录，元素为绝对路径。 */
+    readonly writableRoots: readonly string[];
+}
+
+/**
+ * 工作区当前权限档位及其并发版本。
+ *
+ * @remarks
+ * `revision` 单调递增，写入方必须携带读取到的版本；记录缺失时以默认档位与 `0` 表示。
+ * 该结构只描述持久化事实，不携带决策期判定结果。
+ *
+ * @example
+ * ```ts
+ * const current: ProjectPermissionProfile = {
  *   workspaceId: "ws-1",
- *   mode: "default",
+ *   profile: { sandbox: "workspace-write", approvals: "on-request", reviewer: "user", writableRoots: [] },
  *   revision: 1,
  * };
  * ```
  */
-export interface ProjectPermissionMode {
+export interface ProjectPermissionProfile {
     /** 工作区唯一稳定标识。 */
     readonly workspaceId: string;
-    /** 当前生效的权限模式。 */
-    readonly mode: PermissionMode;
-    /** 模式记录的单调递增版本号，用于防止并发写覆盖。 */
+    /** 当前生效的权限档位。 */
+    readonly profile: PermissionProfile;
+    /** 档位记录的单调递增版本号，用于防止并发写覆盖。 */
     readonly revision: number;
 }
 
 /**
- * 权限模式并发更新冲突异常。
+ * 权限档位并发更新冲突。
  *
  * @remarks
- * 当客户端提交的期望修订号与服务端已持久化的修订号不一致时抛出，指示并发修改冲突。
+ * 当调用方提交的期望版本与已持久化版本不一致时抛出，表示其它写入已先行提交。
+ * 存储不会静默覆盖既有值；调用方可重新读取当前值后再次提交。
  *
  * @example
  * ```ts
- * throw new PermissionModeConflictError("ws-1", 1, 2);
+ * throw new PermissionProfileConflictError("ws-1", 1, 2);
  * ```
  */
-export class PermissionModeConflictError extends Error {
+export class PermissionProfileConflictError extends Error {
     constructor(
         readonly workspaceId: string,
         readonly expectedRevision: number,
         readonly actualRevision: number,
     ) {
         super(
-            `项目 ${workspaceId} 权限模式更新冲突：期望修订号 ${expectedRevision}，当前实际修订号 ${actualRevision}`,
+            `Project ${workspaceId} permission profile update conflict: expected revision ${expectedRevision}, actual revision ${actualRevision}`,
         );
-        this.name = "PermissionModeConflictError";
+        this.name = "PermissionProfileConflictError";
     }
 }
 
 /**
- * 项目级权限执行模式的持久化存储边界。
+ * 工作区权限档位的持久化边界。
  *
  * @remarks
- * 负责读写工作区的 Default/YOLO 模式配置，使用版本修订号进行乐观并发控制。
- * 记录不存在时默认返回 Default 模式（revision 为 0）。
+ * 每个工作区只保存当前档位，不保留历史版本。读取失败关闭：损坏或不受支持的记录必须抛出，
+ * 不得退回默认档位，也不得据此放行越界 Action。
  *
  * @example
  * ```ts
  * const current = await store.get("ws-1");
- * const updated = await store.set("ws-1", "yolo", current.revision);
+ * const updated = await store.update("ws-1", nextProfile, current.revision);
  * ```
  */
-export interface ProjectPermissionModeStore {
+export interface ProjectPermissionProfileStore {
     /**
-     * 获取指定工作区的当前权限模式事实。
-     * 若尚无记录，默认返回 `{ workspaceId, mode: "default", revision: 0 }`。
+     * 读取工作区当前权限档位。
      *
-     * @param workspaceId - 项目工作区标识。
-     * @returns 当前权限模式事实。
-     * @throws 存储损坏或读取不可用时抛出异常。
+     * @param workspaceId - 工作区稳定标识。
+     * @returns 当前档位与版本；无记录或记录属于其它工作区时返回默认档位与 `0`。
+     * @throws 记录损坏、协议版本不受支持或底层读取失败时抛出；调用方必须按权限故障处理。
      */
-    get(workspaceId: string): Promise<ProjectPermissionMode>;
+    get(workspaceId: string): Promise<ProjectPermissionProfile>;
 
     /**
-     * 乐观并发原子更新项目权限模式。
+     * 以乐观并发写入工作区权限档位。
      *
-     * @param workspaceId - 项目工作区标识。
-     * @param mode - 期望切换到的权限模式。
-     * @param expectedRevision - 调用方持有的期望修订号。
-     * @returns 更新后的新模式事实（revision + 1）。
-     * @throws 修订号不匹配抛出 PermissionModeConflictError；存储失败时抛出异常。
+     * @param workspaceId - 工作区稳定标识。
+     * @param profile - 期望生效的完整档位，整体替换旧值。
+     * @param expectedRevision - 调用方读取到的当前版本。
+     * @returns 写入后的档位，`revision` 为 `expectedRevision + 1`。
+     * @throws 版本不匹配时抛出 `PermissionProfileConflictError`；记录损坏或写入失败时抛出异常。
      */
-    set(
+    update(
         workspaceId: string,
-        mode: PermissionMode,
+        profile: PermissionProfile,
         expectedRevision: number,
-    ): Promise<ProjectPermissionMode>;
+    ): Promise<ProjectPermissionProfile>;
 }
 
 /**

@@ -503,10 +503,12 @@ export type GoalMessage = UserMessage | AssistantMessage;
  * ```
  */
 /**
- * 由可信 Supervisor 冻结的 Goal 来源关联与动作权限范围。
+ * 由可信 Supervisor 冻结的 Goal 来源关联与 Tool 暴露范围。
  *
  * @remarks
- * `triggerId` 指向持久化 Trigger 请求；`authorization` 仅是当前 Goal 的动作上限，不能替代宿主约束、有效授权或沙箱强制执行。
+ * `triggerId` 指向持久化 Trigger 请求；`authorization` 只冻结工作区与可暴露的 Tool ID，
+ * 不冻结文件或网络边界。资源边界由 workspace 级权限档位在执行期按 Action 判定，
+ * 不能替代宿主约束或沙箱强制执行。
  *
  * @example
  * ```ts
@@ -514,7 +516,7 @@ export type GoalMessage = UserMessage | AssistantMessage;
  *   triggerId: "work-1",
  *   authorization: {
  *     workspace: { mode: "shared", projectRoot: "/project", executionRoot: "/project" },
- *     toolIds: [], sandbox: { extraFiles: [], network: "none" },
+ *     toolIds: [],
  *   },
  * };
  * ```
@@ -531,12 +533,11 @@ export interface GoalTriggerContext {
             readonly baseCommit?: string;
         };
         readonly toolIds: readonly string[];
-        readonly sandbox: EffectiveSandboxScope;
     };
 }
 
 export interface GoalDefinition {
-    /** Trigger 创建的 Goal 所冻结的来源与权限上限。 */
+    /** Trigger 创建的 Goal 所冻结的来源关联与 Tool 暴露范围。 */
     readonly triggerContext?: GoalTriggerContext;
     readonly intent: string;
     /** 恢复时必须继续使用的当前 Prompt Bundle 版本。 */

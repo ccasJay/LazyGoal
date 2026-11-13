@@ -245,7 +245,7 @@ export function WorkspaceShell() {
                   {!app.sessionVisible && app.goalBoardElement}
                   {app.sessionVisible && <GoalSession activeGoal={app.activeGoal} goals={app.goals} draftText={app.draftText} onDraftTextChange={app.setDraftText}
                     onSelectGoal={selectGoal} onViewGoals={openBoard} boardContent={app.goalBoardElement} renderPermissionControl={app.renderPermissionControl}
-                    onRevokeToolGrant={app.revokeToolGrant} onDeleteGoal={app.onDeleteGoal} manageBusyId={app.manageBusyId} />}
+                    onRevokeExemption={app.revokeExemption} onDeleteGoal={app.onDeleteGoal} manageBusyId={app.manageBusyId} />}
                   </SessionBoundary>
                 </div>
               </div>

@@ -1,6 +1,6 @@
 import type {
   BrowserModelCatalog,
-  BrowserPermissionModeResult,
+  BrowserPermissionProfileResult,
   BrowserProviderSettings,
   BrowserWorkspaceContext,
 } from "../../../../../packages/web-contracts/src/index";
@@ -56,6 +56,17 @@ const settingsModels: BrowserModelCatalog = {
   ],
 };
 
+const settingsPermissionProfile: BrowserPermissionProfileResult = {
+  ok: true,
+  profile: {
+    sandbox: "workspace-write",
+    approvals: "on-request",
+    reviewer: "user",
+    writableRoots: [],
+  },
+  revision: 1,
+};
+
 /** 具有配置 Providers 与模型的 Settings 场景。 */
 export const settingsScenario: FixtureScenario = {
   id: "settings-default",
@@ -67,13 +78,8 @@ export const settingsScenario: FixtureScenario = {
       branch: "main",
     },
   },
-  permissionMode: {
-    data: {
-      ok: true,
-      mode: "default",
-      revision: 1,
-      workspaceId: "ws-fixture",
-    },
+  permissionProfile: {
+    data: settingsPermissionProfile,
   },
   providerSettings: {
     data: settingsProviders,

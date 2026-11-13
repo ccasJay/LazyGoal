@@ -1,3 +1,10 @@
+import { after as afterAllTests } from "node:test";
+import { mkdtemp as createBoundaryWorkspace, rm as removeBoundaryWorkspace } from "node:fs/promises";
+import { tmpdir as boundaryTmpdir } from "node:os";
+import { join as joinBoundaryPath } from "node:path";
+
+const boundaryWorkspaceRoot = await createBoundaryWorkspace(joinBoundaryPath(boundaryTmpdir(), "lazygoal-permission-boundary-"));
+afterAllTests(async () => { await removeBoundaryWorkspace(boundaryWorkspaceRoot, { recursive: true, force: true }); });
 import { ExecutionAbortedError } from "../../execution-control/src/index";
 import assert from "node:assert/strict";
 import { test } from "node:test";
@@ -17,7 +24,7 @@ import {
     createToolRegistration,
     InMemoryToolRegistry,
 } from "../../tool-core/src/index";
-import { bindMessagesToRun, currentProtocols, InMemoryTrajectoryStore } from "./current-fixtures";
+import { bindMessagesToRun, currentProtocols, InMemoryTrajectoryStore, withBoundaryCrossingTools } from "./current-fixtures";
 import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
@@ -99,7 +106,7 @@ test("PTC executes a program and inner tool without an extra model step", {
             },
         }),
     ]);
-    const runner = new Runner({ store, trajectoryStore, executor, toolRegistry: registry });
+    const runner = new Runner({ workspaceRoot: boundaryWorkspaceRoot, store, trajectoryStore, executor, toolRegistry: registry });
     const result = await runner.run({ goalId: goal.id, runId: goal.state.run.id });
     assert.equal(result.ok, true);
     if (!result.ok) return;
@@ -200,7 +207,7 @@ test("PTC rejects a child Tool outside the exposed set before preparation or exe
             async execute() { readCalls += 1; return { kind: "success", output: "private", summary: "Read" }; },
         }),
     ]);
-    const result = await new Runner({ store, trajectoryStore, executor, toolRegistry: registry }).run({ goalId: goal.id, runId: goal.state.run.id });
+    const result = await new Runner({ workspaceRoot: boundaryWorkspaceRoot, store, trajectoryStore, executor, toolRegistry: registry }).run({ goalId: goal.id, runId: goal.state.run.id });
     assert.equal(result.ok, true);
     if (!result.ok) return;
     assert.equal(result.state.status, "failed");
@@ -377,10 +384,9 @@ test("PTC pauses for a real child approval and resumes the same code", {
         }),
     ]);
     const runner = new Runner({
-        store, trajectoryStore, executor, toolRegistry: registry,
-        toolPolicy: {
-            evaluate: ({ action }) => action.toolId === "write_file" ? "require_approval" : "allow",
-        },
+        workspaceRoot: boundaryWorkspaceRoot,
+        store, trajectoryStore, executor,
+        toolRegistry: withBoundaryCrossingTools(registry, ["write_file"]),
     });
     const ref = { goalId: goal.id, runId: goal.state.run.id };
     const waiting = await runner.run(ref);
@@ -459,10 +465,9 @@ test("PTC pauses for a real child approval and resumes the same code", {
     await store.save(entryGoal);
     const entryRef = { goalId: entryGoal.id, runId: entryGoal.state.run.id };
     const entryRunner = new Runner({
-        store, trajectoryStore, executor, toolRegistry: registry,
-        toolPolicy: {
-            evaluate: ({ action }) => action.toolId === "execute_program" ? "require_approval" : "allow",
-        },
+        workspaceRoot: boundaryWorkspaceRoot,
+        store, trajectoryStore, executor,
+        toolRegistry: withBoundaryCrossingTools(registry, ["execute_program"]),
     });
     const entryWaiting = await entryRunner.run(entryRef);
     assert.equal(entryWaiting.ok, true);

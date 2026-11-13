@@ -25,13 +25,13 @@ import {
     type RunState,
     type StepExecutor,
     type ToolCallAction,
-    type ToolPolicy,
 } from "../src/index";
 import { InMemoryGoalStore, JsonFileSandboxGrantStore, JsonFileToolGrantStore } from "../../storage/src/index";
 import {
     currentProtocols,
     InMemoryTrajectoryStore,
     trajectoryStoreFor,
+    withBoundaryCrossingScope,
     withDiscoveredProfileTools,
 } from "./current-fixtures";
 import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
@@ -96,11 +96,6 @@ export const APPROVAL_PROFILE: AgentProfile = {
     systemPrompt: "system prompt",
 };
 
-/** 默认模式下要求写类 Tool 先经用户审批的策略。 */
-export const REQUIRE_APPROVAL_POLICY: ToolPolicy = {
-    evaluate: ({ tool }) => tool.isReadOnly === true ? "allow" : "require_approval",
-};
-
 /** 一次审批测试的装配结果。 */
 export interface ApprovalFixture {
     readonly workspaceRoot: string;
@@ -116,6 +111,7 @@ export interface ApprovalFixture {
 export async function createApprovalFixture(
     options: {
         readonly throws?: (input: WriteToolInput) => boolean;
+        readonly boundaryApproval?: boolean;
     } = {},
 ): Promise<ApprovalFixture> {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-approval-"));
@@ -123,10 +119,13 @@ export async function createApprovalFixture(
     const toolGrantStore = new JsonFileToolGrantStore(workspaceRoot);
     const sandboxGrantStore = new JsonFileSandboxGrantStore(workspaceRoot);
     const calls: CapturedToolCall[] = [];
+    const registration = createTestToolRegistration(createControlledWriteTool(calls, {
+        ...(options.throws === undefined ? {} : { throws: options.throws }),
+    }));
     const registry = new InMemoryToolRegistry([
-        createTestToolRegistration(createControlledWriteTool(calls, {
-            ...(options.throws === undefined ? {} : { throws: options.throws }),
-        })),
+        options.boundaryApproval === true
+            ? withBoundaryCrossingScope(registration)
+            : registration,
     ]);
     return {
         workspaceRoot,
@@ -294,7 +293,6 @@ export function createApprovalCoordinator(
         trajectoryStore,
         executor,
         toolRegistry: fixture.registry,
-        toolPolicy: REQUIRE_APPROVAL_POLICY,
         workspaceRoot: fixture.workspaceRoot,
         workspaceId: "ws-1",
     });

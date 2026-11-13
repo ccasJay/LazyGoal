@@ -18,13 +18,13 @@
 | Tool Grant 账本 | `<workspace-directory>/tool-grants.json`；`version: 1` | 严格拒绝未知字段 | `goal`/`workspace` 范围与 `goalId` 一致；Grant ID 与来源唯一；损坏账本失败关闭，不重置 | [`JsonFileToolGrantStore`](../src/json-file-tool-grant-store.ts) → Runtime `ToolGrantStore` | 已迁移：`ToolGrantLedgerFile` TS DTO + 生成绑定；账本身份唯一性保留 |
 | Sandbox Grant 账本 | `<workspace-directory>/sandbox-grants.json`；`version: 1` | 严格拒绝未知字段 | 范围/goal 一致性、Grant ID 与来源唯一、matcher 结构；损坏账本失败关闭，不重置 | [`JsonFileSandboxGrantStore`](../src/json-file-sandbox-grant-store.ts) → `SandboxGrantStore` | 已迁移：`SandboxGrantLedgerFile` TS DTO + 生成绑定；账本身份唯一性保留 |
 | 模型偏好 | `<workspace-directory>/model-preference.json`；`version: 1` | 严格拒绝未知字段 | 缺失返回 `undefined`；损坏或未知版本拒绝读取和覆盖 | [`JsonFileModelPreferenceStore`](../src/json-file-model-preference-store.ts) → Runtime `ModelPreferenceStore` | 已迁移：`ModelPreferenceFile` TS DTO + 生成绑定 |
-| 项目权限模式 | `<workspace-directory>/permission-mode.json`；`version: 1` | 严格拒绝未知字段 | 缺失返回默认 `default`/`0`；workspace 不匹配按默认读取；写入按 revision 乐观并发；损坏失败关闭 | [`JsonFileProjectPermissionModeStore`](../src/json-file-project-permission-mode-store.ts) → `ProjectPermissionModeStore` | 已迁移：`PermissionModeFile` TS DTO + 生成绑定；revision 冲突保留 |
+| 项目权限档位 | `<workspace-directory>/permission-profile.json`；`version: 1` | 严格拒绝未知字段 | 缺失或 workspace 不匹配时返回默认档位与 `revision: 0`；写入按 revision 乐观并发，成功递增 1；损坏或版本不受支持时读取与写入都失败关闭 | [`JsonFileProjectPermissionProfileStore`](../src/json-file-project-permission-profile-store.ts) → Permission `ProjectPermissionProfileStore` | 已迁移：`PermissionProfileFile` TS DTO + `storage.project-permission-profile` 生成绑定；revision 冲突保留 |
 | 模型调用指标 JSONL | `<metrics-directory>/<base64url(goalId)>/<base64url(runId)>.jsonl` 与 `<goal>/coverage.jsonl`；无独立版本，`recordType` 判别 | 逐行严格结构校验 | 身份匹配、同一调用同类事实不冲突、覆盖记录首个 Goal 标记唯一、缺口去重；坏记录抛 `ModelCallMetricStoreProtocolError` | [`JsonFileMetricsStore`](../src/json-file-metrics-store.ts) → Runtime `MetricsStore`/`ModelCallMetricsCoverageStore` | 已迁移：指标与覆盖 TS DTO + 生成绑定；事实冲突与覆盖聚合保留 |
 | Diagnostic Trace JSONL | `<trace-directory>/<base64url(goalId)>/<base64url(runId)>.jsonl`；`traceSchemaVersion: 1` | 无读取校验器 | 只追加已脱敏、已限长的诊断记录；不参与 Snapshot、Trajectory 或恢复边界 | [`JsonFileDiagnosticTraceSink`](../src/json-file-diagnostic-trace-sink.ts) → Runtime `DiagnosticTraceSink` | Trace DTO 归 Runtime；Storage 只登记写入边界，不新增读取回退 |
 
 ## 版本与失败边界
 
-- 只接受当前版本。Goal Snapshot、Trajectory、模型输入、Sidecar、Agent Profile、Grant 账本和偏好文件的未知版本或损坏内容都在各自边界失败或缓存失效；没有旧版本迁移分支。
+- 只接受当前版本。Goal Snapshot、Trajectory、模型输入、Sidecar、Agent Profile、Grant 账本、偏好文件和权限档位文件的未知版本或损坏内容都在各自边界失败或缓存失效；没有旧版本迁移分支。
 - 原子写入统一经 [`atomicWriteJson`](../src/json-file-write.ts)；JSONL 追加统一经 `appendJsonl`。审批等待、重启恢复和损坏文件处理继续由 Runtime 与各 Store 的现有状态转换承担。
 - Agent Profile 的未知字段严格拒绝由生成绑定执行；该策略不扩展到其他文件族。
 - Runtime 拥有的 Trajectory 事件和 Diagnostic Trace DTO 不复制到 Storage；Storage 负责其文件布局、追加顺序和错误包装。

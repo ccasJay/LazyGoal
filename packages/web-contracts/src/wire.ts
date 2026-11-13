@@ -97,8 +97,8 @@ export interface BrowserMessagePosition {
     readonly order: number;
 }
 
-/** 工具授权或沙箱访问中的单个外部文件/目录条目。 */
-export interface BrowserToolGrantExtraFile {
+/** 权限边界中的单个外部文件/目录条目。 */
+export interface BrowserPermissionExtraFile {
     /** @pattern \S */
     readonly canonicalPath: string;
     readonly access: "read" | "write";
@@ -107,7 +107,7 @@ export interface BrowserToolGrantExtraFile {
 
 /** 沙箱权限审阅摘要。 */
 export interface BrowserSandboxReview {
-    readonly extraFiles: readonly BrowserToolGrantExtraFile[];
+    readonly extraFiles: readonly BrowserPermissionExtraFile[];
     readonly network: "none" | "all_outbound";
     readonly networkNotice?: string;
 }
@@ -1294,7 +1294,7 @@ export interface BrowserActionReviewCommand {
 /** 重新计算出的实际能力范围。 */
 export interface BrowserActionCapability {
     readonly network: "none" | "all_outbound";
-    readonly extraFiles: readonly BrowserToolGrantExtraFile[];
+    readonly extraFiles: readonly BrowserPermissionExtraFile[];
     readonly targetPaths: readonly string[];
 }
 
@@ -1670,19 +1670,155 @@ export type BrowserModelPreferenceResult =
     }
     | { readonly ok: false; readonly error: string };
 
-/** 授权摘要条目。 */
-export interface BrowserToolGrantSummary {
+/**
+ * 工作区权限档位的 wire 形状。
+ *
+ * @remarks
+ * `sandbox` 决定内核强制的文件与网络边界；`approvals` 与 `reviewer` 只决定越界 Action
+ * 的裁决方式；`writableRoots` 列出自工作区树之外额外允许读写的工作区外根目录。
+ *
+ * @example
+ * ```ts
+ * const profile: BrowserPermissionProfile = {
+ *     sandbox: "workspace-write",
+ *     approvals: "on-request",
+ *     reviewer: "user",
+ *     writableRoots: [],
+ * };
+ * ```
+ */
+export interface BrowserPermissionProfile {
+    readonly sandbox: "read-only" | "workspace-write" | "danger-full-access";
+    readonly approvals: "on-request" | "never";
+    readonly reviewer: "user" | "auto_review";
+    /** 工作区树之外额外允许读写的工作区外根目录，元素为绝对路径。 */
+    readonly writableRoots: readonly string[];
+}
+
+/**
+ * 变更当前工作区权限档位的命令。
+ *
+ * @remarks
+ * 工作区身份由服务端会话绑定决定，请求体不携带 `workspaceId`；`expectedRevision`
+ * 必须是客户端读取到的当前版本，并发提交由服务端返回当前档位而不是静默覆盖。
+ *
+ * @example
+ * ```ts
+ * const command: BrowserPermissionProfileCommand = { profile, expectedRevision: 3 };
+ * ```
+ */
+export interface BrowserPermissionProfileCommand {
+    readonly profile: BrowserPermissionProfile;
+    /** @asType integer
+     * @maximum 9007199254740991
+     * @minimum 0 */
+    readonly expectedRevision: number;
+}
+
+/**
+ * 权限档位查询或设置结果。
+ *
+ * @remarks
+ * 成功时返回当前完整档位与版本；版本冲突时 `error` 为 `conflict`，并附带冲突时刻的
+ * `profile` 与 `revision`，调用方可直接展示而不必再次读取。
+ */
+export type BrowserPermissionProfileResult =
+    | {
+        readonly ok: true;
+        readonly profile: BrowserPermissionProfile;
+        /** @asType integer
+         * @maximum 9007199254740991 */
+        readonly revision: number;
+    }
+    | {
+        readonly ok: false;
+        readonly error: "permissions_unavailable" | "conflict" | "service_shutting_down";
+        /** 冲突时当前已持久化的档位。 */
+        readonly profile?: BrowserPermissionProfile;
+        /** 冲突时当前已持久化的版本。
+         * @asType integer
+         * @maximum 9007199254740991 */
+        readonly revision?: number;
+    };
+
+/**
+ * 一条边界越界豁免。
+ *
+ * @remarks
+ * 只描述越过权限边界后仍持续放行的文件与网络范围；Tool 级授权已退役，因此不包含
+ * 工具身份、输入摘要或目标路径。撤销后同一越界重新进入裁决。
+ *
+ * @example
+ * ```ts
+ * const exemption: BrowserPermissionExemptionSummary = {
+ *     id: "grant-1",
+ *     scope: "goal",
+ *     network: "none",
+ *     extraFiles: [],
+ *     status: "active",
+ * };
+ * ```
+ */
+export interface BrowserPermissionExemptionSummary {
     /** @pattern \S */
-    readonly grantId: string;
+    readonly id: string;
     readonly scope: "goal" | "workspace";
-    /** @pattern \S */
-    readonly toolId: string;
+    readonly network: "none" | "all_outbound";
+    readonly extraFiles: readonly BrowserPermissionExtraFile[];
     readonly status: "pending" | "active" | "revoked";
-    readonly kind?: "tool" | "sandbox";
-    readonly targetPath?: string;
-    readonly command?: string;
-    readonly network?: "none" | "all_outbound";
-    readonly extraFiles?: readonly BrowserToolGrantExtraFile[];
+}
+
+/**
+ * 边界豁免查询或撤销结果。
+ *
+ * @remarks
+ * 成功时返回当前 Goal/Run 下仍可见的豁免列表；撤销后同样返回更新后的列表。
+ */
+export type BrowserPermissionExemptionResult =
+    | {
+        readonly ok: true;
+        /** @pattern \S */
+        readonly goalId: string;
+        /** @pattern \S */
+        readonly runId: string;
+        readonly exemptions: readonly BrowserPermissionExemptionSummary[];
+    }
+    | {
+        readonly ok: false;
+        readonly error:
+            | "goal_not_found"
+            | "stale_run"
+            | "permissions_unavailable"
+            | "exemption_failed"
+            | "service_shutting_down";
+    };
+
+/**
+ * 撤销边界豁免请求体；`exemptionId` 只来自路径。
+ *
+ * @example
+ * ```ts
+ * const body: BrowserPermissionExemptionRevokeBody = { runId: "run-1" };
+ * ```
+ */
+export interface BrowserPermissionExemptionRevokeBody {
+    /** @pattern \S */
+    readonly runId: string;
+}
+
+/**
+ * 撤销边界豁免命令。
+ *
+ * @example
+ * ```ts
+ * const command: BrowserPermissionExemptionRevokeCommand = { runId: "run-1", exemptionId: "grant-1" };
+ * ```
+ */
+export interface BrowserPermissionExemptionRevokeCommand {
+    /** @pattern \S */
+    readonly runId: string;
+    /** @pattern \S */
+    readonly exemptionId: string;
 }
 
 /** Action 完整输入查询结果。 */
@@ -1706,75 +1842,6 @@ export type BrowserActionDetailsResult =
             | "stale_run"
             | "action_not_waiting"
             | "action_details_unavailable";
-    };
-
-/** 工具授权查询或撤销结果。 */
-export type BrowserToolGrantResult =
-    | {
-        readonly ok: true;
-        /** @pattern \S */
-        readonly goalId: string;
-        /** @pattern \S */
-        readonly runId: string;
-        readonly grants: readonly BrowserToolGrantSummary[];
-    }
-    | {
-        readonly ok: false;
-        readonly error:
-            | "goal_not_found"
-            | "stale_run"
-            | "permissions_unavailable"
-            | "grant_failed"
-            | "service_shutting_down";
-    };
-
-/** 撤销工具授权请求体；`grantId` 只来自路径。 */
-export interface BrowserToolGrantRevokeBody {
-    /** @pattern \S */
-    readonly runId: string;
-    readonly scope: "goal" | "workspace";
-    readonly kind?: "tool" | "sandbox";
-}
-
-/** 撤销工具授权命令。 */
-export interface BrowserToolGrantRevokeCommand {
-    /** @pattern \S */
-    readonly runId: string;
-    /** @pattern \S */
-    readonly grantId: string;
-    readonly scope: "goal" | "workspace";
-    readonly kind?: "tool" | "sandbox";
-}
-
-/** 项目权限模式。 */
-export type BrowserPermissionMode = "default" | "yolo";
-
-/** 变更权限模式命令。 */
-export interface BrowserPermissionModeCommand {
-    readonly mode: BrowserPermissionMode;
-    /** @asType integer
-     * @maximum 9007199254740991
-     * @minimum 0 */
-    readonly expectedRevision: number;
-}
-
-/** 权限模式变更结果。 */
-export type BrowserPermissionModeResult =
-    | {
-        readonly ok: true;
-        readonly mode: BrowserPermissionMode;
-        /** @asType integer
-         * @maximum 9007199254740991 */
-        readonly revision: number;
-        /** @pattern \S */
-        readonly workspaceId: string;
-    }
-    | {
-        readonly ok: false;
-        readonly error: "permissions_unavailable" | "conflict" | "service_shutting_down";
-        /** @asType integer
-         * @maximum 9007199254740991 */
-        readonly actualRevision?: number;
     };
 
 /** 当前工作区上下文视图。 */
@@ -2696,7 +2763,7 @@ export type BrowserControlScope =
  *
  * @remarks
  * `intentId` 是客户端控制身份，不写入 Goal Snapshot；`session_input` 复用其
- * `input.inputId` 作为同一身份。`permission_mode` 是 workspace 作用域，其余命令
+ * `input.inputId` 作为同一身份。`permission_profile` 是 workspace 作用域，其余命令
  * 必须携带目标 `goalId`。
  */
 export type BrowserControlIntentCommand =
@@ -2745,17 +2812,17 @@ export type BrowserControlIntentCommand =
         readonly persistAsDefault: boolean;
     }
     | {
-        readonly kind: "permission_mode";
+        readonly kind: "permission_profile";
         /** @pattern \S */
         readonly intentId: string;
-        readonly mode: BrowserPermissionMode;
+        readonly profile: BrowserPermissionProfile;
         /** @asType integer
          * @maximum 9007199254740991
          * @minimum 0 */
         readonly expectedRevision: number;
     }
     | {
-        readonly kind: "grant_revoke";
+        readonly kind: "exemption_revoke";
         /** @pattern \S */
         readonly intentId: string;
         /** @pattern \S */
@@ -2763,9 +2830,7 @@ export type BrowserControlIntentCommand =
         /** @pattern \S */
         readonly runId: string;
         /** @pattern \S */
-        readonly grantId: string;
-        readonly scope: "goal" | "workspace";
-        readonly grantKind?: "tool" | "sandbox";
+        readonly exemptionId: string;
     }
     | {
         readonly kind: "goal_archive";
@@ -2809,8 +2874,8 @@ export type BrowserControlIntentResult =
     | { readonly kind: "session_input"; readonly result: BrowserSessionInputResult }
     | { readonly kind: "plan_mode"; readonly result: BrowserGoalPlanModeResult }
     | { readonly kind: "model_selection"; readonly result: BrowserModelSelectionResult }
-    | { readonly kind: "permission_mode"; readonly result: BrowserPermissionModeResult }
-    | { readonly kind: "grant_revoke"; readonly result: BrowserToolGrantResult }
+    | { readonly kind: "permission_profile"; readonly result: BrowserPermissionProfileResult }
+    | { readonly kind: "exemption_revoke"; readonly result: BrowserPermissionExemptionResult }
     | { readonly kind: "goal_archive"; readonly result: BrowserGoalArchiveResult }
     | { readonly kind: "goal_delete"; readonly result: BrowserGoalDeleteResult }
     | { readonly kind: "action_review"; readonly result: BrowserActionReviewResult };

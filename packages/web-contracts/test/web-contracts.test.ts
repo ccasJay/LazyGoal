@@ -37,9 +37,9 @@ import {
     isProviderProfileActivationResult,
     isOkResponse,
     isPendingAction,
-    isPermissionModeResult,
+    isPermissionExemptionResult,
+    isPermissionProfileResult,
     isRunStatus,
-    isToolGrantResult,
     isTrajectoryDetail,
     isTrajectoryEntry,
     isTrajectoryPage,
@@ -1180,11 +1180,21 @@ test("Provider、模型与命令结果合同校验嵌套凭据键、声明字段
         }],
     }), true);
 
-    assert.equal(isPermissionModeResult({ ok: true, mode: "yolo", revision: 2, workspaceId: "ws-1" }), true);
-    assert.equal(isPermissionModeResult({ ok: false, error: "unknown" }), false);
-    assert.equal(isPermissionModeResult({ ok: false, error: "conflict", actualRevision: Number.MAX_SAFE_INTEGER + 1 }), false);
-    assert.equal(isToolGrantResult({ ok: false, error: "grant_failed" }), true);
-    assert.equal(isToolGrantResult({ ok: false, error: "unknown" }), false);
+    assert.equal(isPermissionProfileResult({
+        ok: true,
+        profile: { sandbox: "read-only", approvals: "never", reviewer: "user", writableRoots: [] },
+        revision: 2,
+    }), true);
+    assert.equal(isPermissionProfileResult({ ok: false, error: "unknown" }), false);
+    assert.equal(isPermissionProfileResult({ ok: false, error: "conflict", revision: Number.MAX_SAFE_INTEGER + 1 }), false);
+    assert.equal(isPermissionExemptionResult({ ok: false, error: "exemption_failed" }), true);
+    assert.equal(isPermissionExemptionResult({ ok: false, error: "grant_failed" }), false);
+    assert.equal(isPermissionExemptionResult({
+        ok: true,
+        goalId: "g",
+        runId: "r",
+        exemptions: [{ id: "x", scope: "goal", network: "none", extraFiles: [], status: "active" }],
+    }), true);
     assert.equal(isActionDetailsResult({ ok: true, goalId: "g", runId: "r", actionId: "a", toolId: "t", input: () => undefined }), false);
     assert.equal(isAcceptedCommand({ goalId: "g", runId: "r", existing: false }), true);
 });

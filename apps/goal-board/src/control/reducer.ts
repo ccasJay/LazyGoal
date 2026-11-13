@@ -121,7 +121,7 @@ export function beginControlIntent(state: ControlState, intent: BrowserControlIn
  * @returns 该种类的第一条待处理意图；没有时返回 `undefined`。
  * @example
  * ```ts
- * const pending = pendingIntentOfKind(state, "grant_revoke");
+ * const pending = pendingIntentOfKind(state, "exemption_revoke");
  * ```
  */
 export function pendingIntentOfKind<K extends BrowserControlIntentCommand["kind"]>(
@@ -294,7 +294,7 @@ export function markControlScopesFresh(
  * @returns 更新资源后的状态。
  * @example
  * ```ts
- * const next = mergeControlResources(state, { grants: [] });
+ * const next = mergeControlResources(state, { exemptions: [] });
  * ```
  */
 export function mergeControlResources(
@@ -306,7 +306,7 @@ export function mergeControlResources(
     resources: {
       ...state.resources,
       ...(patch.goals === undefined ? {} : { goals: patch.goals }),
-      ...(patch.grants === undefined ? {} : { grants: patch.grants }),
+      ...(patch.exemptions === undefined ? {} : { exemptions: patch.exemptions }),
       ...(patch.permission === undefined ? {} : { permission: patch.permission }),
       ...(patch.model === undefined ? {} : { model: patch.model }),
     },

@@ -22,7 +22,7 @@ import {
   CircleHelp,
   X,
 } from "lucide-react";
-import type { BrowserGoalListItem, BrowserToolGrantSummary } from "../../../../packages/web-contracts/src/index";
+import type { BrowserGoalListItem, BrowserPermissionExemptionSummary } from "../../../../packages/web-contracts/src/index";
 import { GoalDetails, WaitingInteraction } from "../panels";
 import type { AcceptedDecisionSummary } from "../interaction-panel";
 import brandMark from "../assets/lazygoal/mark-on-light.svg?no-inline";
@@ -54,7 +54,7 @@ export function GoalSession({
   onViewGoals,
   boardContent,
   renderPermissionControl,
-  onRevokeToolGrant,
+  onRevokeExemption,
   onDeleteGoal,
   manageBusyId,
 }: {
@@ -66,7 +66,7 @@ export function GoalSession({
   onViewGoals: () => void;
   boardContent: ReactNode;
   renderPermissionControl: (hasGoal: boolean) => ReactNode;
-  onRevokeToolGrant: (grant: BrowserToolGrantSummary) => Promise<void>;
+  onRevokeExemption: (exemption: BrowserPermissionExemptionSummary) => Promise<void>;
   onDeleteGoal?: (goal: BrowserGoalListItem) => Promise<void>;
   manageBusyId: string | null;
 }) {
@@ -93,10 +93,10 @@ export function GoalSession({
     setFollow,
     goalInfoOpen,
     setGoalInfoOpen,
-    toolGrants,
-    toolGrantsLoading,
-    toolGrantsError,
-    revokingGrantId,
+    exemptions,
+    exemptionsLoading,
+    exemptionsError,
+    revokingExemptionId,
     livePreviews,
     liveActivity,
     progressEntries,
@@ -267,11 +267,11 @@ export function GoalSession({
               <GoalDetails
                 session={fullSession}
                 tab="Details"
-                grants={toolGrants}
-                grantsLoading={toolGrantsLoading}
-                grantsError={toolGrantsError}
-                revokingGrantId={revokingGrantId}
-                onRevokeGrant={(grant) => void onRevokeToolGrant(grant)}
+                exemptions={exemptions}
+                exemptionsLoading={exemptionsLoading}
+                exemptionsError={exemptionsError}
+                revokingExemptionId={revokingExemptionId}
+                onRevokeExemption={(exemption) => void onRevokeExemption(exemption)}
                 onDelete={activeGoal ? () => void onDeleteGoal?.(activeGoal) : undefined}
                 deleteBusy={manageBusyId === fullSession.goalId}
               />
@@ -423,11 +423,11 @@ export function GoalSession({
               <GoalDetails
                 session={fullSession}
                 tab="Plan"
-                grants={toolGrants}
-                grantsLoading={toolGrantsLoading}
-                grantsError={toolGrantsError}
-                revokingGrantId={revokingGrantId}
-                onRevokeGrant={(grant) => void onRevokeToolGrant(grant)}
+                exemptions={exemptions}
+                exemptionsLoading={exemptionsLoading}
+                exemptionsError={exemptionsError}
+                revokingExemptionId={revokingExemptionId}
+                onRevokeExemption={(exemption) => void onRevokeExemption(exemption)}
               />
             )
           ) : (

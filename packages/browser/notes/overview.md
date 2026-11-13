@@ -37,7 +37,7 @@ Plan Run 的待审批会话 DTO 会投影候选路线中的全部阶段顺序、
 
 当前已批准 Plan Run 另从 Runtime Snapshot 投影完整 `planRoute`：保留路线修订与理由、下一个阶段游标、每个阶段的稳定 ID/修订/状态/目标/验收条件及接受序号。路线文本按界面 DTO 限长；普通 Run 以及待审批 Run 不含权威路线字段。该路线投影独立于从 Trajectory 派生的 `stages` 执行记录，不替代活动事件视图。
 
-`GET /api/goals/:goalId/actions/:actionId?runId=...` 仅在该 Goal/Run 仍处于对应 Action 审批等待时返回完整 canonical Tool 输入。常规会话投影只携带限长输入预览；写入类 Tool 额外投影目标路径。`GET /api/goals/:goalId/grants?runId=...` 只列出当前 Goal 与 Workspace 的授权摘要，不暴露精确输入摘要；`DELETE /api/goals/:goalId/grants/:grantId` 按授权层级撤销并返回更新后的列表。三个端点均受 BrowserSessionAccess 保护，并在服务层重验当前 Run 身份。
+`GET /api/goals/:goalId/actions/:actionId?runId=...` 仅在该 Goal/Run 仍处于对应 Action 审批等待时返回完整 canonical Tool 输入。常规会话投影只携带限长输入预览；写入类 Tool 额外投影目标路径。`GET /api/goals/:goalId/exemptions?runId=...` 只列出当前 Goal 与 workspace 的边界越界豁免摘要，不暴露精确输入摘要；`DELETE /api/goals/:goalId/exemptions/:exemptionId` 按豁免身份撤销并返回更新后的列表。`GET /api/project/permission-profile` 读取工作区当前档位与修订；`POST /api/project/permission-profile` 携带读取到的修订提交 `sandbox`、`approvals`、`reviewer` 与 `writableRoots`，并发覆盖返回冲突。这些端点均受 BrowserSessionAccess 保护；按 Goal 读取或撤销豁免时，服务层重验当前 Run 身份。
 
 普通 `message` 不绑定发送时的旧 Run：运行中或等待交互时按受理顺序进入该 Goal 的持久化队列，Goal 处于可启动终态且无恢复或队列暂停约束时由 Runtime 为队首创建后继 Run。终止态或 Interrupt 暂停保留队列与暂停原因，只有显式 `queue_control` 继续才解除。`steer` 只面向当前 running Run，受理不取消在途调用，应用发生在既有模型安全边界并写入真实用户消息；旧 Run、已进入中断或非 running 目标明确拒绝，不会静默降级为普通队列消息。`interrupt` 按目标 Run 与稳定身份在同一提交内保存中断意图并暂停队列，随后委派执行器中止执行并直接结算取消，不再调用模型，重复请求返回同一收据。用户终止只影响目标 Run，最终以 cancelled 结算；普通服务关闭或断连不生成该意图。会话投影按顺序公开已受理、尚未应用的 Steer，并区分队列、暂停、提交修订、中断阶段与是否需要显式恢复。
 

@@ -88,10 +88,15 @@ const sessionInput: BrowserControlIntentCommand = {
   input: { goalId: "goal-1", inputId: "input-1", kind: "message", content: "继续" },
 };
 
-const permissionMode: BrowserControlIntentCommand = {
-  kind: "permission_mode",
+const permissionProfile: BrowserControlIntentCommand = {
+  kind: "permission_profile",
   intentId: "intent-permission",
-  mode: "yolo",
+  profile: {
+    sandbox: "workspace-write",
+    approvals: "on-request",
+    reviewer: "auto_review",
+    writableRoots: [],
+  },
   expectedRevision: 2,
 };
 
@@ -111,7 +116,7 @@ test("意图生命周期区分 pending、accepted、applied、rejected 与 unkno
   });
   assert.equal(state.intents[0]?.phase, "applied");
 
-  state = beginControlIntent(state, permissionMode);
+  state = beginControlIntent(state, permissionProfile);
   assert.equal(state.intents[1]?.phase, "pending");
   state = settleControlIntent(state, receipt("intent-permission", "accepted"));
   assert.equal(state.intents[1]?.phase, "applied");

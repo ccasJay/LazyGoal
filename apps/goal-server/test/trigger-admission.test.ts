@@ -21,7 +21,7 @@ function factory(intent: string, reserved: string | undefined, workspaceMode: "s
         promptBundleVersion: 1, profile: { id: "profile", systemPrompt: "", instructions: [], toolIds: [] } }), authorization: { workspace: workspaceMode === "shared"
             ? { mode: "shared" as const, projectRoot: "/workspace", executionRoot: "/workspace" }
             : { mode: "worktree" as const, projectRoot: "/workspace", executionRoot: "/workspace/.worktrees/goal", branch: "lazygoal/goal-test", baseBranch: "main", baseCommit: "a".repeat(40) },
-        toolIds: [], sandbox: { extraFiles: [], network: "none" as const } } });
+        toolIds: [] } });
 }
 const user = { role: "user", externalId: "test-actor", mayCreateGoal: true, goalIds: [] } as const;
 const external = { role: "external", externalId: "test-actor", mayCreateGoal: true, goalIds: [] } as const;
@@ -41,7 +41,7 @@ test("explicit user work is accepted and control Trigger admission does not crea
         assert.deepEqual(triggers.goalQueueRecords().map((record) => record.triggerId), [trigger.id]);
         assert.deepEqual((await goals.restore("goal-inspect"))?.definition.triggerContext, {
             triggerId: trigger.id,
-            authorization: { workspace: { mode: "shared", projectRoot: "/workspace", executionRoot: "/workspace" }, toolIds: [], sandbox: { extraFiles: [], network: "none" } },
+            authorization: { workspace: { mode: "shared", projectRoot: "/workspace", executionRoot: "/workspace" }, toolIds: [] },
         });
 
         const isolated = workTrigger("work-worktree", "change");

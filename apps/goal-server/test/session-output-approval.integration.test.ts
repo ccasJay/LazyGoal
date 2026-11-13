@@ -266,6 +266,9 @@ function controlledWriteTool(executed: { value: string }[]): Tool {
         },
         replayPolicy: "safe",
         validate: () => ({ ok: true }),
+        resolveSandboxAccess: () => ({
+            files: [{ path: ".git/index", access: "write", kind: "file", purpose: "审批覆盖一次越界写入" }],
+        }),
         async execute({ input }) {
             executed.push({ value: (input as { readonly value: string }).value });
             return { kind: "success", output: "stored", summary: "Stored" };
@@ -284,6 +287,9 @@ function unknownEffectTool(executed: { value: string }[]): Tool {
         },
         replayPolicy: "manual",
         validate: () => ({ ok: true }),
+        resolveSandboxAccess: () => ({
+            files: [{ path: ".git/index", access: "write", kind: "file", purpose: "审批覆盖一次越界写入" }],
+        }),
         async execute({ input }) {
             executed.push({ value: (input as { readonly value: string }).value });
             throw new TransientToolExecutionFailure("network_unavailable", 0);
@@ -626,6 +632,9 @@ test("集成：PTC 子操作工具活动保留子操作身份，父程序身份�
                 },
                 replayPolicy: "safe",
                 validate: () => ({ ok: true }),
+                resolveSandboxAccess: () => ({
+                    files: [{ path: ".git/index", access: "write", kind: "file", purpose: "审批覆盖一次越界写入" }],
+                }),
                 async execute({ input }) {
                     const value = input as { readonly path: string; readonly content: string };
                     executed.push({ path: value.path, content: value.content });

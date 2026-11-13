@@ -6,6 +6,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { projectInteractionView } from "../../../packages/runtime/src/interaction-view";
+import { PERMISSION_PRESETS } from "../../../packages/permission/src/index";
 import { cancelTrigger, externalTestActor, interactionAnswerTrigger, workTrigger } from "../../../packages/runtime/test/trigger-fixtures";
 import type { GoalUserAction } from "../../../packages/runtime/src/trigger";
 import { DefaultGoalModelSelectionCoordinator } from "../../../packages/runtime/src/goal-model-selection-coordinator";
@@ -19,6 +20,11 @@ import type { WorkerOfflineProgress } from "../src/runtime/worker-process-regist
 import { WorkerScheduler } from "../src/runtime/worker-scheduler";
 
 const unusedContinuation = async () => ({ ok: false as const, code: "RUN_NOT_FOUND", message: "continuation is not wired in this test" });
+const readPermissionProfile = async () => ({
+    workspaceId: "test-workspace",
+    profile: PERMISSION_PRESETS.ask,
+    revision: 0,
+});
 
 function chatChunk(delta: Record<string, unknown>, finishReason: string | null = null): Record<string, unknown> {
     return { id: "worker-interaction-test", object: "chat.completion.chunk", created: 0, model: "test-model",
@@ -142,7 +148,7 @@ async function runInteractionScenario(context: TestContext, route: "direct" | "r
         await saveGoal(goal);
     });
     const never = { structuredOutputMode: "prompt_only" as const, async generate() { throw new Error("No permission decision is expected"); } };
-    let scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, permissionAdapter: never, commitContinuation: unusedContinuation });
+    let scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, readPermissionProfile, commitContinuation: unusedContinuation });
     let storesOpen = true;
     let workerPids: number[] = [];
     const operations: Promise<unknown>[] = [];
@@ -180,7 +186,7 @@ async function runInteractionScenario(context: TestContext, route: "direct" | "r
             }, authorizedWorkspace);
             return {
                 goal,
-                authorization: { workspace: authorizedWorkspace, toolIds: [], sandbox: { extraFiles: [], network: "none" as const } },
+                authorization: { workspace: authorizedWorkspace, toolIds: [] },
             };
         };
         const admission = await admitTrigger(owner, triggers, goals, never, work, principal, createGoal);
@@ -255,7 +261,7 @@ async function runInteractionScenario(context: TestContext, route: "direct" | "r
             owner = new SupervisorOwnership(join(dataDirectory, "owner.db"));
             triggers = new TriggerStore(join(dataDirectory, "triggers.db"));
             storesOpen = true;
-            scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, permissionAdapter: never, commitContinuation: unusedContinuation });
+            scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, readPermissionProfile, commitContinuation: unusedContinuation });
         }
         const answering = track(route === "direct" ? scheduler.handleInteractionTrigger(interaction, interactionPrincipal) : scheduler.pump());
         if (route !== "reattached-completion") {

@@ -5,7 +5,6 @@ import type {
   BrowserGoalListItem,
   BrowserModelCatalog,
   BrowserModelOption,
-  BrowserToolGrantSummary,
 } from "../../../../packages/web-contracts/src/index";
 import { GoalBoard } from "../components/GoalBoard";
 import { PermissionControl } from "../components/PermissionControl";
@@ -16,9 +15,9 @@ import { useControlIntents } from "./useControlIntents";
 import { useGoalSession } from "./useGoalSession";
 import { useModelSelection } from "./useModelSelection";
 import { usePermissions } from "./usePermissions";
+import { usePermissionExemptions } from "./usePermissionExemptions";
 import { useRunCommands } from "./useRunCommands";
 import { useRunStream } from "./useRunStream";
-import { useToolGrants } from "./useToolGrants";
 import { useWorkspaceContext } from "./useWorkspaceContext";
 import type { GoalView } from "../control/types";
 import type { SessionTab } from "../types";
@@ -70,12 +69,12 @@ export function useGoalBoardApp() {
   });
 
   const {
-    toolGrants,
-    toolGrantsLoading,
-    toolGrantsError,
-    revokeToolGrant,
-    reloadToolGrants,
-  } = useToolGrants({
+    exemptions,
+    exemptionsLoading,
+    exemptionsError,
+    revokeExemption,
+    reloadExemptions,
+  } = usePermissionExemptions({
     enabled: goalInfoOpen,
     session: sessionManager.session,
     selectedGoalId: sessionManager.selectedGoalId,
@@ -126,8 +125,9 @@ export function useGoalBoardApp() {
       }
       if (scope === "activity" && !await sessionManager.refreshActivity(view, signal)) return;
       if (scope === "goals") await goalsManager.refreshGoals();
-      if (scope === "grants") await reloadToolGrants();
-      if (scope === "permission") await permissionsManager.reloadPermissionMode();
+      // 服务端用 `grants` 作用域声明边界豁免变更，刷新的是豁免列表而不是 Tool 授权。
+      if (scope === "grants") await reloadExemptions();
+      if (scope === "permission") await permissionsManager.reloadPermissionProfile();
       if (scope === "model") await modelSelectionManager.refreshModelCatalog();
       if (isCurrent()) control.markFresh(view, [scope]);
     }));
@@ -159,16 +159,16 @@ export function useGoalBoardApp() {
       open={permissionsManager.permissionMenuOpen}
       onToggle={() => permissionsManager.setPermissionMenuOpen((v) => !v)}
       onClose={() => permissionsManager.setPermissionMenuOpen(false)}
-      mode={permissionsManager.permissionMode?.mode ?? null}
-      modeError={permissionsManager.permissionModeError}
-      modeBusy={permissionsManager.permissionModeBusy}
-      onChooseMode={(mode) => void permissionsManager.updatePermissionMode(mode)}
-      grants={permissionsManager.permissionMenuGrants}
-      grantsLoading={permissionsManager.permissionMenuGrantsLoading}
-      grantsError={permissionsManager.permissionMenuGrantsError}
+      profile={permissionsManager.permissionProfile?.profile ?? null}
+      profileError={permissionsManager.permissionProfileError}
+      profileBusy={permissionsManager.permissionProfileBusy}
+      onChoosePreset={(profile) => void permissionsManager.updatePermissionProfile(profile)}
+      exemptions={permissionsManager.exemptions}
+      exemptionsLoading={permissionsManager.exemptionsLoading}
+      exemptionsError={permissionsManager.exemptionsError}
       hasGoal={hasGoal}
-      revokingGrantId={permissionsManager.revokingGrantId}
-      onRevokeGrant={(grant) => void permissionsManager.revokePermissionGrant(grant)}
+      revokingExemptionId={permissionsManager.revokingExemptionId}
+      onRevokeExemption={(exemption) => void permissionsManager.revokePermissionExemption(exemption)}
     />
   );
 
@@ -227,10 +227,10 @@ export function useGoalBoardApp() {
     setFollow,
     goalInfoOpen,
     setGoalInfoOpen,
-    toolGrants,
-    toolGrantsLoading,
-    toolGrantsError,
-    revokingGrantId: permissionsManager.revokingGrantId,
+    exemptions,
+    exemptionsLoading,
+    exemptionsError,
+    revokingExemptionId: permissionsManager.revokingExemptionId,
     liveText: streamManager.liveText,
     livePreviews: streamManager.livePreviews,
     liveActivity: streamManager.liveActivity,
@@ -308,7 +308,7 @@ export function useGoalBoardApp() {
     onClearManageError: () => goalsManager.refreshGoals(),
     goalBoardElement,
     renderPermissionControl,
-    revokeToolGrant,
+    revokeExemption,
     onDeleteGoal: handleDeleteGoal,
     modelPickerTarget: modelSelectionManager.modelPickerTarget,
     draftModelId: sessionManager.draftModelId,

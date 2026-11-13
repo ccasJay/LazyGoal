@@ -35,7 +35,7 @@ export interface GoalSnapshotProfileV1 {
 
 /** Snapshot 中冻结的 Goal 协议组合与执行策略。 */
 export interface GoalSnapshotDefinitionV1 {
-    /** Snapshot 中创建 Goal 的 Trigger 关联与冻结动作权限范围。 */
+    /** Snapshot 中创建 Goal 的 Trigger 关联与冻结的 Tool 暴露范围。 */
     readonly triggerContext?: {
         readonly triggerId: string;
         readonly authorization: {
@@ -48,10 +48,6 @@ export interface GoalSnapshotDefinitionV1 {
                 readonly baseCommit?: string;
             };
             readonly toolIds: readonly string[];
-            readonly sandbox: {
-                readonly extraFiles: readonly { readonly canonicalPath: string; readonly access: "read" | "write"; readonly kind: "file" | "directory_tree" }[];
-                readonly network: "none" | "all_outbound";
-            };
         };
     };
     readonly intent: string;

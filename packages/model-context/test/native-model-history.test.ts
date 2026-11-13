@@ -322,9 +322,9 @@ test("approval waiting restores the same native call ID and executes the approve
     const trajectory = createInMemoryTrajectoryStore();
     await store.save(initial());
     let executed = 0;
-    const registry = new InMemoryToolRegistry([createTestToolRegistration({ definition: { id: "read_file", description: "Read", isReadOnly: true, inputBinding: createTestBinding("test.read_file", objectInputSchema()) }, replayPolicy: "safe", validate: () => ({ ok: true }),
+    const registry = new InMemoryToolRegistry([createTestToolRegistration({ definition: { id: "read_file", description: "Read", isReadOnly: true, inputBinding: createTestBinding("test.read_file", objectInputSchema()) }, replayPolicy: "safe", validate: () => ({ ok: true }), resolveSandboxAccess: () => ({ files: [{ path: ".git/index", access: "write", kind: "file", purpose: "审批覆盖一次越界写入" }] }),
         async execute() { executed++; return { kind: "success", output: "Read", summary: "Observed" }; } })]);
-    const waiting = await new Runner({ store, trajectoryStore: trajectory, executor: executorFor(nativeAdapter(async () => responseFor("read_file", {})), trajectory), toolRegistry: registry, toolPolicy: { evaluate: () => "require_approval" } })
+    const waiting = await new Runner({ store, trajectoryStore: trajectory, workspaceRoot: tmpdir(), executor: executorFor(nativeAdapter(async () => responseFor("read_file", {})), trajectory), toolRegistry: registry })
         .run({ goalId: "native-goal", runId: "native-run" });
     assert.equal(waiting.ok, true);
     if (!waiting.ok) return;
@@ -338,7 +338,7 @@ test("approval waiting restores the same native call ID and executes the approve
         assert.equal(JSON.parse(results[0]!.content).actionId, pending.action.actionId);
         return responseFor("system_wait_for_input", { reason: "Await user", memoryPatch: null }, "wait-call");
     });
-    const runner = new Runner({ store, trajectoryStore: trajectory, executor: executorFor(resumed, trajectory), toolRegistry: registry, toolPolicy: { evaluate: () => "allow" } });
+    const runner = new Runner({ store, trajectoryStore: trajectory, workspaceRoot: tmpdir(), executor: executorFor(resumed, trajectory), toolRegistry: registry });
     const coordinator = new GoalCoordinator({ store, trajectoryStore: trajectory, scheduler: new InlineScheduler(runner) });
     const result = await coordinator.resume({ ref: { goalId: "native-goal", runId: "native-run" }, action: { kind: "approve_action", actionId: pending.action.actionId } });
     assert.equal(result.ok, true);

@@ -22,6 +22,7 @@ import {
     type ToolValidationResult,
 } from "../../tool-core/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
+import { PERMISSION_PRESETS, type PermissionProfile } from "../../permission/src/index";
 import type { SandboxExecutionPlan } from "../../sandbox/src/index";
 import { BaseTestStepExecutor, currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
 import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
@@ -268,6 +269,15 @@ test("受限命令执行结果不确定（outcome_unknown）时维持人工等�
         toolRegistry: registry,
         toolPolicy: { evaluate: () => "allow" },
         workspaceRoot,
+        workspaceId: "ws-plan-recovery",
+        permissionProfileStore: {
+            async get(currentWorkspaceId: string) {
+                return { workspaceId: currentWorkspaceId, profile: PERMISSION_PRESETS.full, revision: 1 };
+            },
+            async update(currentWorkspaceId: string, profile: PermissionProfile, expectedRevision: number) {
+                return { workspaceId: currentWorkspaceId, profile, revision: expectedRevision + 1 };
+            },
+        },
     });
 
     const initialGoal = createTestGoal();

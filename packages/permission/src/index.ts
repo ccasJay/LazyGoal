@@ -1,15 +1,17 @@
 export type {
     ActionRef,
+    ApprovalPolicy,
+    ApprovalReviewer,
     EffectiveExtraFile,
     EffectiveSandboxReview,
     EffectiveSandboxScope,
     GrantRef,
     GrantStatus,
     PermissionGrantService,
-    PermissionMode,
+    PermissionProfile,
     PermissionScope,
-    ProjectPermissionMode,
-    ProjectPermissionModeStore,
+    ProjectPermissionProfile,
+    ProjectPermissionProfileStore,
     SandboxAuthorizationContext,
     SandboxAuthorizationDecision,
     SandboxGrant,
@@ -17,6 +19,7 @@ export type {
     SandboxGrantMatcher,
     SandboxGrantScope,
     SandboxGrantStore,
+    SandboxMode,
     ToolGrant,
     ToolGrantLookup,
     ToolGrantMatcher,
@@ -26,19 +29,26 @@ export type {
 } from "./types";
 
 export {
-    PermissionModeConflictError,
+    PermissionProfileConflictError,
 } from "./types";
+
+export {
+    DEFAULT_PERMISSION_PROFILE,
+    PERMISSION_PRESETS,
+} from "./permission-profile";
+
+export {
+    evaluatePermissionBoundary,
+    isDestructiveCommand,
+    type PermissionBoundaryDecision,
+    type PermissionBoundaryRequest,
+    type PermissionRiskClass,
+} from "./permission-boundary";
 
 export {
     createToolGrantMatcher,
     toolGrantMatchersEqual,
 } from "./tool-grant-matcher";
-
-export {
-    evaluateToolAuthorization,
-    type ToolAuthorizationContext,
-    type ToolAuthorizationDecision,
-} from "./tool-authorization";
 
 export {
     evaluateSandboxAuthorization,

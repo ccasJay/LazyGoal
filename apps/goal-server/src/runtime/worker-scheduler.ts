@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { canonicalJson } from "../../../../packages/contracts/src/index";
-import type { LLMAdapter } from "../../../../packages/llm-core/src/index";
+import type { ProjectPermissionProfile } from "../../../../packages/permission/src/index";
 import type { Goal, GoalTriggerContext } from "../../../../packages/runtime/src/domain";
 import type { Trigger, TriggerActor, TriggerTarget } from "../../../../packages/runtime/src/trigger";
 import { projectInteractionView } from "../../../../packages/runtime/src/interaction-view";
@@ -125,7 +125,7 @@ type WorkerRunResponsePayload = Exclude<WorkerResponseTrigger["payload"], { read
  *
  * @example
  * ```ts
- * const scheduler = new WorkerScheduler({ owner, triggers, goals, cwd, dataDirectory, permissionAdapter });
+ * const scheduler = new WorkerScheduler({ owner, triggers, goals, cwd, dataDirectory, readPermissionProfile });
  * await scheduler.pump();
  * ```
  */
@@ -145,8 +145,13 @@ export class WorkerScheduler {
         readonly cwd: string;
         readonly dataDirectory: string;
         readonly env?: NodeJS.ProcessEnv;
-        /** Supervisor 直接调用的默认权限判断模型。 */
-        readonly permissionAdapter: LLMAdapter;
+        /**
+         * 读取当前工作区权限档位。
+         *
+         * @remarks
+         * 每次 Action 权限等待都重新读取；读取失败时对应 Action 被拒绝，而不是退回默认档位。
+         */
+        readonly readPermissionProfile: () => Promise<ProjectPermissionProfile>;
         /** 在同一 Goal 内只提交下一 Run 的续接命令；Scheduler 负责排查与重新派发。 */
         readonly commitContinuation: (request: {
             readonly goalId: string;
@@ -1124,11 +1129,12 @@ export class WorkerScheduler {
             };
         }
 
-        const advice = await decideWorkerActionPermission(this.options.permissionAdapter, goal);
-        if (advice.kind === "pending") {
-            this.options.triggers.recordActionPermissionFailure(requestTrigger.id, advice.reason);
-            return undefined;
-        }
+        const advice = await decideWorkerActionPermission({
+            goal,
+            workspaceRoot: goal.definition.triggerContext?.authorization.workspace.executionRoot ?? this.options.cwd,
+            readProfile: this.options.readPermissionProfile,
+        });
+        if (advice.kind === "pending") return undefined;
         const decision = advice.decision;
         const replyIdentity = { requestId: request.requestId, decision };
         const digest = createHash("sha256").update(canonicalJson(replyIdentity)).digest("hex");

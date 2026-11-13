@@ -10,6 +10,7 @@ import { transition } from "../../../packages/runtime/src/transition";
 import { currentProtocols } from "../../../packages/runtime/test/current-fixtures";
 import type { Trigger } from "../../../packages/runtime/src/trigger";
 import { cancelTrigger, workTrigger } from "../../../packages/runtime/test/trigger-fixtures";
+import { PERMISSION_PRESETS } from "../../../packages/permission/src/index";
 import { JsonFileGoalStore } from "../../../packages/storage/src/goal-store";
 import { SupervisorOwnership } from "../../../packages/storage/src/supervisor-ownership";
 import { TriggerStore } from "../../../packages/storage/src/trigger-store";
@@ -17,6 +18,11 @@ import { createRuntimeComposition } from "../src/runtime/index";
 import { WorkerScheduler } from "../src/runtime/index";
 
 const EXTERNAL_ID = "continuation-actor";
+const readPermissionProfile = async () => ({
+    workspaceId: "test-workspace",
+    profile: PERMISSION_PRESETS.ask,
+    revision: 0,
+});
 const principal = { role: "user", externalId: EXTERNAL_ID, mayCreateGoal: false, goalIds: [] as readonly string[] } as const;
 
 function chatChunk(delta: Record<string, unknown>, finishReason: string | null = null): Record<string, unknown> {
@@ -108,7 +114,6 @@ function terminalGoal(goalId: string, terminal: Terminal, workspaceRoot: string,
                 authorization: {
                     workspace: { mode: "shared", projectRoot: workspaceRoot, executionRoot: workspaceRoot },
                     toolIds: [],
-                    sandbox: { extraFiles: [], network: "none" },
                 },
             },
         },
@@ -192,7 +197,7 @@ async function prepare(terminal: Terminal) {
         cwd: workspace,
         dataDirectory,
         env,
-        permissionAdapter: supervisorAdapter,
+        readPermissionProfile,
         commitContinuation: ({ goalId, runId, inputId, content }) =>
             composition.commands.commitContinuation({ goalId, runId }, content, inputId),
     });

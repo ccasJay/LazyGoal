@@ -116,6 +116,20 @@ export interface EffectiveSandboxScope {
 }
 
 /**
+ * 技术沙箱边界档位。
+ *
+ * @remarks
+ * 只描述内核强制的文件与网络边界，不涉及审批策略；`workspace-write` 允许工作区树读写，
+ * `read-only` 只允许读取，`danger-full-access` 放开本机文件边界但仍禁止写入 LazyGoal 内部状态。
+ *
+ * @example
+ * ```ts
+ * const mode: SandboxMode = "workspace-write";
+ * ```
+ */
+export type SandboxMode = "read-only" | "workspace-write" | "danger-full-access";
+
+/**
  * 判断 Action 实际申请的沙箱能力是否完全处于 Goal 冻结的能力上限内。
  *
  * @remarks
