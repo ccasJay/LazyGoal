@@ -492,6 +492,23 @@ export interface BrowserActivityHistoryMarker {
     readonly source: "activity";
 }
 
+/**
+ * Goal 普通消息续接的可用性投影。
+ *
+ * @remarks
+ * 只有宿主确认手动创建、当前 Run 已结算终态且没有待恢复 Worker 记录的 Goal 才可续接。
+ * 不可用时 `reason` 说明拒绝依据；浏览器不得自行推断来源或当前 Run 是否结算。
+ *
+ * @example
+ * ```ts
+ * if (goal.continuation?.available === true) showComposer();
+ * ```
+ */
+export interface BrowserGoalContinuation {
+    readonly available: boolean;
+    readonly reason?: "not_web_created" | "run_not_terminal" | "run_settling";
+}
+
 /** 初始读取和分页使用的窄 Goal 状态。 */
 export interface BrowserGoalSessionState {
     /** @pattern \S */
@@ -509,6 +526,7 @@ export interface BrowserGoalSessionState {
     readonly currentRunTerminalDetail?: BrowserSessionRunTerminalDetail;
     readonly currentPlanRoute?: BrowserPlanRoute;
     readonly execution?: BrowserGoalExecution;
+    readonly continuation?: BrowserGoalContinuation;
     readonly pendingSteers?: readonly BrowserPendingSteer[];
     readonly pendingMessages?: readonly BrowserPendingMessage[];
     readonly queue?: BrowserQueueState;

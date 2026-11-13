@@ -17,7 +17,7 @@ Snapshot、Trajectory、Profile 和调用事实的文件 Schema 与 Store。本�
 | --- | --- | --- |
 | [写入原语](../src/json-file-write.ts) | `atomicWriteJson`、`appendJsonl` 与 `appendFileChunk` 的唯一实现：同目录临时文件、创建时文件 `0600` 与目录 `0700`、按需 `fsync`、可重试 errno 的效果核对与失败清理 | 识别 Store 类型、协议错误或路径语义；跨进程锁、目录 `fsync` |
 | [Supervisor 所有权](../src/supervisor-ownership.ts) | SQLite 内核文件锁排斥同一路径的并发所有者，关闭等待已借用操作 | 验证锁路径与工作区映射、Worker 身份或运行时装配 |
-| [TriggerStore](../src/trigger-store.ts) | SQLite 保存不可变 Trigger 与独立路由标记；唯一 ID 冲突拒绝且不回放结果。保存准入失败分类、Goal 保留/冻结意图、FIFO Worker 绑定、Worker 恢复及权限请求状态；Runtime 应用权限回复后以事务同时标记请求与回复已路由 | 传输身份认证、准入策略、权限决定、Worker 自有上下文/outbox、生命周期与实际派发 |
+| [TriggerStore](../src/trigger-store.ts) | SQLite 保存不可变 Trigger 与独立路由标记；唯一 ID 冲突拒绝且不回放结果。保存准入失败分类、Goal 保留/冻结意图、宿主确认的 Goal 创建来源、FIFO Worker 绑定、Worker 恢复及权限请求状态；Runtime 应用权限回复后以事务同时标记请求与回复已路由 | 传输身份认证、准入策略、权限决定、Worker 自有上下文/outbox、生命周期与实际派发 |
 | [Trigger ingress](../src/trigger-ingress.ts) | 校验生成绑定、已认证 Actor 与 Goal 访问权；`validateAuthorizedTrigger` 只验证不持久化，`receiveAuthorizedTrigger` 验证后写入 TriggerStore | Run 状态判断、Worker 路由或授权决定 |
 | [串行队列](../src/keyed-serial-queue.ts) | `KeyedSerialQueue` 的按键 FIFO 串行、失败隔离、簿记释放与 `drain` | 跨进程锁、事务或 exactly-once |
 | [AgentProfileFile](../src/agent-profile-file.ts) | Profile 文件 DTO（`schemaVersion: 1`）、具名 `NonEmptyString` 约束、生成绑定与 `AgentProfileConfigurationError` | 读取文件系统、构造 Runtime Profile |

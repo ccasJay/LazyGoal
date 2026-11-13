@@ -5,8 +5,8 @@ export const browserGoalSessionMetadata = {
   "version": 1,
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
-    "path": "packages/web-contracts/src/wire.ts#BrowserGoalSession,BrowserRunStatus,BrowserGoalExecution,BrowserExecutionState,BrowserSessionMessage,BrowserMessagePosition,BrowserPendingSteer,BrowserPendingMessage,BrowserQueueState,BrowserInterruption,BrowserSessionRun,BrowserSessionStep,BrowserSessionStepThink,BrowserBashExecutionDetail,BrowserRunStageGroup,BrowserRunStageStatus,BrowserRunStageRejection,BrowserRunStageResultRef,BrowserRunStageRevision,BrowserPlanRoute,BrowserPlanRouteStageState,BrowserSessionRunTerminalDetail,BrowserGoalPlan,BrowserGoalPlanItem,BrowserInteractionView,BrowserInteractionKind,BrowserInteractionDecision,BrowserPendingAction,BrowserSandboxReview,BrowserToolGrantExtraFile,BrowserParentProgram",
-    "sha256": "28333c8a98c3a1528a205108839916c9b7b8fbd6ec4c84ac64920d09a799973c"
+    "path": "packages/web-contracts/src/wire.ts#BrowserGoalSession,BrowserRunStatus,BrowserGoalExecution,BrowserGoalContinuation,BrowserExecutionState,BrowserSessionMessage,BrowserMessagePosition,BrowserPendingSteer,BrowserPendingMessage,BrowserQueueState,BrowserInterruption,BrowserSessionRun,BrowserSessionStep,BrowserSessionStepThink,BrowserBashExecutionDetail,BrowserRunStageGroup,BrowserRunStageStatus,BrowserRunStageRejection,BrowserRunStageResultRef,BrowserRunStageRevision,BrowserPlanRoute,BrowserPlanRouteStageState,BrowserSessionRunTerminalDetail,BrowserGoalPlan,BrowserGoalPlanItem,BrowserInteractionView,BrowserInteractionKind,BrowserInteractionDecision,BrowserPendingAction,BrowserSandboxReview,BrowserToolGrantExtraFile,BrowserParentProgram",
+    "sha256": "f7e1061e8bc39e8c4e2930bf6aae79e241301779d633182cc34f79f96109bde0"
   },
   "generator": {
     "name": "ts-json-schema-generator",

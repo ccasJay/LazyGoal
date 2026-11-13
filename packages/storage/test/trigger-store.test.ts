@@ -227,3 +227,27 @@ test("dispatch claims persist FIFO Trigger bindings and cannot reuse a busy Work
         reopened.close();
     } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test("Goal creation origin persists with the work Trigger and rejects other Trigger kinds", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "lazygoal-trigger-store-"));
+    try {
+        const path = join(dir, "triggers.db");
+        const first = new TriggerStore(path);
+        const manual = workTrigger("trigger-manual", "inspect files");
+        assert.deepEqual(first.receive(manual, "web-manual"), manual);
+        assert.equal(first.goalOrigin(manual.id), "web-manual");
+        const external = workTrigger("trigger-external", "inspect files");
+        first.receive(external);
+        assert.equal(first.goalOrigin(external.id), undefined);
+        assert.equal(first.goalOrigin("missing"), undefined);
+        assert.throws(() => first.receive(cancelTrigger("trigger-cancel", "goal-1", "run-1"), "web-manual"),
+            /Goal origin requires a new Goal work Trigger/);
+        assert.equal(first.routeStatus("trigger-cancel"), undefined);
+        first.close();
+
+        const reopened = new TriggerStore(path);
+        assert.equal(reopened.goalOrigin(manual.id), "web-manual");
+        assert.equal(reopened.goalOrigin(external.id), undefined);
+        reopened.close();
+    } finally { await rm(dir, { recursive: true, force: true }); }
+});

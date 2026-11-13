@@ -23,6 +23,7 @@ import type {
     BrowserCreateSessionCommand,
     BrowserCreateSessionResult,
     BrowserExecutionState,
+    BrowserGoalContinuation,
     BrowserGoalEvent,
     BrowserSessionInputCommand,
     BrowserSessionInputQueryResult,
@@ -64,9 +65,27 @@ export function createTriggerBrowserSessionPort(dependencies: TriggerBrowserSess
         if (executionOwner(goalId) || queued?.status === "queued" || queued?.status === "claimed" || queued?.status === "waiting") return "active";
         return "inactive";
     };
+    const continuationState = (goal: Goal): BrowserGoalContinuation => {
+        const triggerId = goal.definition.triggerContext?.triggerId;
+        if (triggerId === undefined || triggers.goalOrigin(triggerId) !== "web-manual") {
+            return { available: false, reason: "not_web_created" };
+        }
+        const status = goal.state.run.status;
+        if (status !== "completed" && status !== "failed" && status !== "cancelled") {
+            return { available: false, reason: "run_not_terminal" };
+        }
+        const settled = triggers.queueRecord(goal.id)?.status === "terminal"
+            && triggers.workerRecovery(goal.id)?.status !== "pending";
+        return settled ? { available: true } : { available: false, reason: "run_settling" };
+    };
 
     async function readSnapshot(goalId: string): Promise<BrowserControlSnapshot | undefined> {
-        const snapshot = await readBrowserControlSnapshot(goalId, goals, () => executionOwner(goalId));
+        const snapshot = await readBrowserControlSnapshot(
+            goalId,
+            goals,
+            () => executionOwner(goalId),
+            (goal) => ({ continuation: continuationState(goal) }),
+        );
         if (snapshot === undefined) return undefined;
         return {
             goal: {

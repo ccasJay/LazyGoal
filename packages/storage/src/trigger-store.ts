@@ -72,6 +72,21 @@ export type TriggerActionPermissionFailureReason =
 export type TriggerAdmissionFailureReason = "model-failed" | "invalid-model-result" | "invalid-work";
 
 /**
+ * Goal 的宿主创建来源。
+ *
+ * @remarks
+ * 由 Supervisor 在受理 work Trigger 时按已认证入口写入，与 Trigger 一起持久化。
+ * `web-manual` 表示宿主确认的手动 Web 创建入口；记录缺失代表非手动来源，不根据
+ * Actor、工作区或当前浏览器身份推测。
+ *
+ * @example
+ * ```ts
+ * const origin: TriggerGoalOrigin = "web-manual";
+ * ```
+ */
+export type TriggerGoalOrigin = "web-manual";
+
+/**
  * 使用 SQLite 事务保存不可变 Trigger、路由标记和 Goal 派发状态。
  *
  * @remarks
@@ -132,6 +147,10 @@ export class TriggerStore {
                 trigger_id TEXT PRIMARY KEY REFERENCES trigger_events(id),
                 reason TEXT NOT NULL CHECK (reason IN ('model-failed', 'invalid-model-result', 'invalid-work'))
             ) STRICT;
+            CREATE TABLE IF NOT EXISTS trigger_goal_origins (
+                trigger_id TEXT PRIMARY KEY REFERENCES trigger_events(id),
+                origin TEXT NOT NULL CHECK (origin IN ('web-manual'))
+            ) STRICT;
             PRAGMA foreign_keys = ON;
         `);
     }
@@ -140,23 +159,49 @@ export class TriggerStore {
      * 持久化新的不可变 Trigger。
      *
      * @param input - 已认证来源及目标授权的 Trigger；结构仍在此边界校验。
+     * @param goalOrigin - 宿主确认的 Goal 创建来源，只在同一事务内随新建 Goal 的 work Trigger 写入。
      * @returns 新写入的 Trigger。
-     * @throws Trigger 结构或身份无效、ID 已存在或 SQLite 写入失败时抛出；事务不会部分提交。
+     * @throws Trigger 结构或身份无效、创建来源不属于新 Goal 的 work Trigger、ID 已存在或 SQLite 写入失败时抛出；事务不会部分提交。
      */
-    receive(input: unknown): Trigger {
+    receive(input: unknown, goalOrigin?: TriggerGoalOrigin): Trigger {
         const trigger = normalizeTrigger(input);
+        if (goalOrigin !== undefined && (trigger.type !== "work" || "goalId" in trigger)) {
+            throw new Error("Goal origin requires a new Goal work Trigger");
+        }
         const content = canonicalJson(trigger);
         this.database.exec("BEGIN IMMEDIATE");
         try {
             const existing = this.database.prepare("SELECT 1 AS present FROM trigger_events WHERE id = ?").get(trigger.id);
             if (existing !== undefined) throw new Error("Trigger identity conflict");
             this.database.prepare("INSERT INTO trigger_events (id, content, routed) VALUES (?, ?, 0)").run(trigger.id, content);
+            if (goalOrigin !== undefined) {
+                this.database.prepare("INSERT INTO trigger_goal_origins (trigger_id, origin) VALUES (?, ?)").run(trigger.id, goalOrigin);
+            }
             this.database.exec("COMMIT");
             return trigger;
         } catch (error) {
             this.database.exec("ROLLBACK");
             throw error;
         }
+    }
+
+    /**
+     * 读取新建 Goal 的宿主创建来源。
+     *
+     * @param triggerId - 创建该 Goal 的 work Trigger 身份。
+     * @returns 已记录的来源；未记录或 Trigger 不存在时返回 `undefined`。
+     * @throws 来源记录损坏或 SQLite 读取失败时抛出。
+     * @example
+     * ```ts
+     * const origin = store.goalOrigin("trigger-1");
+     * ```
+     */
+    goalOrigin(triggerId: string): TriggerGoalOrigin | undefined {
+        const row = this.database.prepare("SELECT origin FROM trigger_goal_origins WHERE trigger_id = ?")
+            .get(triggerId) as { origin: string } | undefined;
+        if (row === undefined) return undefined;
+        if (row.origin !== "web-manual") throw new Error("Invalid stored Goal origin");
+        return row.origin;
     }
 
     /** @returns 按 Trigger ID 读取已校验事件；不存在时返回 `undefined`，损坏时抛出。 */

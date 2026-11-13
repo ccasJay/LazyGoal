@@ -9,6 +9,7 @@ import type {
     SessionOutputStream,
     GoalModelSelection,
     GoalStore,
+    Goal,
     GoalSessionState,
     SessionEventSource,
     SessionGenerationEvent,
@@ -24,6 +25,7 @@ import type {
     BrowserControlSnapshot,
     BrowserGoalActivityEvent,
     BrowserGoalEvent,
+    BrowserGoalSessionState,
     BrowserSessionInputCommand,
     BrowserSessionInputOutcome,
     BrowserSessionInputQueryResult,
@@ -45,6 +47,7 @@ import { BROWSER_ACTIVITY_EVENT_TYPES, isJsonValue } from "../../web-contracts/s
  * @param goalId - 要读取的 Goal。
  * @param store - 当前工作区 Snapshot 读取端口。
  * @param ownsExecution - 同步读取宿主执行归属，仅在 Snapshot 存在时调用。
+ * @param extendGoal - 宿主补充的 Goal 控制投影字段，由调用方按自身持久事实计算。
  * @returns 同一提交的控制快照，Goal 不存在时返回 undefined。
  * @throws Snapshot 读取失败时拒绝。
  * @example
@@ -56,12 +59,16 @@ export async function readBrowserControlSnapshot(
     goalId: string,
     store: Pick<GoalStore, "restore">,
     ownsExecution: () => boolean,
+    extendGoal?: (goal: Goal) => Partial<BrowserGoalSessionState>,
 ): Promise<BrowserControlSnapshot | undefined> {
     const goal = await store.restore(goalId);
     if (goal === undefined) return undefined;
     const executionOwner = ownsExecution();
     return {
-        goal: projectBrowserGoalSessionState(goal, executionOwner ? goalId : undefined),
+        goal: {
+            ...projectBrowserGoalSessionState(goal, executionOwner ? goalId : undefined),
+            ...(extendGoal === undefined ? {} : extendGoal(goal)),
+        },
         session: projectSessionState(goalId, projectGoalSessionState({ goal, executionOwner })),
     };
 }

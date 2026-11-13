@@ -5,7 +5,7 @@
 | 概念 | 简明含义 | 归属模块 | 权威说明 |
 | --- | --- | --- | --- |
 | Composition Root | 服务依赖装配边界；可为已解析模型选择构造不发布进程级绑定的一次性 Decide Adapter。 | [Goal Server](../README.md) | [模块说明](./overview.md)、[运行时装配](../src/runtime/composition.ts) |
-| Trigger Browser Session Port | Web 创建与控制命令接入 Supervisor 的准入、Trigger 路由和 Worker 调度；work 名称由本次已解析模型选择的 Adapter 摘要，输出预算受已知模型容量约束，OpenCode Go 请求以 Goal ID 作为 `sessionId`；摘要失败不写入 Trigger 且可重试。控制名称确定，`sentAt` 仅记创建时间。重复 Trigger ID 返回冲突，不回放旧结果。 | [Goal Server](../README.md) | [Trigger 浏览器端口](../src/browser-session-port.ts) |
+| Trigger Browser Session Port | Web 创建与控制命令接入 Supervisor 的准入、Trigger 路由和 Worker 调度；按持久创建来源与当前 Run / 队列结算状态投影普通消息续接可用性；work 名称由本次已解析模型选择的 Adapter 摘要，输出预算受已知模型容量约束，OpenCode Go 请求以 Goal ID 作为 `sessionId`；摘要失败不写入 Trigger 且可重试。控制名称确定，`sentAt` 仅记创建时间。重复 Trigger ID 返回冲突，不回放旧结果。 | [Goal Server](../README.md) | [Trigger 浏览器端口](../src/browser-session-port.ts) |
 | Web service | 同源浏览器接口的显式启停入口；控制快照从一次 Goal Snapshot 读取投影，支持的控制经 Trigger 路径接收。 | [Goal Server](../README.md) | [CLI 装配](../src/cli.ts) |
 | Trigger 本地传输 | loopback 凭据映射到可信 Worker generation、externalId 或 Supervisor Actor；Supervisor 严格校验来源与 Goal 目标，Worker-target 控制消息经 WorkerScheduler 路由，Worker 间没有直接连接。 | [Goal Server](../README.md) | [传输组件](../src/runtime/trigger-wire-server.ts)、[认证与接收](../../../packages/storage/src/trigger-ingress.ts) |
 | Health probe | 精确的 `GET /healthz` 返回固定 `{"status":"ok"}`，不读取业务依赖或诊断信息；仅该路由免 Bearer 校验，Host 与已提供的 Origin／Fetch Metadata 校验仍生效。 | [Goal Server](../README.md) | [路由](../../../packages/browser/src/browser-healthz.ts)、[浏览器访问控制](../../../packages/browser/src/browser-session-access.ts) |
@@ -19,7 +19,7 @@
 | 无界面运行时装配 | 在显式工作区与数据目录上装配默认实现与实例生命周期，暴露命令、查询与管理 Port，不创建 HTTP 或进程信号。 | [Goal Server](../README.md) | [运行时装配](../src/runtime/composition.ts) |
 | 宿主退出协调 | 调用唯一实例关闭核心结算运行时资源，并由应用请求退出码 130；进程信号与退出不进入 Runtime。 | [Goal Server](../README.md) | [进程退出适配](../src/process-exit.ts) |
 | 宿主审批预检 | 无界面宿主经同一只读预检返回绑定审阅引用的修订决定；恢复决定只由专用恢复处理器提交。 | [Goal Server](../README.md) | [运行时装配](../src/runtime/composition.ts) |
-| Trigger Admission | 显式用户工作走确定性 Fast path；其它来源使用 Supervisor Slow path 决定接受与工作区策略，OpenCode Go 请求以 Trigger ID 作为 `sessionId`。Goal 意图保持 Trigger 的原始文本；重启可从存储事件续路由，未冻结工作重新走 Slow path，因为持久化 Actor 不区分 Browser user 与 external。 | [Goal Server](../README.md) | [准入实现](../src/runtime/trigger-admission.ts) |
+| Trigger Admission | 显式用户工作走确定性 Fast path；其它来源使用 Supervisor Slow path 决定接受与工作区策略，OpenCode Go 请求以 Trigger ID 作为 `sessionId`。手动 Web 创建入口在受理时与 Trigger 同事务持久化创建来源，重启后的准入以该记录为唯一依据；缺少记录的未冻结工作仍走 Slow path。Goal 意图保持 Trigger 的原始文本。 | [Goal Server](../README.md) | [准入实现](../src/runtime/trigger-admission.ts) |
 | SupervisorWorkerProcess | Worker Runtime 使用内部 Profile 与执行协议从 work material 构造 Goal 候选；获派 Worker 推进 Goal。检查点与离线 outbox 经 generation 核验后由 Supervisor 保存或结算。 | [Goal Server](../README.md) | [Worker 实现](../src/runtime/worker-process.ts)、[进程入口](../src/worker-process-entry.ts) |
 | WorkerScheduler | 按入队次序认领 Goal 并匹配授权 workspace；创建候选由 Worker Runtime 构造，Snapshot 由 Supervisor 持久化；仅在确认终态后复用 Worker。Run 响应在状态 Snapshot 持久化后发布，以 `replyTo` 关联来源 work Trigger；完成答复取自已保存的最终助手消息，失败与取消只带 `runId`。 | [Goal Server](../README.md) | [调度实现](../src/runtime/worker-scheduler.ts) |
 | Worker interaction Trigger | 回答以顶层 Goal 和 `replyTo` 关联当前等待；Worker Runtime 应用且 Snapshot 保存后才标记已路由。Supervisor `pump()` 重试存储中的未路由回答。 | [Goal Server](../README.md) | [交互路由](../src/runtime/worker-scheduler.ts)、[Trigger 契约](../../../packages/runtime/src/trigger.ts) |

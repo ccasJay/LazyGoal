@@ -125,7 +125,7 @@ Provider 表单在线查询由 Composition Root 校验供应商和端点规则�
 
 OpenCode Go 在线文本模型按实时模型元数据确认文本生成、工具调用和容量后可选，并统一通过 `llm-pi-ai` 的 Chat Completions 适配路径执行。`GoalModelSelection` 与 Snapshot 保存协议、容量、推理、视觉和工具选择能力；每次恢复按保存数据构造 Adapter，并按已保存的 Profile ID 解析当前 API Key。端点由 `llm-pi-ai` 固定，API Key 与 Base URL 不写入 Goal 状态。上游可能限制部分免费模型只能在 OpenCode 内调用，外部客户端请求可能收到 403。
 
-[Trigger 准入组件](../src/runtime/trigger-admission.ts) 对显式用户工作使用确定性 Fast path；其他来源由 Supervisor 直接调用模型执行 Slow path，OpenCode Go 请求以稳定 Trigger ID 作为 `sessionId`。准入失败分类随未路由 Trigger 保存，Supervisor 重启时会直接从该事件恢复处理。默认浏览器入口使用该准入路径。
+[Trigger 准入组件](../src/runtime/trigger-admission.ts) 对显式用户工作使用确定性 Fast path；其他来源由 Supervisor 直接调用模型执行 Slow path，OpenCode Go 请求以稳定 Trigger ID 作为 `sessionId`。手动 Web 创建入口在受理时与 Trigger 同事务写入宿主持久来源，Supervisor 重启后以该记录判断创建来源，缺少记录时保守地重新执行模型准入。准入失败分类随未路由 Trigger 保存，Supervisor 重启时会直接从该事件恢复处理。默认浏览器入口使用该准入路径。
 
 [独立 Worker](../src/runtime/worker-process.ts) 以 OS 子进程复用执行 Runtime。Goal 快照经 generation 与持久队列绑定核验后由 Supervisor 保存。Worker 将执行检查点和待确认的结果保存在本地 outbox。
 
