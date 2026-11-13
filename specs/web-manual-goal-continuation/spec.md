@@ -60,6 +60,6 @@ Supervisor 自主准入并派发的 Goal 不接收 Web 普通续聊，仍可在�
 ## 执行记录
 
 - 状态：pending-human
-- 验证：794af6fa · 2026-11-13T12:40:01+08:00
-- 结果：类型检查、契约生成检查、文档与依赖检查均通过；npm test 2974 pass、scripts 99 pass、0 fail。UI harness 34/34：send-message 与 observe 流程恢复并通过，断言只发送一条绑定旧 Run 的 session_input 且 Activity 出现新 Run。视觉回归 3/4：board/settings/trajectory 通过，session 差异来自既有过期基线（移除排队输入行与 You 头像），非本次改动。
-- 未决：R1.2 派发 Goal 与缺少来源 Goal 的 UI/HTTP 拒绝场景未覆盖；R2.1 failed/cancelled 终态与终态结算中的禁用状态未覆盖（仅 completed）；R2.2 真实 Worker 三终态、历史保留与挂起模型回执未覆盖；R2.3 并发、迟到提交与暂缓结算未做端到端验证；R2.4 派发 Goal 的 Web 拒绝与授权指令执行未覆盖；R2.5 伪造来源、缺少动作授权、跨 Goal/Run 引用未覆盖；R3.1 三处提交边界故障注入与重启恢复未覆盖。
+- 验证：6ba02406 · 2026-11-13T13:30:19+08:00
+- 结果：全量回归：npm test 2974 pass、scripts 99 pass、0 fail。goal-server 90/90（新增 3 个真实 Worker 续接用例）。新增用例断言：Goal 不变、Run 更新、旧 Run 归档保留、正文只追加一次、同一终态拒绝第二个身份、模型挂起时收据已可读；后继 Run 由真实 Worker 认领并执行。UI harness 34/34。视觉回归 3/4，session 差异仍属既有过期基线。
+- 未决：R2.2 的三个前一终态以持久快照准备（后继 Run、派发、收据、取消为真实 Worker 执行）；R1.2 派发 Goal 与缺少来源 Goal 的 UI/HTTP 拒绝场景未覆盖；R2.1 failed/cancelled 前端场景未覆盖；R2.3 并发与迟到提交未做端到端；R2.4 派发 Goal 的来源限制与授权指令执行未覆盖；R2.5 伪造来源、缺少动作授权、跨 Goal/Run 引用未覆盖；R3.1 三处提交边界故障注入与重启恢复未覆盖。
