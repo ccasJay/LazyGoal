@@ -76,9 +76,6 @@ export type {
 
 export { modelOutputBindings } from "./model-output/generated-bindings";
 
-export type { TriggerNameSummary } from "./trigger-name-summary";
-export { triggerNameSummaryBinding } from "./generated/trigger-name-summary-binding";
-
 export { decodeBoundAgentDecision } from "./model-output/decision-validation";
 
 export {
