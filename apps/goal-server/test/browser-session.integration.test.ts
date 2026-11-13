@@ -317,10 +317,11 @@ test("真实 Web 入口使用 Trigger 并行启动 Worker、观察状态、拒�
         const unsupportedMessage = await request("/api/goals/goal-alpha/inputs", "POST", {
             kind: "message",
             inputId: "follow-up-alpha",
+            runId: createAlpha.body.runId,
             content: "Continue the Goal with another message.",
         });
         assert.equal(unsupportedMessage.status, 409);
-        assert.equal(unsupportedMessage.body.error, "RUN_CONTROL_UNAVAILABLE");
+        assert.equal(unsupportedMessage.body.error, "CONTINUATION_UNAVAILABLE");
         const unchangedAfterUnsupportedMessage = await request("/api/goals/goal-alpha", "GET");
         assert.equal(unchangedAfterUnsupportedMessage.status, 200);
         assert.equal(unchangedAfterUnsupportedMessage.body.goal.currentRunId, createAlpha.body.runId);

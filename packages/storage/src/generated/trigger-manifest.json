@@ -4,7 +4,7 @@
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
     "path": "packages/runtime/src/trigger.ts#Trigger,TriggerActor,TriggerTarget,GoalUserAction,GoalActionJsonValue",
-    "sha256": "20a623a302bf6f156fc405f6690dd5ac183b4c8e03367d8ed1a2be84aaba65e9"
+    "sha256": "04c946c5897ef1ddf1b8e50b8de9a4e3aecb2b39fa24f8c09fff0527f268b1aa"
   },
   "generator": {
     "name": "ts-json-schema-generator",

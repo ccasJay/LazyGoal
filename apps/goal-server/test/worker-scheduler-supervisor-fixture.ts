@@ -9,6 +9,8 @@ import { TriggerStore } from "../../../packages/storage/src/trigger-store";
 import { resumeUnroutedWorkTriggers } from "../src/runtime/trigger-admission";
 import { WorkerScheduler } from "../src/runtime/worker-scheduler";
 
+const unusedContinuation = async () => ({ ok: false as const, code: "RUN_NOT_FOUND", message: "continuation is not wired in this test" });
+
 const required = (name: string): string => {
     const value = process.env[name];
     if (value === undefined) throw new Error(`Missing ${name}`);
@@ -52,6 +54,7 @@ const scheduler = new WorkerScheduler({
     dataDirectory,
     env: { LAZYGOAL_HOME: home, LLM_PROVIDER: "openai", LLM_MODEL: "gpt-4o-mini", LLM_API_KEY: "test" },
     permissionAdapter,
+    commitContinuation: unusedContinuation,
 });
 
 void (async () => {

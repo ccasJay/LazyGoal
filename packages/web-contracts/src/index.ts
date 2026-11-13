@@ -2,6 +2,7 @@ export {
     type BrowserRunStatus,
     type BrowserExecutionState,
     type BrowserGoalExecution,
+    type BrowserGoalContinuation,
     type BrowserGoalSessionState,
     type BrowserMessagePosition,
     type BrowserGoalListItem,

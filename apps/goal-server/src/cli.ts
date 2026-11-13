@@ -207,6 +207,8 @@ export async function runServerSession(
             dataDirectory: root.dataDirectory,
             env: process.env,
             permissionAdapter: root.adapter,
+            commitContinuation: ({ goalId, runId, inputId, content }) =>
+                root.commands.commitContinuation({ goalId, runId }, content, inputId),
         });
         root.resources.register({ close: async () => {
             try { await workerScheduler.detachAll(); }

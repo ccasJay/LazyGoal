@@ -284,6 +284,7 @@ test("构造组件不注册进程信号，也不接管调用方依赖", async ()
     assert.equal(process.listenerCount("SIGTERM"), sigtermBefore);
     assert.deepEqual(Object.keys(components.commands).sort(), [
         "advance",
+        "commitContinuation",
         "continue",
         "enterPlanMode",
         "getPermissionMode",

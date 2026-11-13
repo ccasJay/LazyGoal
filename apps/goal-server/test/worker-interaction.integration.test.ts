@@ -17,6 +17,8 @@ import { SupervisorWorkerProcess } from "../src/runtime/worker-process";
 import type { WorkerOfflineProgress } from "../src/runtime/worker-process-registry";
 import { WorkerScheduler } from "../src/runtime/worker-scheduler";
 
+const unusedContinuation = async () => ({ ok: false as const, code: "RUN_NOT_FOUND", message: "continuation is not wired in this test" });
+
 function chatChunk(delta: Record<string, unknown>, finishReason: string | null = null): Record<string, unknown> {
     return { id: "worker-interaction-test", object: "chat.completion.chunk", created: 0, model: "test-model",
         choices: [{ index: 0, delta, finish_reason: finishReason }] };
@@ -134,7 +136,7 @@ async function runInteractionScenario(context: TestContext, route: "direct" | "r
         await saveGoal(goal);
     });
     const never = { structuredOutputMode: "prompt_only" as const, async generate() { throw new Error("No permission decision is expected"); } };
-    let scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, permissionAdapter: never });
+    let scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, permissionAdapter: never, commitContinuation: unusedContinuation });
     let storesOpen = true;
     let workerPids: number[] = [];
     const operations: Promise<unknown>[] = [];
@@ -237,7 +239,7 @@ async function runInteractionScenario(context: TestContext, route: "direct" | "r
             owner = new SupervisorOwnership(join(dataDirectory, "owner.db"));
             triggers = new TriggerStore(join(dataDirectory, "triggers.db"));
             storesOpen = true;
-            scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, permissionAdapter: never });
+            scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, permissionAdapter: never, commitContinuation: unusedContinuation });
         }
         const answering = track(route === "direct" ? scheduler.handleInteractionTrigger(interaction, interactionPrincipal) : scheduler.pump());
         if (route !== "reattached-completion") {

@@ -114,6 +114,7 @@ export type ExecutionCommands = Pick<
     | "resumeForSession"
     | "scheduleAuthorizedAction"
     | "continue"
+    | "commitContinuation"
     | "steer"
     | "interrupt"
     | "enterPlanMode"
@@ -225,6 +226,8 @@ export function createExecutionComponents(
                 coordinator.scheduleAuthorizedAction(ref, authorizedActionId, control),
             continue: (ref, content, control, continuation, queueBinding) =>
                 coordinator.continue(ref, content, control, continuation, queueBinding),
+            commitContinuation: (ref, content, inputId, control) =>
+                coordinator.commitContinuation(ref, content, inputId, control),
             steer: (ref, messageId, content, ledger) => coordinator.steer(ref, messageId, content, ledger),
             interrupt: (ref, requestId, ledger) => coordinator.interrupt(ref, requestId, ledger),
             enterPlanMode: (ref, control) => coordinator.enterPlanMode(ref, control),

@@ -7,7 +7,7 @@ Snapshot、Trajectory、Profile 和调用事实的文件 Schema 与 Store。本�
 
 ## 摘要
 
-`@lazygoal/storage` 拥有持久化文件表示与实现：Profile 文件 DTO、当前 Goal Snapshot v1 DTO 与严格结构绑定、Runtime↔Snapshot 双向 Codec、Trajectory/Diagnostic JSONL Store、Tool/Sandbox Grant 授权账本，以及实现 Runtime/Agent Port 的内存/JSON 文件 Store。Supervisor 所有权锁与不可变 Trigger 记录使用 SQLite；Trigger ID 唯一，路由状态、准入失败分类、冻结 Goal 创建意图、FIFO 队列、Worker 绑定和恢复记录由各自事务保存。Snapshot、Agent Profile、Grant 账本、模型偏好、权限模式、调用指标、进程会话、模型输入清单和 Trigger 消息的结构 Schema 由 Catalog 从 TS 声明生成，并由生成绑定校验；生成能力归 [`@lazygoal/contract-binding`](../../contract-binding/src/index.ts) 与 `scripts/generate-contracts.mjs`。它依赖 Runtime 的 Port 与领域契约；Runtime 不反向加载本模块。文件写入经共享写入原语；同一进程内的文件写入顺序由按键串行队列保证。
+`@lazygoal/storage` 拥有持久化文件表示与实现：Profile 文件 DTO、当前 Goal Snapshot v1 DTO 与严格结构绑定、Runtime↔Snapshot 双向 Codec、Trajectory/Diagnostic JSONL Store、Tool/Sandbox Grant 授权账本，以及实现 Runtime/Agent Port 的内存/JSON 文件 Store。Supervisor 所有权锁与不可变 Trigger 记录使用 SQLite；Trigger ID 唯一，路由状态、准入失败分类、Goal 创建来源、冻结 Goal 创建意图、续接占位与已绑定 Run、FIFO 队列、Worker 绑定和恢复记录由各自事务保存。Snapshot、Agent Profile、Grant 账本、模型偏好、权限模式、调用指标、进程会话、模型输入清单和 Trigger 消息的结构 Schema 由 Catalog 从 TS 声明生成，并由生成绑定校验；生成能力归 [`@lazygoal/contract-binding`](../../contract-binding/src/index.ts) 与 `scripts/generate-contracts.mjs`。它依赖 Runtime 的 Port 与领域契约；Runtime 不反向加载本模块。文件写入经共享写入原语；同一进程内的文件写入顺序由按键串行队列保证。
 
 所有 Store 的路径段编码统一由内部 [`encodePathSegment`](../src/path-segment.ts) 完成（UTF-8 base64url），该模块不从公共入口导出；各 Store 只保留身份校验与目录布局，编码结果保持不变。
 

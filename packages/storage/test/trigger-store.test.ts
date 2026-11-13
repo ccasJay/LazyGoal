@@ -251,3 +251,57 @@ test("Goal creation origin persists with the work Trigger and rejects other Trig
         reopened.close();
     } finally { await rm(dir, { recursive: true, force: true }); }
 });
+
+test("同一终态只接受一个续接输入，并可按受理顺序重新排队", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "lazygoal-trigger-store-"));
+    const owner = new SupervisorOwnership(join(dir, "owner.db"));
+    try {
+        const store = new TriggerStore(join(dir, "triggers.db"));
+        const work = workTrigger("trigger-continue-work", "work");
+        store.receive(work, "web-manual");
+        store.reserveGoal(work.id, "goal-continue");
+        store.freezeGoal(work.id, createGoal({
+            ...currentProtocols, id: "goal-continue", runId: "run-1", intent: "work", promptBundleVersion: 1,
+            profile: { id: "profile", systemPrompt: "", instructions: [], toolIds: [] },
+        }));
+        store.acceptGoal(work.id);
+        assert.equal(await store.claimNextGoal(owner, "worker-1", "generation-1"), "goal-continue");
+        await store.markWorkerGoalStatus(owner, "worker-1", "generation-1", "goal-continue", "terminal");
+
+        const first = workTrigger("input-continue-1", "继续");
+        const second = workTrigger("input-continue-2", "继续");
+        store.receive(first);
+        store.receive(second);
+        assert.equal(store.reserveContinuation("goal-continue", "run-1", first.id), "reserved");
+        assert.equal(store.reserveContinuation("goal-continue", "run-1", first.id), "existing");
+        assert.throws(() => store.reserveContinuation("goal-continue", "run-1", second.id),
+            /already has a continuation input/);
+        assert.equal(store.continuationRecord("goal-continue", "run-1")?.appliedRunId, undefined);
+
+        store.bindContinuationRun("goal-continue", "run-1", first.id, "run-2");
+        assert.equal(store.continuationRecord("goal-continue", "run-1")?.appliedRunId, "run-2");
+        assert.equal(store.continuationForTrigger(first.id)?.goalId, "goal-continue");
+        assert.throws(() => store.bindContinuationRun("goal-continue", "run-1", first.id, "run-3"),
+            /different Run/);
+
+        // 更晚入队的 Goal 仍在续接 Goal 之前。
+        const later = workTrigger("trigger-later", "later");
+        store.receive(later);
+        store.reserveGoal(later.id, "goal-later");
+        store.freezeGoal(later.id, createGoal({
+            ...currentProtocols, id: "goal-later", runId: "run-later", intent: "later", promptBundleVersion: 1,
+            profile: { id: "profile", systemPrompt: "", instructions: [], toolIds: [] },
+        }));
+        store.acceptGoal(later.id);
+        store.requeueGoalForContinuation("goal-continue");
+        assert.equal(store.queueRecord("goal-continue")?.status, "queued");
+        assert.equal(store.queueRecord("goal-continue")?.workerId, undefined);
+        assert.equal(await store.claimNextGoal(owner, "worker-2", "generation-2"), "goal-later");
+        assert.equal(await store.claimNextGoal(owner, "worker-3", "generation-3"), "goal-continue");
+        store.close();
+        await owner.close();
+    } finally {
+        await owner.close().catch(() => undefined);
+        await rm(dir, { recursive: true, force: true });
+    }
+});

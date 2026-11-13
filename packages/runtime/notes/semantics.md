@@ -46,7 +46,7 @@
 | Goal 动态模型执行选择 | 保存非敏感 API 协议、容量和模型能力供宿主恢复 Binding；不含端点或凭据。 | [Goal Runtime](../README.md) | [领域契约](../src/domain.ts) |
 | 会话 Interrupt 受理 | 中断意图、账本收据与队列暂停在同一提交生效；受理使旧交互引用失效，受理后停止执行，记录已开始工具的未知结果并直接结算 cancelled，不再调用模型。 | [Goal Runtime](../README.md) | [Runner](../src/runner.ts) |
 | 停止与交互竞争 | 等待决定与 Interrupt 在同一 Goal Gate 按 Snapshot 提交顺序裁决；先受理的停止使旧等待失效，先提交的决定在调度前释放 Gate，随后仍可受理停止；取消收尾重读最新状态并只结算一次。 | [Goal Runtime](../README.md) | [GoalCoordinator](../src/goal-coordinator.ts)、[Runner](../src/runner.ts) |
-| 后继 Run 绑定 | 队首消息、输入应用关联、队列修订与新 Run 创建在同一 Snapshot 提交中完成。 | [Goal Runtime](../README.md) | [GoalCoordinator](../src/goal-coordinator.ts) |
+| 后继 Run 绑定 | 队首消息、输入应用关联、队列修订与新 Run 创建在同一 Snapshot 提交中完成；宿主可用 `commitContinuation` 只提交新 Run，再由自己的调度边界推进。 | [Goal Runtime](../README.md) | [GoalCoordinator](../src/goal-coordinator.ts) |
 | Goal 提交修订 | Goal 级单调提交修订，跨 Run 递增，用于恢复命令、状态同步与竞态判定。 | [Goal Runtime](../README.md) | [提交边界](../src/trajectory-checkpoint-committer.ts) |
 | 短 mutation Gate | 按 Store 与 Goal 串行化当前状态裁决及短 Snapshot 提交；恢复审批的准备/Grant 暂存在 Gate 外，决定提交后才调度 Runner；同一异步调用链可安全重入。 | [Goal Runtime](../README.md) | [提交边界](../src/goal-mutation-gate.ts)、[GoalCoordinator](../src/goal-coordinator.ts) |
 | 模型调用指标事实 | Provider 调用的用量及端到端请求耗时观测，不作为 Goal 恢复输入。 | [Goal Runtime](../README.md) | [模型调用指标 Port](../src/model-call-metrics.ts) |

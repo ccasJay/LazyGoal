@@ -14,6 +14,7 @@ export type {
     BrowserAskUserQuestion,
     BrowserBashExecutionDetail,
     BrowserExecutionState,
+    BrowserGoalContinuation,
     BrowserGoalExecution,
     BrowserGoalList,
     BrowserGoalListItem,

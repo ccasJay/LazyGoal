@@ -15,6 +15,8 @@ import { receiveAuthorizedTrigger } from "../../../packages/storage/src/trigger-
 import { admitTrigger } from "../src/runtime/trigger-admission";
 import { WorkerScheduler } from "../src/runtime/worker-scheduler";
 
+const unusedContinuation = async () => ({ ok: false as const, code: "RUN_NOT_FOUND", message: "continuation is not wired in this test" });
+
 function chatChunk(delta: Record<string, unknown>, finishReason: string | null = null): Record<string, unknown> {
     return { id: "worker-permission-test", object: "chat.completion.chunk", created: 0, model: "test-model",
         choices: [{ index: 0, delta, finish_reason: finishReason }] };
@@ -117,7 +119,7 @@ test("Worker 的一次性 Action 权限经 Trigger 由 Supervisor 决定并在�
             return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({ kind: "approve", reason: null }) }] };
         },
     };
-    const scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, permissionAdapter });
+    const scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, permissionAdapter, commitContinuation: unusedContinuation });
     const principal = { role: "user", externalId: "test-actor", mayCreateGoal: true, goalIds: [] } as const;
     try {
         const admitGoal = async (suffix: string, intent: string): Promise<string> => {

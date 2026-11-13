@@ -131,7 +131,10 @@ export function createTriggerBrowserSessionPort(dependencies: TriggerBrowserSess
 
     async function submit(goalId: string, input: BrowserSessionInputCommand): Promise<BrowserSessionInputResult> {
         if (isShuttingDown()) return { ok: false, error: "session_unavailable" };
-        if (triggers.read(input.inputId) !== undefined) return { ok: false, error: "INPUT_CONFLICT" };
+        if (triggers.read(input.inputId) !== undefined) {
+            const existing = existingMessageReceipt(goalId, input);
+            return existing ?? { ok: false, error: "INPUT_CONFLICT" };
+        }
         const kind = input.kind;
         const admittedAtRevision = input.kind === "resume" ? input.commitRevision : 0;
 
@@ -242,7 +245,67 @@ export function createTriggerBrowserSessionPort(dependencies: TriggerBrowserSess
                 requiredTriggerSequence(triggers, input.inputId), admittedAtRevision, input.runId, current?.state.run.id) };
         }
 
+        if (input.kind === "message") {
+            const goal = await goals.restore(goalId);
+            if (goal === undefined) return { ok: false, error: "GOAL_NOT_FOUND" };
+            if (input.content.trim().length === 0) return { ok: false, error: "INVALID_INPUT" };
+            if (!continuationState(goal).available) return { ok: false, error: "CONTINUATION_UNAVAILABLE" };
+            if (goal.state.run.id !== input.runId) return { ok: false, error: "RUN_NOT_FOUND" };
+            const replyTo = latestTerminalResponse(goalId, input.runId);
+            if (replyTo === undefined) return { ok: false, error: "CONTINUATION_UNAVAILABLE" };
+            const trigger: Trigger = {
+                id: input.inputId,
+                name: "Continue goal",
+                type: "instruction",
+                source: browserActor,
+                target: "supervisor",
+                goalId,
+                replyTo,
+                payload: { action: "continue", runId: input.runId, content: input.content },
+                sentAt: triggerSentAt(triggers, input.inputId),
+            };
+            let result;
+            try {
+                result = await scheduler.handleContinueTrigger(trigger, { ...browserPrincipal, goalIds: [goalId] });
+            } catch (error) {
+                if (isTriggerIdentityConflict(error)) return { ok: false, error: "INPUT_CONFLICT" };
+                return { ok: false, error: isShuttingDown() ? "session_unavailable" : "CONTINUATION_UNAVAILABLE" };
+            }
+            if (result.kind === "rejected") {
+                return { ok: false, error: result.code === "INVALID_GOAL_INPUT" ? "INVALID_INPUT" : "CONTINUATION_UNAVAILABLE" };
+            }
+            const saved = triggers.read(input.inputId);
+            if (saved === undefined) return { ok: false, error: "input_admission_failed" };
+            return { ok: true, existing: false, receipt: toReceipt(saved, triggers, goalId, "message",
+                requiredTriggerSequence(triggers, input.inputId), 0, input.runId, result.runId) };
+        }
+
         return { ok: false, error: "RUN_CONTROL_UNAVAILABLE" };
+    }
+
+    function existingMessageReceipt(goalId: string, input: BrowserSessionInputCommand): BrowserSessionInputResult | undefined {
+        if (input.kind !== "message") return undefined;
+        const stored = triggers.read(input.inputId);
+        if (stored === undefined || stored.type !== "instruction" || stored.payload.action !== "continue"
+            || !("goalId" in stored) || stored.goalId !== goalId
+            || stored.payload.runId !== input.runId || stored.payload.content !== input.content) {
+            return undefined;
+        }
+        const appliedRunId = triggers.continuationForTrigger(stored.id)?.appliedRunId;
+        return {
+            ok: true,
+            existing: true,
+            receipt: toReceipt(stored, triggers, goalId, "message", requiredTriggerSequence(triggers, stored.id), 0,
+                input.runId, appliedRunId),
+        };
+    }
+
+    function latestTerminalResponse(goalId: string, runId: string): string | undefined {
+        const candidates = triggers.listGoalTriggers(goalId).filter((trigger) => trigger.type === "response"
+            && "runId" in trigger.payload && trigger.payload.runId === runId
+            && (trigger.payload.action === "completed" || trigger.payload.action === "failed" || trigger.payload.action === "cancelled")
+            && triggers.routeStatus(trigger.id) === "routed");
+        return candidates.at(-1)?.id;
     }
 
     return {

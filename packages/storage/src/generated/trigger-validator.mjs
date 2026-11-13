@@ -12,7 +12,7 @@ var require_Trigger_validator = __commonJS({
   "Trigger-validator.cjs"(exports, module) {
     module.exports = validate10;
     module.exports.default = validate10;
-    var schema12 = { "anyOf": [{ "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string", "const": "work" }, "source": { "$ref": "#/definitions/TriggerActor" }, "target": { "$ref": "#/definitions/TriggerTarget" }, "payload": { "type": "object", "properties": { "action": { "type": "string", "const": "submitted" }, "material": { "type": "object", "properties": { "kind": { "type": "string", "const": "text" }, "text": { "type": "string" } }, "required": ["kind", "text"], "additionalProperties": false } }, "required": ["action", "material"], "additionalProperties": false }, "sentAt": { "type": "string" } }, "required": ["id", "name", "type", "source", "target", "payload", "sentAt"], "additionalProperties": false }, { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string", "const": "response" }, "source": { "$ref": "#/definitions/TriggerActor" }, "target": { "$ref": "#/definitions/TriggerTarget" }, "payload": { "type": "object", "properties": { "action": { "type": "string", "const": "goal_created" } }, "required": ["action"], "additionalProperties": false }, "sentAt": { "type": "string" }, "goalId": { "type": "string" }, "replyTo": { "type": "string" } }, "required": ["id", "name", "type", "source", "target", "payload", "sentAt", "goalId", "replyTo"], "additionalProperties": false }, { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string", "const": "response" }, "source": { "$ref": "#/definitions/TriggerActor" }, "target": { "$ref": "#/definitions/TriggerTarget" }, "payload": { "anyOf": [{ "type": "object", "properties": { "action": { "type": "string", "const": "progress" }, "runId": { "type": "string" }, "status": { "type": "string", "const": "running" } }, "required": ["action", "runId", "status"], "additionalProperties": false }, { "type": "object", "properties": { "action": { "type": "string", "const": "progress" }, "runId": { "type": "string" }, "status": { "type": "string", "const": "waiting" }, "waitingFor": { "type": "string", "enum": ["ask_user", "task_approval", "action_approval", "action_recovery", "blocked"] } }, "required": ["action", "runId", "status", "waitingFor"], "additionalProperties": false }] }, "sentAt": { "type": "string" }, "goalId": { "type": "string" }, "replyTo": { "type": "string" } }, "required": ["id", "name", "type", "source", "target", "payload", "sentAt", "goalId", "replyTo"], "additionalProperties": false }, { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string", "const": "response" }, "source": { "$ref": "#/definitions/TriggerActor" }, "target": { "$ref": "#/definitions/TriggerTarget" }, "payload": { "type": "object", "properties": { "action": { "type": "string", "const": "completed" }, "runId": { "type": "string" }, "answer": { "type": "string" } }, "required": ["action", "runId", "answer"], "additionalProperties": false }, "sentAt": { "type": "string" }, "goalId": { "type": "string" }, "replyTo": { "type": "string" } }, "required": ["id", "name", "type", "source", "target", "payload", "sentAt", "goalId", "replyTo"], "additionalProperties": false }, { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string", "const": "response" }, "source": { "$ref": "#/definitions/TriggerActor" }, "target": { "$ref": "#/definitions/TriggerTarget" }, "payload": { "type": "object", "properties": { "action": { "type": "string", "enum": ["failed", "cancelled"] }, "runId": { "type": "string" } }, "required": ["action", "runId"], "additionalProperties": false }, "sentAt": { "type": "string" }, "goalId": { "type": "string" }, "replyTo": { "type": "string" } }, "required": ["id", "name", "type", "source", "target", "payload", "sentAt", "goalId", "replyTo"], "additionalProperties": false }, { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string", "const": "permission" }, "source": { "$ref": "#/definitions/TriggerActor" }, "target": { "$ref": "#/definitions/TriggerTarget" }, "payload": { "type": "object", "properties": { "action": { "type": "string", "const": "requested" }, "runId": { "type": "string" }, "actionId": { "type": "string" }, "interactionId": { "type": "string" }, "commitRevision": { "type": "number" } }, "required": ["action", "runId", "actionId", "interactionId", "commitRevision"], "additionalProperties": false }, "sentAt": { "type": "string" }, "goalId": { "type": "string" } }, "required": ["id", "name", "type", "source", "target", "payload", "sentAt", "goalId"], "additionalProperties": false }, { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string", "const": "permission" }, "source": { "$ref": "#/definitions/TriggerActor" }, "target": { "$ref": "#/definitions/TriggerTarget" }, "payload": { "type": "object", "properties": { "action": { "type": "string", "const": "decided" }, "decision": { "type": "string", "const": "approve" }, "scope": { "type": "string", "const": "action" }, "reason": { "type": "string" } }, "required": ["action", "decision", "scope"], "additionalProperties": false }, "sentAt": { "type": "string" }, "goalId": { "type": "string" }, "replyTo": { "type": "string" } }, "required": ["id", "name", "type", "source", "target", "payload", "sentAt", "goalId", "replyTo"], "additionalProperties": false }, { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string", "const": "permission" }, "source": { "$ref": "#/definitions/TriggerActor" }, "target": { "$ref": "#/definitions/TriggerTarget" }, "payload": { "type": "object", "properties": { "action": { "type": "string", "const": "decided" }, "decision": { "type": "string", "const": "reject" }, "scope": { "type": "string", "const": "action" }, "reason": { "type": "string" } }, "required": ["action", "decision", "scope", "reason"], "additionalProperties": false }, "sentAt": { "type": "string" }, "goalId": { "type": "string" }, "replyTo": { "type": "string" } }, "required": ["id", "name", "type", "source", "target", "payload", "sentAt", "goalId", "replyTo"], "additionalProperties": false }, { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string", "const": "interaction" }, "source": { "$ref": "#/definitions/TriggerActor" }, "target": { "$ref": "#/definitions/TriggerTarget" }, "payload": { "type": "object", "properties": { "action": { "type": "string", "const": "answered" }, "answer": { "$ref": "#/definitions/GoalUserAction" } }, "required": ["action", "answer"], "additionalProperties": false }, "sentAt": { "type": "string" }, "goalId": { "type": "string" }, "replyTo": { "type": "string" } }, "required": ["id", "name", "type", "source", "target", "payload", "sentAt", "goalId", "replyTo"], "additionalProperties": false }, { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string", "const": "instruction" }, "source": { "$ref": "#/definitions/TriggerActor" }, "target": { "$ref": "#/definitions/TriggerTarget" }, "payload": { "type": "object", "properties": { "action": { "type": "string", "const": "cancel" }, "runId": { "type": "string" } }, "required": ["action", "runId"], "additionalProperties": false }, "sentAt": { "type": "string" }, "goalId": { "type": "string" } }, "required": ["id", "name", "type", "source", "target", "payload", "sentAt", "goalId"], "additionalProperties": false }, { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string", "const": "instruction" }, "source": { "$ref": "#/definitions/TriggerActor" }, "target": { "$ref": "#/definitions/TriggerTarget" }, "payload": { "type": "object", "properties": { "action": { "type": "string", "const": "resume" }, "runId": { "type": "string" }, "acknowledgeUnknownEffects": { "type": "boolean" } }, "required": ["action", "runId", "acknowledgeUnknownEffects"], "additionalProperties": false }, "sentAt": { "type": "string" }, "goalId": { "type": "string" }, "replyTo": { "type": "string" } }, "required": ["id", "name", "type", "source", "target", "payload", "sentAt", "goalId", "replyTo"], "additionalProperties": false }, { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string", "const": "lifecycle" }, "source": { "$ref": "#/definitions/TriggerActor" }, "target": { "$ref": "#/definitions/TriggerTarget" }, "payload": { "type": "object", "properties": { "action": { "type": "string", "const": "started" } }, "required": ["action"], "additionalProperties": false }, "sentAt": { "type": "string" } }, "required": ["id", "name", "type", "source", "target", "payload", "sentAt"], "additionalProperties": false }, { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string", "const": "lifecycle" }, "source": { "$ref": "#/definitions/TriggerActor" }, "target": { "$ref": "#/definitions/TriggerTarget" }, "payload": { "type": "object", "properties": { "action": { "type": "string", "const": "exited" }, "outcome": { "type": "string", "enum": ["normal", "unexpected"] } }, "required": ["action", "outcome"], "additionalProperties": false }, "sentAt": { "type": "string" } }, "required": ["id", "name", "type", "source", "target", "payload", "sentAt"], "additionalProperties": false }, { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string", "const": "collaboration" }, "source": { "$ref": "#/definitions/TriggerActor" }, "target": { "$ref": "#/definitions/TriggerTarget" }, "payload": { "type": "object", "properties": { "action": { "type": "string", "const": "requested" } }, "required": ["action"], "additionalProperties": false }, "sentAt": { "type": "string" }, "goalId": { "type": "string" } }, "required": ["id", "name", "type", "source", "target", "payload", "sentAt"], "additionalProperties": false }, { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string", "const": "collaboration" }, "source": { "$ref": "#/definitions/TriggerActor" }, "target": { "$ref": "#/definitions/TriggerTarget" }, "payload": { "type": "object", "properties": { "action": { "type": "string", "const": "result" } }, "required": ["action"], "additionalProperties": false }, "sentAt": { "type": "string" }, "goalId": { "type": "string" }, "replyTo": { "type": "string" } }, "required": ["id", "name", "type", "source", "target", "payload", "sentAt", "replyTo"], "additionalProperties": false }], "description": "Supervisor\u3001Worker \u4E0E\u5916\u90E8\u751F\u4EA7\u8005\u5171\u4EAB\u7684\u4E0D\u53EF\u53D8\u6D88\u606F\u534F\u8BAE\u3002" };
+    var schema12 = { "anyOf": [{ "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string", "const": "work" }, "source": { "$ref": "#/definitions/TriggerActor" }, "target": { "$ref": "#/definitions/TriggerTarget" }, "payload": { "type": "object", "properties": { "action": { "type": "string", "const": "submitted" }, "material": { "type": "object", "properties": { "kind": { "type": "string", "const": "text" }, "text": { "type": "string" } }, "required": ["kind", "text"], "additionalProperties": false } }, "required": ["action", "material"], "additionalProperties": false }, "sentAt": { "type": "string" } }, "required": ["id", "name", "type", "source", "target", "payload", "sentAt"], "additionalProperties": false }, { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string", "const": "response" }, "source": { "$ref": "#/definitions/TriggerActor" }, "target": { "$ref": "#/definitions/TriggerTarget" }, "payload": { "type": "object", "properties": { "action": { "type": "string", "const": "goal_created" } }, "required": ["action"], "additionalProperties": false }, "sentAt": { "type": "string" }, "goalId": { "type": "string" }, "replyTo": { "type": "string" } }, "required": ["id", "name", "type", "source", "target", "payload", "sentAt", "goalId", "replyTo"], "additionalProperties": false }, { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string", "const": "response" }, "source": { "$ref": "#/definitions/TriggerActor" }, "target": { "$ref": "#/definitions/TriggerTarget" }, "payload": { "anyOf": [{ "type": "object", "properties": { "action": { "type": "string", "const": "progress" }, "runId": { "type": "string" }, "status": { "type": "string", "const": "running" } }, "required": ["action", "runId", "status"], "additionalProperties": false }, { "type": "object", "properties": { "action": { "type": "string", "const": "progress" }, "runId": { "type": "string" }, "status": { "type": "string", "const": "waiting" }, "waitingFor": { "type": "string", "enum": ["ask_user", "task_approval", "action_approval", "action_recovery", "blocked"] } }, "required": ["action", "runId", "status", "waitingFor"], "additionalProperties": false }] }, "sentAt": { "type": "string" }, "goalId": { "type": "string" }, "replyTo": { "type": "string" } }, "required": ["id", "name", "type", "source", "target", "payload", "sentAt", "goalId", "replyTo"], "additionalProperties": false }, { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string", "const": "response" }, "source": { "$ref": "#/definitions/TriggerActor" }, "target": { "$ref": "#/definitions/TriggerTarget" }, "payload": { "type": "object", "properties": { "action": { "type": "string", "const": "completed" }, "runId": { "type": "string" }, "answer": { "type": "string" } }, "required": ["action", "runId", "answer"], "additionalProperties": false }, "sentAt": { "type": "string" }, "goalId": { "type": "string" }, "replyTo": { "type": "string" } }, "required": ["id", "name", "type", "source", "target", "payload", "sentAt", "goalId", "replyTo"], "additionalProperties": false }, { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string", "const": "response" }, "source": { "$ref": "#/definitions/TriggerActor" }, "target": { "$ref": "#/definitions/TriggerTarget" }, "payload": { "type": "object", "properties": { "action": { "type": "string", "enum": ["failed", "cancelled"] }, "runId": { "type": "string" } }, "required": ["action", "runId"], "additionalProperties": false }, "sentAt": { "type": "string" }, "goalId": { "type": "string" }, "replyTo": { "type": "string" } }, "required": ["id", "name", "type", "source", "target", "payload", "sentAt", "goalId", "replyTo"], "additionalProperties": false }, { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string", "const": "permission" }, "source": { "$ref": "#/definitions/TriggerActor" }, "target": { "$ref": "#/definitions/TriggerTarget" }, "payload": { "type": "object", "properties": { "action": { "type": "string", "const": "requested" }, "runId": { "type": "string" }, "actionId": { "type": "string" }, "interactionId": { "type": "string" }, "commitRevision": { "type": "number" } }, "required": ["action", "runId", "actionId", "interactionId", "commitRevision"], "additionalProperties": false }, "sentAt": { "type": "string" }, "goalId": { "type": "string" } }, "required": ["id", "name", "type", "source", "target", "payload", "sentAt", "goalId"], "additionalProperties": false }, { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string", "const": "permission" }, "source": { "$ref": "#/definitions/TriggerActor" }, "target": { "$ref": "#/definitions/TriggerTarget" }, "payload": { "type": "object", "properties": { "action": { "type": "string", "const": "decided" }, "decision": { "type": "string", "const": "approve" }, "scope": { "type": "string", "const": "action" }, "reason": { "type": "string" } }, "required": ["action", "decision", "scope"], "additionalProperties": false }, "sentAt": { "type": "string" }, "goalId": { "type": "string" }, "replyTo": { "type": "string" } }, "required": ["id", "name", "type", "source", "target", "payload", "sentAt", "goalId", "replyTo"], "additionalProperties": false }, { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string", "const": "permission" }, "source": { "$ref": "#/definitions/TriggerActor" }, "target": { "$ref": "#/definitions/TriggerTarget" }, "payload": { "type": "object", "properties": { "action": { "type": "string", "const": "decided" }, "decision": { "type": "string", "const": "reject" }, "scope": { "type": "string", "const": "action" }, "reason": { "type": "string" } }, "required": ["action", "decision", "scope", "reason"], "additionalProperties": false }, "sentAt": { "type": "string" }, "goalId": { "type": "string" }, "replyTo": { "type": "string" } }, "required": ["id", "name", "type", "source", "target", "payload", "sentAt", "goalId", "replyTo"], "additionalProperties": false }, { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string", "const": "interaction" }, "source": { "$ref": "#/definitions/TriggerActor" }, "target": { "$ref": "#/definitions/TriggerTarget" }, "payload": { "type": "object", "properties": { "action": { "type": "string", "const": "answered" }, "answer": { "$ref": "#/definitions/GoalUserAction" } }, "required": ["action", "answer"], "additionalProperties": false }, "sentAt": { "type": "string" }, "goalId": { "type": "string" }, "replyTo": { "type": "string" } }, "required": ["id", "name", "type", "source", "target", "payload", "sentAt", "goalId", "replyTo"], "additionalProperties": false }, { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string", "const": "instruction" }, "source": { "$ref": "#/definitions/TriggerActor" }, "target": { "$ref": "#/definitions/TriggerTarget" }, "payload": { "type": "object", "properties": { "action": { "type": "string", "const": "cancel" }, "runId": { "type": "string" } }, "required": ["action", "runId"], "additionalProperties": false }, "sentAt": { "type": "string" }, "goalId": { "type": "string" } }, "required": ["id", "name", "type", "source", "target", "payload", "sentAt", "goalId"], "additionalProperties": false }, { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string", "const": "instruction" }, "source": { "$ref": "#/definitions/TriggerActor" }, "target": { "$ref": "#/definitions/TriggerTarget" }, "payload": { "type": "object", "properties": { "action": { "type": "string", "const": "resume" }, "runId": { "type": "string" }, "acknowledgeUnknownEffects": { "type": "boolean" } }, "required": ["action", "runId", "acknowledgeUnknownEffects"], "additionalProperties": false }, "sentAt": { "type": "string" }, "goalId": { "type": "string" }, "replyTo": { "type": "string" } }, "required": ["id", "name", "type", "source", "target", "payload", "sentAt", "goalId", "replyTo"], "additionalProperties": false }, { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string", "const": "instruction" }, "source": { "$ref": "#/definitions/TriggerActor" }, "target": { "$ref": "#/definitions/TriggerTarget" }, "payload": { "type": "object", "properties": { "action": { "type": "string", "const": "continue" }, "runId": { "type": "string" }, "content": { "type": "string" } }, "required": ["action", "runId", "content"], "additionalProperties": false }, "sentAt": { "type": "string" }, "goalId": { "type": "string" }, "replyTo": { "type": "string" } }, "required": ["id", "name", "type", "source", "target", "payload", "sentAt", "goalId", "replyTo"], "additionalProperties": false }, { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string", "const": "lifecycle" }, "source": { "$ref": "#/definitions/TriggerActor" }, "target": { "$ref": "#/definitions/TriggerTarget" }, "payload": { "type": "object", "properties": { "action": { "type": "string", "const": "started" } }, "required": ["action"], "additionalProperties": false }, "sentAt": { "type": "string" } }, "required": ["id", "name", "type", "source", "target", "payload", "sentAt"], "additionalProperties": false }, { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string", "const": "lifecycle" }, "source": { "$ref": "#/definitions/TriggerActor" }, "target": { "$ref": "#/definitions/TriggerTarget" }, "payload": { "type": "object", "properties": { "action": { "type": "string", "const": "exited" }, "outcome": { "type": "string", "enum": ["normal", "unexpected"] } }, "required": ["action", "outcome"], "additionalProperties": false }, "sentAt": { "type": "string" } }, "required": ["id", "name", "type", "source", "target", "payload", "sentAt"], "additionalProperties": false }, { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string", "const": "collaboration" }, "source": { "$ref": "#/definitions/TriggerActor" }, "target": { "$ref": "#/definitions/TriggerTarget" }, "payload": { "type": "object", "properties": { "action": { "type": "string", "const": "requested" } }, "required": ["action"], "additionalProperties": false }, "sentAt": { "type": "string" }, "goalId": { "type": "string" } }, "required": ["id", "name", "type", "source", "target", "payload", "sentAt"], "additionalProperties": false }, { "type": "object", "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "type": { "type": "string", "const": "collaboration" }, "source": { "$ref": "#/definitions/TriggerActor" }, "target": { "$ref": "#/definitions/TriggerTarget" }, "payload": { "type": "object", "properties": { "action": { "type": "string", "const": "result" } }, "required": ["action"], "additionalProperties": false }, "sentAt": { "type": "string" }, "goalId": { "type": "string" }, "replyTo": { "type": "string" } }, "required": ["id", "name", "type", "source", "target", "payload", "sentAt", "replyTo"], "additionalProperties": false }], "description": "Supervisor\u3001Worker \u4E0E\u5916\u90E8\u751F\u4EA7\u8005\u5171\u4EAB\u7684\u4E0D\u53EF\u53D8\u6D88\u606F\u534F\u8BAE\u3002" };
     var schema14 = { "type": "string", "enum": ["supervisor", "worker"], "description": "Trigger \u7684\u903B\u8F91\u6295\u9012\u89D2\u8272\u3002" };
     var func2 = Object.prototype.hasOwnProperty;
     var schema31 = { "anyOf": [{ "type": "object", "properties": { "kind": { "type": "string", "const": "message" }, "content": { "type": "string" }, "inputId": { "type": "string" } }, "required": ["kind", "content"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "approve_task" }, "requestId": { "type": "string" } }, "required": ["kind", "requestId"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "feedback_task" }, "requestId": { "type": "string" }, "feedback": { "type": "string" } }, "required": ["kind", "requestId", "feedback"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "answer_ask_user" }, "requestId": { "type": "string" }, "answers": { "type": "array", "items": { "type": "object", "properties": { "questionId": { "type": "string" }, "optionIds": { "type": "array", "items": { "type": "string" } }, "otherText": { "type": "string" } }, "required": ["questionId", "optionIds"], "additionalProperties": false } } }, "required": ["kind", "requestId", "answers"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "reply_to_question" }, "requestId": { "type": "string" }, "content": { "type": "string" } }, "required": ["kind", "requestId", "content"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "skip_question" }, "requestId": { "type": "string" } }, "required": ["kind", "requestId"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "approve_action" }, "actionId": { "type": "string" }, "scope": { "type": "string", "enum": ["action", "goal", "workspace"] }, "approvalInputId": { "type": "string" } }, "required": ["kind", "actionId"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "approve_action_revision" }, "actionId": { "type": "string" }, "input": { "$ref": "#/definitions/GoalActionJsonValue" }, "scope": { "type": "string", "enum": ["action", "goal", "workspace"] }, "reviewRef": { "type": "string" }, "approvalInputId": { "type": "string" } }, "required": ["kind", "actionId", "input", "reviewRef"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "retry_unknown_action" }, "actionId": { "type": "string" }, "recoveryRef": { "type": "string" } }, "required": ["kind", "actionId", "recoveryRef"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "decline_unknown_action_retry" }, "actionId": { "type": "string" }, "recoveryRef": { "type": "string" }, "reason": { "type": "string" } }, "required": ["kind", "actionId", "recoveryRef", "reason"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "reject_action" }, "actionId": { "type": "string" }, "reason": { "type": "string" } }, "required": ["kind", "actionId", "reason"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "approve" }, "requestId": { "type": "string" } }, "required": ["kind", "requestId"], "additionalProperties": false }], "description": "\u7528\u6237\u5BF9 Goal \u5F53\u524D\u4EA4\u4E92\u7B49\u5F85\u70B9\u63D0\u4EA4\u7684\u64CD\u4F5C\u3002" };
@@ -7633,31 +7633,27 @@ var require_Trigger_validator = __commonJS({
                                 }
                                 errors++;
                               }
+                              if (data.goalId === void 0) {
+                                const err579 = { instancePath, schemaPath: "#/anyOf/11/required", keyword: "required", params: { missingProperty: "goalId" }, message: "must have required property 'goalId'" };
+                                if (vErrors === null) {
+                                  vErrors = [err579];
+                                } else {
+                                  vErrors.push(err579);
+                                }
+                                errors++;
+                              }
+                              if (data.replyTo === void 0) {
+                                const err580 = { instancePath, schemaPath: "#/anyOf/11/required", keyword: "required", params: { missingProperty: "replyTo" }, message: "must have required property 'replyTo'" };
+                                if (vErrors === null) {
+                                  vErrors = [err580];
+                                } else {
+                                  vErrors.push(err580);
+                                }
+                                errors++;
+                              }
                               for (const key57 in data) {
-                                if (!(key57 === "id" || key57 === "name" || key57 === "type" || key57 === "source" || key57 === "target" || key57 === "payload" || key57 === "sentAt")) {
-                                  const err579 = { instancePath, schemaPath: "#/anyOf/11/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key57 }, message: "must NOT have additional properties" };
-                                  if (vErrors === null) {
-                                    vErrors = [err579];
-                                  } else {
-                                    vErrors.push(err579);
-                                  }
-                                  errors++;
-                                }
-                              }
-                              if (data.id !== void 0) {
-                                if (typeof data.id !== "string") {
-                                  const err580 = { instancePath: instancePath + "/id", schemaPath: "#/anyOf/11/properties/id/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                                  if (vErrors === null) {
-                                    vErrors = [err580];
-                                  } else {
-                                    vErrors.push(err580);
-                                  }
-                                  errors++;
-                                }
-                              }
-                              if (data.name !== void 0) {
-                                if (typeof data.name !== "string") {
-                                  const err581 = { instancePath: instancePath + "/name", schemaPath: "#/anyOf/11/properties/name/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                if (!func2.call(schema12.anyOf[11].properties, key57)) {
+                                  const err581 = { instancePath, schemaPath: "#/anyOf/11/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key57 }, message: "must NOT have additional properties" };
                                   if (vErrors === null) {
                                     vErrors = [err581];
                                   } else {
@@ -7666,10 +7662,9 @@ var require_Trigger_validator = __commonJS({
                                   errors++;
                                 }
                               }
-                              if (data.type !== void 0) {
-                                let data200 = data.type;
-                                if (typeof data200 !== "string") {
-                                  const err582 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/11/properties/type/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                              if (data.id !== void 0) {
+                                if (typeof data.id !== "string") {
+                                  const err582 = { instancePath: instancePath + "/id", schemaPath: "#/anyOf/11/properties/id/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                   if (vErrors === null) {
                                     vErrors = [err582];
                                   } else {
@@ -7677,12 +7672,35 @@ var require_Trigger_validator = __commonJS({
                                   }
                                   errors++;
                                 }
-                                if ("lifecycle" !== data200) {
-                                  const err583 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/11/properties/type/const", keyword: "const", params: { allowedValue: "lifecycle" }, message: "must be equal to constant" };
+                              }
+                              if (data.name !== void 0) {
+                                if (typeof data.name !== "string") {
+                                  const err583 = { instancePath: instancePath + "/name", schemaPath: "#/anyOf/11/properties/name/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                   if (vErrors === null) {
                                     vErrors = [err583];
                                   } else {
                                     vErrors.push(err583);
+                                  }
+                                  errors++;
+                                }
+                              }
+                              if (data.type !== void 0) {
+                                let data200 = data.type;
+                                if (typeof data200 !== "string") {
+                                  const err584 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/11/properties/type/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                  if (vErrors === null) {
+                                    vErrors = [err584];
+                                  } else {
+                                    vErrors.push(err584);
+                                  }
+                                  errors++;
+                                }
+                                if ("instruction" !== data200) {
+                                  const err585 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/11/properties/type/const", keyword: "const", params: { allowedValue: "instruction" }, message: "must be equal to constant" };
+                                  if (vErrors === null) {
+                                    vErrors = [err585];
+                                  } else {
+                                    vErrors.push(err585);
                                   }
                                   errors++;
                                 }
@@ -7694,25 +7712,7 @@ var require_Trigger_validator = __commonJS({
                                 const _errs579 = errors;
                                 if (data201 && typeof data201 == "object" && !Array.isArray(data201)) {
                                   if (data201.role === void 0) {
-                                    const err584 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/required", keyword: "required", params: { missingProperty: "role" }, message: "must have required property 'role'" };
-                                    if (vErrors === null) {
-                                      vErrors = [err584];
-                                    } else {
-                                      vErrors.push(err584);
-                                    }
-                                    errors++;
-                                  }
-                                  if (data201.workerId === void 0) {
-                                    const err585 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/required", keyword: "required", params: { missingProperty: "workerId" }, message: "must have required property 'workerId'" };
-                                    if (vErrors === null) {
-                                      vErrors = [err585];
-                                    } else {
-                                      vErrors.push(err585);
-                                    }
-                                    errors++;
-                                  }
-                                  if (data201.generation === void 0) {
-                                    const err586 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/required", keyword: "required", params: { missingProperty: "generation" }, message: "must have required property 'generation'" };
+                                    const err586 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/required", keyword: "required", params: { missingProperty: "role" }, message: "must have required property 'role'" };
                                     if (vErrors === null) {
                                       vErrors = [err586];
                                     } else {
@@ -7720,30 +7720,27 @@ var require_Trigger_validator = __commonJS({
                                     }
                                     errors++;
                                   }
+                                  if (data201.workerId === void 0) {
+                                    const err587 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/required", keyword: "required", params: { missingProperty: "workerId" }, message: "must have required property 'workerId'" };
+                                    if (vErrors === null) {
+                                      vErrors = [err587];
+                                    } else {
+                                      vErrors.push(err587);
+                                    }
+                                    errors++;
+                                  }
+                                  if (data201.generation === void 0) {
+                                    const err588 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/required", keyword: "required", params: { missingProperty: "generation" }, message: "must have required property 'generation'" };
+                                    if (vErrors === null) {
+                                      vErrors = [err588];
+                                    } else {
+                                      vErrors.push(err588);
+                                    }
+                                    errors++;
+                                  }
                                   for (const key58 in data201) {
                                     if (!(key58 === "role" || key58 === "workerId" || key58 === "generation")) {
-                                      const err587 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key58 }, message: "must NOT have additional properties" };
-                                      if (vErrors === null) {
-                                        vErrors = [err587];
-                                      } else {
-                                        vErrors.push(err587);
-                                      }
-                                      errors++;
-                                    }
-                                  }
-                                  if (data201.role !== void 0) {
-                                    let data202 = data201.role;
-                                    if (typeof data202 !== "string") {
-                                      const err588 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/role/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                                      if (vErrors === null) {
-                                        vErrors = [err588];
-                                      } else {
-                                        vErrors.push(err588);
-                                      }
-                                      errors++;
-                                    }
-                                    if ("worker" !== data202) {
-                                      const err589 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/role/const", keyword: "const", params: { allowedValue: "worker" }, message: "must be equal to constant" };
+                                      const err589 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key58 }, message: "must NOT have additional properties" };
                                       if (vErrors === null) {
                                         vErrors = [err589];
                                       } else {
@@ -7752,9 +7749,10 @@ var require_Trigger_validator = __commonJS({
                                       errors++;
                                     }
                                   }
-                                  if (data201.workerId !== void 0) {
-                                    if (typeof data201.workerId !== "string") {
-                                      const err590 = { instancePath: instancePath + "/source/workerId", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/workerId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                  if (data201.role !== void 0) {
+                                    let data202 = data201.role;
+                                    if (typeof data202 !== "string") {
+                                      const err590 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/role/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                       if (vErrors === null) {
                                         vErrors = [err590];
                                       } else {
@@ -7762,10 +7760,8 @@ var require_Trigger_validator = __commonJS({
                                       }
                                       errors++;
                                     }
-                                  }
-                                  if (data201.generation !== void 0) {
-                                    if (typeof data201.generation !== "string") {
-                                      const err591 = { instancePath: instancePath + "/source/generation", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/generation/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                    if ("worker" !== data202) {
+                                      const err591 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/role/const", keyword: "const", params: { allowedValue: "worker" }, message: "must be equal to constant" };
                                       if (vErrors === null) {
                                         vErrors = [err591];
                                       } else {
@@ -7774,12 +7770,34 @@ var require_Trigger_validator = __commonJS({
                                       errors++;
                                     }
                                   }
+                                  if (data201.workerId !== void 0) {
+                                    if (typeof data201.workerId !== "string") {
+                                      const err592 = { instancePath: instancePath + "/source/workerId", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/workerId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                      if (vErrors === null) {
+                                        vErrors = [err592];
+                                      } else {
+                                        vErrors.push(err592);
+                                      }
+                                      errors++;
+                                    }
+                                  }
+                                  if (data201.generation !== void 0) {
+                                    if (typeof data201.generation !== "string") {
+                                      const err593 = { instancePath: instancePath + "/source/generation", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/generation/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                      if (vErrors === null) {
+                                        vErrors = [err593];
+                                      } else {
+                                        vErrors.push(err593);
+                                      }
+                                      errors++;
+                                    }
+                                  }
                                 } else {
-                                  const err592 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                                  const err594 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/type", keyword: "type", params: { type: "object" }, message: "must be object" };
                                   if (vErrors === null) {
-                                    vErrors = [err592];
+                                    vErrors = [err594];
                                   } else {
-                                    vErrors.push(err592);
+                                    vErrors.push(err594);
                                   }
                                   errors++;
                                 }
@@ -7789,47 +7807,26 @@ var require_Trigger_validator = __commonJS({
                                   const _errs588 = errors;
                                   if (data201 && typeof data201 == "object" && !Array.isArray(data201)) {
                                     if (data201.role === void 0) {
-                                      const err593 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/required", keyword: "required", params: { missingProperty: "role" }, message: "must have required property 'role'" };
+                                      const err595 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/required", keyword: "required", params: { missingProperty: "role" }, message: "must have required property 'role'" };
                                       if (vErrors === null) {
-                                        vErrors = [err593];
+                                        vErrors = [err595];
                                       } else {
-                                        vErrors.push(err593);
+                                        vErrors.push(err595);
                                       }
                                       errors++;
                                     }
                                     if (data201.externalId === void 0) {
-                                      const err594 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/required", keyword: "required", params: { missingProperty: "externalId" }, message: "must have required property 'externalId'" };
+                                      const err596 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/required", keyword: "required", params: { missingProperty: "externalId" }, message: "must have required property 'externalId'" };
                                       if (vErrors === null) {
-                                        vErrors = [err594];
+                                        vErrors = [err596];
                                       } else {
-                                        vErrors.push(err594);
+                                        vErrors.push(err596);
                                       }
                                       errors++;
                                     }
                                     for (const key59 in data201) {
                                       if (!(key59 === "role" || key59 === "externalId")) {
-                                        const err595 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key59 }, message: "must NOT have additional properties" };
-                                        if (vErrors === null) {
-                                          vErrors = [err595];
-                                        } else {
-                                          vErrors.push(err595);
-                                        }
-                                        errors++;
-                                      }
-                                    }
-                                    if (data201.role !== void 0) {
-                                      let data205 = data201.role;
-                                      if (typeof data205 !== "string") {
-                                        const err596 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/1/properties/role/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                                        if (vErrors === null) {
-                                          vErrors = [err596];
-                                        } else {
-                                          vErrors.push(err596);
-                                        }
-                                        errors++;
-                                      }
-                                      if ("external" !== data205) {
-                                        const err597 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/1/properties/role/const", keyword: "const", params: { allowedValue: "external" }, message: "must be equal to constant" };
+                                        const err597 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key59 }, message: "must NOT have additional properties" };
                                         if (vErrors === null) {
                                           vErrors = [err597];
                                         } else {
@@ -7838,9 +7835,10 @@ var require_Trigger_validator = __commonJS({
                                         errors++;
                                       }
                                     }
-                                    if (data201.externalId !== void 0) {
-                                      if (typeof data201.externalId !== "string") {
-                                        const err598 = { instancePath: instancePath + "/source/externalId", schemaPath: "#/definitions/TriggerActor/anyOf/1/properties/externalId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                    if (data201.role !== void 0) {
+                                      let data205 = data201.role;
+                                      if (typeof data205 !== "string") {
+                                        const err598 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/1/properties/role/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                         if (vErrors === null) {
                                           vErrors = [err598];
                                         } else {
@@ -7848,13 +7846,33 @@ var require_Trigger_validator = __commonJS({
                                         }
                                         errors++;
                                       }
+                                      if ("external" !== data205) {
+                                        const err599 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/1/properties/role/const", keyword: "const", params: { allowedValue: "external" }, message: "must be equal to constant" };
+                                        if (vErrors === null) {
+                                          vErrors = [err599];
+                                        } else {
+                                          vErrors.push(err599);
+                                        }
+                                        errors++;
+                                      }
+                                    }
+                                    if (data201.externalId !== void 0) {
+                                      if (typeof data201.externalId !== "string") {
+                                        const err600 = { instancePath: instancePath + "/source/externalId", schemaPath: "#/definitions/TriggerActor/anyOf/1/properties/externalId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                        if (vErrors === null) {
+                                          vErrors = [err600];
+                                        } else {
+                                          vErrors.push(err600);
+                                        }
+                                        errors++;
+                                      }
                                     }
                                   } else {
-                                    const err599 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                                    const err601 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/type", keyword: "type", params: { type: "object" }, message: "must be object" };
                                     if (vErrors === null) {
-                                      vErrors = [err599];
+                                      vErrors = [err601];
                                     } else {
-                                      vErrors.push(err599);
+                                      vErrors.push(err601);
                                     }
                                     errors++;
                                   }
@@ -7864,38 +7882,17 @@ var require_Trigger_validator = __commonJS({
                                     const _errs595 = errors;
                                     if (data201 && typeof data201 == "object" && !Array.isArray(data201)) {
                                       if (data201.role === void 0) {
-                                        const err600 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/2/required", keyword: "required", params: { missingProperty: "role" }, message: "must have required property 'role'" };
+                                        const err602 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/2/required", keyword: "required", params: { missingProperty: "role" }, message: "must have required property 'role'" };
                                         if (vErrors === null) {
-                                          vErrors = [err600];
+                                          vErrors = [err602];
                                         } else {
-                                          vErrors.push(err600);
+                                          vErrors.push(err602);
                                         }
                                         errors++;
                                       }
                                       for (const key60 in data201) {
                                         if (!(key60 === "role")) {
-                                          const err601 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/2/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key60 }, message: "must NOT have additional properties" };
-                                          if (vErrors === null) {
-                                            vErrors = [err601];
-                                          } else {
-                                            vErrors.push(err601);
-                                          }
-                                          errors++;
-                                        }
-                                      }
-                                      if (data201.role !== void 0) {
-                                        let data207 = data201.role;
-                                        if (typeof data207 !== "string") {
-                                          const err602 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/2/properties/role/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                                          if (vErrors === null) {
-                                            vErrors = [err602];
-                                          } else {
-                                            vErrors.push(err602);
-                                          }
-                                          errors++;
-                                        }
-                                        if ("supervisor" !== data207) {
-                                          const err603 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/2/properties/role/const", keyword: "const", params: { allowedValue: "supervisor" }, message: "must be equal to constant" };
+                                          const err603 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/2/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key60 }, message: "must NOT have additional properties" };
                                           if (vErrors === null) {
                                             vErrors = [err603];
                                           } else {
@@ -7904,12 +7901,33 @@ var require_Trigger_validator = __commonJS({
                                           errors++;
                                         }
                                       }
+                                      if (data201.role !== void 0) {
+                                        let data207 = data201.role;
+                                        if (typeof data207 !== "string") {
+                                          const err604 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/2/properties/role/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                          if (vErrors === null) {
+                                            vErrors = [err604];
+                                          } else {
+                                            vErrors.push(err604);
+                                          }
+                                          errors++;
+                                        }
+                                        if ("supervisor" !== data207) {
+                                          const err605 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/2/properties/role/const", keyword: "const", params: { allowedValue: "supervisor" }, message: "must be equal to constant" };
+                                          if (vErrors === null) {
+                                            vErrors = [err605];
+                                          } else {
+                                            vErrors.push(err605);
+                                          }
+                                          errors++;
+                                        }
+                                      }
                                     } else {
-                                      const err604 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/2/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                                      const err606 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/2/type", keyword: "type", params: { type: "object" }, message: "must be object" };
                                       if (vErrors === null) {
-                                        vErrors = [err604];
+                                        vErrors = [err606];
                                       } else {
-                                        vErrors.push(err604);
+                                        vErrors.push(err606);
                                       }
                                       errors++;
                                     }
@@ -7918,11 +7936,11 @@ var require_Trigger_validator = __commonJS({
                                   }
                                 }
                                 if (!valid94) {
-                                  const err605 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf", keyword: "anyOf", params: {}, message: "must match a schema in anyOf" };
+                                  const err607 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf", keyword: "anyOf", params: {}, message: "must match a schema in anyOf" };
                                   if (vErrors === null) {
-                                    vErrors = [err605];
+                                    vErrors = [err607];
                                   } else {
-                                    vErrors.push(err605);
+                                    vErrors.push(err607);
                                   }
                                   errors++;
                                 } else {
@@ -7939,20 +7957,20 @@ var require_Trigger_validator = __commonJS({
                               if (data.target !== void 0) {
                                 let data208 = data.target;
                                 if (typeof data208 !== "string") {
-                                  const err606 = { instancePath: instancePath + "/target", schemaPath: "#/definitions/TriggerTarget/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                  const err608 = { instancePath: instancePath + "/target", schemaPath: "#/definitions/TriggerTarget/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                   if (vErrors === null) {
-                                    vErrors = [err606];
+                                    vErrors = [err608];
                                   } else {
-                                    vErrors.push(err606);
+                                    vErrors.push(err608);
                                   }
                                   errors++;
                                 }
                                 if (!(data208 === "supervisor" || data208 === "worker")) {
-                                  const err607 = { instancePath: instancePath + "/target", schemaPath: "#/definitions/TriggerTarget/enum", keyword: "enum", params: { allowedValues: schema14.enum }, message: "must be equal to one of the allowed values" };
+                                  const err609 = { instancePath: instancePath + "/target", schemaPath: "#/definitions/TriggerTarget/enum", keyword: "enum", params: { allowedValues: schema14.enum }, message: "must be equal to one of the allowed values" };
                                   if (vErrors === null) {
-                                    vErrors = [err607];
+                                    vErrors = [err609];
                                   } else {
-                                    vErrors.push(err607);
+                                    vErrors.push(err609);
                                   }
                                   errors++;
                                 }
@@ -7961,21 +7979,39 @@ var require_Trigger_validator = __commonJS({
                                 let data209 = data.payload;
                                 if (data209 && typeof data209 == "object" && !Array.isArray(data209)) {
                                   if (data209.action === void 0) {
-                                    const err608 = { instancePath: instancePath + "/payload", schemaPath: "#/anyOf/11/properties/payload/required", keyword: "required", params: { missingProperty: "action" }, message: "must have required property 'action'" };
+                                    const err610 = { instancePath: instancePath + "/payload", schemaPath: "#/anyOf/11/properties/payload/required", keyword: "required", params: { missingProperty: "action" }, message: "must have required property 'action'" };
                                     if (vErrors === null) {
-                                      vErrors = [err608];
+                                      vErrors = [err610];
                                     } else {
-                                      vErrors.push(err608);
+                                      vErrors.push(err610);
+                                    }
+                                    errors++;
+                                  }
+                                  if (data209.runId === void 0) {
+                                    const err611 = { instancePath: instancePath + "/payload", schemaPath: "#/anyOf/11/properties/payload/required", keyword: "required", params: { missingProperty: "runId" }, message: "must have required property 'runId'" };
+                                    if (vErrors === null) {
+                                      vErrors = [err611];
+                                    } else {
+                                      vErrors.push(err611);
+                                    }
+                                    errors++;
+                                  }
+                                  if (data209.content === void 0) {
+                                    const err612 = { instancePath: instancePath + "/payload", schemaPath: "#/anyOf/11/properties/payload/required", keyword: "required", params: { missingProperty: "content" }, message: "must have required property 'content'" };
+                                    if (vErrors === null) {
+                                      vErrors = [err612];
+                                    } else {
+                                      vErrors.push(err612);
                                     }
                                     errors++;
                                   }
                                   for (const key61 in data209) {
-                                    if (!(key61 === "action")) {
-                                      const err609 = { instancePath: instancePath + "/payload", schemaPath: "#/anyOf/11/properties/payload/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key61 }, message: "must NOT have additional properties" };
+                                    if (!(key61 === "action" || key61 === "runId" || key61 === "content")) {
+                                      const err613 = { instancePath: instancePath + "/payload", schemaPath: "#/anyOf/11/properties/payload/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key61 }, message: "must NOT have additional properties" };
                                       if (vErrors === null) {
-                                        vErrors = [err609];
+                                        vErrors = [err613];
                                       } else {
-                                        vErrors.push(err609);
+                                        vErrors.push(err613);
                                       }
                                       errors++;
                                     }
@@ -7983,88 +8019,48 @@ var require_Trigger_validator = __commonJS({
                                   if (data209.action !== void 0) {
                                     let data210 = data209.action;
                                     if (typeof data210 !== "string") {
-                                      const err610 = { instancePath: instancePath + "/payload/action", schemaPath: "#/anyOf/11/properties/payload/properties/action/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                      const err614 = { instancePath: instancePath + "/payload/action", schemaPath: "#/anyOf/11/properties/payload/properties/action/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                       if (vErrors === null) {
-                                        vErrors = [err610];
+                                        vErrors = [err614];
                                       } else {
-                                        vErrors.push(err610);
+                                        vErrors.push(err614);
                                       }
                                       errors++;
                                     }
-                                    if ("started" !== data210) {
-                                      const err611 = { instancePath: instancePath + "/payload/action", schemaPath: "#/anyOf/11/properties/payload/properties/action/const", keyword: "const", params: { allowedValue: "started" }, message: "must be equal to constant" };
+                                    if ("continue" !== data210) {
+                                      const err615 = { instancePath: instancePath + "/payload/action", schemaPath: "#/anyOf/11/properties/payload/properties/action/const", keyword: "const", params: { allowedValue: "continue" }, message: "must be equal to constant" };
                                       if (vErrors === null) {
-                                        vErrors = [err611];
+                                        vErrors = [err615];
                                       } else {
-                                        vErrors.push(err611);
+                                        vErrors.push(err615);
+                                      }
+                                      errors++;
+                                    }
+                                  }
+                                  if (data209.runId !== void 0) {
+                                    if (typeof data209.runId !== "string") {
+                                      const err616 = { instancePath: instancePath + "/payload/runId", schemaPath: "#/anyOf/11/properties/payload/properties/runId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                      if (vErrors === null) {
+                                        vErrors = [err616];
+                                      } else {
+                                        vErrors.push(err616);
+                                      }
+                                      errors++;
+                                    }
+                                  }
+                                  if (data209.content !== void 0) {
+                                    if (typeof data209.content !== "string") {
+                                      const err617 = { instancePath: instancePath + "/payload/content", schemaPath: "#/anyOf/11/properties/payload/properties/content/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                      if (vErrors === null) {
+                                        vErrors = [err617];
+                                      } else {
+                                        vErrors.push(err617);
                                       }
                                       errors++;
                                     }
                                   }
                                 } else {
-                                  const err612 = { instancePath: instancePath + "/payload", schemaPath: "#/anyOf/11/properties/payload/type", keyword: "type", params: { type: "object" }, message: "must be object" };
-                                  if (vErrors === null) {
-                                    vErrors = [err612];
-                                  } else {
-                                    vErrors.push(err612);
-                                  }
-                                  errors++;
-                                }
-                              }
-                              if (data.sentAt !== void 0) {
-                                if (typeof data.sentAt !== "string") {
-                                  const err613 = { instancePath: instancePath + "/sentAt", schemaPath: "#/anyOf/11/properties/sentAt/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                                  if (vErrors === null) {
-                                    vErrors = [err613];
-                                  } else {
-                                    vErrors.push(err613);
-                                  }
-                                  errors++;
-                                }
-                              }
-                            } else {
-                              const err614 = { instancePath, schemaPath: "#/anyOf/11/type", keyword: "type", params: { type: "object" }, message: "must be object" };
-                              if (vErrors === null) {
-                                vErrors = [err614];
-                              } else {
-                                vErrors.push(err614);
-                              }
-                              errors++;
-                            }
-                            var _valid0 = _errs567 === errors;
-                            valid0 = valid0 || _valid0;
-                            if (!valid0) {
-                              const _errs610 = errors;
-                              if (data && typeof data == "object" && !Array.isArray(data)) {
-                                if (data.id === void 0) {
-                                  const err615 = { instancePath, schemaPath: "#/anyOf/12/required", keyword: "required", params: { missingProperty: "id" }, message: "must have required property 'id'" };
-                                  if (vErrors === null) {
-                                    vErrors = [err615];
-                                  } else {
-                                    vErrors.push(err615);
-                                  }
-                                  errors++;
-                                }
-                                if (data.name === void 0) {
-                                  const err616 = { instancePath, schemaPath: "#/anyOf/12/required", keyword: "required", params: { missingProperty: "name" }, message: "must have required property 'name'" };
-                                  if (vErrors === null) {
-                                    vErrors = [err616];
-                                  } else {
-                                    vErrors.push(err616);
-                                  }
-                                  errors++;
-                                }
-                                if (data.type === void 0) {
-                                  const err617 = { instancePath, schemaPath: "#/anyOf/12/required", keyword: "required", params: { missingProperty: "type" }, message: "must have required property 'type'" };
-                                  if (vErrors === null) {
-                                    vErrors = [err617];
-                                  } else {
-                                    vErrors.push(err617);
-                                  }
-                                  errors++;
-                                }
-                                if (data.source === void 0) {
-                                  const err618 = { instancePath, schemaPath: "#/anyOf/12/required", keyword: "required", params: { missingProperty: "source" }, message: "must have required property 'source'" };
+                                  const err618 = { instancePath: instancePath + "/payload", schemaPath: "#/anyOf/11/properties/payload/type", keyword: "type", params: { type: "object" }, message: "must be object" };
                                   if (vErrors === null) {
                                     vErrors = [err618];
                                   } else {
@@ -8072,8 +8068,10 @@ var require_Trigger_validator = __commonJS({
                                   }
                                   errors++;
                                 }
-                                if (data.target === void 0) {
-                                  const err619 = { instancePath, schemaPath: "#/anyOf/12/required", keyword: "required", params: { missingProperty: "target" }, message: "must have required property 'target'" };
+                              }
+                              if (data.sentAt !== void 0) {
+                                if (typeof data.sentAt !== "string") {
+                                  const err619 = { instancePath: instancePath + "/sentAt", schemaPath: "#/anyOf/11/properties/sentAt/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                   if (vErrors === null) {
                                     vErrors = [err619];
                                   } else {
@@ -8081,8 +8079,10 @@ var require_Trigger_validator = __commonJS({
                                   }
                                   errors++;
                                 }
-                                if (data.payload === void 0) {
-                                  const err620 = { instancePath, schemaPath: "#/anyOf/12/required", keyword: "required", params: { missingProperty: "payload" }, message: "must have required property 'payload'" };
+                              }
+                              if (data.goalId !== void 0) {
+                                if (typeof data.goalId !== "string") {
+                                  const err620 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/11/properties/goalId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                   if (vErrors === null) {
                                     vErrors = [err620];
                                   } else {
@@ -8090,8 +8090,10 @@ var require_Trigger_validator = __commonJS({
                                   }
                                   errors++;
                                 }
-                                if (data.sentAt === void 0) {
-                                  const err621 = { instancePath, schemaPath: "#/anyOf/12/required", keyword: "required", params: { missingProperty: "sentAt" }, message: "must have required property 'sentAt'" };
+                              }
+                              if (data.replyTo !== void 0) {
+                                if (typeof data.replyTo !== "string") {
+                                  const err621 = { instancePath: instancePath + "/replyTo", schemaPath: "#/anyOf/11/properties/replyTo/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                   if (vErrors === null) {
                                     vErrors = [err621];
                                   } else {
@@ -8099,375 +8101,357 @@ var require_Trigger_validator = __commonJS({
                                   }
                                   errors++;
                                 }
+                              }
+                            } else {
+                              const err622 = { instancePath, schemaPath: "#/anyOf/11/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                              if (vErrors === null) {
+                                vErrors = [err622];
+                              } else {
+                                vErrors.push(err622);
+                              }
+                              errors++;
+                            }
+                            var _valid0 = _errs567 === errors;
+                            valid0 = valid0 || _valid0;
+                            if (!valid0) {
+                              const _errs618 = errors;
+                              if (data && typeof data == "object" && !Array.isArray(data)) {
+                                if (data.id === void 0) {
+                                  const err623 = { instancePath, schemaPath: "#/anyOf/12/required", keyword: "required", params: { missingProperty: "id" }, message: "must have required property 'id'" };
+                                  if (vErrors === null) {
+                                    vErrors = [err623];
+                                  } else {
+                                    vErrors.push(err623);
+                                  }
+                                  errors++;
+                                }
+                                if (data.name === void 0) {
+                                  const err624 = { instancePath, schemaPath: "#/anyOf/12/required", keyword: "required", params: { missingProperty: "name" }, message: "must have required property 'name'" };
+                                  if (vErrors === null) {
+                                    vErrors = [err624];
+                                  } else {
+                                    vErrors.push(err624);
+                                  }
+                                  errors++;
+                                }
+                                if (data.type === void 0) {
+                                  const err625 = { instancePath, schemaPath: "#/anyOf/12/required", keyword: "required", params: { missingProperty: "type" }, message: "must have required property 'type'" };
+                                  if (vErrors === null) {
+                                    vErrors = [err625];
+                                  } else {
+                                    vErrors.push(err625);
+                                  }
+                                  errors++;
+                                }
+                                if (data.source === void 0) {
+                                  const err626 = { instancePath, schemaPath: "#/anyOf/12/required", keyword: "required", params: { missingProperty: "source" }, message: "must have required property 'source'" };
+                                  if (vErrors === null) {
+                                    vErrors = [err626];
+                                  } else {
+                                    vErrors.push(err626);
+                                  }
+                                  errors++;
+                                }
+                                if (data.target === void 0) {
+                                  const err627 = { instancePath, schemaPath: "#/anyOf/12/required", keyword: "required", params: { missingProperty: "target" }, message: "must have required property 'target'" };
+                                  if (vErrors === null) {
+                                    vErrors = [err627];
+                                  } else {
+                                    vErrors.push(err627);
+                                  }
+                                  errors++;
+                                }
+                                if (data.payload === void 0) {
+                                  const err628 = { instancePath, schemaPath: "#/anyOf/12/required", keyword: "required", params: { missingProperty: "payload" }, message: "must have required property 'payload'" };
+                                  if (vErrors === null) {
+                                    vErrors = [err628];
+                                  } else {
+                                    vErrors.push(err628);
+                                  }
+                                  errors++;
+                                }
+                                if (data.sentAt === void 0) {
+                                  const err629 = { instancePath, schemaPath: "#/anyOf/12/required", keyword: "required", params: { missingProperty: "sentAt" }, message: "must have required property 'sentAt'" };
+                                  if (vErrors === null) {
+                                    vErrors = [err629];
+                                  } else {
+                                    vErrors.push(err629);
+                                  }
+                                  errors++;
+                                }
                                 for (const key62 in data) {
                                   if (!(key62 === "id" || key62 === "name" || key62 === "type" || key62 === "source" || key62 === "target" || key62 === "payload" || key62 === "sentAt")) {
-                                    const err622 = { instancePath, schemaPath: "#/anyOf/12/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key62 }, message: "must NOT have additional properties" };
+                                    const err630 = { instancePath, schemaPath: "#/anyOf/12/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key62 }, message: "must NOT have additional properties" };
                                     if (vErrors === null) {
-                                      vErrors = [err622];
+                                      vErrors = [err630];
                                     } else {
-                                      vErrors.push(err622);
+                                      vErrors.push(err630);
                                     }
                                     errors++;
                                   }
                                 }
                                 if (data.id !== void 0) {
                                   if (typeof data.id !== "string") {
-                                    const err623 = { instancePath: instancePath + "/id", schemaPath: "#/anyOf/12/properties/id/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                    const err631 = { instancePath: instancePath + "/id", schemaPath: "#/anyOf/12/properties/id/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                     if (vErrors === null) {
-                                      vErrors = [err623];
+                                      vErrors = [err631];
                                     } else {
-                                      vErrors.push(err623);
+                                      vErrors.push(err631);
                                     }
                                     errors++;
                                   }
                                 }
                                 if (data.name !== void 0) {
                                   if (typeof data.name !== "string") {
-                                    const err624 = { instancePath: instancePath + "/name", schemaPath: "#/anyOf/12/properties/name/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                    const err632 = { instancePath: instancePath + "/name", schemaPath: "#/anyOf/12/properties/name/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                     if (vErrors === null) {
-                                      vErrors = [err624];
+                                      vErrors = [err632];
                                     } else {
-                                      vErrors.push(err624);
+                                      vErrors.push(err632);
                                     }
                                     errors++;
                                   }
                                 }
                                 if (data.type !== void 0) {
-                                  let data214 = data.type;
-                                  if (typeof data214 !== "string") {
-                                    const err625 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/12/properties/type/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                  let data218 = data.type;
+                                  if (typeof data218 !== "string") {
+                                    const err633 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/12/properties/type/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                     if (vErrors === null) {
-                                      vErrors = [err625];
+                                      vErrors = [err633];
                                     } else {
-                                      vErrors.push(err625);
+                                      vErrors.push(err633);
                                     }
                                     errors++;
                                   }
-                                  if ("lifecycle" !== data214) {
-                                    const err626 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/12/properties/type/const", keyword: "const", params: { allowedValue: "lifecycle" }, message: "must be equal to constant" };
+                                  if ("lifecycle" !== data218) {
+                                    const err634 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/12/properties/type/const", keyword: "const", params: { allowedValue: "lifecycle" }, message: "must be equal to constant" };
                                     if (vErrors === null) {
-                                      vErrors = [err626];
+                                      vErrors = [err634];
                                     } else {
-                                      vErrors.push(err626);
+                                      vErrors.push(err634);
                                     }
                                     errors++;
                                   }
                                 }
                                 if (data.source !== void 0) {
-                                  let data215 = data.source;
-                                  const _errs621 = errors;
+                                  let data219 = data.source;
+                                  const _errs629 = errors;
                                   let valid102 = false;
-                                  const _errs622 = errors;
-                                  if (data215 && typeof data215 == "object" && !Array.isArray(data215)) {
-                                    if (data215.role === void 0) {
-                                      const err627 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/required", keyword: "required", params: { missingProperty: "role" }, message: "must have required property 'role'" };
+                                  const _errs630 = errors;
+                                  if (data219 && typeof data219 == "object" && !Array.isArray(data219)) {
+                                    if (data219.role === void 0) {
+                                      const err635 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/required", keyword: "required", params: { missingProperty: "role" }, message: "must have required property 'role'" };
                                       if (vErrors === null) {
-                                        vErrors = [err627];
+                                        vErrors = [err635];
                                       } else {
-                                        vErrors.push(err627);
+                                        vErrors.push(err635);
                                       }
                                       errors++;
                                     }
-                                    if (data215.workerId === void 0) {
-                                      const err628 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/required", keyword: "required", params: { missingProperty: "workerId" }, message: "must have required property 'workerId'" };
+                                    if (data219.workerId === void 0) {
+                                      const err636 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/required", keyword: "required", params: { missingProperty: "workerId" }, message: "must have required property 'workerId'" };
                                       if (vErrors === null) {
-                                        vErrors = [err628];
+                                        vErrors = [err636];
                                       } else {
-                                        vErrors.push(err628);
+                                        vErrors.push(err636);
                                       }
                                       errors++;
                                     }
-                                    if (data215.generation === void 0) {
-                                      const err629 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/required", keyword: "required", params: { missingProperty: "generation" }, message: "must have required property 'generation'" };
+                                    if (data219.generation === void 0) {
+                                      const err637 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/required", keyword: "required", params: { missingProperty: "generation" }, message: "must have required property 'generation'" };
                                       if (vErrors === null) {
-                                        vErrors = [err629];
+                                        vErrors = [err637];
                                       } else {
-                                        vErrors.push(err629);
+                                        vErrors.push(err637);
                                       }
                                       errors++;
                                     }
-                                    for (const key63 in data215) {
+                                    for (const key63 in data219) {
                                       if (!(key63 === "role" || key63 === "workerId" || key63 === "generation")) {
-                                        const err630 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key63 }, message: "must NOT have additional properties" };
+                                        const err638 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key63 }, message: "must NOT have additional properties" };
                                         if (vErrors === null) {
-                                          vErrors = [err630];
+                                          vErrors = [err638];
                                         } else {
-                                          vErrors.push(err630);
+                                          vErrors.push(err638);
                                         }
                                         errors++;
                                       }
                                     }
-                                    if (data215.role !== void 0) {
-                                      let data216 = data215.role;
-                                      if (typeof data216 !== "string") {
-                                        const err631 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/role/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                    if (data219.role !== void 0) {
+                                      let data220 = data219.role;
+                                      if (typeof data220 !== "string") {
+                                        const err639 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/role/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                         if (vErrors === null) {
-                                          vErrors = [err631];
+                                          vErrors = [err639];
                                         } else {
-                                          vErrors.push(err631);
+                                          vErrors.push(err639);
                                         }
                                         errors++;
                                       }
-                                      if ("worker" !== data216) {
-                                        const err632 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/role/const", keyword: "const", params: { allowedValue: "worker" }, message: "must be equal to constant" };
+                                      if ("worker" !== data220) {
+                                        const err640 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/role/const", keyword: "const", params: { allowedValue: "worker" }, message: "must be equal to constant" };
                                         if (vErrors === null) {
-                                          vErrors = [err632];
+                                          vErrors = [err640];
                                         } else {
-                                          vErrors.push(err632);
-                                        }
-                                        errors++;
-                                      }
-                                    }
-                                    if (data215.workerId !== void 0) {
-                                      if (typeof data215.workerId !== "string") {
-                                        const err633 = { instancePath: instancePath + "/source/workerId", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/workerId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                                        if (vErrors === null) {
-                                          vErrors = [err633];
-                                        } else {
-                                          vErrors.push(err633);
+                                          vErrors.push(err640);
                                         }
                                         errors++;
                                       }
                                     }
-                                    if (data215.generation !== void 0) {
-                                      if (typeof data215.generation !== "string") {
-                                        const err634 = { instancePath: instancePath + "/source/generation", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/generation/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                    if (data219.workerId !== void 0) {
+                                      if (typeof data219.workerId !== "string") {
+                                        const err641 = { instancePath: instancePath + "/source/workerId", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/workerId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                         if (vErrors === null) {
-                                          vErrors = [err634];
+                                          vErrors = [err641];
                                         } else {
-                                          vErrors.push(err634);
+                                          vErrors.push(err641);
+                                        }
+                                        errors++;
+                                      }
+                                    }
+                                    if (data219.generation !== void 0) {
+                                      if (typeof data219.generation !== "string") {
+                                        const err642 = { instancePath: instancePath + "/source/generation", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/generation/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                        if (vErrors === null) {
+                                          vErrors = [err642];
+                                        } else {
+                                          vErrors.push(err642);
                                         }
                                         errors++;
                                       }
                                     }
                                   } else {
-                                    const err635 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                                    const err643 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/type", keyword: "type", params: { type: "object" }, message: "must be object" };
                                     if (vErrors === null) {
-                                      vErrors = [err635];
+                                      vErrors = [err643];
                                     } else {
-                                      vErrors.push(err635);
+                                      vErrors.push(err643);
                                     }
                                     errors++;
                                   }
-                                  var _valid14 = _errs622 === errors;
+                                  var _valid14 = _errs630 === errors;
                                   valid102 = valid102 || _valid14;
                                   if (!valid102) {
-                                    const _errs631 = errors;
-                                    if (data215 && typeof data215 == "object" && !Array.isArray(data215)) {
-                                      if (data215.role === void 0) {
-                                        const err636 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/required", keyword: "required", params: { missingProperty: "role" }, message: "must have required property 'role'" };
+                                    const _errs639 = errors;
+                                    if (data219 && typeof data219 == "object" && !Array.isArray(data219)) {
+                                      if (data219.role === void 0) {
+                                        const err644 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/required", keyword: "required", params: { missingProperty: "role" }, message: "must have required property 'role'" };
                                         if (vErrors === null) {
-                                          vErrors = [err636];
+                                          vErrors = [err644];
                                         } else {
-                                          vErrors.push(err636);
+                                          vErrors.push(err644);
                                         }
                                         errors++;
                                       }
-                                      if (data215.externalId === void 0) {
-                                        const err637 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/required", keyword: "required", params: { missingProperty: "externalId" }, message: "must have required property 'externalId'" };
+                                      if (data219.externalId === void 0) {
+                                        const err645 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/required", keyword: "required", params: { missingProperty: "externalId" }, message: "must have required property 'externalId'" };
                                         if (vErrors === null) {
-                                          vErrors = [err637];
+                                          vErrors = [err645];
                                         } else {
-                                          vErrors.push(err637);
+                                          vErrors.push(err645);
                                         }
                                         errors++;
                                       }
-                                      for (const key64 in data215) {
+                                      for (const key64 in data219) {
                                         if (!(key64 === "role" || key64 === "externalId")) {
-                                          const err638 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key64 }, message: "must NOT have additional properties" };
+                                          const err646 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key64 }, message: "must NOT have additional properties" };
                                           if (vErrors === null) {
-                                            vErrors = [err638];
+                                            vErrors = [err646];
                                           } else {
-                                            vErrors.push(err638);
+                                            vErrors.push(err646);
                                           }
                                           errors++;
                                         }
                                       }
-                                      if (data215.role !== void 0) {
-                                        let data219 = data215.role;
-                                        if (typeof data219 !== "string") {
-                                          const err639 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/1/properties/role/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                      if (data219.role !== void 0) {
+                                        let data223 = data219.role;
+                                        if (typeof data223 !== "string") {
+                                          const err647 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/1/properties/role/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                           if (vErrors === null) {
-                                            vErrors = [err639];
+                                            vErrors = [err647];
                                           } else {
-                                            vErrors.push(err639);
+                                            vErrors.push(err647);
                                           }
                                           errors++;
                                         }
-                                        if ("external" !== data219) {
-                                          const err640 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/1/properties/role/const", keyword: "const", params: { allowedValue: "external" }, message: "must be equal to constant" };
+                                        if ("external" !== data223) {
+                                          const err648 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/1/properties/role/const", keyword: "const", params: { allowedValue: "external" }, message: "must be equal to constant" };
                                           if (vErrors === null) {
-                                            vErrors = [err640];
+                                            vErrors = [err648];
                                           } else {
-                                            vErrors.push(err640);
+                                            vErrors.push(err648);
                                           }
                                           errors++;
                                         }
                                       }
-                                      if (data215.externalId !== void 0) {
-                                        if (typeof data215.externalId !== "string") {
-                                          const err641 = { instancePath: instancePath + "/source/externalId", schemaPath: "#/definitions/TriggerActor/anyOf/1/properties/externalId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                      if (data219.externalId !== void 0) {
+                                        if (typeof data219.externalId !== "string") {
+                                          const err649 = { instancePath: instancePath + "/source/externalId", schemaPath: "#/definitions/TriggerActor/anyOf/1/properties/externalId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                           if (vErrors === null) {
-                                            vErrors = [err641];
+                                            vErrors = [err649];
                                           } else {
-                                            vErrors.push(err641);
+                                            vErrors.push(err649);
                                           }
                                           errors++;
                                         }
                                       }
                                     } else {
-                                      const err642 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                                      const err650 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/type", keyword: "type", params: { type: "object" }, message: "must be object" };
                                       if (vErrors === null) {
-                                        vErrors = [err642];
+                                        vErrors = [err650];
                                       } else {
-                                        vErrors.push(err642);
+                                        vErrors.push(err650);
                                       }
                                       errors++;
                                     }
-                                    var _valid14 = _errs631 === errors;
+                                    var _valid14 = _errs639 === errors;
                                     valid102 = valid102 || _valid14;
                                     if (!valid102) {
-                                      const _errs638 = errors;
-                                      if (data215 && typeof data215 == "object" && !Array.isArray(data215)) {
-                                        if (data215.role === void 0) {
-                                          const err643 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/2/required", keyword: "required", params: { missingProperty: "role" }, message: "must have required property 'role'" };
+                                      const _errs646 = errors;
+                                      if (data219 && typeof data219 == "object" && !Array.isArray(data219)) {
+                                        if (data219.role === void 0) {
+                                          const err651 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/2/required", keyword: "required", params: { missingProperty: "role" }, message: "must have required property 'role'" };
                                           if (vErrors === null) {
-                                            vErrors = [err643];
+                                            vErrors = [err651];
                                           } else {
-                                            vErrors.push(err643);
+                                            vErrors.push(err651);
                                           }
                                           errors++;
                                         }
-                                        for (const key65 in data215) {
+                                        for (const key65 in data219) {
                                           if (!(key65 === "role")) {
-                                            const err644 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/2/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key65 }, message: "must NOT have additional properties" };
+                                            const err652 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/2/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key65 }, message: "must NOT have additional properties" };
                                             if (vErrors === null) {
-                                              vErrors = [err644];
+                                              vErrors = [err652];
                                             } else {
-                                              vErrors.push(err644);
+                                              vErrors.push(err652);
                                             }
                                             errors++;
                                           }
                                         }
-                                        if (data215.role !== void 0) {
-                                          let data221 = data215.role;
-                                          if (typeof data221 !== "string") {
-                                            const err645 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/2/properties/role/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                        if (data219.role !== void 0) {
+                                          let data225 = data219.role;
+                                          if (typeof data225 !== "string") {
+                                            const err653 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/2/properties/role/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                             if (vErrors === null) {
-                                              vErrors = [err645];
+                                              vErrors = [err653];
                                             } else {
-                                              vErrors.push(err645);
+                                              vErrors.push(err653);
                                             }
                                             errors++;
                                           }
-                                          if ("supervisor" !== data221) {
-                                            const err646 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/2/properties/role/const", keyword: "const", params: { allowedValue: "supervisor" }, message: "must be equal to constant" };
+                                          if ("supervisor" !== data225) {
+                                            const err654 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/2/properties/role/const", keyword: "const", params: { allowedValue: "supervisor" }, message: "must be equal to constant" };
                                             if (vErrors === null) {
-                                              vErrors = [err646];
+                                              vErrors = [err654];
                                             } else {
-                                              vErrors.push(err646);
+                                              vErrors.push(err654);
                                             }
                                             errors++;
                                           }
                                         }
                                       } else {
-                                        const err647 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/2/type", keyword: "type", params: { type: "object" }, message: "must be object" };
-                                        if (vErrors === null) {
-                                          vErrors = [err647];
-                                        } else {
-                                          vErrors.push(err647);
-                                        }
-                                        errors++;
-                                      }
-                                      var _valid14 = _errs638 === errors;
-                                      valid102 = valid102 || _valid14;
-                                    }
-                                  }
-                                  if (!valid102) {
-                                    const err648 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf", keyword: "anyOf", params: {}, message: "must match a schema in anyOf" };
-                                    if (vErrors === null) {
-                                      vErrors = [err648];
-                                    } else {
-                                      vErrors.push(err648);
-                                    }
-                                    errors++;
-                                  } else {
-                                    errors = _errs621;
-                                    if (vErrors !== null) {
-                                      if (_errs621) {
-                                        vErrors.length = _errs621;
-                                      } else {
-                                        vErrors = null;
-                                      }
-                                    }
-                                  }
-                                }
-                                if (data.target !== void 0) {
-                                  let data222 = data.target;
-                                  if (typeof data222 !== "string") {
-                                    const err649 = { instancePath: instancePath + "/target", schemaPath: "#/definitions/TriggerTarget/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                                    if (vErrors === null) {
-                                      vErrors = [err649];
-                                    } else {
-                                      vErrors.push(err649);
-                                    }
-                                    errors++;
-                                  }
-                                  if (!(data222 === "supervisor" || data222 === "worker")) {
-                                    const err650 = { instancePath: instancePath + "/target", schemaPath: "#/definitions/TriggerTarget/enum", keyword: "enum", params: { allowedValues: schema14.enum }, message: "must be equal to one of the allowed values" };
-                                    if (vErrors === null) {
-                                      vErrors = [err650];
-                                    } else {
-                                      vErrors.push(err650);
-                                    }
-                                    errors++;
-                                  }
-                                }
-                                if (data.payload !== void 0) {
-                                  let data223 = data.payload;
-                                  if (data223 && typeof data223 == "object" && !Array.isArray(data223)) {
-                                    if (data223.action === void 0) {
-                                      const err651 = { instancePath: instancePath + "/payload", schemaPath: "#/anyOf/12/properties/payload/required", keyword: "required", params: { missingProperty: "action" }, message: "must have required property 'action'" };
-                                      if (vErrors === null) {
-                                        vErrors = [err651];
-                                      } else {
-                                        vErrors.push(err651);
-                                      }
-                                      errors++;
-                                    }
-                                    if (data223.outcome === void 0) {
-                                      const err652 = { instancePath: instancePath + "/payload", schemaPath: "#/anyOf/12/properties/payload/required", keyword: "required", params: { missingProperty: "outcome" }, message: "must have required property 'outcome'" };
-                                      if (vErrors === null) {
-                                        vErrors = [err652];
-                                      } else {
-                                        vErrors.push(err652);
-                                      }
-                                      errors++;
-                                    }
-                                    for (const key66 in data223) {
-                                      if (!(key66 === "action" || key66 === "outcome")) {
-                                        const err653 = { instancePath: instancePath + "/payload", schemaPath: "#/anyOf/12/properties/payload/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key66 }, message: "must NOT have additional properties" };
-                                        if (vErrors === null) {
-                                          vErrors = [err653];
-                                        } else {
-                                          vErrors.push(err653);
-                                        }
-                                        errors++;
-                                      }
-                                    }
-                                    if (data223.action !== void 0) {
-                                      let data224 = data223.action;
-                                      if (typeof data224 !== "string") {
-                                        const err654 = { instancePath: instancePath + "/payload/action", schemaPath: "#/anyOf/12/properties/payload/properties/action/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                                        if (vErrors === null) {
-                                          vErrors = [err654];
-                                        } else {
-                                          vErrors.push(err654);
-                                        }
-                                        errors++;
-                                      }
-                                      if ("exited" !== data224) {
-                                        const err655 = { instancePath: instancePath + "/payload/action", schemaPath: "#/anyOf/12/properties/payload/properties/action/const", keyword: "const", params: { allowedValue: "exited" }, message: "must be equal to constant" };
+                                        const err655 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/2/type", keyword: "type", params: { type: "object" }, message: "must be object" };
                                         if (vErrors === null) {
                                           vErrors = [err655];
                                         } else {
@@ -8475,30 +8459,42 @@ var require_Trigger_validator = __commonJS({
                                         }
                                         errors++;
                                       }
+                                      var _valid14 = _errs646 === errors;
+                                      valid102 = valid102 || _valid14;
                                     }
-                                    if (data223.outcome !== void 0) {
-                                      let data225 = data223.outcome;
-                                      if (typeof data225 !== "string") {
-                                        const err656 = { instancePath: instancePath + "/payload/outcome", schemaPath: "#/anyOf/12/properties/payload/properties/outcome/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                                        if (vErrors === null) {
-                                          vErrors = [err656];
-                                        } else {
-                                          vErrors.push(err656);
-                                        }
-                                        errors++;
-                                      }
-                                      if (!(data225 === "normal" || data225 === "unexpected")) {
-                                        const err657 = { instancePath: instancePath + "/payload/outcome", schemaPath: "#/anyOf/12/properties/payload/properties/outcome/enum", keyword: "enum", params: { allowedValues: schema12.anyOf[12].properties.payload.properties.outcome.enum }, message: "must be equal to one of the allowed values" };
-                                        if (vErrors === null) {
-                                          vErrors = [err657];
-                                        } else {
-                                          vErrors.push(err657);
-                                        }
-                                        errors++;
-                                      }
+                                  }
+                                  if (!valid102) {
+                                    const err656 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf", keyword: "anyOf", params: {}, message: "must match a schema in anyOf" };
+                                    if (vErrors === null) {
+                                      vErrors = [err656];
+                                    } else {
+                                      vErrors.push(err656);
                                     }
+                                    errors++;
                                   } else {
-                                    const err658 = { instancePath: instancePath + "/payload", schemaPath: "#/anyOf/12/properties/payload/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                                    errors = _errs629;
+                                    if (vErrors !== null) {
+                                      if (_errs629) {
+                                        vErrors.length = _errs629;
+                                      } else {
+                                        vErrors = null;
+                                      }
+                                    }
+                                  }
+                                }
+                                if (data.target !== void 0) {
+                                  let data226 = data.target;
+                                  if (typeof data226 !== "string") {
+                                    const err657 = { instancePath: instancePath + "/target", schemaPath: "#/definitions/TriggerTarget/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                    if (vErrors === null) {
+                                      vErrors = [err657];
+                                    } else {
+                                      vErrors.push(err657);
+                                    }
+                                    errors++;
+                                  }
+                                  if (!(data226 === "supervisor" || data226 === "worker")) {
+                                    const err658 = { instancePath: instancePath + "/target", schemaPath: "#/definitions/TriggerTarget/enum", keyword: "enum", params: { allowedValues: schema14.enum }, message: "must be equal to one of the allowed values" };
                                     if (vErrors === null) {
                                       vErrors = [err658];
                                     } else {
@@ -8507,51 +8503,52 @@ var require_Trigger_validator = __commonJS({
                                     errors++;
                                   }
                                 }
-                                if (data.sentAt !== void 0) {
-                                  if (typeof data.sentAt !== "string") {
-                                    const err659 = { instancePath: instancePath + "/sentAt", schemaPath: "#/anyOf/12/properties/sentAt/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                                    if (vErrors === null) {
-                                      vErrors = [err659];
-                                    } else {
-                                      vErrors.push(err659);
+                                if (data.payload !== void 0) {
+                                  let data227 = data.payload;
+                                  if (data227 && typeof data227 == "object" && !Array.isArray(data227)) {
+                                    if (data227.action === void 0) {
+                                      const err659 = { instancePath: instancePath + "/payload", schemaPath: "#/anyOf/12/properties/payload/required", keyword: "required", params: { missingProperty: "action" }, message: "must have required property 'action'" };
+                                      if (vErrors === null) {
+                                        vErrors = [err659];
+                                      } else {
+                                        vErrors.push(err659);
+                                      }
+                                      errors++;
                                     }
-                                    errors++;
-                                  }
-                                }
-                              } else {
-                                const err660 = { instancePath, schemaPath: "#/anyOf/12/type", keyword: "type", params: { type: "object" }, message: "must be object" };
-                                if (vErrors === null) {
-                                  vErrors = [err660];
-                                } else {
-                                  vErrors.push(err660);
-                                }
-                                errors++;
-                              }
-                              var _valid0 = _errs610 === errors;
-                              valid0 = valid0 || _valid0;
-                              if (!valid0) {
-                                const _errs655 = errors;
-                                if (data && typeof data == "object" && !Array.isArray(data)) {
-                                  if (data.id === void 0) {
-                                    const err661 = { instancePath, schemaPath: "#/anyOf/13/required", keyword: "required", params: { missingProperty: "id" }, message: "must have required property 'id'" };
-                                    if (vErrors === null) {
-                                      vErrors = [err661];
-                                    } else {
-                                      vErrors.push(err661);
+                                    for (const key66 in data227) {
+                                      if (!(key66 === "action")) {
+                                        const err660 = { instancePath: instancePath + "/payload", schemaPath: "#/anyOf/12/properties/payload/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key66 }, message: "must NOT have additional properties" };
+                                        if (vErrors === null) {
+                                          vErrors = [err660];
+                                        } else {
+                                          vErrors.push(err660);
+                                        }
+                                        errors++;
+                                      }
                                     }
-                                    errors++;
-                                  }
-                                  if (data.name === void 0) {
-                                    const err662 = { instancePath, schemaPath: "#/anyOf/13/required", keyword: "required", params: { missingProperty: "name" }, message: "must have required property 'name'" };
-                                    if (vErrors === null) {
-                                      vErrors = [err662];
-                                    } else {
-                                      vErrors.push(err662);
+                                    if (data227.action !== void 0) {
+                                      let data228 = data227.action;
+                                      if (typeof data228 !== "string") {
+                                        const err661 = { instancePath: instancePath + "/payload/action", schemaPath: "#/anyOf/12/properties/payload/properties/action/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                        if (vErrors === null) {
+                                          vErrors = [err661];
+                                        } else {
+                                          vErrors.push(err661);
+                                        }
+                                        errors++;
+                                      }
+                                      if ("started" !== data228) {
+                                        const err662 = { instancePath: instancePath + "/payload/action", schemaPath: "#/anyOf/12/properties/payload/properties/action/const", keyword: "const", params: { allowedValue: "started" }, message: "must be equal to constant" };
+                                        if (vErrors === null) {
+                                          vErrors = [err662];
+                                        } else {
+                                          vErrors.push(err662);
+                                        }
+                                        errors++;
+                                      }
                                     }
-                                    errors++;
-                                  }
-                                  if (data.type === void 0) {
-                                    const err663 = { instancePath, schemaPath: "#/anyOf/13/required", keyword: "required", params: { missingProperty: "type" }, message: "must have required property 'type'" };
+                                  } else {
+                                    const err663 = { instancePath: instancePath + "/payload", schemaPath: "#/anyOf/12/properties/payload/type", keyword: "type", params: { type: "object" }, message: "must be object" };
                                     if (vErrors === null) {
                                       vErrors = [err663];
                                     } else {
@@ -8559,8 +8556,10 @@ var require_Trigger_validator = __commonJS({
                                     }
                                     errors++;
                                   }
-                                  if (data.source === void 0) {
-                                    const err664 = { instancePath, schemaPath: "#/anyOf/13/required", keyword: "required", params: { missingProperty: "source" }, message: "must have required property 'source'" };
+                                }
+                                if (data.sentAt !== void 0) {
+                                  if (typeof data.sentAt !== "string") {
+                                    const err664 = { instancePath: instancePath + "/sentAt", schemaPath: "#/anyOf/12/properties/sentAt/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                     if (vErrors === null) {
                                       vErrors = [err664];
                                     } else {
@@ -8568,17 +8567,23 @@ var require_Trigger_validator = __commonJS({
                                     }
                                     errors++;
                                   }
-                                  if (data.target === void 0) {
-                                    const err665 = { instancePath, schemaPath: "#/anyOf/13/required", keyword: "required", params: { missingProperty: "target" }, message: "must have required property 'target'" };
-                                    if (vErrors === null) {
-                                      vErrors = [err665];
-                                    } else {
-                                      vErrors.push(err665);
-                                    }
-                                    errors++;
-                                  }
-                                  if (data.payload === void 0) {
-                                    const err666 = { instancePath, schemaPath: "#/anyOf/13/required", keyword: "required", params: { missingProperty: "payload" }, message: "must have required property 'payload'" };
+                                }
+                              } else {
+                                const err665 = { instancePath, schemaPath: "#/anyOf/12/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                                if (vErrors === null) {
+                                  vErrors = [err665];
+                                } else {
+                                  vErrors.push(err665);
+                                }
+                                errors++;
+                              }
+                              var _valid0 = _errs618 === errors;
+                              valid0 = valid0 || _valid0;
+                              if (!valid0) {
+                                const _errs661 = errors;
+                                if (data && typeof data == "object" && !Array.isArray(data)) {
+                                  if (data.id === void 0) {
+                                    const err666 = { instancePath, schemaPath: "#/anyOf/13/required", keyword: "required", params: { missingProperty: "id" }, message: "must have required property 'id'" };
                                     if (vErrors === null) {
                                       vErrors = [err666];
                                     } else {
@@ -8586,8 +8591,8 @@ var require_Trigger_validator = __commonJS({
                                     }
                                     errors++;
                                   }
-                                  if (data.sentAt === void 0) {
-                                    const err667 = { instancePath, schemaPath: "#/anyOf/13/required", keyword: "required", params: { missingProperty: "sentAt" }, message: "must have required property 'sentAt'" };
+                                  if (data.name === void 0) {
+                                    const err667 = { instancePath, schemaPath: "#/anyOf/13/required", keyword: "required", params: { missingProperty: "name" }, message: "must have required property 'name'" };
                                     if (vErrors === null) {
                                       vErrors = [err667];
                                     } else {
@@ -8595,163 +8600,153 @@ var require_Trigger_validator = __commonJS({
                                     }
                                     errors++;
                                   }
+                                  if (data.type === void 0) {
+                                    const err668 = { instancePath, schemaPath: "#/anyOf/13/required", keyword: "required", params: { missingProperty: "type" }, message: "must have required property 'type'" };
+                                    if (vErrors === null) {
+                                      vErrors = [err668];
+                                    } else {
+                                      vErrors.push(err668);
+                                    }
+                                    errors++;
+                                  }
+                                  if (data.source === void 0) {
+                                    const err669 = { instancePath, schemaPath: "#/anyOf/13/required", keyword: "required", params: { missingProperty: "source" }, message: "must have required property 'source'" };
+                                    if (vErrors === null) {
+                                      vErrors = [err669];
+                                    } else {
+                                      vErrors.push(err669);
+                                    }
+                                    errors++;
+                                  }
+                                  if (data.target === void 0) {
+                                    const err670 = { instancePath, schemaPath: "#/anyOf/13/required", keyword: "required", params: { missingProperty: "target" }, message: "must have required property 'target'" };
+                                    if (vErrors === null) {
+                                      vErrors = [err670];
+                                    } else {
+                                      vErrors.push(err670);
+                                    }
+                                    errors++;
+                                  }
+                                  if (data.payload === void 0) {
+                                    const err671 = { instancePath, schemaPath: "#/anyOf/13/required", keyword: "required", params: { missingProperty: "payload" }, message: "must have required property 'payload'" };
+                                    if (vErrors === null) {
+                                      vErrors = [err671];
+                                    } else {
+                                      vErrors.push(err671);
+                                    }
+                                    errors++;
+                                  }
+                                  if (data.sentAt === void 0) {
+                                    const err672 = { instancePath, schemaPath: "#/anyOf/13/required", keyword: "required", params: { missingProperty: "sentAt" }, message: "must have required property 'sentAt'" };
+                                    if (vErrors === null) {
+                                      vErrors = [err672];
+                                    } else {
+                                      vErrors.push(err672);
+                                    }
+                                    errors++;
+                                  }
                                   for (const key67 in data) {
-                                    if (!(key67 === "id" || key67 === "name" || key67 === "type" || key67 === "source" || key67 === "target" || key67 === "payload" || key67 === "sentAt" || key67 === "goalId")) {
-                                      const err668 = { instancePath, schemaPath: "#/anyOf/13/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key67 }, message: "must NOT have additional properties" };
+                                    if (!(key67 === "id" || key67 === "name" || key67 === "type" || key67 === "source" || key67 === "target" || key67 === "payload" || key67 === "sentAt")) {
+                                      const err673 = { instancePath, schemaPath: "#/anyOf/13/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key67 }, message: "must NOT have additional properties" };
                                       if (vErrors === null) {
-                                        vErrors = [err668];
+                                        vErrors = [err673];
                                       } else {
-                                        vErrors.push(err668);
+                                        vErrors.push(err673);
                                       }
                                       errors++;
                                     }
                                   }
                                   if (data.id !== void 0) {
                                     if (typeof data.id !== "string") {
-                                      const err669 = { instancePath: instancePath + "/id", schemaPath: "#/anyOf/13/properties/id/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                      const err674 = { instancePath: instancePath + "/id", schemaPath: "#/anyOf/13/properties/id/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                       if (vErrors === null) {
-                                        vErrors = [err669];
+                                        vErrors = [err674];
                                       } else {
-                                        vErrors.push(err669);
+                                        vErrors.push(err674);
                                       }
                                       errors++;
                                     }
                                   }
                                   if (data.name !== void 0) {
                                     if (typeof data.name !== "string") {
-                                      const err670 = { instancePath: instancePath + "/name", schemaPath: "#/anyOf/13/properties/name/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                      const err675 = { instancePath: instancePath + "/name", schemaPath: "#/anyOf/13/properties/name/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                       if (vErrors === null) {
-                                        vErrors = [err670];
+                                        vErrors = [err675];
                                       } else {
-                                        vErrors.push(err670);
+                                        vErrors.push(err675);
                                       }
                                       errors++;
                                     }
                                   }
                                   if (data.type !== void 0) {
-                                    let data229 = data.type;
-                                    if (typeof data229 !== "string") {
-                                      const err671 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/13/properties/type/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                    let data232 = data.type;
+                                    if (typeof data232 !== "string") {
+                                      const err676 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/13/properties/type/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                       if (vErrors === null) {
-                                        vErrors = [err671];
+                                        vErrors = [err676];
                                       } else {
-                                        vErrors.push(err671);
+                                        vErrors.push(err676);
                                       }
                                       errors++;
                                     }
-                                    if ("collaboration" !== data229) {
-                                      const err672 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/13/properties/type/const", keyword: "const", params: { allowedValue: "collaboration" }, message: "must be equal to constant" };
+                                    if ("lifecycle" !== data232) {
+                                      const err677 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/13/properties/type/const", keyword: "const", params: { allowedValue: "lifecycle" }, message: "must be equal to constant" };
                                       if (vErrors === null) {
-                                        vErrors = [err672];
+                                        vErrors = [err677];
                                       } else {
-                                        vErrors.push(err672);
+                                        vErrors.push(err677);
                                       }
                                       errors++;
                                     }
                                   }
                                   if (data.source !== void 0) {
-                                    let data230 = data.source;
-                                    const _errs666 = errors;
+                                    let data233 = data.source;
+                                    const _errs672 = errors;
                                     let valid110 = false;
-                                    const _errs667 = errors;
-                                    if (data230 && typeof data230 == "object" && !Array.isArray(data230)) {
-                                      if (data230.role === void 0) {
-                                        const err673 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/required", keyword: "required", params: { missingProperty: "role" }, message: "must have required property 'role'" };
+                                    const _errs673 = errors;
+                                    if (data233 && typeof data233 == "object" && !Array.isArray(data233)) {
+                                      if (data233.role === void 0) {
+                                        const err678 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/required", keyword: "required", params: { missingProperty: "role" }, message: "must have required property 'role'" };
                                         if (vErrors === null) {
-                                          vErrors = [err673];
+                                          vErrors = [err678];
                                         } else {
-                                          vErrors.push(err673);
+                                          vErrors.push(err678);
                                         }
                                         errors++;
                                       }
-                                      if (data230.workerId === void 0) {
-                                        const err674 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/required", keyword: "required", params: { missingProperty: "workerId" }, message: "must have required property 'workerId'" };
+                                      if (data233.workerId === void 0) {
+                                        const err679 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/required", keyword: "required", params: { missingProperty: "workerId" }, message: "must have required property 'workerId'" };
                                         if (vErrors === null) {
-                                          vErrors = [err674];
+                                          vErrors = [err679];
                                         } else {
-                                          vErrors.push(err674);
+                                          vErrors.push(err679);
                                         }
                                         errors++;
                                       }
-                                      if (data230.generation === void 0) {
-                                        const err675 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/required", keyword: "required", params: { missingProperty: "generation" }, message: "must have required property 'generation'" };
+                                      if (data233.generation === void 0) {
+                                        const err680 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/required", keyword: "required", params: { missingProperty: "generation" }, message: "must have required property 'generation'" };
                                         if (vErrors === null) {
-                                          vErrors = [err675];
+                                          vErrors = [err680];
                                         } else {
-                                          vErrors.push(err675);
+                                          vErrors.push(err680);
                                         }
                                         errors++;
                                       }
-                                      for (const key68 in data230) {
+                                      for (const key68 in data233) {
                                         if (!(key68 === "role" || key68 === "workerId" || key68 === "generation")) {
-                                          const err676 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key68 }, message: "must NOT have additional properties" };
+                                          const err681 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key68 }, message: "must NOT have additional properties" };
                                           if (vErrors === null) {
-                                            vErrors = [err676];
+                                            vErrors = [err681];
                                           } else {
-                                            vErrors.push(err676);
+                                            vErrors.push(err681);
                                           }
                                           errors++;
                                         }
                                       }
-                                      if (data230.role !== void 0) {
-                                        let data231 = data230.role;
-                                        if (typeof data231 !== "string") {
-                                          const err677 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/role/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                                          if (vErrors === null) {
-                                            vErrors = [err677];
-                                          } else {
-                                            vErrors.push(err677);
-                                          }
-                                          errors++;
-                                        }
-                                        if ("worker" !== data231) {
-                                          const err678 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/role/const", keyword: "const", params: { allowedValue: "worker" }, message: "must be equal to constant" };
-                                          if (vErrors === null) {
-                                            vErrors = [err678];
-                                          } else {
-                                            vErrors.push(err678);
-                                          }
-                                          errors++;
-                                        }
-                                      }
-                                      if (data230.workerId !== void 0) {
-                                        if (typeof data230.workerId !== "string") {
-                                          const err679 = { instancePath: instancePath + "/source/workerId", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/workerId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                                          if (vErrors === null) {
-                                            vErrors = [err679];
-                                          } else {
-                                            vErrors.push(err679);
-                                          }
-                                          errors++;
-                                        }
-                                      }
-                                      if (data230.generation !== void 0) {
-                                        if (typeof data230.generation !== "string") {
-                                          const err680 = { instancePath: instancePath + "/source/generation", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/generation/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                                          if (vErrors === null) {
-                                            vErrors = [err680];
-                                          } else {
-                                            vErrors.push(err680);
-                                          }
-                                          errors++;
-                                        }
-                                      }
-                                    } else {
-                                      const err681 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/type", keyword: "type", params: { type: "object" }, message: "must be object" };
-                                      if (vErrors === null) {
-                                        vErrors = [err681];
-                                      } else {
-                                        vErrors.push(err681);
-                                      }
-                                      errors++;
-                                    }
-                                    var _valid15 = _errs667 === errors;
-                                    valid110 = valid110 || _valid15;
-                                    if (!valid110) {
-                                      const _errs676 = errors;
-                                      if (data230 && typeof data230 == "object" && !Array.isArray(data230)) {
-                                        if (data230.role === void 0) {
-                                          const err682 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/required", keyword: "required", params: { missingProperty: "role" }, message: "must have required property 'role'" };
+                                      if (data233.role !== void 0) {
+                                        let data234 = data233.role;
+                                        if (typeof data234 !== "string") {
+                                          const err682 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/role/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                           if (vErrors === null) {
                                             vErrors = [err682];
                                           } else {
@@ -8759,8 +8754,8 @@ var require_Trigger_validator = __commonJS({
                                           }
                                           errors++;
                                         }
-                                        if (data230.externalId === void 0) {
-                                          const err683 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/required", keyword: "required", params: { missingProperty: "externalId" }, message: "must have required property 'externalId'" };
+                                        if ("worker" !== data234) {
+                                          const err683 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/role/const", keyword: "const", params: { allowedValue: "worker" }, message: "must be equal to constant" };
                                           if (vErrors === null) {
                                             vErrors = [err683];
                                           } else {
@@ -8768,65 +8763,64 @@ var require_Trigger_validator = __commonJS({
                                           }
                                           errors++;
                                         }
-                                        for (const key69 in data230) {
-                                          if (!(key69 === "role" || key69 === "externalId")) {
-                                            const err684 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key69 }, message: "must NOT have additional properties" };
-                                            if (vErrors === null) {
-                                              vErrors = [err684];
-                                            } else {
-                                              vErrors.push(err684);
-                                            }
-                                            errors++;
-                                          }
-                                        }
-                                        if (data230.role !== void 0) {
-                                          let data234 = data230.role;
-                                          if (typeof data234 !== "string") {
-                                            const err685 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/1/properties/role/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                                            if (vErrors === null) {
-                                              vErrors = [err685];
-                                            } else {
-                                              vErrors.push(err685);
-                                            }
-                                            errors++;
-                                          }
-                                          if ("external" !== data234) {
-                                            const err686 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/1/properties/role/const", keyword: "const", params: { allowedValue: "external" }, message: "must be equal to constant" };
-                                            if (vErrors === null) {
-                                              vErrors = [err686];
-                                            } else {
-                                              vErrors.push(err686);
-                                            }
-                                            errors++;
-                                          }
-                                        }
-                                        if (data230.externalId !== void 0) {
-                                          if (typeof data230.externalId !== "string") {
-                                            const err687 = { instancePath: instancePath + "/source/externalId", schemaPath: "#/definitions/TriggerActor/anyOf/1/properties/externalId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                                            if (vErrors === null) {
-                                              vErrors = [err687];
-                                            } else {
-                                              vErrors.push(err687);
-                                            }
-                                            errors++;
-                                          }
-                                        }
-                                      } else {
-                                        const err688 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/type", keyword: "type", params: { type: "object" }, message: "must be object" };
-                                        if (vErrors === null) {
-                                          vErrors = [err688];
-                                        } else {
-                                          vErrors.push(err688);
-                                        }
-                                        errors++;
                                       }
-                                      var _valid15 = _errs676 === errors;
-                                      valid110 = valid110 || _valid15;
-                                      if (!valid110) {
-                                        const _errs683 = errors;
-                                        if (data230 && typeof data230 == "object" && !Array.isArray(data230)) {
-                                          if (data230.role === void 0) {
-                                            const err689 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/2/required", keyword: "required", params: { missingProperty: "role" }, message: "must have required property 'role'" };
+                                      if (data233.workerId !== void 0) {
+                                        if (typeof data233.workerId !== "string") {
+                                          const err684 = { instancePath: instancePath + "/source/workerId", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/workerId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                          if (vErrors === null) {
+                                            vErrors = [err684];
+                                          } else {
+                                            vErrors.push(err684);
+                                          }
+                                          errors++;
+                                        }
+                                      }
+                                      if (data233.generation !== void 0) {
+                                        if (typeof data233.generation !== "string") {
+                                          const err685 = { instancePath: instancePath + "/source/generation", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/generation/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                          if (vErrors === null) {
+                                            vErrors = [err685];
+                                          } else {
+                                            vErrors.push(err685);
+                                          }
+                                          errors++;
+                                        }
+                                      }
+                                    } else {
+                                      const err686 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                                      if (vErrors === null) {
+                                        vErrors = [err686];
+                                      } else {
+                                        vErrors.push(err686);
+                                      }
+                                      errors++;
+                                    }
+                                    var _valid15 = _errs673 === errors;
+                                    valid110 = valid110 || _valid15;
+                                    if (!valid110) {
+                                      const _errs682 = errors;
+                                      if (data233 && typeof data233 == "object" && !Array.isArray(data233)) {
+                                        if (data233.role === void 0) {
+                                          const err687 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/required", keyword: "required", params: { missingProperty: "role" }, message: "must have required property 'role'" };
+                                          if (vErrors === null) {
+                                            vErrors = [err687];
+                                          } else {
+                                            vErrors.push(err687);
+                                          }
+                                          errors++;
+                                        }
+                                        if (data233.externalId === void 0) {
+                                          const err688 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/required", keyword: "required", params: { missingProperty: "externalId" }, message: "must have required property 'externalId'" };
+                                          if (vErrors === null) {
+                                            vErrors = [err688];
+                                          } else {
+                                            vErrors.push(err688);
+                                          }
+                                          errors++;
+                                        }
+                                        for (const key69 in data233) {
+                                          if (!(key69 === "role" || key69 === "externalId")) {
+                                            const err689 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key69 }, message: "must NOT have additional properties" };
                                             if (vErrors === null) {
                                               vErrors = [err689];
                                             } else {
@@ -8834,106 +8828,96 @@ var require_Trigger_validator = __commonJS({
                                             }
                                             errors++;
                                           }
-                                          for (const key70 in data230) {
-                                            if (!(key70 === "role")) {
-                                              const err690 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/2/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key70 }, message: "must NOT have additional properties" };
-                                              if (vErrors === null) {
-                                                vErrors = [err690];
-                                              } else {
-                                                vErrors.push(err690);
-                                              }
-                                              errors++;
-                                            }
-                                          }
-                                          if (data230.role !== void 0) {
-                                            let data236 = data230.role;
-                                            if (typeof data236 !== "string") {
-                                              const err691 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/2/properties/role/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                                              if (vErrors === null) {
-                                                vErrors = [err691];
-                                              } else {
-                                                vErrors.push(err691);
-                                              }
-                                              errors++;
-                                            }
-                                            if ("supervisor" !== data236) {
-                                              const err692 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/2/properties/role/const", keyword: "const", params: { allowedValue: "supervisor" }, message: "must be equal to constant" };
-                                              if (vErrors === null) {
-                                                vErrors = [err692];
-                                              } else {
-                                                vErrors.push(err692);
-                                              }
-                                              errors++;
-                                            }
-                                          }
-                                        } else {
-                                          const err693 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/2/type", keyword: "type", params: { type: "object" }, message: "must be object" };
-                                          if (vErrors === null) {
-                                            vErrors = [err693];
-                                          } else {
-                                            vErrors.push(err693);
-                                          }
-                                          errors++;
                                         }
-                                        var _valid15 = _errs683 === errors;
-                                        valid110 = valid110 || _valid15;
-                                      }
-                                    }
-                                    if (!valid110) {
-                                      const err694 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf", keyword: "anyOf", params: {}, message: "must match a schema in anyOf" };
-                                      if (vErrors === null) {
-                                        vErrors = [err694];
-                                      } else {
-                                        vErrors.push(err694);
-                                      }
-                                      errors++;
-                                    } else {
-                                      errors = _errs666;
-                                      if (vErrors !== null) {
-                                        if (_errs666) {
-                                          vErrors.length = _errs666;
-                                        } else {
-                                          vErrors = null;
+                                        if (data233.role !== void 0) {
+                                          let data237 = data233.role;
+                                          if (typeof data237 !== "string") {
+                                            const err690 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/1/properties/role/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                            if (vErrors === null) {
+                                              vErrors = [err690];
+                                            } else {
+                                              vErrors.push(err690);
+                                            }
+                                            errors++;
+                                          }
+                                          if ("external" !== data237) {
+                                            const err691 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/1/properties/role/const", keyword: "const", params: { allowedValue: "external" }, message: "must be equal to constant" };
+                                            if (vErrors === null) {
+                                              vErrors = [err691];
+                                            } else {
+                                              vErrors.push(err691);
+                                            }
+                                            errors++;
+                                          }
                                         }
-                                      }
-                                    }
-                                  }
-                                  if (data.target !== void 0) {
-                                    let data237 = data.target;
-                                    if (typeof data237 !== "string") {
-                                      const err695 = { instancePath: instancePath + "/target", schemaPath: "#/definitions/TriggerTarget/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                                      if (vErrors === null) {
-                                        vErrors = [err695];
+                                        if (data233.externalId !== void 0) {
+                                          if (typeof data233.externalId !== "string") {
+                                            const err692 = { instancePath: instancePath + "/source/externalId", schemaPath: "#/definitions/TriggerActor/anyOf/1/properties/externalId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                            if (vErrors === null) {
+                                              vErrors = [err692];
+                                            } else {
+                                              vErrors.push(err692);
+                                            }
+                                            errors++;
+                                          }
+                                        }
                                       } else {
-                                        vErrors.push(err695);
-                                      }
-                                      errors++;
-                                    }
-                                    if (!(data237 === "supervisor" || data237 === "worker")) {
-                                      const err696 = { instancePath: instancePath + "/target", schemaPath: "#/definitions/TriggerTarget/enum", keyword: "enum", params: { allowedValues: schema14.enum }, message: "must be equal to one of the allowed values" };
-                                      if (vErrors === null) {
-                                        vErrors = [err696];
-                                      } else {
-                                        vErrors.push(err696);
-                                      }
-                                      errors++;
-                                    }
-                                  }
-                                  if (data.payload !== void 0) {
-                                    let data238 = data.payload;
-                                    if (data238 && typeof data238 == "object" && !Array.isArray(data238)) {
-                                      if (data238.action === void 0) {
-                                        const err697 = { instancePath: instancePath + "/payload", schemaPath: "#/anyOf/13/properties/payload/required", keyword: "required", params: { missingProperty: "action" }, message: "must have required property 'action'" };
+                                        const err693 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/type", keyword: "type", params: { type: "object" }, message: "must be object" };
                                         if (vErrors === null) {
-                                          vErrors = [err697];
+                                          vErrors = [err693];
                                         } else {
-                                          vErrors.push(err697);
+                                          vErrors.push(err693);
                                         }
                                         errors++;
                                       }
-                                      for (const key71 in data238) {
-                                        if (!(key71 === "action")) {
-                                          const err698 = { instancePath: instancePath + "/payload", schemaPath: "#/anyOf/13/properties/payload/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key71 }, message: "must NOT have additional properties" };
+                                      var _valid15 = _errs682 === errors;
+                                      valid110 = valid110 || _valid15;
+                                      if (!valid110) {
+                                        const _errs689 = errors;
+                                        if (data233 && typeof data233 == "object" && !Array.isArray(data233)) {
+                                          if (data233.role === void 0) {
+                                            const err694 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/2/required", keyword: "required", params: { missingProperty: "role" }, message: "must have required property 'role'" };
+                                            if (vErrors === null) {
+                                              vErrors = [err694];
+                                            } else {
+                                              vErrors.push(err694);
+                                            }
+                                            errors++;
+                                          }
+                                          for (const key70 in data233) {
+                                            if (!(key70 === "role")) {
+                                              const err695 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/2/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key70 }, message: "must NOT have additional properties" };
+                                              if (vErrors === null) {
+                                                vErrors = [err695];
+                                              } else {
+                                                vErrors.push(err695);
+                                              }
+                                              errors++;
+                                            }
+                                          }
+                                          if (data233.role !== void 0) {
+                                            let data239 = data233.role;
+                                            if (typeof data239 !== "string") {
+                                              const err696 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/2/properties/role/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                              if (vErrors === null) {
+                                                vErrors = [err696];
+                                              } else {
+                                                vErrors.push(err696);
+                                              }
+                                              errors++;
+                                            }
+                                            if ("supervisor" !== data239) {
+                                              const err697 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/2/properties/role/const", keyword: "const", params: { allowedValue: "supervisor" }, message: "must be equal to constant" };
+                                              if (vErrors === null) {
+                                                vErrors = [err697];
+                                              } else {
+                                                vErrors.push(err697);
+                                              }
+                                              errors++;
+                                            }
+                                          }
+                                        } else {
+                                          const err698 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/2/type", keyword: "type", params: { type: "object" }, message: "must be object" };
                                           if (vErrors === null) {
                                             vErrors = [err698];
                                           } else {
@@ -8941,30 +8925,42 @@ var require_Trigger_validator = __commonJS({
                                           }
                                           errors++;
                                         }
+                                        var _valid15 = _errs689 === errors;
+                                        valid110 = valid110 || _valid15;
                                       }
-                                      if (data238.action !== void 0) {
-                                        let data239 = data238.action;
-                                        if (typeof data239 !== "string") {
-                                          const err699 = { instancePath: instancePath + "/payload/action", schemaPath: "#/anyOf/13/properties/payload/properties/action/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                                          if (vErrors === null) {
-                                            vErrors = [err699];
-                                          } else {
-                                            vErrors.push(err699);
-                                          }
-                                          errors++;
-                                        }
-                                        if ("requested" !== data239) {
-                                          const err700 = { instancePath: instancePath + "/payload/action", schemaPath: "#/anyOf/13/properties/payload/properties/action/const", keyword: "const", params: { allowedValue: "requested" }, message: "must be equal to constant" };
-                                          if (vErrors === null) {
-                                            vErrors = [err700];
-                                          } else {
-                                            vErrors.push(err700);
-                                          }
-                                          errors++;
-                                        }
+                                    }
+                                    if (!valid110) {
+                                      const err699 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf", keyword: "anyOf", params: {}, message: "must match a schema in anyOf" };
+                                      if (vErrors === null) {
+                                        vErrors = [err699];
+                                      } else {
+                                        vErrors.push(err699);
                                       }
+                                      errors++;
                                     } else {
-                                      const err701 = { instancePath: instancePath + "/payload", schemaPath: "#/anyOf/13/properties/payload/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                                      errors = _errs672;
+                                      if (vErrors !== null) {
+                                        if (_errs672) {
+                                          vErrors.length = _errs672;
+                                        } else {
+                                          vErrors = null;
+                                        }
+                                      }
+                                    }
+                                  }
+                                  if (data.target !== void 0) {
+                                    let data240 = data.target;
+                                    if (typeof data240 !== "string") {
+                                      const err700 = { instancePath: instancePath + "/target", schemaPath: "#/definitions/TriggerTarget/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                      if (vErrors === null) {
+                                        vErrors = [err700];
+                                      } else {
+                                        vErrors.push(err700);
+                                      }
+                                      errors++;
+                                    }
+                                    if (!(data240 === "supervisor" || data240 === "worker")) {
+                                      const err701 = { instancePath: instancePath + "/target", schemaPath: "#/definitions/TriggerTarget/enum", keyword: "enum", params: { allowedValues: schema14.enum }, message: "must be equal to one of the allowed values" };
                                       if (vErrors === null) {
                                         vErrors = [err701];
                                       } else {
@@ -8973,80 +8969,82 @@ var require_Trigger_validator = __commonJS({
                                       errors++;
                                     }
                                   }
-                                  if (data.sentAt !== void 0) {
-                                    if (typeof data.sentAt !== "string") {
-                                      const err702 = { instancePath: instancePath + "/sentAt", schemaPath: "#/anyOf/13/properties/sentAt/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                                      if (vErrors === null) {
-                                        vErrors = [err702];
-                                      } else {
-                                        vErrors.push(err702);
+                                  if (data.payload !== void 0) {
+                                    let data241 = data.payload;
+                                    if (data241 && typeof data241 == "object" && !Array.isArray(data241)) {
+                                      if (data241.action === void 0) {
+                                        const err702 = { instancePath: instancePath + "/payload", schemaPath: "#/anyOf/13/properties/payload/required", keyword: "required", params: { missingProperty: "action" }, message: "must have required property 'action'" };
+                                        if (vErrors === null) {
+                                          vErrors = [err702];
+                                        } else {
+                                          vErrors.push(err702);
+                                        }
+                                        errors++;
                                       }
-                                      errors++;
-                                    }
-                                  }
-                                  if (data.goalId !== void 0) {
-                                    if (typeof data.goalId !== "string") {
-                                      const err703 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/13/properties/goalId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                                      if (vErrors === null) {
-                                        vErrors = [err703];
-                                      } else {
-                                        vErrors.push(err703);
+                                      if (data241.outcome === void 0) {
+                                        const err703 = { instancePath: instancePath + "/payload", schemaPath: "#/anyOf/13/properties/payload/required", keyword: "required", params: { missingProperty: "outcome" }, message: "must have required property 'outcome'" };
+                                        if (vErrors === null) {
+                                          vErrors = [err703];
+                                        } else {
+                                          vErrors.push(err703);
+                                        }
+                                        errors++;
                                       }
-                                      errors++;
-                                    }
-                                  }
-                                } else {
-                                  const err704 = { instancePath, schemaPath: "#/anyOf/13/type", keyword: "type", params: { type: "object" }, message: "must be object" };
-                                  if (vErrors === null) {
-                                    vErrors = [err704];
-                                  } else {
-                                    vErrors.push(err704);
-                                  }
-                                  errors++;
-                                }
-                                var _valid0 = _errs655 === errors;
-                                valid0 = valid0 || _valid0;
-                                if (!valid0) {
-                                  const _errs700 = errors;
-                                  if (data && typeof data == "object" && !Array.isArray(data)) {
-                                    if (data.id === void 0) {
-                                      const err705 = { instancePath, schemaPath: "#/anyOf/14/required", keyword: "required", params: { missingProperty: "id" }, message: "must have required property 'id'" };
-                                      if (vErrors === null) {
-                                        vErrors = [err705];
-                                      } else {
-                                        vErrors.push(err705);
+                                      for (const key71 in data241) {
+                                        if (!(key71 === "action" || key71 === "outcome")) {
+                                          const err704 = { instancePath: instancePath + "/payload", schemaPath: "#/anyOf/13/properties/payload/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key71 }, message: "must NOT have additional properties" };
+                                          if (vErrors === null) {
+                                            vErrors = [err704];
+                                          } else {
+                                            vErrors.push(err704);
+                                          }
+                                          errors++;
+                                        }
                                       }
-                                      errors++;
-                                    }
-                                    if (data.name === void 0) {
-                                      const err706 = { instancePath, schemaPath: "#/anyOf/14/required", keyword: "required", params: { missingProperty: "name" }, message: "must have required property 'name'" };
-                                      if (vErrors === null) {
-                                        vErrors = [err706];
-                                      } else {
-                                        vErrors.push(err706);
+                                      if (data241.action !== void 0) {
+                                        let data242 = data241.action;
+                                        if (typeof data242 !== "string") {
+                                          const err705 = { instancePath: instancePath + "/payload/action", schemaPath: "#/anyOf/13/properties/payload/properties/action/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                          if (vErrors === null) {
+                                            vErrors = [err705];
+                                          } else {
+                                            vErrors.push(err705);
+                                          }
+                                          errors++;
+                                        }
+                                        if ("exited" !== data242) {
+                                          const err706 = { instancePath: instancePath + "/payload/action", schemaPath: "#/anyOf/13/properties/payload/properties/action/const", keyword: "const", params: { allowedValue: "exited" }, message: "must be equal to constant" };
+                                          if (vErrors === null) {
+                                            vErrors = [err706];
+                                          } else {
+                                            vErrors.push(err706);
+                                          }
+                                          errors++;
+                                        }
                                       }
-                                      errors++;
-                                    }
-                                    if (data.type === void 0) {
-                                      const err707 = { instancePath, schemaPath: "#/anyOf/14/required", keyword: "required", params: { missingProperty: "type" }, message: "must have required property 'type'" };
-                                      if (vErrors === null) {
-                                        vErrors = [err707];
-                                      } else {
-                                        vErrors.push(err707);
+                                      if (data241.outcome !== void 0) {
+                                        let data243 = data241.outcome;
+                                        if (typeof data243 !== "string") {
+                                          const err707 = { instancePath: instancePath + "/payload/outcome", schemaPath: "#/anyOf/13/properties/payload/properties/outcome/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                          if (vErrors === null) {
+                                            vErrors = [err707];
+                                          } else {
+                                            vErrors.push(err707);
+                                          }
+                                          errors++;
+                                        }
+                                        if (!(data243 === "normal" || data243 === "unexpected")) {
+                                          const err708 = { instancePath: instancePath + "/payload/outcome", schemaPath: "#/anyOf/13/properties/payload/properties/outcome/enum", keyword: "enum", params: { allowedValues: schema12.anyOf[13].properties.payload.properties.outcome.enum }, message: "must be equal to one of the allowed values" };
+                                          if (vErrors === null) {
+                                            vErrors = [err708];
+                                          } else {
+                                            vErrors.push(err708);
+                                          }
+                                          errors++;
+                                        }
                                       }
-                                      errors++;
-                                    }
-                                    if (data.source === void 0) {
-                                      const err708 = { instancePath, schemaPath: "#/anyOf/14/required", keyword: "required", params: { missingProperty: "source" }, message: "must have required property 'source'" };
-                                      if (vErrors === null) {
-                                        vErrors = [err708];
-                                      } else {
-                                        vErrors.push(err708);
-                                      }
-                                      errors++;
-                                    }
-                                    if (data.target === void 0) {
-                                      const err709 = { instancePath, schemaPath: "#/anyOf/14/required", keyword: "required", params: { missingProperty: "target" }, message: "must have required property 'target'" };
+                                    } else {
+                                      const err709 = { instancePath: instancePath + "/payload", schemaPath: "#/anyOf/13/properties/payload/type", keyword: "type", params: { type: "object" }, message: "must be object" };
                                       if (vErrors === null) {
                                         vErrors = [err709];
                                       } else {
@@ -9054,8 +9052,10 @@ var require_Trigger_validator = __commonJS({
                                       }
                                       errors++;
                                     }
-                                    if (data.payload === void 0) {
-                                      const err710 = { instancePath, schemaPath: "#/anyOf/14/required", keyword: "required", params: { missingProperty: "payload" }, message: "must have required property 'payload'" };
+                                  }
+                                  if (data.sentAt !== void 0) {
+                                    if (typeof data.sentAt !== "string") {
+                                      const err710 = { instancePath: instancePath + "/sentAt", schemaPath: "#/anyOf/13/properties/sentAt/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                       if (vErrors === null) {
                                         vErrors = [err710];
                                       } else {
@@ -9063,17 +9063,23 @@ var require_Trigger_validator = __commonJS({
                                       }
                                       errors++;
                                     }
-                                    if (data.sentAt === void 0) {
-                                      const err711 = { instancePath, schemaPath: "#/anyOf/14/required", keyword: "required", params: { missingProperty: "sentAt" }, message: "must have required property 'sentAt'" };
-                                      if (vErrors === null) {
-                                        vErrors = [err711];
-                                      } else {
-                                        vErrors.push(err711);
-                                      }
-                                      errors++;
-                                    }
-                                    if (data.replyTo === void 0) {
-                                      const err712 = { instancePath, schemaPath: "#/anyOf/14/required", keyword: "required", params: { missingProperty: "replyTo" }, message: "must have required property 'replyTo'" };
+                                  }
+                                } else {
+                                  const err711 = { instancePath, schemaPath: "#/anyOf/13/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                                  if (vErrors === null) {
+                                    vErrors = [err711];
+                                  } else {
+                                    vErrors.push(err711);
+                                  }
+                                  errors++;
+                                }
+                                var _valid0 = _errs661 === errors;
+                                valid0 = valid0 || _valid0;
+                                if (!valid0) {
+                                  const _errs706 = errors;
+                                  if (data && typeof data == "object" && !Array.isArray(data)) {
+                                    if (data.id === void 0) {
+                                      const err712 = { instancePath, schemaPath: "#/anyOf/14/required", keyword: "required", params: { missingProperty: "id" }, message: "must have required property 'id'" };
                                       if (vErrors === null) {
                                         vErrors = [err712];
                                       } else {
@@ -9081,163 +9087,150 @@ var require_Trigger_validator = __commonJS({
                                       }
                                       errors++;
                                     }
+                                    if (data.name === void 0) {
+                                      const err713 = { instancePath, schemaPath: "#/anyOf/14/required", keyword: "required", params: { missingProperty: "name" }, message: "must have required property 'name'" };
+                                      if (vErrors === null) {
+                                        vErrors = [err713];
+                                      } else {
+                                        vErrors.push(err713);
+                                      }
+                                      errors++;
+                                    }
+                                    if (data.type === void 0) {
+                                      const err714 = { instancePath, schemaPath: "#/anyOf/14/required", keyword: "required", params: { missingProperty: "type" }, message: "must have required property 'type'" };
+                                      if (vErrors === null) {
+                                        vErrors = [err714];
+                                      } else {
+                                        vErrors.push(err714);
+                                      }
+                                      errors++;
+                                    }
+                                    if (data.source === void 0) {
+                                      const err715 = { instancePath, schemaPath: "#/anyOf/14/required", keyword: "required", params: { missingProperty: "source" }, message: "must have required property 'source'" };
+                                      if (vErrors === null) {
+                                        vErrors = [err715];
+                                      } else {
+                                        vErrors.push(err715);
+                                      }
+                                      errors++;
+                                    }
+                                    if (data.target === void 0) {
+                                      const err716 = { instancePath, schemaPath: "#/anyOf/14/required", keyword: "required", params: { missingProperty: "target" }, message: "must have required property 'target'" };
+                                      if (vErrors === null) {
+                                        vErrors = [err716];
+                                      } else {
+                                        vErrors.push(err716);
+                                      }
+                                      errors++;
+                                    }
+                                    if (data.payload === void 0) {
+                                      const err717 = { instancePath, schemaPath: "#/anyOf/14/required", keyword: "required", params: { missingProperty: "payload" }, message: "must have required property 'payload'" };
+                                      if (vErrors === null) {
+                                        vErrors = [err717];
+                                      } else {
+                                        vErrors.push(err717);
+                                      }
+                                      errors++;
+                                    }
+                                    if (data.sentAt === void 0) {
+                                      const err718 = { instancePath, schemaPath: "#/anyOf/14/required", keyword: "required", params: { missingProperty: "sentAt" }, message: "must have required property 'sentAt'" };
+                                      if (vErrors === null) {
+                                        vErrors = [err718];
+                                      } else {
+                                        vErrors.push(err718);
+                                      }
+                                      errors++;
+                                    }
                                     for (const key72 in data) {
-                                      if (!func2.call(schema12.anyOf[14].properties, key72)) {
-                                        const err713 = { instancePath, schemaPath: "#/anyOf/14/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key72 }, message: "must NOT have additional properties" };
+                                      if (!(key72 === "id" || key72 === "name" || key72 === "type" || key72 === "source" || key72 === "target" || key72 === "payload" || key72 === "sentAt" || key72 === "goalId")) {
+                                        const err719 = { instancePath, schemaPath: "#/anyOf/14/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key72 }, message: "must NOT have additional properties" };
                                         if (vErrors === null) {
-                                          vErrors = [err713];
+                                          vErrors = [err719];
                                         } else {
-                                          vErrors.push(err713);
+                                          vErrors.push(err719);
                                         }
                                         errors++;
                                       }
                                     }
                                     if (data.id !== void 0) {
                                       if (typeof data.id !== "string") {
-                                        const err714 = { instancePath: instancePath + "/id", schemaPath: "#/anyOf/14/properties/id/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                        const err720 = { instancePath: instancePath + "/id", schemaPath: "#/anyOf/14/properties/id/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                         if (vErrors === null) {
-                                          vErrors = [err714];
+                                          vErrors = [err720];
                                         } else {
-                                          vErrors.push(err714);
+                                          vErrors.push(err720);
                                         }
                                         errors++;
                                       }
                                     }
                                     if (data.name !== void 0) {
                                       if (typeof data.name !== "string") {
-                                        const err715 = { instancePath: instancePath + "/name", schemaPath: "#/anyOf/14/properties/name/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                        const err721 = { instancePath: instancePath + "/name", schemaPath: "#/anyOf/14/properties/name/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                         if (vErrors === null) {
-                                          vErrors = [err715];
+                                          vErrors = [err721];
                                         } else {
-                                          vErrors.push(err715);
+                                          vErrors.push(err721);
                                         }
                                         errors++;
                                       }
                                     }
                                     if (data.type !== void 0) {
-                                      let data244 = data.type;
-                                      if (typeof data244 !== "string") {
-                                        const err716 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/14/properties/type/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                      let data247 = data.type;
+                                      if (typeof data247 !== "string") {
+                                        const err722 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/14/properties/type/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                         if (vErrors === null) {
-                                          vErrors = [err716];
+                                          vErrors = [err722];
                                         } else {
-                                          vErrors.push(err716);
+                                          vErrors.push(err722);
                                         }
                                         errors++;
                                       }
-                                      if ("collaboration" !== data244) {
-                                        const err717 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/14/properties/type/const", keyword: "const", params: { allowedValue: "collaboration" }, message: "must be equal to constant" };
+                                      if ("collaboration" !== data247) {
+                                        const err723 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/14/properties/type/const", keyword: "const", params: { allowedValue: "collaboration" }, message: "must be equal to constant" };
                                         if (vErrors === null) {
-                                          vErrors = [err717];
+                                          vErrors = [err723];
                                         } else {
-                                          vErrors.push(err717);
+                                          vErrors.push(err723);
                                         }
                                         errors++;
                                       }
                                     }
                                     if (data.source !== void 0) {
-                                      let data245 = data.source;
-                                      const _errs711 = errors;
+                                      let data248 = data.source;
+                                      const _errs717 = errors;
                                       let valid118 = false;
-                                      const _errs712 = errors;
-                                      if (data245 && typeof data245 == "object" && !Array.isArray(data245)) {
-                                        if (data245.role === void 0) {
-                                          const err718 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/required", keyword: "required", params: { missingProperty: "role" }, message: "must have required property 'role'" };
+                                      const _errs718 = errors;
+                                      if (data248 && typeof data248 == "object" && !Array.isArray(data248)) {
+                                        if (data248.role === void 0) {
+                                          const err724 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/required", keyword: "required", params: { missingProperty: "role" }, message: "must have required property 'role'" };
                                           if (vErrors === null) {
-                                            vErrors = [err718];
+                                            vErrors = [err724];
                                           } else {
-                                            vErrors.push(err718);
+                                            vErrors.push(err724);
                                           }
                                           errors++;
                                         }
-                                        if (data245.workerId === void 0) {
-                                          const err719 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/required", keyword: "required", params: { missingProperty: "workerId" }, message: "must have required property 'workerId'" };
+                                        if (data248.workerId === void 0) {
+                                          const err725 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/required", keyword: "required", params: { missingProperty: "workerId" }, message: "must have required property 'workerId'" };
                                           if (vErrors === null) {
-                                            vErrors = [err719];
+                                            vErrors = [err725];
                                           } else {
-                                            vErrors.push(err719);
+                                            vErrors.push(err725);
                                           }
                                           errors++;
                                         }
-                                        if (data245.generation === void 0) {
-                                          const err720 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/required", keyword: "required", params: { missingProperty: "generation" }, message: "must have required property 'generation'" };
+                                        if (data248.generation === void 0) {
+                                          const err726 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/required", keyword: "required", params: { missingProperty: "generation" }, message: "must have required property 'generation'" };
                                           if (vErrors === null) {
-                                            vErrors = [err720];
+                                            vErrors = [err726];
                                           } else {
-                                            vErrors.push(err720);
+                                            vErrors.push(err726);
                                           }
                                           errors++;
                                         }
-                                        for (const key73 in data245) {
+                                        for (const key73 in data248) {
                                           if (!(key73 === "role" || key73 === "workerId" || key73 === "generation")) {
-                                            const err721 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key73 }, message: "must NOT have additional properties" };
-                                            if (vErrors === null) {
-                                              vErrors = [err721];
-                                            } else {
-                                              vErrors.push(err721);
-                                            }
-                                            errors++;
-                                          }
-                                        }
-                                        if (data245.role !== void 0) {
-                                          let data246 = data245.role;
-                                          if (typeof data246 !== "string") {
-                                            const err722 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/role/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                                            if (vErrors === null) {
-                                              vErrors = [err722];
-                                            } else {
-                                              vErrors.push(err722);
-                                            }
-                                            errors++;
-                                          }
-                                          if ("worker" !== data246) {
-                                            const err723 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/role/const", keyword: "const", params: { allowedValue: "worker" }, message: "must be equal to constant" };
-                                            if (vErrors === null) {
-                                              vErrors = [err723];
-                                            } else {
-                                              vErrors.push(err723);
-                                            }
-                                            errors++;
-                                          }
-                                        }
-                                        if (data245.workerId !== void 0) {
-                                          if (typeof data245.workerId !== "string") {
-                                            const err724 = { instancePath: instancePath + "/source/workerId", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/workerId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                                            if (vErrors === null) {
-                                              vErrors = [err724];
-                                            } else {
-                                              vErrors.push(err724);
-                                            }
-                                            errors++;
-                                          }
-                                        }
-                                        if (data245.generation !== void 0) {
-                                          if (typeof data245.generation !== "string") {
-                                            const err725 = { instancePath: instancePath + "/source/generation", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/generation/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                                            if (vErrors === null) {
-                                              vErrors = [err725];
-                                            } else {
-                                              vErrors.push(err725);
-                                            }
-                                            errors++;
-                                          }
-                                        }
-                                      } else {
-                                        const err726 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/type", keyword: "type", params: { type: "object" }, message: "must be object" };
-                                        if (vErrors === null) {
-                                          vErrors = [err726];
-                                        } else {
-                                          vErrors.push(err726);
-                                        }
-                                        errors++;
-                                      }
-                                      var _valid16 = _errs712 === errors;
-                                      valid118 = valid118 || _valid16;
-                                      if (!valid118) {
-                                        const _errs721 = errors;
-                                        if (data245 && typeof data245 == "object" && !Array.isArray(data245)) {
-                                          if (data245.role === void 0) {
-                                            const err727 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/required", keyword: "required", params: { missingProperty: "role" }, message: "must have required property 'role'" };
+                                            const err727 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key73 }, message: "must NOT have additional properties" };
                                             if (vErrors === null) {
                                               vErrors = [err727];
                                             } else {
@@ -9245,8 +9238,11 @@ var require_Trigger_validator = __commonJS({
                                             }
                                             errors++;
                                           }
-                                          if (data245.externalId === void 0) {
-                                            const err728 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/required", keyword: "required", params: { missingProperty: "externalId" }, message: "must have required property 'externalId'" };
+                                        }
+                                        if (data248.role !== void 0) {
+                                          let data249 = data248.role;
+                                          if (typeof data249 !== "string") {
+                                            const err728 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/role/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                             if (vErrors === null) {
                                               vErrors = [err728];
                                             } else {
@@ -9254,184 +9250,170 @@ var require_Trigger_validator = __commonJS({
                                             }
                                             errors++;
                                           }
-                                          for (const key74 in data245) {
+                                          if ("worker" !== data249) {
+                                            const err729 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/role/const", keyword: "const", params: { allowedValue: "worker" }, message: "must be equal to constant" };
+                                            if (vErrors === null) {
+                                              vErrors = [err729];
+                                            } else {
+                                              vErrors.push(err729);
+                                            }
+                                            errors++;
+                                          }
+                                        }
+                                        if (data248.workerId !== void 0) {
+                                          if (typeof data248.workerId !== "string") {
+                                            const err730 = { instancePath: instancePath + "/source/workerId", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/workerId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                            if (vErrors === null) {
+                                              vErrors = [err730];
+                                            } else {
+                                              vErrors.push(err730);
+                                            }
+                                            errors++;
+                                          }
+                                        }
+                                        if (data248.generation !== void 0) {
+                                          if (typeof data248.generation !== "string") {
+                                            const err731 = { instancePath: instancePath + "/source/generation", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/generation/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                            if (vErrors === null) {
+                                              vErrors = [err731];
+                                            } else {
+                                              vErrors.push(err731);
+                                            }
+                                            errors++;
+                                          }
+                                        }
+                                      } else {
+                                        const err732 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                                        if (vErrors === null) {
+                                          vErrors = [err732];
+                                        } else {
+                                          vErrors.push(err732);
+                                        }
+                                        errors++;
+                                      }
+                                      var _valid16 = _errs718 === errors;
+                                      valid118 = valid118 || _valid16;
+                                      if (!valid118) {
+                                        const _errs727 = errors;
+                                        if (data248 && typeof data248 == "object" && !Array.isArray(data248)) {
+                                          if (data248.role === void 0) {
+                                            const err733 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/required", keyword: "required", params: { missingProperty: "role" }, message: "must have required property 'role'" };
+                                            if (vErrors === null) {
+                                              vErrors = [err733];
+                                            } else {
+                                              vErrors.push(err733);
+                                            }
+                                            errors++;
+                                          }
+                                          if (data248.externalId === void 0) {
+                                            const err734 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/required", keyword: "required", params: { missingProperty: "externalId" }, message: "must have required property 'externalId'" };
+                                            if (vErrors === null) {
+                                              vErrors = [err734];
+                                            } else {
+                                              vErrors.push(err734);
+                                            }
+                                            errors++;
+                                          }
+                                          for (const key74 in data248) {
                                             if (!(key74 === "role" || key74 === "externalId")) {
-                                              const err729 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key74 }, message: "must NOT have additional properties" };
+                                              const err735 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key74 }, message: "must NOT have additional properties" };
                                               if (vErrors === null) {
-                                                vErrors = [err729];
+                                                vErrors = [err735];
                                               } else {
-                                                vErrors.push(err729);
+                                                vErrors.push(err735);
                                               }
                                               errors++;
                                             }
                                           }
-                                          if (data245.role !== void 0) {
-                                            let data249 = data245.role;
-                                            if (typeof data249 !== "string") {
-                                              const err730 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/1/properties/role/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                          if (data248.role !== void 0) {
+                                            let data252 = data248.role;
+                                            if (typeof data252 !== "string") {
+                                              const err736 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/1/properties/role/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                               if (vErrors === null) {
-                                                vErrors = [err730];
+                                                vErrors = [err736];
                                               } else {
-                                                vErrors.push(err730);
+                                                vErrors.push(err736);
                                               }
                                               errors++;
                                             }
-                                            if ("external" !== data249) {
-                                              const err731 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/1/properties/role/const", keyword: "const", params: { allowedValue: "external" }, message: "must be equal to constant" };
+                                            if ("external" !== data252) {
+                                              const err737 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/1/properties/role/const", keyword: "const", params: { allowedValue: "external" }, message: "must be equal to constant" };
                                               if (vErrors === null) {
-                                                vErrors = [err731];
+                                                vErrors = [err737];
                                               } else {
-                                                vErrors.push(err731);
+                                                vErrors.push(err737);
                                               }
                                               errors++;
                                             }
                                           }
-                                          if (data245.externalId !== void 0) {
-                                            if (typeof data245.externalId !== "string") {
-                                              const err732 = { instancePath: instancePath + "/source/externalId", schemaPath: "#/definitions/TriggerActor/anyOf/1/properties/externalId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                          if (data248.externalId !== void 0) {
+                                            if (typeof data248.externalId !== "string") {
+                                              const err738 = { instancePath: instancePath + "/source/externalId", schemaPath: "#/definitions/TriggerActor/anyOf/1/properties/externalId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                               if (vErrors === null) {
-                                                vErrors = [err732];
+                                                vErrors = [err738];
                                               } else {
-                                                vErrors.push(err732);
+                                                vErrors.push(err738);
                                               }
                                               errors++;
                                             }
                                           }
                                         } else {
-                                          const err733 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                                          const err739 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/type", keyword: "type", params: { type: "object" }, message: "must be object" };
                                           if (vErrors === null) {
-                                            vErrors = [err733];
+                                            vErrors = [err739];
                                           } else {
-                                            vErrors.push(err733);
+                                            vErrors.push(err739);
                                           }
                                           errors++;
                                         }
-                                        var _valid16 = _errs721 === errors;
+                                        var _valid16 = _errs727 === errors;
                                         valid118 = valid118 || _valid16;
                                         if (!valid118) {
-                                          const _errs728 = errors;
-                                          if (data245 && typeof data245 == "object" && !Array.isArray(data245)) {
-                                            if (data245.role === void 0) {
-                                              const err734 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/2/required", keyword: "required", params: { missingProperty: "role" }, message: "must have required property 'role'" };
+                                          const _errs734 = errors;
+                                          if (data248 && typeof data248 == "object" && !Array.isArray(data248)) {
+                                            if (data248.role === void 0) {
+                                              const err740 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/2/required", keyword: "required", params: { missingProperty: "role" }, message: "must have required property 'role'" };
                                               if (vErrors === null) {
-                                                vErrors = [err734];
+                                                vErrors = [err740];
                                               } else {
-                                                vErrors.push(err734);
+                                                vErrors.push(err740);
                                               }
                                               errors++;
                                             }
-                                            for (const key75 in data245) {
+                                            for (const key75 in data248) {
                                               if (!(key75 === "role")) {
-                                                const err735 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/2/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key75 }, message: "must NOT have additional properties" };
+                                                const err741 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/2/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key75 }, message: "must NOT have additional properties" };
                                                 if (vErrors === null) {
-                                                  vErrors = [err735];
+                                                  vErrors = [err741];
                                                 } else {
-                                                  vErrors.push(err735);
+                                                  vErrors.push(err741);
                                                 }
                                                 errors++;
                                               }
                                             }
-                                            if (data245.role !== void 0) {
-                                              let data251 = data245.role;
-                                              if (typeof data251 !== "string") {
-                                                const err736 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/2/properties/role/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                            if (data248.role !== void 0) {
+                                              let data254 = data248.role;
+                                              if (typeof data254 !== "string") {
+                                                const err742 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/2/properties/role/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                                 if (vErrors === null) {
-                                                  vErrors = [err736];
+                                                  vErrors = [err742];
                                                 } else {
-                                                  vErrors.push(err736);
+                                                  vErrors.push(err742);
                                                 }
                                                 errors++;
                                               }
-                                              if ("supervisor" !== data251) {
-                                                const err737 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/2/properties/role/const", keyword: "const", params: { allowedValue: "supervisor" }, message: "must be equal to constant" };
+                                              if ("supervisor" !== data254) {
+                                                const err743 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/2/properties/role/const", keyword: "const", params: { allowedValue: "supervisor" }, message: "must be equal to constant" };
                                                 if (vErrors === null) {
-                                                  vErrors = [err737];
+                                                  vErrors = [err743];
                                                 } else {
-                                                  vErrors.push(err737);
+                                                  vErrors.push(err743);
                                                 }
                                                 errors++;
                                               }
                                             }
                                           } else {
-                                            const err738 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/2/type", keyword: "type", params: { type: "object" }, message: "must be object" };
-                                            if (vErrors === null) {
-                                              vErrors = [err738];
-                                            } else {
-                                              vErrors.push(err738);
-                                            }
-                                            errors++;
-                                          }
-                                          var _valid16 = _errs728 === errors;
-                                          valid118 = valid118 || _valid16;
-                                        }
-                                      }
-                                      if (!valid118) {
-                                        const err739 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf", keyword: "anyOf", params: {}, message: "must match a schema in anyOf" };
-                                        if (vErrors === null) {
-                                          vErrors = [err739];
-                                        } else {
-                                          vErrors.push(err739);
-                                        }
-                                        errors++;
-                                      } else {
-                                        errors = _errs711;
-                                        if (vErrors !== null) {
-                                          if (_errs711) {
-                                            vErrors.length = _errs711;
-                                          } else {
-                                            vErrors = null;
-                                          }
-                                        }
-                                      }
-                                    }
-                                    if (data.target !== void 0) {
-                                      let data252 = data.target;
-                                      if (typeof data252 !== "string") {
-                                        const err740 = { instancePath: instancePath + "/target", schemaPath: "#/definitions/TriggerTarget/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                                        if (vErrors === null) {
-                                          vErrors = [err740];
-                                        } else {
-                                          vErrors.push(err740);
-                                        }
-                                        errors++;
-                                      }
-                                      if (!(data252 === "supervisor" || data252 === "worker")) {
-                                        const err741 = { instancePath: instancePath + "/target", schemaPath: "#/definitions/TriggerTarget/enum", keyword: "enum", params: { allowedValues: schema14.enum }, message: "must be equal to one of the allowed values" };
-                                        if (vErrors === null) {
-                                          vErrors = [err741];
-                                        } else {
-                                          vErrors.push(err741);
-                                        }
-                                        errors++;
-                                      }
-                                    }
-                                    if (data.payload !== void 0) {
-                                      let data253 = data.payload;
-                                      if (data253 && typeof data253 == "object" && !Array.isArray(data253)) {
-                                        if (data253.action === void 0) {
-                                          const err742 = { instancePath: instancePath + "/payload", schemaPath: "#/anyOf/14/properties/payload/required", keyword: "required", params: { missingProperty: "action" }, message: "must have required property 'action'" };
-                                          if (vErrors === null) {
-                                            vErrors = [err742];
-                                          } else {
-                                            vErrors.push(err742);
-                                          }
-                                          errors++;
-                                        }
-                                        for (const key76 in data253) {
-                                          if (!(key76 === "action")) {
-                                            const err743 = { instancePath: instancePath + "/payload", schemaPath: "#/anyOf/14/properties/payload/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key76 }, message: "must NOT have additional properties" };
-                                            if (vErrors === null) {
-                                              vErrors = [err743];
-                                            } else {
-                                              vErrors.push(err743);
-                                            }
-                                            errors++;
-                                          }
-                                        }
-                                        if (data253.action !== void 0) {
-                                          let data254 = data253.action;
-                                          if (typeof data254 !== "string") {
-                                            const err744 = { instancePath: instancePath + "/payload/action", schemaPath: "#/anyOf/14/properties/payload/properties/action/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                            const err744 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/2/type", keyword: "type", params: { type: "object" }, message: "must be object" };
                                             if (vErrors === null) {
                                               vErrors = [err744];
                                             } else {
@@ -9439,18 +9421,33 @@ var require_Trigger_validator = __commonJS({
                                             }
                                             errors++;
                                           }
-                                          if ("result" !== data254) {
-                                            const err745 = { instancePath: instancePath + "/payload/action", schemaPath: "#/anyOf/14/properties/payload/properties/action/const", keyword: "const", params: { allowedValue: "result" }, message: "must be equal to constant" };
-                                            if (vErrors === null) {
-                                              vErrors = [err745];
-                                            } else {
-                                              vErrors.push(err745);
-                                            }
-                                            errors++;
+                                          var _valid16 = _errs734 === errors;
+                                          valid118 = valid118 || _valid16;
+                                        }
+                                      }
+                                      if (!valid118) {
+                                        const err745 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf", keyword: "anyOf", params: {}, message: "must match a schema in anyOf" };
+                                        if (vErrors === null) {
+                                          vErrors = [err745];
+                                        } else {
+                                          vErrors.push(err745);
+                                        }
+                                        errors++;
+                                      } else {
+                                        errors = _errs717;
+                                        if (vErrors !== null) {
+                                          if (_errs717) {
+                                            vErrors.length = _errs717;
+                                          } else {
+                                            vErrors = null;
                                           }
                                         }
-                                      } else {
-                                        const err746 = { instancePath: instancePath + "/payload", schemaPath: "#/anyOf/14/properties/payload/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                                      }
+                                    }
+                                    if (data.target !== void 0) {
+                                      let data255 = data.target;
+                                      if (typeof data255 !== "string") {
+                                        const err746 = { instancePath: instancePath + "/target", schemaPath: "#/definitions/TriggerTarget/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                         if (vErrors === null) {
                                           vErrors = [err746];
                                         } else {
@@ -9458,10 +9455,8 @@ var require_Trigger_validator = __commonJS({
                                         }
                                         errors++;
                                       }
-                                    }
-                                    if (data.sentAt !== void 0) {
-                                      if (typeof data.sentAt !== "string") {
-                                        const err747 = { instancePath: instancePath + "/sentAt", schemaPath: "#/anyOf/14/properties/sentAt/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                      if (!(data255 === "supervisor" || data255 === "worker")) {
+                                        const err747 = { instancePath: instancePath + "/target", schemaPath: "#/definitions/TriggerTarget/enum", keyword: "enum", params: { allowedValues: schema14.enum }, message: "must be equal to one of the allowed values" };
                                         if (vErrors === null) {
                                           vErrors = [err747];
                                         } else {
@@ -9470,39 +9465,591 @@ var require_Trigger_validator = __commonJS({
                                         errors++;
                                       }
                                     }
-                                    if (data.goalId !== void 0) {
-                                      if (typeof data.goalId !== "string") {
-                                        const err748 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/14/properties/goalId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                    if (data.payload !== void 0) {
+                                      let data256 = data.payload;
+                                      if (data256 && typeof data256 == "object" && !Array.isArray(data256)) {
+                                        if (data256.action === void 0) {
+                                          const err748 = { instancePath: instancePath + "/payload", schemaPath: "#/anyOf/14/properties/payload/required", keyword: "required", params: { missingProperty: "action" }, message: "must have required property 'action'" };
+                                          if (vErrors === null) {
+                                            vErrors = [err748];
+                                          } else {
+                                            vErrors.push(err748);
+                                          }
+                                          errors++;
+                                        }
+                                        for (const key76 in data256) {
+                                          if (!(key76 === "action")) {
+                                            const err749 = { instancePath: instancePath + "/payload", schemaPath: "#/anyOf/14/properties/payload/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key76 }, message: "must NOT have additional properties" };
+                                            if (vErrors === null) {
+                                              vErrors = [err749];
+                                            } else {
+                                              vErrors.push(err749);
+                                            }
+                                            errors++;
+                                          }
+                                        }
+                                        if (data256.action !== void 0) {
+                                          let data257 = data256.action;
+                                          if (typeof data257 !== "string") {
+                                            const err750 = { instancePath: instancePath + "/payload/action", schemaPath: "#/anyOf/14/properties/payload/properties/action/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                            if (vErrors === null) {
+                                              vErrors = [err750];
+                                            } else {
+                                              vErrors.push(err750);
+                                            }
+                                            errors++;
+                                          }
+                                          if ("requested" !== data257) {
+                                            const err751 = { instancePath: instancePath + "/payload/action", schemaPath: "#/anyOf/14/properties/payload/properties/action/const", keyword: "const", params: { allowedValue: "requested" }, message: "must be equal to constant" };
+                                            if (vErrors === null) {
+                                              vErrors = [err751];
+                                            } else {
+                                              vErrors.push(err751);
+                                            }
+                                            errors++;
+                                          }
+                                        }
+                                      } else {
+                                        const err752 = { instancePath: instancePath + "/payload", schemaPath: "#/anyOf/14/properties/payload/type", keyword: "type", params: { type: "object" }, message: "must be object" };
                                         if (vErrors === null) {
-                                          vErrors = [err748];
+                                          vErrors = [err752];
                                         } else {
-                                          vErrors.push(err748);
+                                          vErrors.push(err752);
                                         }
                                         errors++;
                                       }
                                     }
-                                    if (data.replyTo !== void 0) {
-                                      if (typeof data.replyTo !== "string") {
-                                        const err749 = { instancePath: instancePath + "/replyTo", schemaPath: "#/anyOf/14/properties/replyTo/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                    if (data.sentAt !== void 0) {
+                                      if (typeof data.sentAt !== "string") {
+                                        const err753 = { instancePath: instancePath + "/sentAt", schemaPath: "#/anyOf/14/properties/sentAt/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                                         if (vErrors === null) {
-                                          vErrors = [err749];
+                                          vErrors = [err753];
                                         } else {
-                                          vErrors.push(err749);
+                                          vErrors.push(err753);
+                                        }
+                                        errors++;
+                                      }
+                                    }
+                                    if (data.goalId !== void 0) {
+                                      if (typeof data.goalId !== "string") {
+                                        const err754 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/14/properties/goalId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                        if (vErrors === null) {
+                                          vErrors = [err754];
+                                        } else {
+                                          vErrors.push(err754);
                                         }
                                         errors++;
                                       }
                                     }
                                   } else {
-                                    const err750 = { instancePath, schemaPath: "#/anyOf/14/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                                    const err755 = { instancePath, schemaPath: "#/anyOf/14/type", keyword: "type", params: { type: "object" }, message: "must be object" };
                                     if (vErrors === null) {
-                                      vErrors = [err750];
+                                      vErrors = [err755];
                                     } else {
-                                      vErrors.push(err750);
+                                      vErrors.push(err755);
                                     }
                                     errors++;
                                   }
-                                  var _valid0 = _errs700 === errors;
+                                  var _valid0 = _errs706 === errors;
                                   valid0 = valid0 || _valid0;
+                                  if (!valid0) {
+                                    const _errs751 = errors;
+                                    if (data && typeof data == "object" && !Array.isArray(data)) {
+                                      if (data.id === void 0) {
+                                        const err756 = { instancePath, schemaPath: "#/anyOf/15/required", keyword: "required", params: { missingProperty: "id" }, message: "must have required property 'id'" };
+                                        if (vErrors === null) {
+                                          vErrors = [err756];
+                                        } else {
+                                          vErrors.push(err756);
+                                        }
+                                        errors++;
+                                      }
+                                      if (data.name === void 0) {
+                                        const err757 = { instancePath, schemaPath: "#/anyOf/15/required", keyword: "required", params: { missingProperty: "name" }, message: "must have required property 'name'" };
+                                        if (vErrors === null) {
+                                          vErrors = [err757];
+                                        } else {
+                                          vErrors.push(err757);
+                                        }
+                                        errors++;
+                                      }
+                                      if (data.type === void 0) {
+                                        const err758 = { instancePath, schemaPath: "#/anyOf/15/required", keyword: "required", params: { missingProperty: "type" }, message: "must have required property 'type'" };
+                                        if (vErrors === null) {
+                                          vErrors = [err758];
+                                        } else {
+                                          vErrors.push(err758);
+                                        }
+                                        errors++;
+                                      }
+                                      if (data.source === void 0) {
+                                        const err759 = { instancePath, schemaPath: "#/anyOf/15/required", keyword: "required", params: { missingProperty: "source" }, message: "must have required property 'source'" };
+                                        if (vErrors === null) {
+                                          vErrors = [err759];
+                                        } else {
+                                          vErrors.push(err759);
+                                        }
+                                        errors++;
+                                      }
+                                      if (data.target === void 0) {
+                                        const err760 = { instancePath, schemaPath: "#/anyOf/15/required", keyword: "required", params: { missingProperty: "target" }, message: "must have required property 'target'" };
+                                        if (vErrors === null) {
+                                          vErrors = [err760];
+                                        } else {
+                                          vErrors.push(err760);
+                                        }
+                                        errors++;
+                                      }
+                                      if (data.payload === void 0) {
+                                        const err761 = { instancePath, schemaPath: "#/anyOf/15/required", keyword: "required", params: { missingProperty: "payload" }, message: "must have required property 'payload'" };
+                                        if (vErrors === null) {
+                                          vErrors = [err761];
+                                        } else {
+                                          vErrors.push(err761);
+                                        }
+                                        errors++;
+                                      }
+                                      if (data.sentAt === void 0) {
+                                        const err762 = { instancePath, schemaPath: "#/anyOf/15/required", keyword: "required", params: { missingProperty: "sentAt" }, message: "must have required property 'sentAt'" };
+                                        if (vErrors === null) {
+                                          vErrors = [err762];
+                                        } else {
+                                          vErrors.push(err762);
+                                        }
+                                        errors++;
+                                      }
+                                      if (data.replyTo === void 0) {
+                                        const err763 = { instancePath, schemaPath: "#/anyOf/15/required", keyword: "required", params: { missingProperty: "replyTo" }, message: "must have required property 'replyTo'" };
+                                        if (vErrors === null) {
+                                          vErrors = [err763];
+                                        } else {
+                                          vErrors.push(err763);
+                                        }
+                                        errors++;
+                                      }
+                                      for (const key77 in data) {
+                                        if (!func2.call(schema12.anyOf[15].properties, key77)) {
+                                          const err764 = { instancePath, schemaPath: "#/anyOf/15/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key77 }, message: "must NOT have additional properties" };
+                                          if (vErrors === null) {
+                                            vErrors = [err764];
+                                          } else {
+                                            vErrors.push(err764);
+                                          }
+                                          errors++;
+                                        }
+                                      }
+                                      if (data.id !== void 0) {
+                                        if (typeof data.id !== "string") {
+                                          const err765 = { instancePath: instancePath + "/id", schemaPath: "#/anyOf/15/properties/id/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                          if (vErrors === null) {
+                                            vErrors = [err765];
+                                          } else {
+                                            vErrors.push(err765);
+                                          }
+                                          errors++;
+                                        }
+                                      }
+                                      if (data.name !== void 0) {
+                                        if (typeof data.name !== "string") {
+                                          const err766 = { instancePath: instancePath + "/name", schemaPath: "#/anyOf/15/properties/name/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                          if (vErrors === null) {
+                                            vErrors = [err766];
+                                          } else {
+                                            vErrors.push(err766);
+                                          }
+                                          errors++;
+                                        }
+                                      }
+                                      if (data.type !== void 0) {
+                                        let data262 = data.type;
+                                        if (typeof data262 !== "string") {
+                                          const err767 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/15/properties/type/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                          if (vErrors === null) {
+                                            vErrors = [err767];
+                                          } else {
+                                            vErrors.push(err767);
+                                          }
+                                          errors++;
+                                        }
+                                        if ("collaboration" !== data262) {
+                                          const err768 = { instancePath: instancePath + "/type", schemaPath: "#/anyOf/15/properties/type/const", keyword: "const", params: { allowedValue: "collaboration" }, message: "must be equal to constant" };
+                                          if (vErrors === null) {
+                                            vErrors = [err768];
+                                          } else {
+                                            vErrors.push(err768);
+                                          }
+                                          errors++;
+                                        }
+                                      }
+                                      if (data.source !== void 0) {
+                                        let data263 = data.source;
+                                        const _errs762 = errors;
+                                        let valid126 = false;
+                                        const _errs763 = errors;
+                                        if (data263 && typeof data263 == "object" && !Array.isArray(data263)) {
+                                          if (data263.role === void 0) {
+                                            const err769 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/required", keyword: "required", params: { missingProperty: "role" }, message: "must have required property 'role'" };
+                                            if (vErrors === null) {
+                                              vErrors = [err769];
+                                            } else {
+                                              vErrors.push(err769);
+                                            }
+                                            errors++;
+                                          }
+                                          if (data263.workerId === void 0) {
+                                            const err770 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/required", keyword: "required", params: { missingProperty: "workerId" }, message: "must have required property 'workerId'" };
+                                            if (vErrors === null) {
+                                              vErrors = [err770];
+                                            } else {
+                                              vErrors.push(err770);
+                                            }
+                                            errors++;
+                                          }
+                                          if (data263.generation === void 0) {
+                                            const err771 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/required", keyword: "required", params: { missingProperty: "generation" }, message: "must have required property 'generation'" };
+                                            if (vErrors === null) {
+                                              vErrors = [err771];
+                                            } else {
+                                              vErrors.push(err771);
+                                            }
+                                            errors++;
+                                          }
+                                          for (const key78 in data263) {
+                                            if (!(key78 === "role" || key78 === "workerId" || key78 === "generation")) {
+                                              const err772 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key78 }, message: "must NOT have additional properties" };
+                                              if (vErrors === null) {
+                                                vErrors = [err772];
+                                              } else {
+                                                vErrors.push(err772);
+                                              }
+                                              errors++;
+                                            }
+                                          }
+                                          if (data263.role !== void 0) {
+                                            let data264 = data263.role;
+                                            if (typeof data264 !== "string") {
+                                              const err773 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/role/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                              if (vErrors === null) {
+                                                vErrors = [err773];
+                                              } else {
+                                                vErrors.push(err773);
+                                              }
+                                              errors++;
+                                            }
+                                            if ("worker" !== data264) {
+                                              const err774 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/role/const", keyword: "const", params: { allowedValue: "worker" }, message: "must be equal to constant" };
+                                              if (vErrors === null) {
+                                                vErrors = [err774];
+                                              } else {
+                                                vErrors.push(err774);
+                                              }
+                                              errors++;
+                                            }
+                                          }
+                                          if (data263.workerId !== void 0) {
+                                            if (typeof data263.workerId !== "string") {
+                                              const err775 = { instancePath: instancePath + "/source/workerId", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/workerId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                              if (vErrors === null) {
+                                                vErrors = [err775];
+                                              } else {
+                                                vErrors.push(err775);
+                                              }
+                                              errors++;
+                                            }
+                                          }
+                                          if (data263.generation !== void 0) {
+                                            if (typeof data263.generation !== "string") {
+                                              const err776 = { instancePath: instancePath + "/source/generation", schemaPath: "#/definitions/TriggerActor/anyOf/0/properties/generation/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                              if (vErrors === null) {
+                                                vErrors = [err776];
+                                              } else {
+                                                vErrors.push(err776);
+                                              }
+                                              errors++;
+                                            }
+                                          }
+                                        } else {
+                                          const err777 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/0/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                                          if (vErrors === null) {
+                                            vErrors = [err777];
+                                          } else {
+                                            vErrors.push(err777);
+                                          }
+                                          errors++;
+                                        }
+                                        var _valid17 = _errs763 === errors;
+                                        valid126 = valid126 || _valid17;
+                                        if (!valid126) {
+                                          const _errs772 = errors;
+                                          if (data263 && typeof data263 == "object" && !Array.isArray(data263)) {
+                                            if (data263.role === void 0) {
+                                              const err778 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/required", keyword: "required", params: { missingProperty: "role" }, message: "must have required property 'role'" };
+                                              if (vErrors === null) {
+                                                vErrors = [err778];
+                                              } else {
+                                                vErrors.push(err778);
+                                              }
+                                              errors++;
+                                            }
+                                            if (data263.externalId === void 0) {
+                                              const err779 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/required", keyword: "required", params: { missingProperty: "externalId" }, message: "must have required property 'externalId'" };
+                                              if (vErrors === null) {
+                                                vErrors = [err779];
+                                              } else {
+                                                vErrors.push(err779);
+                                              }
+                                              errors++;
+                                            }
+                                            for (const key79 in data263) {
+                                              if (!(key79 === "role" || key79 === "externalId")) {
+                                                const err780 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key79 }, message: "must NOT have additional properties" };
+                                                if (vErrors === null) {
+                                                  vErrors = [err780];
+                                                } else {
+                                                  vErrors.push(err780);
+                                                }
+                                                errors++;
+                                              }
+                                            }
+                                            if (data263.role !== void 0) {
+                                              let data267 = data263.role;
+                                              if (typeof data267 !== "string") {
+                                                const err781 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/1/properties/role/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                                if (vErrors === null) {
+                                                  vErrors = [err781];
+                                                } else {
+                                                  vErrors.push(err781);
+                                                }
+                                                errors++;
+                                              }
+                                              if ("external" !== data267) {
+                                                const err782 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/1/properties/role/const", keyword: "const", params: { allowedValue: "external" }, message: "must be equal to constant" };
+                                                if (vErrors === null) {
+                                                  vErrors = [err782];
+                                                } else {
+                                                  vErrors.push(err782);
+                                                }
+                                                errors++;
+                                              }
+                                            }
+                                            if (data263.externalId !== void 0) {
+                                              if (typeof data263.externalId !== "string") {
+                                                const err783 = { instancePath: instancePath + "/source/externalId", schemaPath: "#/definitions/TriggerActor/anyOf/1/properties/externalId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                                if (vErrors === null) {
+                                                  vErrors = [err783];
+                                                } else {
+                                                  vErrors.push(err783);
+                                                }
+                                                errors++;
+                                              }
+                                            }
+                                          } else {
+                                            const err784 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/1/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                                            if (vErrors === null) {
+                                              vErrors = [err784];
+                                            } else {
+                                              vErrors.push(err784);
+                                            }
+                                            errors++;
+                                          }
+                                          var _valid17 = _errs772 === errors;
+                                          valid126 = valid126 || _valid17;
+                                          if (!valid126) {
+                                            const _errs779 = errors;
+                                            if (data263 && typeof data263 == "object" && !Array.isArray(data263)) {
+                                              if (data263.role === void 0) {
+                                                const err785 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/2/required", keyword: "required", params: { missingProperty: "role" }, message: "must have required property 'role'" };
+                                                if (vErrors === null) {
+                                                  vErrors = [err785];
+                                                } else {
+                                                  vErrors.push(err785);
+                                                }
+                                                errors++;
+                                              }
+                                              for (const key80 in data263) {
+                                                if (!(key80 === "role")) {
+                                                  const err786 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/2/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key80 }, message: "must NOT have additional properties" };
+                                                  if (vErrors === null) {
+                                                    vErrors = [err786];
+                                                  } else {
+                                                    vErrors.push(err786);
+                                                  }
+                                                  errors++;
+                                                }
+                                              }
+                                              if (data263.role !== void 0) {
+                                                let data269 = data263.role;
+                                                if (typeof data269 !== "string") {
+                                                  const err787 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/2/properties/role/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                                  if (vErrors === null) {
+                                                    vErrors = [err787];
+                                                  } else {
+                                                    vErrors.push(err787);
+                                                  }
+                                                  errors++;
+                                                }
+                                                if ("supervisor" !== data269) {
+                                                  const err788 = { instancePath: instancePath + "/source/role", schemaPath: "#/definitions/TriggerActor/anyOf/2/properties/role/const", keyword: "const", params: { allowedValue: "supervisor" }, message: "must be equal to constant" };
+                                                  if (vErrors === null) {
+                                                    vErrors = [err788];
+                                                  } else {
+                                                    vErrors.push(err788);
+                                                  }
+                                                  errors++;
+                                                }
+                                              }
+                                            } else {
+                                              const err789 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf/2/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                                              if (vErrors === null) {
+                                                vErrors = [err789];
+                                              } else {
+                                                vErrors.push(err789);
+                                              }
+                                              errors++;
+                                            }
+                                            var _valid17 = _errs779 === errors;
+                                            valid126 = valid126 || _valid17;
+                                          }
+                                        }
+                                        if (!valid126) {
+                                          const err790 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/TriggerActor/anyOf", keyword: "anyOf", params: {}, message: "must match a schema in anyOf" };
+                                          if (vErrors === null) {
+                                            vErrors = [err790];
+                                          } else {
+                                            vErrors.push(err790);
+                                          }
+                                          errors++;
+                                        } else {
+                                          errors = _errs762;
+                                          if (vErrors !== null) {
+                                            if (_errs762) {
+                                              vErrors.length = _errs762;
+                                            } else {
+                                              vErrors = null;
+                                            }
+                                          }
+                                        }
+                                      }
+                                      if (data.target !== void 0) {
+                                        let data270 = data.target;
+                                        if (typeof data270 !== "string") {
+                                          const err791 = { instancePath: instancePath + "/target", schemaPath: "#/definitions/TriggerTarget/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                          if (vErrors === null) {
+                                            vErrors = [err791];
+                                          } else {
+                                            vErrors.push(err791);
+                                          }
+                                          errors++;
+                                        }
+                                        if (!(data270 === "supervisor" || data270 === "worker")) {
+                                          const err792 = { instancePath: instancePath + "/target", schemaPath: "#/definitions/TriggerTarget/enum", keyword: "enum", params: { allowedValues: schema14.enum }, message: "must be equal to one of the allowed values" };
+                                          if (vErrors === null) {
+                                            vErrors = [err792];
+                                          } else {
+                                            vErrors.push(err792);
+                                          }
+                                          errors++;
+                                        }
+                                      }
+                                      if (data.payload !== void 0) {
+                                        let data271 = data.payload;
+                                        if (data271 && typeof data271 == "object" && !Array.isArray(data271)) {
+                                          if (data271.action === void 0) {
+                                            const err793 = { instancePath: instancePath + "/payload", schemaPath: "#/anyOf/15/properties/payload/required", keyword: "required", params: { missingProperty: "action" }, message: "must have required property 'action'" };
+                                            if (vErrors === null) {
+                                              vErrors = [err793];
+                                            } else {
+                                              vErrors.push(err793);
+                                            }
+                                            errors++;
+                                          }
+                                          for (const key81 in data271) {
+                                            if (!(key81 === "action")) {
+                                              const err794 = { instancePath: instancePath + "/payload", schemaPath: "#/anyOf/15/properties/payload/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key81 }, message: "must NOT have additional properties" };
+                                              if (vErrors === null) {
+                                                vErrors = [err794];
+                                              } else {
+                                                vErrors.push(err794);
+                                              }
+                                              errors++;
+                                            }
+                                          }
+                                          if (data271.action !== void 0) {
+                                            let data272 = data271.action;
+                                            if (typeof data272 !== "string") {
+                                              const err795 = { instancePath: instancePath + "/payload/action", schemaPath: "#/anyOf/15/properties/payload/properties/action/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                              if (vErrors === null) {
+                                                vErrors = [err795];
+                                              } else {
+                                                vErrors.push(err795);
+                                              }
+                                              errors++;
+                                            }
+                                            if ("result" !== data272) {
+                                              const err796 = { instancePath: instancePath + "/payload/action", schemaPath: "#/anyOf/15/properties/payload/properties/action/const", keyword: "const", params: { allowedValue: "result" }, message: "must be equal to constant" };
+                                              if (vErrors === null) {
+                                                vErrors = [err796];
+                                              } else {
+                                                vErrors.push(err796);
+                                              }
+                                              errors++;
+                                            }
+                                          }
+                                        } else {
+                                          const err797 = { instancePath: instancePath + "/payload", schemaPath: "#/anyOf/15/properties/payload/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                                          if (vErrors === null) {
+                                            vErrors = [err797];
+                                          } else {
+                                            vErrors.push(err797);
+                                          }
+                                          errors++;
+                                        }
+                                      }
+                                      if (data.sentAt !== void 0) {
+                                        if (typeof data.sentAt !== "string") {
+                                          const err798 = { instancePath: instancePath + "/sentAt", schemaPath: "#/anyOf/15/properties/sentAt/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                          if (vErrors === null) {
+                                            vErrors = [err798];
+                                          } else {
+                                            vErrors.push(err798);
+                                          }
+                                          errors++;
+                                        }
+                                      }
+                                      if (data.goalId !== void 0) {
+                                        if (typeof data.goalId !== "string") {
+                                          const err799 = { instancePath: instancePath + "/goalId", schemaPath: "#/anyOf/15/properties/goalId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                          if (vErrors === null) {
+                                            vErrors = [err799];
+                                          } else {
+                                            vErrors.push(err799);
+                                          }
+                                          errors++;
+                                        }
+                                      }
+                                      if (data.replyTo !== void 0) {
+                                        if (typeof data.replyTo !== "string") {
+                                          const err800 = { instancePath: instancePath + "/replyTo", schemaPath: "#/anyOf/15/properties/replyTo/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                                          if (vErrors === null) {
+                                            vErrors = [err800];
+                                          } else {
+                                            vErrors.push(err800);
+                                          }
+                                          errors++;
+                                        }
+                                      }
+                                    } else {
+                                      const err801 = { instancePath, schemaPath: "#/anyOf/15/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                                      if (vErrors === null) {
+                                        vErrors = [err801];
+                                      } else {
+                                        vErrors.push(err801);
+                                      }
+                                      errors++;
+                                    }
+                                    var _valid0 = _errs751 === errors;
+                                    valid0 = valid0 || _valid0;
+                                  }
                                 }
                               }
                             }
@@ -9518,11 +10065,11 @@ var require_Trigger_validator = __commonJS({
         }
       }
       if (!valid0) {
-        const err751 = { instancePath, schemaPath: "#/anyOf", keyword: "anyOf", params: {}, message: "must match a schema in anyOf" };
+        const err802 = { instancePath, schemaPath: "#/anyOf", keyword: "anyOf", params: {}, message: "must match a schema in anyOf" };
         if (vErrors === null) {
-          vErrors = [err751];
+          vErrors = [err802];
         } else {
-          vErrors.push(err751);
+          vErrors.push(err802);
         }
         errors++;
       } else {

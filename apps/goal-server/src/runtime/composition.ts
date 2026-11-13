@@ -1028,6 +1028,8 @@ async function assembleRuntimeComposition(
             ),
         continue: (ref, content, control, continuation, queueBinding) =>
             runTrackedOperation("continue", () => rawCommands.continue(ref, content, control, continuation, queueBinding)),
+        commitContinuation: (ref, content, inputId, control) =>
+            runTrackedOperation("commit_continuation", () => rawCommands.commitContinuation(ref, content, inputId, control)),
         steer: (ref, messageId, content, ledger) =>
             runTrackedOperation("steer", () => rawCommands.steer(ref, messageId, content, ledger)),
         interrupt: (ref, requestId, ledger) =>

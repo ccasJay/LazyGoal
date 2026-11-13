@@ -357,3 +357,40 @@ test("同一 Goal 的并发 continue 只消费一次 completed Run", async () =>
     assert.equal(scheduler.receivedRefs.length, 1);
     assert.equal((await store.restore(initial.id))?.state.messages.filter((message) => message.role === "user").length, 2);
 });
+
+test("commitContinuation 只提交下一 Run 而不调用 Scheduler", async () => {
+    const store = new InMemoryGoalStore();
+    const initial = completedGoal("normal");
+    await store.save(initial);
+    const scheduler = new WaitingScheduler(store);
+    const coordinator = new GoalCoordinator({
+        store,
+        scheduler,
+        trajectoryStore: trajectoryStoreFor(store),
+        runIdGenerator: () => "run-committed",
+    });
+
+    const result = await coordinator.commitContinuation(
+        { goalId: initial.id, runId: initial.state.run.id },
+        "继续执行下一项",
+        "input-continue-1",
+    );
+    assert.deepEqual(result, { ok: true, goalId: initial.id, runId: "run-committed" });
+    assert.deepEqual(scheduler.receivedRefs, []);
+
+    const persisted = await store.restore(initial.id);
+    assert.ok(persisted);
+    assert.equal(persisted.state.run.id, "run-committed");
+    assert.equal(persisted.state.run.status, "created");
+    assert.equal(persisted.state.completedRuns?.[0]?.continuation?.messageId, "input-continue-1");
+    assert.equal(persisted.state.completedRuns?.[0]?.continuation?.nextRunId, "run-committed");
+    assert.equal(persisted.state.messages.at(-1)?.content, "继续执行下一项");
+
+    const empty = await coordinator.commitContinuation(
+        { goalId: initial.id, runId: "run-committed" },
+        "   ",
+        "input-continue-2",
+    );
+    assert.deepEqual(empty, { ok: false, code: "INVALID_GOAL_INPUT", message: "Continuation input must not be empty" });
+    assert.equal((await store.restore(initial.id))?.state.run.id, "run-committed");
+});

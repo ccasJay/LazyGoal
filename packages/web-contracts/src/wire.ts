@@ -955,6 +955,7 @@ export type BrowserSessionInputErrorCode =
     | "QUEUED_MESSAGE_NOT_FOUND"
     | "RUN_NOT_FOUND"
     | "RUN_NOT_RUNNING"
+    | "CONTINUATION_UNAVAILABLE"
     | "RUN_CONTROL_UNAVAILABLE"
     | "input_admission_failed"
     | "session_unavailable";
@@ -1045,6 +1046,8 @@ export type BrowserSessionInputCommand =
         readonly inputId: string;
         /** @pattern \S */
         readonly content: string;
+        /** @pattern \S */
+        readonly runId: string;
     }
     | {
         readonly kind: "steer";

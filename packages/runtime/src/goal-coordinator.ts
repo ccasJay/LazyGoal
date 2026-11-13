@@ -269,6 +269,9 @@ export type GoalProgressResult =
         };
     };
 
+/** Goal 推进拒绝的稳定结果，供只构造失败的辅助方法使用。 */
+type GoalProgressFailure = Extract<GoalProgressResult, { readonly ok: false }>;
+
 const resumeSchedule = Symbol("resumeSchedule");
 
 /**
@@ -862,13 +865,13 @@ export class GoalCoordinator {
     }
 
     /**
-     * 为已完成或失败的 Run 创建并推进一个新的会话 Run。
+     * 为已完成、失败或取消的 Run 提交下一 Run。
      *
      * @remarks
      * `continue` 只接受当前 `completed`、`failed` 或 `cancelled` Run 和非空输入。它在同一个 Goal 内先
      * 归档上一 Run 的消息区间、追加真实用户消息、创建新 Run，并一次性消费
      * `nextRunMode`；没有待用选择时，新 Run 使用普通模式。新 Run 的创建提交与
-     * `/plan` 选择共享同一按 Goal 串行化边界，快照成功后才调用 Scheduler。waiting
+     * `/plan` 选择共享同一按 Goal 串行化边界；本方法只提交快照，不推进新 Run。waiting
      * Run 仍必须走 {@link resume}，不会因为输入内容而创建新 Run。每个 Coordinator
      * 实例按 Goal 串行化 continue 请求，避免同一终态快照被两次消费。
      *
@@ -876,29 +879,32 @@ export class GoalCoordinator {
      * @param newInput - 要追加到 Goal.messages 的非空用户输入。
      * @param control - 当前会话调用共享的可选中止控制。
      * @param continuation - 可选的浏览器重试收据身份；持久化到被归档 Run 并指向新 Run。
-     * @returns 新 Run 调度到 waiting 或终态后的结果；输入或状态非法时返回稳定错误。
-     * @throws GoalStore、Trajectory 或 Scheduler 基础设施失败时传播原始异常。
+     * @returns 提交成功后的新 Run 引用；输入或状态非法时返回稳定拒绝。
+     * @throws GoalStore 或 Trajectory 基础设施失败时传播原始异常。
      * @example
      * ```ts
-     * const result = await coordinator.continue(
+     * const result = await coordinator.commitNextRun(
      *   { goalId: "goal-1", runId: "run-1" },
      *   "继续处理下一个计划项",
      * );
      * ```
      */
-    async continue(
+    private async commitNextRun(
         ref: RunRef,
         newInput: string,
         control?: ExecutionControl,
         continuation?: { readonly messageId: string },
         queueBinding?: ContinuationQueueBinding,
-    ): Promise<GoalProgressResult> {
+    ): Promise<
+        | { readonly progress: Extract<GoalProgressResult, { readonly ok: false }> }
+        | { readonly nextRef: RunRef }
+    > {
         return this.withContinuationGate(ref.goalId, async () => {
             const preparation = await withGoalMutationGate(
                 this.store,
                 ref.goalId,
                 async (): Promise<
-                    | { readonly progress: GoalProgressResult }
+                    | { readonly progress: Extract<GoalProgressResult, { readonly ok: false }> }
                     | { readonly nextRef: RunRef }
                 > => {
                     throwIfAborted(control);
@@ -1081,12 +1087,74 @@ export class GoalCoordinator {
                     return { nextRef: { goalId: goal.id, runId } };
                 },
             );
-            if ("progress" in preparation) return preparation.progress;
-
-            const scheduled = await this.scheduler.schedule(preparation.nextRef, undefined, control);
-            throwIfAborted(control);
-            return this.afterSchedule(preparation.nextRef, scheduled, control);
+            return preparation;
         });
+    }
+
+    /**
+     * 在同一 Goal 中提交下一 Run 并随即推进它。
+     *
+     * @remarks 提交与推进共享同一按 Goal 串行化边界；只有新 Run 快照保存成功后才调用
+     * Scheduler。等待中的 Run 使用 {@link resume}，不会因输入内容创建新 Run。
+     *
+     * @param ref - 当前已结束 Run 的 Goal/Run 关联键。
+     * @param newInput - 要追加到 Goal 消息的非空用户输入。
+     * @param control - 当前调用共享的可选中止控制。
+     * @param continuation - 可选的浏览器重试收据身份；持久化到被归档 Run 并指向新 Run。
+     * @param queueBinding - 提供时原子消费匹配的队列消息并写入输入账本。
+     * @returns 新 Run 推进到等待或终态后的结果；输入或状态非法时返回稳定错误。
+     * @throws GoalStore、Trajectory 或 Scheduler 基础设施失败时传播原始异常。
+     * @example
+     * ```ts
+     * const result = await coordinator.continue({ goalId: "goal-1", runId: "run-1" }, "继续");
+     * ```
+     */
+    async continue(
+        ref: RunRef,
+        newInput: string,
+        control?: ExecutionControl,
+        continuation?: { readonly messageId: string },
+        queueBinding?: ContinuationQueueBinding,
+    ): Promise<GoalProgressResult> {
+        const preparation = await this.commitNextRun(ref, newInput, control, continuation, queueBinding);
+        if ("progress" in preparation) return preparation.progress;
+        const scheduled = await this.scheduler.schedule(preparation.nextRef, undefined, control);
+        throwIfAborted(control);
+        return this.afterSchedule(preparation.nextRef, scheduled, control);
+    }
+
+    /**
+     * 只提交下一 Run 而不推进，供宿主按自己的调度边界重新分配执行。
+     *
+     * @remarks 受理与校验规则与 {@link continue} 相同：只接受当前 `completed`、`failed`
+     * 或 `cancelled` Run 和非空输入，并在同一事务边界归档上一 Run、追加用户消息、创建新 Run。
+     * 调用方必须自行推进或派发新 Run，不得假定它已在执行。
+     *
+     * @param ref - 当前已结束 Run 的 Goal/Run 关联键。
+     * @param newInput - 要追加到 Goal 消息的非空输入。
+     * @param inputId - 持久化输入身份，写入被归档 Run 的续接记录。
+     * @param control - 当前调用共享的可选中止控制。
+     * @returns 新 Run 身份，或输入/状态非法时的稳定拒绝。
+     * @throws GoalStore、Trajectory 或模型输入记录失败时传播原始异常。
+     * @example
+     * ```ts
+     * const committed = await coordinator.commitContinuation({ goalId, runId }, "继续", "input-1");
+     * ```
+     */
+    async commitContinuation(
+        ref: RunRef,
+        newInput: string,
+        inputId: string,
+        control?: ExecutionControl,
+    ): Promise<
+        | { readonly ok: true; readonly goalId: string; readonly runId: string }
+        | { readonly ok: false; readonly code: string; readonly message: string }
+    > {
+        const preparation = await this.commitNextRun(ref, newInput, control, { messageId: inputId }, undefined);
+        if ("progress" in preparation) {
+            return { ok: false, code: preparation.progress.error.code, message: preparation.progress.error.message };
+        }
+        return { ok: true, goalId: preparation.nextRef.goalId, runId: preparation.nextRef.runId };
     }
 
     /**
@@ -3044,7 +3112,7 @@ export class GoalCoordinator {
         };
     }
 
-    private goalNotWaiting(ref: RunRef): GoalProgressResult {
+    private goalNotWaiting(ref: RunRef): GoalProgressFailure {
         return {
             ok: false,
             error: {
@@ -3054,7 +3122,7 @@ export class GoalCoordinator {
         };
     }
 
-    private invalidGoalInput(message: string): GoalProgressResult {
+    private invalidGoalInput(message: string): GoalProgressFailure {
         return {
             ok: false,
             error: {
@@ -3064,7 +3132,7 @@ export class GoalCoordinator {
         };
     }
 
-    private runNotFound(ref: RunRef): GoalProgressResult {
+    private runNotFound(ref: RunRef): GoalProgressFailure {
         return {
             ok: false,
             error: {
@@ -3074,7 +3142,7 @@ export class GoalCoordinator {
         };
     }
 
-    private goalNotCompleted(ref: RunRef): GoalProgressResult {
+    private goalNotCompleted(ref: RunRef): GoalProgressFailure {
         return {
             ok: false,
             error: {

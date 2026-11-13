@@ -20,6 +20,8 @@ import { receiveAuthorizedTrigger } from "../../../packages/storage/src/trigger-
 import { admitTrigger } from "../src/runtime/trigger-admission";
 import { WorkerScheduler } from "../src/runtime/worker-scheduler";
 
+const unusedContinuation = async () => ({ ok: false as const, code: "RUN_NOT_FOUND", message: "continuation is not wired in this test" });
+
 const never = { structuredOutputMode: "prompt_only" as const, async generate() { throw new Error("Waiting Goals must not call a model"); } };
 const principal = { role: "user", externalId: "test-actor", mayCreateGoal: true, goalIds: [] } as const;
 
@@ -98,7 +100,7 @@ test("work Trigger 的原始文本由 Worker Runtime 构造 Goal，Supervisor �
     const owner = new SupervisorOwnership(join(dataDirectory, "owner.db"));
     const triggers = new TriggerStore(join(dataDirectory, "triggers.db"));
     const goals = new JsonFileGoalStore(join(dataDirectory, "goals"));
-    const scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, permissionAdapter: never });
+    const scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, permissionAdapter: never, commitContinuation: unusedContinuation });
     const intent = "Run this exact text:\n- preserve the original material";
     const work = workTrigger("worker-created-work", intent);
     const goalId = "goal-constructed-by-worker";
@@ -160,7 +162,7 @@ test("FIFO 派发让不同 Goal 并行，等待绑定保留，终态后复用匹
     const event = (suffix: string) => workTrigger(`trigger-${suffix}`, `goal-${suffix}`);
     const acceptedIds: string[] = [];
     let cleanupGoalId: string | undefined;
-    const scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, permissionAdapter: never });
+    const scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, permissionAdapter: never, commitContinuation: unusedContinuation });
     try {
         for (const suffix of ["a", "b"]) {
             const result = await admitTrigger(owner, triggers, goals, never, event(suffix), principal, factory);
@@ -305,7 +307,7 @@ test("stored cancellation is rechecked against the Run current at routing time",
     const triggers = new TriggerStore(join(dataDirectory, "triggers.db"));
     const goals = new JsonFileGoalStore(join(dataDirectory, "goals"));
     const scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory,
-        env: { LAZYGOAL_HOME: home, LLM_PROVIDER: "openai", LLM_MODEL: "gpt-4o-mini", LLM_API_KEY: "test" }, permissionAdapter: never });
+        env: { LAZYGOAL_HOME: home, LLM_PROVIDER: "openai", LLM_MODEL: "gpt-4o-mini", LLM_API_KEY: "test" }, permissionAdapter: never, commitContinuation: unusedContinuation });
     const work = workTrigger("stale-cancel-routing-work", "Wait for a stale cancellation check");
     let goalId: string | undefined;
     let originalGoal: Awaited<ReturnType<typeof goals.restore>> = undefined;
@@ -375,7 +377,7 @@ test("活动模型调用收到取消后等待 Runtime 结算，再持久化终�
     const owner = new SupervisorOwnership(join(dataDirectory, "owner.db"));
     const triggers = new TriggerStore(join(dataDirectory, "triggers.db"));
     const goals = new JsonFileGoalStore(join(dataDirectory, "goals"));
-    const scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, permissionAdapter: never });
+    const scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, permissionAdapter: never, commitContinuation: unusedContinuation });
     const factory = async (intent: string, reserved: string | undefined) => {
         const goal = createGoal({ ...currentProtocols, id: reserved ?? "goal-active-cancel", runId: "run-active-cancel", intent,
             promptBundleVersion: 1, modelSelection: { provider: "openai-compatible", modelId: "test", contextWindowTokens: 16000,
@@ -467,7 +469,7 @@ test("Stop preserves the saved failure when the Worker operation is still settli
             await acknowledgeFailedSnapshot.promise;
         }
     });
-    const scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, permissionAdapter: never });
+    const scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, permissionAdapter: never, commitContinuation: unusedContinuation });
     const work = workTrigger("failed-run-work-trigger", "Fail after transient model errors");
     try {
         const accepted = await admitTrigger(owner, triggers, goals, never, work, principal, async (intent, reservedGoalId) => ({
@@ -575,7 +577,7 @@ test("新 Supervisor 恢复未路由 work 与 cancel Trigger，并接管 Worker"
         const owner = new SupervisorOwnership(join(dataDirectory, "owner.db"));
         const triggers = new TriggerStore(join(dataDirectory, "triggers.db"));
         const scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory,
-            env: { LAZYGOAL_HOME: home, LLM_PROVIDER: "openai", LLM_MODEL: "gpt-4o-mini", LLM_API_KEY: "test" }, permissionAdapter: never });
+            env: { LAZYGOAL_HOME: home, LLM_PROVIDER: "openai", LLM_MODEL: "gpt-4o-mini", LLM_API_KEY: "test" }, permissionAdapter: never, commitContinuation: unusedContinuation });
         try {
             await scheduler.pump();
             assert.deepEqual(scheduler.assignments(), [{ workerId: originalWorkerId }]);
@@ -687,7 +689,7 @@ test("Supervisor 断开后 Worker 用本地检查点完成已授权工具并在�
     let scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env,
         permissionAdapter: { structuredOutputMode: "strict", async generate() {
             return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({ kind: "approve", reason: null }) }] };
-        } } });
+        } }, commitContinuation: unusedContinuation });
     let workerPid: number | undefined;
     let oldStoresClosed = false;
     let restartedStores: { readonly owner: SupervisorOwnership; readonly triggers: TriggerStore; readonly scheduler: WorkerScheduler } | undefined;
@@ -746,7 +748,7 @@ test("Supervisor 断开后 Worker 用本地检查点完成已授权工具并在�
         owner = new SupervisorOwnership(join(dataDirectory, "owner.db"));
         triggers = new TriggerStore(join(dataDirectory, "triggers.db"));
         scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env,
-            permissionAdapter: never });
+            permissionAdapter: never, commitContinuation: unusedContinuation });
         restartedStores = { owner, triggers, scheduler };
         await scheduler.pump();
         await waitFor(() => triggers.queueRecord(goalId)?.status === "terminal");

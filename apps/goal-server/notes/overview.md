@@ -6,7 +6,7 @@
 
 Web 创建 work Trigger 前，服务端按该命令已解析的 `GoalModelSelection` 构造一次性 Decide Adapter，不修改进程级模型绑定；随后 Supervisor 将原始文本摘要为简短 `name`。摘要请求使用创建命令的 `goalId` 作为稳定 `sessionId`，OpenCode Go Adapter 据此发送 `x-opencode-session`；输出预算最多 2048 token，模型选择包含最大输出容量时取较小值，供推理和正文共用。该名称只用于识别，不替代 `{ kind: "text", text }` material。摘要失败或为空时不会持久化 Trigger，同一来源创建命令仍可重试。控制事件使用由程序确定的名称；Trigger 只记录创建时的 `sentAt`，不另存接收或完成时间。
 
-浏览器入口支持创建 Goal、结构化交互、停止运行和对明确待恢复记录的恢复。普通后续消息、Steer 与消息队列控制返回不支持；已有运行快照保留原样，不自动接回旧 Runtime 会话，也不因缺少 Worker 恢复记录而重新执行。恢复运行中检查点要求用户明确承认最后动作可能产生了未知外部效果。
+浏览器入口支持创建 Goal、结构化交互、停止运行、对明确待恢复记录的恢复，以及手动创建 Goal 在当前 Run 已结算终态后的普通消息续接。续接要求消息绑定该终态 Run 身份，后端重新核对创建来源与结算状态；非手动来源、运行中或仍在结算的 Goal 一律拒绝且不写输入。Steer 与消息队列控制仍返回不支持；已有运行快照保留原样，不自动接回旧 Runtime 会话，也不因缺少 Worker 恢复记录而重新执行。恢复运行中检查点要求用户明确承认最后动作可能产生了未知外部效果。
 
 Worker 遇到 Action 审批时由 [WorkerScheduler](../src/runtime/worker-scheduler.ts) 根据已持久化的 Goal 等待创建权限请求 Trigger。Supervisor 直接调用配置的模型 Adapter；OpenCode Go 请求以 Goal ID 作为稳定 `sessionId`。调用前先核对工具 ID 与实际沙箱范围仍在 Goal 冻结上限内；批准只生成针对当前 Action 的一次性回复。模型失败、输出无效或范围缺失时请求保持待处理并记录失败原因。用户回复与自动回复都要匹配同一请求、Run、Action、提交修订和 Worker generation；Worker Runtime 应用决定后，Scheduler 才原子结算请求与回复。
 
