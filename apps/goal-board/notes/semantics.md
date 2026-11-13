@@ -54,6 +54,7 @@
 | Worker 状态与恢复 | 已运行 Goal 显示所属 Worker；只有 Supervisor 明确记录的待恢复 Worker 退出可继续，恢复运行中检查点要求承认未知外部效果。 | [Goal Board](../README.md) | [会话视图](../src/components/GoalSession.tsx)、[Trigger 浏览器端口](../../goal-server/src/browser-session-port.ts) |
 | 会话渐进加载 | 固定水位 Activity 页支持更早与更新方向翻页；打开时自动预取更早页至 300 项预算，超出后滚动到顶部续取；最多缓存 3 页，阅读锚点按可见项稳定身份及项内偏移恢复。 | [Goal Board](../README.md) | [Activity 窗口](../src/activity-page-window.ts)、[SessionTimeline](../src/components/SessionTimeline.tsx) |
 | 会话输出消费 | 页面消费同一条 Goal SSE：保存不明的候选保持待核验；正式 Activity 以同一展示 key 替换候选；确定作废后立即移除临时正文并保留有限身份标记以忽略迟到片段。 | [Goal Board](../README.md) | [会话输出归约](../src/session-output-consumer.ts) |
+| UI 验收工具 | 基于 Playwright 与独立 Fixture 模拟服务的确定性页面启动、截图、诊断、视觉回归与声明式交互流程。Fixture 支持有状态命令副作用、流式正文与工具事件推送；流程按步骤断言，连续观察模式按间隔录制画面与页面事实。 | [Goal Board](../README.md) | [ui-harness.md](./ui-harness.md) |
 | 不确定提交核验 | 受理结果不明时保留原 `inputId` 与冻结载荷，由统一核验按收据或资源身份结算；只有未应用允许原身份重试。 | [Goal Board](../README.md) | [控制核验](../src/control/verify.ts)、[运行命令](../src/hooks/useRunCommands.ts) |
 | 渲染错误边界 | 会话与轨迹视图的渲染异常被边界捕获，显示错误卡与重载入口，不整页白屏。 | [Goal Board](../README.md) | [SessionBoundary](../src/components/error-boundary.tsx) |
 | liveText 帧合并 | 打字机增量按帧合并后提交渲染，跟随滚动以帧节流，流结束不丢字。 | [Goal Board](../README.md) | [live-text-batch](../src/live-text-batch.ts) |

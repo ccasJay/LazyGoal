@@ -7,7 +7,12 @@
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
     "test": "tsx --test test/*.test.ts test/*.test.tsx",
-    "test:e2e": "npm run build && node --test --test-concurrency=1 e2e/*.test.mjs"
+    "test:e2e": "npm run build && node --test --test-concurrency=1 e2e/*.test.mjs",
+    "check:ui-harness": "tsc -p ui-harness/tsconfig.json",
+    "ui": "tsx ui-harness/src/cli.ts",
+    "test:ui-visual": "playwright test --config ui-harness/playwright.config.ts",
+    "test:ui-visual:update": "playwright test --config ui-harness/playwright.config.ts --update-snapshots",
+    "ui:install-browser": "playwright install chromium"
   },
   "dependencies": {
     "@radix-ui/colors": "3.0.0",
@@ -36,6 +41,7 @@
     "tailwind-merge": "^3.7.0"
   },
   "devDependencies": {
+    "@playwright/test": "1.64.1",
     "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.9",

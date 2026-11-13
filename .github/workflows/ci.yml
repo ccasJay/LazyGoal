@@ -69,5 +69,22 @@ jobs:
       - name: Build Web app
         run: npm run build:web
 
+      - name: Cache Playwright Chromium
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/Library/Caches/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('apps/goal-board/package-lock.json') }}
+
+      - name: Install Playwright Chromium
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npm run ui:install-browser
+
+      - name: Run UI harness tests
+        run: npm run test:ui-harness
+
+      - name: Run UI visual regression tests
+        run: npm run test:ui-visual
+
       - name: Run browser acceptance tests
         run: node --test --test-concurrency=1 apps/goal-board/e2e/*.test.mjs
