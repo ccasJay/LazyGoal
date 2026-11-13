@@ -71,7 +71,7 @@ Web 手动创建 Goal 在名称摘要模型调用返回空正文、超时或报�
 
 ## 执行记录
 
-- 状态：未执行
-- 验证：-
-- 结果：-
-- 未决：无
+- 状态：passed
+- 验证：2c9dae65 · 2026-11-13T17:56:58+08:00
+- 结果：R1.1–R1.4：纯文本摘要请求无 structuredOutput/toolChoice none；空正文、仅 reasoning、围栏、超长、抛错与 25ms 超时均回退本地名称且创建落库，身份/输入冲突语义不变。R2.1–R2.3：Worker 启动/通道失败返回 execution_unavailable（/api/control 与 /api/goals 均 503），Worker 明确拒绝为 create_failed（500），11 个创建码各有独立文案。R3.1–R3.3：长 TMPDIR 下解析为 /tmp/lazygoal-501/lgw-*.sock（59B ≤ 103B），不可复用根回退、超限抛类型化错误，socket 0600/目录 0700。检查：npx tsc --noEmit；apps/goal-server 109/109；goal-board 282/282；TMPDIR=/tmp/lgtest npm test（2998 + 99 通过）；contracts --check；check:docs（47/173）；check:dependencies（604）。
+- 未决：无。apps/goal-server tsconfig 仍有 22 个既有基线错误，本次改动文件新增 0 个。
