@@ -2,9 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import type { ChildProcess } from "node:child_process";
+import { statSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { JsonFileGoalStore } from "../../../packages/storage/src/goal-store";
 import { TriggerStore } from "../../../packages/storage/src/trigger-store";
 import { SupervisorOwnership } from "../../../packages/storage/src/supervisor-ownership";
@@ -78,6 +79,9 @@ test("Supervisor 启动独立 Worker 并在同一进程中重复确认身份", a
         goals,
     });
     try {
+        const socket = statSync(registration.socketPath);
+        assert.equal(socket.mode & 0o777, 0o600);
+        assert.equal(statSync(dirname(registration.socketPath)).mode & 0o777, 0o700);
         const first = await worker.probe();
         const second = await worker.probe();
         assert.notEqual(first, process.pid);

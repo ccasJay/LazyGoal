@@ -209,6 +209,7 @@ test("创建 Goal 在名称摘要为空、仅 reasoning、围栏、超长与抛�
                 assert.equal(result.ok, true, JSON.stringify(result));
                 if (!result.ok) return;
                 assert.equal(result.goalId, goalId);
+                assert.ok(result.runId.trim().length > 0);
                 const trigger = harness.triggers.read(`input-name-${testCase.label}`);
                 assert.ok(trigger !== undefined);
                 assert.equal(trigger.name, testCase.expected);
@@ -217,6 +218,8 @@ test("创建 Goal 在名称摘要为空、仅 reasoning、围栏、超长与抛�
                 const goal = await harness.goals.restore(goalId);
                 assert.ok(goal !== undefined);
                 assert.equal(goal.definition.intent, intent);
+                assert.equal(goal.state.run.id, result.runId);
+                assert.equal(harness.triggers.queueRecord(goalId)?.triggerId, `input-name-${testCase.label}`);
             } finally {
                 await harness.close();
             }
