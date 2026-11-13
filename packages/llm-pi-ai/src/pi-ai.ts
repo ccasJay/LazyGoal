@@ -83,6 +83,16 @@ export function buildPiAiRequestOptions(input: {
     };
 }
 
+function resolveToolChoice(
+    provider: LLMConfig["provider"],
+    request: LLMRequest,
+): "auto" | "none" | undefined {
+    // `required` 由专用工具流处理，调用方不会把此处的结果传给 simple 请求。
+    if (request.toolChoice === "required") return undefined;
+    if (provider === "opencode-go" && request.toolChoice === "none" && !request.tools?.length) return undefined;
+    return request.toolChoice;
+}
+
 /**
  * 把 pi-ai 的内容块转换为供应商无关的完整响应。
  *
@@ -232,6 +242,7 @@ export class PiAiAdapter implements LLMAdapter {
         const maxTokens = request.maxOutputTokens ?? this.config.maxOutputTokens;
         this.checkOutputLimit(maxTokens);
         const context = this.toContext(request);
+        const toolChoice = resolveToolChoice(this.config.provider, request);
         let response: AssistantMessage;
         try {
             const options = {
@@ -247,7 +258,7 @@ export class PiAiAdapter implements LLMAdapter {
                 ? await this.requiredToolStream(context, options).result()
                 : await this.models.completeSimple(this.model, context, {
                     ...options,
-                    ...(request.toolChoice === undefined ? {} : { toolChoice: request.toolChoice }),
+                    ...(toolChoice === undefined ? {} : { toolChoice }),
                 });
             throwIfAborted(control);
         } catch (error) {
@@ -278,6 +289,7 @@ export class PiAiAdapter implements LLMAdapter {
         const maxTokens = request.maxOutputTokens ?? this.config.maxOutputTokens;
         this.checkOutputLimit(maxTokens);
         const context = this.toContext(request);
+        const toolChoice = resolveToolChoice(this.config.provider, request);
         yield { kind: "started" };
 
         // 工具参数只保留原始分片文本；SDK 解析后的对象只用于语义核对，绝不改写已结束块。
@@ -298,7 +310,7 @@ export class PiAiAdapter implements LLMAdapter {
                 ? this.requiredToolStream(context, options)
                 : this.models.streamSimple(this.model, context, {
                     ...options,
-                    ...(request.toolChoice === undefined ? {} : { toolChoice: request.toolChoice }),
+                    ...(toolChoice === undefined ? {} : { toolChoice }),
                 });
             let primaryError: unknown;
             let sdkIterator: AsyncIterator<AssistantMessageEvent> | undefined;

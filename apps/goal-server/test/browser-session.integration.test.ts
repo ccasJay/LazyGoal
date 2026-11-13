@@ -151,6 +151,8 @@ function createRetryingWorkNameAdapter(): { readonly adapter: LLMAdapter; readon
             async generate(request) {
                 calls += 1;
                 assert.equal(request.structuredOutput?.name, "trigger_name_summary");
+                assert.equal(request.maxOutputTokens, 2048);
+                assert.equal(request.sessionId, calls <= 2 ? "goal-alpha" : "goal-beta");
                 assert.equal(request.messages[1]?.role, "user");
                 const submittedText = calls <= 2 ? "Wait until the user cancels this Goal." : "Wait independently for cancellation.";
                 assert.equal(request.messages[1]?.content, submittedText);
@@ -212,6 +214,7 @@ test("真实 Web 入口使用 Trigger 并行启动 Worker、观察状态、拒�
             env: environment,
             profile,
             adapter: nameModel.adapter,
+            adapterFactory: () => nameModel.adapter,
             httpMiddleware: access.middleware,
             exitPort: { exit() {} },
         });

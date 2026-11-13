@@ -73,6 +73,7 @@ export async function decideWorkerActionPermission(
             goalCeiling: ceiling,
         };
         const request: LLMRequest = {
+            sessionId: goal.id,
             messages: [
                 {
                     role: "system",

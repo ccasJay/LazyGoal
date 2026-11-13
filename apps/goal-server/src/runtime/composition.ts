@@ -384,6 +384,24 @@ export interface RuntimeComposition {
     readonly modelContextPolicy: ModelContextBudgetPolicy;
     readonly trajectoryContextAssembler: TrajectoryModelContextAssembler;
     readonly adapter: LLMAdapter;
+    /**
+     * 为一次性宿主请求构造指定模型选择对应的 Decide Adapter。
+     *
+     * @remarks
+     * 只构造 Adapter，不发布或修改进程级模型绑定；档案身份与动态执行元数据按该选择解析。
+     * 调用方应传入服务端已解析的模型选择，并为 OpenCode Go 请求提供稳定的 `sessionId`。
+     *
+     * @param selection - 经服务端模型目录确认可选的完整模型选择。
+     * @returns 与该选择对应、可独立用于一次性请求的 Decide Adapter。
+     * @throws ProviderProfileResolutionError 当选择引用的档案不再可用时抛出。
+     * @throws ModelBindingUnavailableError 当选择的 Provider 与其连接配置不一致时抛出。
+     * @throws LLMConfigurationError 当动态模型执行元数据不完整或无效时抛出。
+     * @example
+     * ```ts
+     * const adapter = root.createDecideAdapterForSelection(selection);
+     * ```
+     */
+    readonly createDecideAdapterForSelection: (selection: GoalModelSelection) => LLMAdapter;
     readonly profile: AgentProfile;
     readonly profiles: AgentProfileRegistry;
     readonly readFileTool?: ReadFileTool;
@@ -888,6 +906,18 @@ async function assembleRuntimeComposition(
         });
         modelBinding.publish(candidate);
     };
+    const assertModelSelectionProvider = (selection: GoalModelSelection): void => {
+        const expectedProvider = selection.profileId === undefined
+            ? defaultModelSelection.provider
+            : resolveProviderProfileConfig(selection.profileId, selection.modelId).provider;
+        if (selection.provider !== expectedProvider) {
+            throw new ModelBindingUnavailableError(selection.provider, expectedProvider);
+        }
+    };
+    const createDecideAdapterForSelection = (selection: GoalModelSelection): LLMAdapter => {
+        assertModelSelectionProvider(selection);
+        return createStageAdaptersForSelection(selection).decideAdapter;
+    };
     const goalIdGenerator = options.goalIdGenerator ?? randomUUID;
     const runIdGenerator = options.runIdGenerator ?? randomUUID;
     /**
@@ -899,12 +929,7 @@ async function assembleRuntimeComposition(
      * 进程真正可用的连接一致。核验失败会中止本次推进，Run 保留真实可恢复状态。
      */
     const alignGoalModelBinding = (selection: GoalModelSelection): void => {
-        const expectedProvider = selection.profileId === undefined
-            ? defaultModelSelection.provider
-            : resolveProviderProfileConfig(selection.profileId, selection.modelId).provider;
-        if (selection.provider !== expectedProvider) {
-            throw new ModelBindingUnavailableError(selection.provider, expectedProvider);
-        }
+        assertModelSelectionProvider(selection);
         alignModelBinding(selection);
     };
     const executionComponents = createExecutionComponents({
@@ -1159,6 +1184,7 @@ async function assembleRuntimeComposition(
         runTrackedOperation,
         modelCatalog,
         modelBinding,
+        createDecideAdapterForSelection,
         alignModelBinding,
         goalModelSelectionCoordinator,
         defaultModelSelection,

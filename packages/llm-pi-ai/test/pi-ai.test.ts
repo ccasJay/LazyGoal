@@ -378,6 +378,47 @@ test("PiAiAdapter 动态执行 OpenCode Go Beam Free", async () => {
     }
 });
 
+test("OpenCode Go 无工具时省略 none 工具选择", async () => {
+    const config: LLMConfig = {
+        ...minimaxDynamicConfig,
+        model: "beam-free",
+        contextWindowTokens: 1_048_576,
+        maxOutputTokens: 131_072,
+        supportsRequiredToolChoice: true,
+    };
+    const sent: Record<string, unknown>[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+        const body = await new Request(input, init).json() as Record<string, unknown>;
+        sent.push(body);
+        if (body.tool_choice !== undefined && body.tools === undefined) {
+            return new Response('{"error":{"message":"tool_choice requires tools"}}', { status: 400 });
+        }
+        return new Response(completionsBody(), { status: 200, headers: { "Content-Type": "text/event-stream" } });
+    };
+    try {
+        const instance = new PiAiAdapter(config);
+        for (const tools of [undefined, [], [{ id: "report", description: "Report", parametersSchema: { type: "object" } }]]) {
+            const input: LLMRequest = { ...request, sessionId: "goal-beam", toolChoice: "none", ...(tools === undefined ? {} : { tools }) };
+            await instance.generate(input);
+            const events: LLMStreamEvent[] = [];
+            for await (const event of instance.stream(input)) events.push(event);
+            assert.ok(events.some(event => event.kind === "completed"));
+        }
+        assert.equal(sent.length, 6);
+        for (const body of sent.slice(0, 4)) {
+            assert.equal("tool_choice" in body, false);
+            assert.equal("tools" in body, false);
+        }
+        for (const body of sent.slice(4)) {
+            assert.equal(body.tool_choice, "none");
+            assert.ok(Array.isArray(body.tools));
+        }
+    } finally {
+        globalThis.fetch = realFetch;
+    }
+});
+
 test("PiAiAdapter 在发送前拒绝未支持协议与无效动态容量", () => {
     const unknownApi = { ...minimaxDynamicConfig, executionApi: "unknown-api" } as unknown as LLMConfig;
     assert.throws(() => new PiAiAdapter(unknownApi), /Unsupported execution API/);

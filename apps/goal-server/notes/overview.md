@@ -4,11 +4,11 @@
 
 默认 `lazygoal web` 入口把 Goal Board 的创建与控制命令交给 [Trigger Browser Session Port](../src/browser-session-port.ts)。浏览器 Bearer 能力映射为认证 `externalId`；Supervisor 在持久化前校验 Trigger.source 与连接 Actor。所有 Worker-target 消息先经 Supervisor；当前支持的取消、交互与权限决定由 WorkerScheduler 按 Goal 路由，Worker 之间没有直接连接。取消 Trigger 在持久接收前匹配当前 Run，并在路由时复核；过期 Run 保持未路由。`collaboration.requested/result` 仅保留动作标签；payload 与处理行为未定义，Supervisor 不解释额外内容。Supervisor 独占 Goal Store 写入权，并用 SQLite 直接保存不可变 Trigger、独立路由状态和 FIFO 派发队列；重复 Trigger ID 冲突，不回放旧准入结果。Goal Snapshot 发布后，队列插入与 Trigger 路由完成在同一 SQLite 事务提交。启动时清理已排队 Goal 的残留创建意图，并从存储的未路由 work Trigger 继续准入，不等待来源重交；已有冻结 Goal 创建意图优先于当前配置。未冻结的工作在恢复时重新执行模型准入，因为持久化 Actor 不能区分 Browser user 与 external。Worker 重新接管后，Supervisor 还会尝试原样路由当前状态允许的取消、交互、权限决定和 checkpoint resume；交互回答须匹配 Goal、replyTo 与当前等待，并在 Runtime 应用且 Snapshot 保存后标记路由。checkpoint resume 以 replyTo 关联已记录的 lifecycle.exited，并要求显式确认未知副作用。不适用的事件保留未路由，协作 payload 仍不解释。独立 Worker 进程推进获派 Goal，检查点、进度、交互、取消和生命周期报告经 Trigger 与 Supervisor 协调。列表、会话状态及实时流都按 Goal 查询，不把单个活动 Goal 当作全局状态。
 
-Web 创建 work Trigger 前，Supervisor Adapter 将原始文本摘要为简短 `name`；该名称只用于识别，不替代 `{ kind: "text", text }` material。摘要失败或为空时不会持久化 Trigger，同一来源创建命令仍可重试。控制事件使用由程序确定的名称；Trigger 只记录创建时的 `sentAt`，不另存接收或完成时间。
+Web 创建 work Trigger 前，服务端按该命令已解析的 `GoalModelSelection` 构造一次性 Decide Adapter，不修改进程级模型绑定；随后 Supervisor 将原始文本摘要为简短 `name`。摘要请求使用创建命令的 `goalId` 作为稳定 `sessionId`，OpenCode Go Adapter 据此发送 `x-opencode-session`；输出预算最多 2048 token，模型选择包含最大输出容量时取较小值，供推理和正文共用。该名称只用于识别，不替代 `{ kind: "text", text }` material。摘要失败或为空时不会持久化 Trigger，同一来源创建命令仍可重试。控制事件使用由程序确定的名称；Trigger 只记录创建时的 `sentAt`，不另存接收或完成时间。
 
 浏览器入口支持创建 Goal、结构化交互、停止运行和对明确待恢复记录的恢复。普通后续消息、Steer 与消息队列控制返回不支持；已有运行快照保留原样，不自动接回旧 Runtime 会话，也不因缺少 Worker 恢复记录而重新执行。恢复运行中检查点要求用户明确承认最后动作可能产生了未知外部效果。
 
-Worker 遇到 Action 审批时由 [WorkerScheduler](../src/runtime/worker-scheduler.ts) 根据已持久化的 Goal 等待创建权限请求 Trigger。Supervisor 直接调用配置的模型 Adapter，并先核对工具 ID 与实际沙箱范围仍在 Goal 冻结上限内；批准只生成针对当前 Action 的一次性回复。模型失败、输出无效或范围缺失时请求保持待处理并记录失败原因。用户回复与自动回复都要匹配同一请求、Run、Action、提交修订和 Worker generation；Worker Runtime 应用决定后，Scheduler 才原子结算请求与回复。
+Worker 遇到 Action 审批时由 [WorkerScheduler](../src/runtime/worker-scheduler.ts) 根据已持久化的 Goal 等待创建权限请求 Trigger。Supervisor 直接调用配置的模型 Adapter；OpenCode Go 请求以 Goal ID 作为稳定 `sessionId`。调用前先核对工具 ID 与实际沙箱范围仍在 Goal 冻结上限内；批准只生成针对当前 Action 的一次性回复。模型失败、输出无效或范围缺失时请求保持待处理并记录失败原因。用户回复与自动回复都要匹配同一请求、Run、Action、提交修订和 Worker generation；Worker Runtime 应用决定后，Scheduler 才原子结算请求与回复。
 
 ## 职责与使用
 
@@ -125,7 +125,7 @@ Provider 表单在线查询由 Composition Root 校验供应商和端点规则�
 
 OpenCode Go 在线文本模型按实时模型元数据确认文本生成、工具调用和容量后可选，并统一通过 `llm-pi-ai` 的 Chat Completions 适配路径执行。`GoalModelSelection` 与 Snapshot 保存协议、容量、推理、视觉和工具选择能力；每次恢复按保存数据构造 Adapter，并按已保存的 Profile ID 解析当前 API Key。端点由 `llm-pi-ai` 固定，API Key 与 Base URL 不写入 Goal 状态。上游可能限制部分免费模型只能在 OpenCode 内调用，外部客户端请求可能收到 403。
 
-[Trigger 准入组件](../src/runtime/trigger-admission.ts) 对显式用户工作使用确定性 Fast path；其他来源由 Supervisor 直接调用模型执行 Slow path。准入失败分类随未路由 Trigger 保存，Supervisor 重启时会直接从该事件恢复处理。默认浏览器入口使用该准入路径。
+[Trigger 准入组件](../src/runtime/trigger-admission.ts) 对显式用户工作使用确定性 Fast path；其他来源由 Supervisor 直接调用模型执行 Slow path，OpenCode Go 请求以稳定 Trigger ID 作为 `sessionId`。准入失败分类随未路由 Trigger 保存，Supervisor 重启时会直接从该事件恢复处理。默认浏览器入口使用该准入路径。
 
 [独立 Worker](../src/runtime/worker-process.ts) 以 OS 子进程复用执行 Runtime。Goal 快照经 generation 与持久队列绑定核验后由 Supervisor 保存。Worker 将执行检查点和待确认的结果保存在本地 outbox。
 
