@@ -53,7 +53,8 @@ export function useRunCommands({
     setDraftGoalBusy(false);
   }, []);
   const commandBusy = control.state.intents.some((entry) => entry.phase === "pending"
-    && (entry.intent.kind === "create_session" || entry.intent.kind === "session_input" || entry.intent.kind === "plan_mode"));
+    && (entry.intent.kind === "create_session" || entry.intent.kind === "session_input"
+      || entry.intent.kind === "plan_mode" || entry.intent.kind === "model_selection"));
   const pendingSessionInput = pendingIntentOfKind(control.state, "session_input");
   const stoppingRunId = pendingSessionInput?.input.kind === "interrupt" ? pendingSessionInput.input.runId : null;
 

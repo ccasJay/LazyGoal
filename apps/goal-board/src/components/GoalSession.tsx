@@ -666,7 +666,13 @@ export function GoalSession({
                   draftValue={continuationText}
                   onDraftChange={setContinuationText}
                   submitLabels={{ idle: "Send message", busy: "Sending message", empty: "Type a message to send" }}
-                  footerControls={<CurrentModelControl label={currentModelName} enabled={false} onClick={() => undefined} />}
+                  footerControls={
+                    <CurrentModelControl
+                      label={currentModelName}
+                      enabled={canSwitchCurrentModel && !commandBusy && sessionError === null && connection.allowsNewDecisions}
+                      onClick={() => setModelPickerTarget({ kind: "goal", goalId: session.goalId, runId: session.currentRunId })}
+                    />
+                  }
                   onSubmit={onSubmitContinuation}
                 />
               )}

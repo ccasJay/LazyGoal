@@ -420,6 +420,7 @@ export interface RuntimeComposition {
     readonly contextLookupService: IndexedContextLookupService;
     readonly modelCatalog: LlmModelCatalog;
     readonly modelBinding: MutableModelBinding;
+    /** 按已保存的 Goal 选择发布阶段适配器。档案或供应商不可用时抛出异常并保留当前绑定。 */
     readonly alignModelBinding: (selection: GoalModelSelection) => void;
     readonly goalModelSelectionCoordinator: GoalModelSelectionCoordinator;
     readonly defaultModelSelection: GoalModelSelection;
@@ -1187,7 +1188,7 @@ async function assembleRuntimeComposition(
         modelCatalog,
         modelBinding,
         createDecideAdapterForSelection,
-        alignModelBinding,
+        alignModelBinding: alignGoalModelBinding,
         goalModelSelectionCoordinator,
         defaultModelSelection,
         launcher,

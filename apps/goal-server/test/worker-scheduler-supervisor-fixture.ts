@@ -35,7 +35,9 @@ const permissionAdapter: LLMAdapter = {
 };
 const createRecoveredGoal = async (intent: string, reservedGoalId: string | undefined) => {
     const goal = createGoal({ ...currentProtocols, id: reservedGoalId ?? `goal-${intent}`, runId: `run-${intent}`, intent,
-        promptBundleVersion: 1, profile: { id: "default", systemPrompt: "", instructions: [], toolIds: [] } });
+        promptBundleVersion: 1,
+        modelSelection: { provider: "openai", modelId: "gpt-4o-mini", inputEstimator: { kind: "character-v1" } },
+        profile: { id: "default", systemPrompt: "", instructions: [], toolIds: [] } });
     const started = transition(goal.state.run, { kind: "start" });
     if (!started.ok) throw new Error("Could not prepare the recovered test Goal");
     const waiting = transition(started.state, { kind: "decision", decision: { kind: "wait", reason: "Supervisor input" } });

@@ -46,6 +46,7 @@ function permissionTestToolFrames(toolId: string, args: Record<string, unknown>,
 
 function createWaitingGoal(id: string, intent: string, workspaceRoot: string) {
     const goal = createGoal({ ...currentProtocols, id, intent, runId: `run-${id}`, promptBundleVersion: 1,
+        modelSelection: { provider: "openai", modelId: "gpt-4o-mini", inputEstimator: { kind: "character-v1" } },
         profile: { id: "default", systemPrompt: "test", instructions: ["test"], toolIds: [] } });
     const started = transition(goal.state.run, { kind: "start" });
     assert.equal(started.ok, true);

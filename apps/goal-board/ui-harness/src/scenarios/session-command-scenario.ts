@@ -21,6 +21,8 @@ const GOAL_ID = "goal-session-command";
 const INTENT = "Set up OAuth authentication for the API";
 const INITIAL_RUN_ID = "run-command-1";
 const SENT_RUN_ID = "run-command-2";
+const ALTERNATE_MODEL = "model-2";
+const modelCatalog = createDefaultModelCatalog();
 const ACTION_ID = "action-command-1";
 const EXECUTION_UNIT_ID = "unit-command-1";
 const FIXED_TIME = "2026-01-01T12:00:00.000Z";
@@ -391,7 +393,13 @@ function scenarioFor(
       },
     },
     models: {
-      data: createDefaultModelCatalog(),
+      data: {
+        ...modelCatalog,
+        models: [...modelCatalog.models, {
+          id: ALTERNATE_MODEL, displayName: "Alternate Model",
+          availabilitySource: "configured", metadataSource: "configured", selectable: true,
+        }],
+      },
     },
   };
 }
@@ -413,7 +421,8 @@ function acceptedMessageReceipt(command: BrowserControlIntentCommand): BrowserCo
           sequence: 1,
           status: "pending",
           admittedAtRevision: 2,
-          targetRunId: SENT_RUN_ID,
+          targetRunId: INITIAL_RUN_ID,
+          appliedRunId: SENT_RUN_ID,
         },
       },
     },
@@ -445,6 +454,22 @@ function schedule(delayMs: number, action: () => void): void {
 export const sessionCommandScenario: FixtureScenario = {
   ...scenarioFor(null, "completed", false),
   handleControl: (command, context) => {
+    if (command.kind === "model_selection" && command.goalId === GOAL_ID) {
+      const scenario = context.getScenario();
+      if (command.runId !== INITIAL_RUN_ID || hasSentMessage(scenario)) {
+        return { intentId: command.intentId, status: "rejected", error: "stale_run", refresh: true };
+      }
+      const catalog = scenario.models?.data;
+      if (catalog === undefined || command.modelId !== ALTERNATE_MODEL) {
+        return { intentId: command.intentId, status: "rejected", error: "model_not_selectable" };
+      }
+      context.updateScenario({ ...scenario, models: { data: { ...catalog, currentModelId: command.modelId } } });
+      return {
+        intentId: command.intentId, status: "accepted",
+        result: { kind: "model_selection", result: { ok: true, goalId: GOAL_ID, runId: INITIAL_RUN_ID,
+          selection: { modelId: command.modelId }, defaultPreference: { ok: true } } },
+      };
+    }
     if (command.kind !== "session_input" || command.goalId !== GOAL_ID || command.input.kind !== "message") {
       return undefined;
     }
@@ -453,7 +478,8 @@ export const sessionCommandScenario: FixtureScenario = {
     }
 
     const content = command.input.content;
-    context.updateScenario(scenarioFor(content, "running", false));
+    const models = context.getScenario().models;
+    context.updateScenario({ ...scenarioFor(content, "running", false), models });
     context.pushEvent(GOAL_ID, {
       type: "state_committed",
       goalId: GOAL_ID,
@@ -523,7 +549,7 @@ export const sessionCommandScenario: FixtureScenario = {
     }
 
     schedule(COMPLETION_DELAY_MS, () => {
-      context.updateScenario(scenarioFor(content, "completed", true));
+      context.updateScenario({ ...scenarioFor(content, "completed", true), models });
       context.pushEvent(GOAL_ID, {
         type: "message_committed",
         goalId: GOAL_ID,

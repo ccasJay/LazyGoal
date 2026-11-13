@@ -9,6 +9,7 @@
 | Goal 目录扫描 | 正式快照目录的摘要边界：历史扫描返回可解码摘要与不可解码快照数量，可恢复扫描保持损坏即拒绝。 | [Goal Runtime](../README.md) | [Goal Store 端口](../src/goal-store.ts) |
 | Run | Goal 内的一次执行边界。 | [Goal Runtime](../README.md) | [模块说明](./overview.md) |
 | Run 结束状态 | `RunEndStatus` 表示当前 Run 已结束；`waiting` 仍可恢复。 | [Goal Runtime](../README.md) | [Run 领域契约](../src/domain.ts) |
+| Goal 模型选择 | 在安全等待点或中断已结算的终态保存。后继 Run 继承已保存的选择。 | [Goal Runtime](../README.md) | [模型选择协调器](../src/goal-model-selection-coordinator.ts) |
 | 正式消息身份 | 每条已保存消息有稳定 `messageId`、所属 `runId` 和持久化 `position`；同源提交重试复用身份与位置，不从正文推导。 | [Goal Runtime](../README.md) | [消息身份与来源](../src/goal-message.ts) |
 | Run 内消息位置 | `afterSequence` 指消息前最后一条已提交事实，首事实前为 0；同锚点 `order` 按 Snapshot 顺序从 0 连续编号。 | [Goal Runtime](../README.md) | [统一提交边界](../src/trajectory-checkpoint-committer.ts) |
 | 消息来源 | 描述消息为什么存在的判别式来源：基础输入、交互回复、模型正文块、被接受的完成候选、宿主执行或 Runtime 通知；参与提交重试核对与原生历史去重。 | [Goal Runtime](../README.md) | [消息身份与来源](../src/goal-message.ts) |

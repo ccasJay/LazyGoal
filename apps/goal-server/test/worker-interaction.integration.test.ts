@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { projectInteractionView } from "../../../packages/runtime/src/interaction-view";
 import { cancelTrigger, externalTestActor, interactionAnswerTrigger, workTrigger } from "../../../packages/runtime/test/trigger-fixtures";
 import type { GoalUserAction } from "../../../packages/runtime/src/trigger";
+import { DefaultGoalModelSelectionCoordinator } from "../../../packages/runtime/src/goal-model-selection-coordinator";
 import { JsonFileGoalStore } from "../../../packages/storage/src/goal-store";
 import { SupervisorOwnership } from "../../../packages/storage/src/supervisor-ownership";
 import { TriggerStore } from "../../../packages/storage/src/trigger-store";
@@ -61,6 +62,7 @@ async function runInteractionScenario(context: TestContext, route: "direct" | "r
         description: "Test", systemPrompt: "Ask the user one question, then wait for input.", instructions: ["Follow the requested interaction."], toolIds: [] }));
 
     let runCalls = 0;
+    const requestedModels: unknown[] = [];
     let resumedRequestOpen = false;
     let resumedRequestClosed = false;
     const server = createServer((request, response) => {
@@ -69,6 +71,7 @@ async function runInteractionScenario(context: TestContext, route: "direct" | "r
             request.setEncoding("utf8");
             for await (const chunk of request) bodyText += chunk;
             const body = JSON.parse(bodyText) as Record<string, unknown>;
+            requestedModels.push(body.model);
             const tools = Array.isArray(body.tools) ? body.tools : [];
             const toolNames = tools.flatMap((tool) => typeof tool === "object" && tool !== null && "function" in tool
                 && typeof tool.function === "object" && tool.function !== null && "name" in tool.function
@@ -112,10 +115,13 @@ async function runInteractionScenario(context: TestContext, route: "direct" | "r
     const address = server.address();
     assert.ok(address !== null && typeof address !== "string");
 
+    const defaultModel = "test-default-model";
+    const selectedModel = "test-selected-model";
+    const switchedModel = "test-switched-model";
     const env = {
         LAZYGOAL_HOME: home,
         LLM_PROVIDER: "openai-compatible",
-        LLM_MODEL: "test-model",
+        LLM_MODEL: defaultModel,
         LLM_API_KEY: "test-key",
         LLM_BASE_URL: `http://127.0.0.1:${address.port}/v1`,
         LLM_CONTEXT_WINDOW_TOKENS: "16000",
@@ -155,7 +161,8 @@ async function runInteractionScenario(context: TestContext, route: "direct" | "r
             });
     }
     const principal = { role: "user", externalId: "test-actor", mayCreateGoal: true, goalIds: [] } as const;
-    const work = workTrigger("worker-interaction-work", "Ask a question and wait for an answer");
+    const firstIntent = "Ask a question and wait for an answer";
+    const work = workTrigger("worker-interaction-work", firstIntent);
     let goalId: string | undefined;
     try {
         assert.deepEqual(work.payload, {
@@ -167,7 +174,8 @@ async function runInteractionScenario(context: TestContext, route: "direct" | "r
                 goalId: reservedGoalId ?? randomUUID(),
                 intent,
                 mode: "normal",
-                modelSelection: { provider: "openai-compatible", modelId: "test-model", contextWindowTokens: 16000,
+                modelSelection: { provider: "openai-compatible", modelId: intent === firstIntent
+                    ? selectedModel : defaultModel, contextWindowTokens: 16000,
                     maxOutputTokens: 4096, inputEstimator: { kind: "character-v1" } },
             }, authorizedWorkspace);
             return {
@@ -188,6 +196,7 @@ async function runInteractionScenario(context: TestContext, route: "direct" | "r
         const waitingGoal = await goals.restore(goalId);
         assert.ok(waitingGoal !== undefined);
         assert.equal(waitingGoal.state.run.status, "waiting");
+        assert.deepEqual(requestedModels, [selectedModel]);
         assert.equal(triggers.queueRecord(goalId)?.workerId !== undefined, true);
         assert.equal(waitingGoal.definition.profile.name, "Test");
         assert.equal(waitingGoal.definition.profile.systemPrompt, "Ask the user one question, then wait for input.");
@@ -227,6 +236,13 @@ async function runInteractionScenario(context: TestContext, route: "direct" | "r
         assert.equal(interaction.goalId, goalId);
         assert.equal(interaction.replyTo, work.id);
 
+        if (route === "reattached-completion") {
+            const changed = await new DefaultGoalModelSelectionCoordinator({ store: goals }).updateModelSelection({
+                ref: { goalId, runId: waitingGoal.state.run.id },
+                selection: { ...waitingGoal.state.modelSelection, modelId: switchedModel },
+            });
+            assert.equal(changed.ok, true);
+        }
         if (route !== "direct") {
             receiveAuthorizedTrigger(triggers, interaction, interactionPrincipal);
             assert.equal(triggers.routeStatus(interaction.id), "unrouted");
@@ -244,6 +260,7 @@ async function runInteractionScenario(context: TestContext, route: "direct" | "r
         const answering = track(route === "direct" ? scheduler.handleInteractionTrigger(interaction, interactionPrincipal) : scheduler.pump());
         if (route !== "reattached-completion") {
             await waitFor(() => resumedRequestOpen);
+            assert.deepEqual(requestedModels, [selectedModel, selectedModel]);
             const stop = cancelTrigger("stop-resumed-interaction", goalId, waitingGoal.state.run.id);
             let stopSettled = false;
             const stopping = track(scheduler.handleCancelTrigger(stop, interactionPrincipal).finally(() => { stopSettled = true; }));
@@ -279,6 +296,7 @@ async function runInteractionScenario(context: TestContext, route: "direct" | "r
                 await scheduler.pump();
                 await waitFor(() => triggers.queueRecord(next.goalId)?.status === "waiting");
                 assert.deepEqual(await scheduler.processIds(), workerProcesses);
+                assert.deepEqual(requestedModels, [selectedModel, selectedModel, defaultModel]);
                 assert.ok(receiveOfflineProgress !== undefined);
                 receiveOfflineProgress({ kind: "interaction-result", requestId: "old-interaction-result", goalId,
                     result: { kind: "waiting", waitingFor: "ask_user" } });
@@ -293,6 +311,7 @@ async function runInteractionScenario(context: TestContext, route: "direct" | "r
         }
         await answering;
         await waitFor(() => triggers.routeStatus(interaction.id) === "routed" && triggers.queueRecord(goalId!)?.status === "terminal");
+        assert.deepEqual(requestedModels, [selectedModel, switchedModel, switchedModel]);
 
         const recoveredProcesses = await scheduler.processIds();
         assert.deepEqual(recoveredProcesses, workerProcesses);

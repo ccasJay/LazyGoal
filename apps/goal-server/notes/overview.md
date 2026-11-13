@@ -129,6 +129,8 @@ OpenCode Go 在线文本模型按实时模型元数据确认文本生成、工�
 
 [独立 Worker](../src/runtime/worker-process.ts) 以 OS 子进程复用执行 Runtime。Goal 快照经 generation 与持久队列绑定核验后由 Supervisor 保存。Worker 将执行检查点和待确认的结果保存在本地 outbox。
 
+Worker 推进 Run 或应用交互与权限回复前，从 Supervisor 读取已提交的 Goal 快照，按其中的 `GoalModelSelection` 装配执行模型。断开连接时沿用本地快照。受管档案在绑定前刷新，选择无法解析时拒绝本次执行命令。
+
 对已确认绑定的 Worker，[取消路由](../src/runtime/worker-scheduler.ts)直接派发当前 Run 的取消。正在提交推进或回复命令时，取消等该命令提交后即可发送。原操作槽保留到其结果返回或通信失败。断线且缺少终态证据时，Supervisor 保留持久绑定与未路由 Trigger，供恢复流程核验。
 
 [Worker 调度器](../src/runtime/worker-scheduler.ts) 按持久队列顺序认领 Goal，匹配同一授权工作区的空闲 Worker，需要时启动新进程。等待中的 Goal 保持 Worker 占用。原操作返回、终态 Snapshot 与响应保存、队列提交终态后，Worker 才可复用。取消遇到已完成或失败的 Run 时返回已有终态。

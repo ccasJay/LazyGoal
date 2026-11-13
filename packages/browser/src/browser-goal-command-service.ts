@@ -8,6 +8,7 @@ import type {
 } from "../../runtime/src/index";
 import {
     isRunEnded,
+    isSafeWaitingPointForModelSwitching,
     readInteractionDetail,
     type ActionApprovalReviewErrorCode,
     type InteractionDetail,
@@ -100,7 +101,7 @@ export interface BrowserGoalCoordinator {
  *
  * @remarks
  * 本服务不再持有执行预约、内存受理去重或后台推进：会话执行所有权属于 Runtime
- * 会话所有者，`readActiveGoalId` 只用于读取该唯一事实并拒绝与其他 Goal 并发。
+ * 会话所有者，`readActiveGoalId` 用于归档和 Plan Mode 的前置检查。
  *
  * @example
  * ```ts
@@ -121,7 +122,7 @@ export interface BrowserGoalCommandDependencies {
         current: GoalModelSelection,
         providerProfileId?: string,
     ) => Promise<GoalModelSelection | undefined>;
-    /** 在安全等待点持久化已验证的模型选择。 */
+    /** 在安全等待点或已结算终态持久化已验证的模型选择。 */
     readonly modelSelectionCoordinator?: GoalModelSelectionCoordinator;
     /** Goal 模型提交后保存 Web 工作区偏好；失败不会撤销已提交选择。 */
     readonly saveModelPreference?: (selection: GoalModelSelection) => Promise<void>;
@@ -183,19 +184,13 @@ export class BrowserGoalCommandService {
      */
     async selectModel(goalId: string, command: BrowserModelSelectionCommand): Promise<BrowserModelSelectionResult> {
         if (this.isShuttingDown()) return { ok: false, error: "service_shutting_down" };
-        const active = this.dependencies.readActiveGoalId?.();
-        if (active !== undefined && active !== goalId) return { ok: false, error: "goal_busy" };
         const goal = await this.dependencies.store.restore(goalId);
         if (goal === undefined) return { ok: false, error: "goal_not_found" };
         if (goal.state.run.id !== command.runId) return { ok: false, error: "stale_run" };
         if (this.dependencies.resolveModelSelection === undefined || this.dependencies.modelSelectionCoordinator === undefined) {
             return { ok: false, error: "model_catalog_unavailable" };
         }
-        const status = goal.state.run.status;
-        if (
-            status !== "completed" && status !== "failed"
-            && (status !== "waiting" || goal.state.run.pendingAction !== undefined || goal.state.run.stopReason !== undefined)
-        ) {
+        if (!isSafeWaitingPointForModelSwitching(goal)) {
             return { ok: false, error: "model_switch_not_allowed" };
         }
         let selection: GoalModelSelection | undefined;

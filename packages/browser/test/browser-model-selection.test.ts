@@ -80,6 +80,7 @@ const chosen: GoalModelSelection = {
 function serviceFor(store: Store, resolve = async (modelId: string, current: GoalModelSelection): Promise<GoalModelSelection | undefined> =>
     modelId === "gpt-new" && current.provider === "openai" ? chosen : undefined,
     saveModelPreference?: (selection: GoalModelSelection) => Promise<void>,
+    readActiveGoalId?: () => string | undefined,
 ): BrowserGoalCommandService {
     return new BrowserGoalCommandService({
         store,
@@ -89,6 +90,7 @@ function serviceFor(store: Store, resolve = async (modelId: string, current: Goa
         modelSelectionCoordinator: new DefaultGoalModelSelectionCoordinator({ store }),
         resolveModelSelection: resolve,
         ...(saveModelPreference === undefined ? {} : { saveModelPreference }),
+        ...(readActiveGoalId === undefined ? {} : { readActiveGoalId }),
     });
 }
 
@@ -139,19 +141,19 @@ test("Goal 切换成功后偏好写入失败报告部分成功，随后可单独
     assert.equal(preferred, "gpt-new");
 });
 
-test("Action 审批和取消态拒绝选模；保存失败保留原选择", async () => {
+test("Action 审批拒绝选模；其他 Goal 运行期间仍可为已取消 Run 选模；保存失败保留原选择", async () => {
     const store = new Store();
     store.goal = goalFor("waiting", {
         action: { actionId: "action-1", toolId: "bash", input: { command: "pwd" } },
         status: "awaiting_approval",
     } as Goal["state"]["run"]["pendingAction"]);
-    const service = serviceFor(store);
+    const service = serviceFor(store, undefined, undefined, () => "another-goal");
     assert.deepEqual(await service.selectModel("goal-1", { runId: "run-1", modelId: "gpt-new" }), {
         ok: false, error: "model_switch_not_allowed",
     });
     store.goal = goalFor("cancelled");
     assert.deepEqual(await service.selectModel("goal-1", { runId: "run-1", modelId: "gpt-new" }), {
-        ok: false, error: "model_switch_not_allowed",
+        ok: true, goalId: "goal-1", runId: "run-1", selection: { modelId: "gpt-new" },
     });
     store.goal = goalFor();
     store.failSave = true;

@@ -28,7 +28,7 @@
 | 定向失效与读取 | `state_committed.changed` 与 `stream_fault.resync` 只触发声明范围的读取；需要确认等待或终态时只读窄状态。 | [Goal Board](../README.md) | [事件路由](../src/control/event-routing.ts)、[useRunStream](../src/hooks/useRunStream.ts) |
 | 审批会话 | 由 `pendingAction`、同一视图与等待的预检及 `respond` 提交派生的 `unreviewed`／`reviewing`／`reviewed`／`submitting`／`accepted`／`settled`／`invalidated`／`unknown`。 | [Goal Board](../README.md) | [审批会话 selector](../src/control/approval-session.ts) |
 | 工具活动生命周期 | 以 `actionId` + `executionUnitId` 聚合尝试；工具返回停在 `result_pending`，Observation 提交后进入 `observed_committed`。 | [Goal Board](../README.md) | [工具活动 selector](../src/control/tool-activity.ts) |
-| 模型选择原子化 | 一次 `model_selection` 完成模型切换与可选默认偏好；部分失败以子结果报告，重试复用同一意图身份。 | [Goal Board](../README.md) | [模型选择结果](../src/control/model-selection.ts)、[useModelSelection](../src/hooks/useModelSelection.ts) |
+| 模型选择原子化 | 安全等待和终态续接复用 `model_selection`，一次提交模型切换与可选默认偏好；部分失败以子结果报告，重试复用同一意图身份。 | [Goal Board](../README.md) | [模型选择结果](../src/control/model-selection.ts)、[useModelSelection](../src/hooks/useModelSelection.ts) |
 | 交互决定摘要 | 当前页面暂存已受理的非权限决定摘要；工具／沙箱授权及修订授权不保留在输入区，刷新后清空。 | [Goal Board](../README.md) | [GoalSession](../src/components/GoalSession.tsx)、[交互提交](../src/interaction-panel.tsx) |
 | 交互详情读取 | 按当前 Goal／Run／交互引用读取完整问题、任务范围或 Action 输入；失败保留等待并禁用依赖完整范围的决定。 | [浏览器服务边界](../../../packages/browser/README.md) | [交互详情路由](../../../packages/browser/src/browser-goal-routes.ts) |
 | 提案阶段路线 | 批准前显示 Plan Run 的完整候选阶段及各自验收条件。 | [Goal Board](../README.md) | [任务审批视图](../src/interaction-panel.tsx) |

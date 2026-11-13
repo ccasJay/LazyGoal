@@ -25,6 +25,10 @@ export const sendMessageFlow: UiFlow = {
       attribute: { name: "aria-label", value: "Type a message to send" },
     },
     { action: "fill", selector: ".composer textarea", value: MESSAGE },
+    { action: "click", selector: '.composer button[aria-label="Current model: Test Model. Change model"]' },
+    { action: "click", selector: '.model-option[data-value="model-2"]' },
+    { action: "expect", selector: '.composer button[aria-label="Current model: Alternate Model. Change model"]', visible: true },
+    { action: "expectControl", kind: "model_selection", count: 1 },
     {
       action: "expect",
       selector: ".composer-actions .send",

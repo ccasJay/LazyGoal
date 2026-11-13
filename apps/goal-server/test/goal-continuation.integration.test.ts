@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import type { LLMAdapter } from "../../../packages/llm-core/src/index";
-import { createGoal, type Goal } from "../../../packages/runtime/src/domain";
+import { createGoal, type Goal, type GoalModelSelection } from "../../../packages/runtime/src/domain";
 import { transition } from "../../../packages/runtime/src/transition";
 import { currentProtocols } from "../../../packages/runtime/test/current-fixtures";
 import type { Trigger } from "../../../packages/runtime/src/trigger";
@@ -54,17 +54,19 @@ function suspendedModel(): {
     readonly server: ReturnType<typeof createServer>;
     readonly baseURL: () => string;
     readonly close: () => Promise<void>;
-    readonly started: Promise<void>;
+    readonly started: Promise<unknown>;
     readonly calls: () => number;
 } {
     let calls = 0;
-    let started!: () => void;
-    const startedPromise = new Promise<void>((resolve) => { started = resolve; });
+    let started!: (model: unknown) => void;
+    const startedPromise = new Promise<unknown>((resolve) => { started = resolve; });
     const server = createServer((request, response) => {
-        request.resume();
+        let body = "";
+        request.setEncoding("utf8");
+        request.on("data", (chunk) => { body += chunk; });
         request.on("end", () => {
             calls += 1;
-            started();
+            started(JSON.parse(body).model);
             response.writeHead(200, { "content-type": "text/event-stream" });
             response.flushHeaders();
         });
@@ -85,9 +87,9 @@ function suspendedModel(): {
     };
 }
 
-function terminalGoal(goalId: string, terminal: Terminal, workspaceRoot: string): Goal {
+function terminalGoal(goalId: string, terminal: Terminal, workspaceRoot: string, modelSelection: GoalModelSelection): Goal {
     const created = createGoal({ ...currentProtocols, id: goalId, intent: "Complete the requested work", runId: `run-${goalId}`,
-        promptBundleVersion: 1, profile: { id: "default", systemPrompt: "Test", instructions: ["Complete the work."], toolIds: [] } });
+        promptBundleVersion: 1, modelSelection, profile: { id: "default", systemPrompt: "Test", instructions: ["Complete the work."], toolIds: [] } });
     const started = transition(created.state.run, { kind: "start" });
     if (!started.ok) throw new Error("Could not start the fixture Run");
     const ended = terminal === "completed"
@@ -196,7 +198,7 @@ async function prepare(terminal: Terminal) {
     });
 
     const goalId = `goal-${terminal}`;
-    const goal = terminalGoal(goalId, terminal, workspace);
+    const goal = terminalGoal(goalId, terminal, workspace, composition.defaultModelSelection);
     await goals.save(goal);
     const work = workTrigger(`work-${goalId}`, "Complete the requested work", { role: "external", externalId: EXTERNAL_ID });
     triggers.receive(work, "web-manual");
@@ -228,6 +230,12 @@ for (const terminal of ["completed", "failed", "cancelled"] as const) {
         const { composition, owner, triggers, goals, scheduler, model, goalId, goal } = await prepare(terminal);
         try {
             const previousRunId = goal.state.run.id;
+            const selectedModel = "next-run-model";
+            const selection = await composition.goalModelSelectionCoordinator.updateModelSelection({
+                ref: { goalId, runId: previousRunId },
+                selection: { ...goal.state.modelSelection, modelId: selectedModel },
+            });
+            assert.equal(selection.ok, true);
             const input = `Continue after ${terminal}`;
             const trigger = continuationTrigger(`continue-${terminal}`, goalId, previousRunId, input, terminalReply(triggers, goalId, previousRunId));
 
@@ -257,7 +265,7 @@ for (const terminal of ["completed", "failed", "cancelled"] as const) {
             assert.equal(unchanged?.state.messages.filter((message) => message.content === "Second attempt").length, 0);
 
             // 真实 Worker 派发后继 Run；模型挂起期间已能读到上面的收据。
-            await model.started;
+            assert.equal(await model.started, selectedModel);
             assert.deepEqual(scheduler.assignments().map((assignment) => assignment.goalId), [goalId]);
             await waitFor(() => triggers.queueRecord(goalId)?.status === "claimed", "Successor Run was not claimed");
 
