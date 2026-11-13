@@ -155,6 +155,7 @@ export function GoalSession({
   });
   const readingAnchor = useRef<ActivityAnchor | undefined>(undefined);
   const programmaticTop = useRef<number | undefined>(undefined);
+  const previousScrollTop = useRef(0);
   const followFrame = useRef<number | null>(null);
   const currentRun = activityPage?.runs.find((run) => run.current);
   const [draftNoticeDismissed, setDraftNoticeDismissed] = useState(false);
@@ -213,6 +214,7 @@ export function GoalSession({
         if (Math.abs(element.scrollTop - top) < 1) return;
         element.scrollTop = top;
         programmaticTop.current = element.scrollTop;
+        previousScrollTop.current = element.scrollTop;
       };
       if (follow) move(element.scrollHeight);
       else {
@@ -234,6 +236,8 @@ export function GoalSession({
         followFrame.current = null;
         if (follow && timeline.current) {
           timeline.current.scrollTop = timeline.current.scrollHeight;
+          previousScrollTop.current = timeline.current.scrollTop;
+          programmaticTop.current = timeline.current.scrollTop;
         }
       });
     }
@@ -457,14 +461,25 @@ export function GoalSession({
                   <div
                     className="timeline"
                     ref={timeline}
+                    onWheel={(event) => {
+                      if (event.deltaY >= 0) return;
+                      if (followFrame.current !== null) {
+                        window.cancelAnimationFrame(followFrame.current);
+                        followFrame.current = null;
+                      }
+                      readingAnchor.current = captureAnchor({ offsets: timelineOffsets(event.currentTarget), scrollTop: event.currentTarget.scrollTop });
+                      setFollow(false);
+                    }}
                     onScroll={(event) => {
                       const element = event.currentTarget;
+                      const movedUp = element.scrollTop < previousScrollTop.current - 1;
+                      previousScrollTop.current = element.scrollTop;
                       if (programmaticTop.current !== undefined && Math.abs(element.scrollTop - programmaticTop.current) < 1) {
                         programmaticTop.current = undefined;
                         return;
                       }
                       programmaticTop.current = undefined;
-                      const following = element.scrollHeight - element.scrollTop - element.clientHeight < FOLLOW_THRESHOLD_PX;
+                      const following = !movedUp && element.scrollHeight - element.scrollTop - element.clientHeight < FOLLOW_THRESHOLD_PX;
                       setFollow(following);
                       if (!following) {
                         readingAnchor.current = captureAnchor({ offsets: timelineOffsets(element), scrollTop: element.scrollTop });

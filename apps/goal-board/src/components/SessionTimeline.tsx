@@ -31,7 +31,6 @@ const SessionMessage = memo(function SessionMessage({
 }) {
   const isCandidate = entry.kind === "candidate-preview";
   const role = isCandidate ? "assistant" : entry.role;
-  const showMeta = isCandidate || role === "assistant" && entry.kind === "message" && entry.purpose !== "answer";
   const assistantLabel = entry.kind === "candidate-preview" ? "LazyGoal"
     : entry.purpose === "process" ? "Progress"
       : entry.purpose === "notice" ? "Notice" : "LazyGoal";
@@ -48,7 +47,7 @@ const SessionMessage = memo(function SessionMessage({
         {role === "user" ? <User size={14} /> : <img src={brandMark} alt="" width={23} height={23} />}
       </span>
       <div className="message-content">
-        <div className={`message-meta${showMeta ? "" : " sr-only"}`}>
+        <div className="message-meta">
           <strong>{role === "user" ? "You" : assistantLabel}</strong>
           {!isCandidate && role === "assistant" && entry.purpose === "process" && <small>Process update</small>}
           {isCandidate && <small>{candidateStatusLabel(entry.status)}</small>}
@@ -538,6 +537,10 @@ function renderTimelineEntries(items: readonly SessionTimelineEntry[], options: 
     const sectionIdentity = stageSectionIdentity(entries[0]?.runId, stageId, revision);
     const continued = seenSections.has(sectionIdentity);
     seenSections.add(sectionIdentity);
+    if (continued && !incomplete && entries.every(entry => entry.kind === "fact" && entry.eventType === "run_stage_accepted")) {
+      section = undefined;
+      return;
+    }
     const presentation = selectStageSectionPresentation({
       entries,
       currentRunId: options.currentRunId,
@@ -561,7 +564,7 @@ function renderTimelineEntries(items: readonly SessionTimelineEntry[], options: 
     const hasDetails = details.length > 0 || showLoad && (options.olderAvailable && options.onLoadEarlier !== undefined
       || options.newerItemCount > 0 && options.onLoadNewer !== undefined);
     const activityCount = activities.reduce((count, entry) => count + entry.group.members.length, 0);
-    const stageHeading = <TraceLine status={presentation.animate ? "running" : status === "attention" ? "error" : undefined}>
+    const stageHeading = <TraceLine className="timeline-stage-line" status={presentation.animate ? "running" : status === "attention" ? "error" : undefined}>
       <TraceIcon>
         {status === "attention" ? <CircleHelp /> : presentation.animate ? <ActivitySnake /> : status === "completed" ? <Check /> : <span className="timeline-fact-dot" />}
       </TraceIcon>

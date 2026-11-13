@@ -64,6 +64,14 @@ test("an accepted real stage collapses its tools and leaves the final answer out
   assert.match(html, /Verified result/);
 });
 
+test("an acceptance-only continuation does not repeat a stage already shown", () => {
+  const message = { kind: "message" as const, itemId: "progress", presentationKey: "progress", runId: "run-1",
+    role: "assistant" as const, purpose: "process" as const, content: "Progress", position: position(3) };
+  const entries = [stage("run_stage_declared", 1), activity("completed", "stage-1"), message, stage("run_stage_accepted", 4)];
+  assert.equal((render(entries).match(/data-stage-id="stage-1"/g) ?? []).length, 1);
+  assert.equal((render(entries, { stages: [{ runId: "run-1", stageId: "stage-1", revision: 1, target: "Verify the implementation", status: "accepted", completeWithinPage: false }] }).match(/data-stage-id="stage-1"/g) ?? []).length, 2);
+});
+
 test("a stage identity without a real title stays a flat activity", () => {
   const html = render([activity("completed", "stage-not-in-window")]);
   assert.doesNotMatch(html, /class="timeline-stage /);
