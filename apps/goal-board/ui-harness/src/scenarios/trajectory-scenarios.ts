@@ -160,7 +160,11 @@ const trajSessionEnvelope: BrowserGoalSessionEnvelope = {
     ],
     historyTruncated: false,
   },
-  session: createDefaultSessionState(TRAJ_GOAL_ID),
+  session: {
+    ...createDefaultSessionState(TRAJ_GOAL_ID),
+    runId: TRAJ_RUN_ID,
+    runStatus: "completed",
+  },
 };
 
 const trajStateEnvelope: BrowserGoalSessionStateEnvelope = {
@@ -177,7 +181,11 @@ const trajStateEnvelope: BrowserGoalSessionStateEnvelope = {
       stages: { included: false, source: "activity" },
     },
   },
-  session: createDefaultSessionState(TRAJ_GOAL_ID),
+  session: {
+    ...createDefaultSessionState(TRAJ_GOAL_ID),
+    runId: TRAJ_RUN_ID,
+    runStatus: "completed",
+  },
 };
 
 /** 包含完整轨迹与时间线事件的 Trajectory 场景。 */
