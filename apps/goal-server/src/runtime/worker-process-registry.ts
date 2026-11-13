@@ -76,7 +76,7 @@ export class WorkerSocketPathError extends Error {
 
     /**
      * @param reason - 失败类别：长度超限或没有可用根。
-     * @param pathLength - 最长候选路径的字节长度。
+     * @param pathLength - 已尝试的最小候选路径字节长度。
      * @param limit - 当前平台的 socket 路径可用字节上限。
      */
     constructor(
