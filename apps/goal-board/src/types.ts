@@ -353,6 +353,12 @@ export function errorMessage(error: unknown): string {
       case "structured_interaction_required": return "Use the answer or approval form shown for this request.";
       case "request_too_large": return "This request is too long. Shorten it and try again.";
       case "goal_id_conflict": return "A Goal with this request identity already exists.";
+      case "input_conflict": return "A request with this identity was already submitted. Reload the board before retrying.";
+      case "execution_unavailable": return "The local execution service is unavailable, so this Goal was not started. Retry in a moment. If it keeps failing, start `lazygoal web` with a shorter TMPDIR: local Worker sockets are limited to roughly 100 characters.";
+      case "create_failed": return "The local service could not finish creating this Goal. Your draft is kept; retry to try again.";
+      case "profile_not_found": return "The selected Agent profile is no longer available. Choose another profile and retry.";
+      case "goal_unreadable": return "The saved Goal for this request could not be read. Its local data may be from an incompatible version.";
+      case "service_shutting_down": return "The local service is shutting down. Restart `lazygoal web` before retrying.";
       case "invalid_plan_mode_command": return "This session cannot change Plan Mode because its Run identity is invalid.";
       case "invalid_goal_input":
       case "invalid_message": return "Enter a non-empty Goal or message.";

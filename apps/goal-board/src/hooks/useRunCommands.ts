@@ -100,9 +100,7 @@ export function useRunCommands({
         return true;
       }
       if (receipt.status === "rejected") {
-        setCommandError(receipt.error === "goal_busy"
-          ? errorMessage(new BrowserApiError(receipt.error, 409, receipt.refresh === true))
-          : "The Goal could not be created.");
+        setCommandError(errorMessage(new BrowserApiError(receipt.error, 0, receipt.refresh === true)));
         if (receipt.error === "goal_busy") {
           setDraftGoalBusy(true);
           void onRefreshGoals();
