@@ -3,6 +3,7 @@ import { lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { WorkerProgress } from "./worker-process";
+import { WorkerExecutionUnavailableError } from "./worker-execution-error";
 
 const SOCKET_FILE_PREFIX = "lgw-";
 const SOCKET_FILE_SUFFIX = ".sock";
@@ -234,8 +235,13 @@ export async function createWorkerProcessRegistration(
 ): Promise<WorkerProcessRegistration> {
     if (!workerId.trim() || !generation.trim()) throw new Error("Worker identity is required");
     const directory = registryDirectory(dataDirectory);
-    await mkdir(directory, { recursive: true, mode: 0o700 });
-    const socketPath = await resolveWorkerSocketPath(dataDirectory, workerId);
+    let socketPath: string;
+    try {
+        await mkdir(directory, { recursive: true, mode: 0o700 });
+        socketPath = await resolveWorkerSocketPath(dataDirectory, workerId);
+    } catch (error) {
+        throw registrationError(error);
+    }
     const registration: WorkerProcessRegistration = {
         workerId,
         generation,
@@ -249,14 +255,20 @@ export async function createWorkerProcessRegistration(
     };
     const path = registrationFile(dataDirectory, workerId);
     const temporary = `${path}.${randomBytes(8).toString("hex")}.tmp`;
-    await writeFile(temporary, JSON.stringify(registration), { mode: 0o600, flag: "wx" });
     try {
+        await writeFile(temporary, JSON.stringify(registration), { mode: 0o600, flag: "wx" });
         await rename(temporary, path);
     } catch (error) {
-        await rm(temporary, { force: true });
-        throw error;
+        await rm(temporary, { force: true }).catch(() => undefined);
+        throw registrationError(error);
     }
     return registration;
+}
+
+function registrationError(error: unknown): WorkerExecutionUnavailableError {
+    return error instanceof WorkerExecutionUnavailableError
+        ? error
+        : new WorkerExecutionUnavailableError("registration", error instanceof Error ? error.message : "Worker registration failed");
 }
 
 /**

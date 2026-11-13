@@ -10,6 +10,7 @@ import {
 } from "../../../packages/runtime/src/index";
 import { WorkerScheduler, allocateGoalWorkspace, admitTrigger, type RuntimeComposition } from "./runtime/index";
 import { summarizeTriggerName } from "./runtime/trigger-name";
+import { WorkerExecutionUnavailableError } from "./runtime/worker-execution-error";
 import type { GoalTriggerContext } from "../../../packages/runtime/src/domain";
 import type { Trigger } from "../../../packages/runtime/src/trigger";
 import {
@@ -350,6 +351,10 @@ export function createTriggerBrowserSessionPort(dependencies: TriggerBrowserSess
                 await scheduler.pump();
             } catch (error) {
                 if (isTriggerIdentityConflict(error)) return { ok: false, error: "input_conflict" };
+                if (error instanceof WorkerExecutionUnavailableError) {
+                    reportExecutionUnavailable(error);
+                    return { ok: false, error: "execution_unavailable" };
+                }
                 return { ok: false, error: isShuttingDown() ? "service_shutting_down" : "create_failed" };
             }
             const goal = await goals.restore(admission.goalId);
@@ -421,6 +426,21 @@ export function createTriggerBrowserSessionPort(dependencies: TriggerBrowserSess
 
 function isTriggerIdentityConflict(error: unknown): boolean {
     return error instanceof Error && error.message === "Trigger identity conflict";
+}
+
+/**
+ * 记录本机执行通道不可用的分类诊断。
+ *
+ * @remarks
+ * 只输出失败类别与有界错误文本；不输出堆栈，也不把内部路径返回浏览器。诊断写入失败
+ * 不改变创建结果。
+ */
+function reportExecutionUnavailable(error: WorkerExecutionUnavailableError): void {
+    try {
+        process.stderr.write(`[lazygoal] Goal creation could not reach local execution (${error.kind}): ${error.message}\n`);
+    } catch {
+        // Diagnostic output must not change the creation result.
+    }
 }
 
 function requiredTriggerSequence(triggers: TriggerStore, triggerId: string): number {

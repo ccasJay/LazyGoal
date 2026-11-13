@@ -11,6 +11,7 @@ import { SupervisorOwnership } from "../../../../packages/storage/src/supervisor
 import type { Goal, GoalModelSelection, RunMode } from "../../../../packages/runtime/src/domain";
 import type { Trigger } from "../../../../packages/runtime/src/trigger";
 import type { WorkerOfflineProgress, WorkerProcessRegistration } from "./worker-process-registry";
+import { WorkerExecutionUnavailableError, WorkerGoalCreationRejectedError, type WorkerExecutionFailureKind } from "./worker-execution-error";
 
 type WorkerMessage =
     | { readonly kind: "ready"; readonly workerId: string; readonly generation: string; readonly pid: number; readonly proof?: string; readonly assignedGoalId?: string; readonly operationActive?: boolean }
@@ -169,7 +170,7 @@ export class SupervisorWorkerProcess {
                     const validProof = !reconnecting || (typeof message.proof === "string"
                         && hasValidProof(message.proof, attachProof(options.registration.secret, attachNonce, "worker")));
                     if (!validIdentity || !validProof) {
-                        reject(new Error("Worker identity handshake mismatch"));
+                        reject(new WorkerExecutionUnavailableError("handshake", "Worker identity handshake mismatch"));
                     } else {
                         this.workerPid = message.pid;
                         this.goalId = message.assignedGoalId;
@@ -277,7 +278,9 @@ export class SupervisorWorkerProcess {
             await worker.ready;
         } catch (error) {
             child.kill("SIGKILL");
-            throw error;
+            throw error instanceof WorkerExecutionUnavailableError && error.kind === "handshake"
+                ? error
+                : controlChannelError(error, "start");
         }
         return worker;
     }
@@ -310,7 +313,7 @@ export class SupervisorWorkerProcess {
             return worker;
         } catch (error) {
             socket.destroy();
-            throw error;
+            throw error instanceof WorkerExecutionUnavailableError ? error : controlChannelError(error);
         }
     }
 
@@ -402,7 +405,8 @@ export class SupervisorWorkerProcess {
      *
      * @param input - Goal 身份、原始意图与首个 Run 配置；不包含 Profile、协议或执行策略。
      * @returns Worker 构造但尚未持久化的 Goal；调用方必须交由 Supervisor 的创建事务保存与入队。
-     * @throws Worker 已执行操作、已绑定 Goal、创建配置无效或 IPC 失败时拒绝。
+     * @throws WorkerExecutionUnavailableError Worker 已关闭、已绑定 Goal 或通道中断时抛出。
+     * @throws WorkerGoalCreationRejectedError Worker 明确拒绝构造时抛出。
      * @example
      * ```ts
      * const goal = await worker.createGoal({ goalId: "goal-1", intent: "检查失败测试", mode: "normal" });
@@ -410,15 +414,20 @@ export class SupervisorWorkerProcess {
      */
     async createGoal(input: WorkerGoalCreationRequest): Promise<Goal> {
         if (this.closed || this.activeParentOperation !== undefined || this.cancelRequests.size > 0 || this.goalId !== undefined) {
-            throw new Error("Worker is unavailable for Goal creation");
+            throw new WorkerExecutionUnavailableError("control-channel", "Worker is unavailable for Goal creation");
         }
         const operation = this.beginParentOperation("create-goal");
         try {
             const responsePromise = this.request({ kind: "create-goal", requestId: randomUUID(), ...input });
             operation.markRequestSubmitted();
-            const response = await responsePromise;
-            if (response.kind !== "create-goal-result") throw new Error("Unexpected Worker response");
-            if (!response.ok) throw new Error(`Worker Goal creation failed: ${response.reason}`);
+            let response: WorkerMessage;
+            try {
+                response = await responsePromise;
+            } catch (error) {
+                throw controlChannelError(error);
+            }
+            if (response.kind !== "create-goal-result") throw new WorkerExecutionUnavailableError("control-channel", "Unexpected Worker response");
+            if (!response.ok) throw new WorkerGoalCreationRejectedError(`Worker Goal creation failed: ${response.reason}`);
             return goalSnapshotCodec.decode(response.snapshot);
         } finally {
             operation.release();
@@ -630,11 +639,11 @@ export class SupervisorWorkerProcess {
     }
 
     private request(command: Extract<WorkerCommand, { readonly requestId: string }>): Promise<WorkerMessage> {
-        if (this.closed || !this.isConnected()) return Promise.reject(new Error("Worker process is disconnected"));
+        if (this.closed || !this.isConnected()) return Promise.reject(new WorkerExecutionUnavailableError("control-channel", "Worker process is disconnected"));
         return new Promise((resolve, reject) => {
             this.pending.set(command.requestId, { resolve, reject });
             void this.writeCommand(command).catch((error: Error) => {
-                if (this.pending.delete(command.requestId)) reject(error);
+                if (this.pending.delete(command.requestId)) reject(controlChannelError(error));
             });
         });
     }
@@ -663,15 +672,15 @@ export class SupervisorWorkerProcess {
 
     private writeCommand(command: WorkerCommand): Promise<void> {
         if (this.child !== undefined) {
-            if (!this.child.connected) return Promise.reject(new Error("Worker process is disconnected"));
-            return new Promise((resolve, reject) => this.child!.send(command, (error) => error === null ? resolve() : reject(error)));
+            if (!this.child.connected) return Promise.reject(new WorkerExecutionUnavailableError("control-channel", "Worker process is disconnected"));
+            return new Promise((resolve, reject) => this.child!.send(command, (error) => error === null ? resolve() : reject(controlChannelError(error))));
         }
         return this.writeSocket(command);
     }
 
     private writeSocket(message: unknown): Promise<void> {
-        if (this.socket === undefined || this.socket.destroyed) return Promise.reject(new Error("Worker control channel is disconnected"));
-        return new Promise((resolve, reject) => this.socket!.write(`${JSON.stringify(message)}\n`, (error) => error == null ? resolve() : reject(error)));
+        if (this.socket === undefined || this.socket.destroyed) return Promise.reject(new WorkerExecutionUnavailableError("control-channel", "Worker control channel is disconnected"));
+        return new Promise((resolve, reject) => this.socket!.write(`${JSON.stringify(message)}\n`, (error) => error == null ? resolve() : reject(controlChannelError(error))));
     }
 
     private async saveWorkerSnapshot(goalId: string, input: unknown): Promise<GoalSnapshotV1> {
@@ -708,6 +717,12 @@ function parseWorkerMessage(value: unknown): WorkerMessage | undefined {
     if (value.kind === "closed") return value as unknown as WorkerMessage;
     if (value.kind === "detached") return value as unknown as WorkerMessage;
     return undefined;
+}
+
+function controlChannelError(error: unknown, kind: WorkerExecutionFailureKind = "control-channel"): WorkerExecutionUnavailableError {
+    if (error instanceof WorkerExecutionUnavailableError) return error;
+    const message = error instanceof Error && error.message.trim().length > 0 ? error.message : "Worker control channel failed";
+    return new WorkerExecutionUnavailableError(kind, message);
 }
 
 function attachProof(secret: string, nonce: string, role: "supervisor" | "worker"): string {

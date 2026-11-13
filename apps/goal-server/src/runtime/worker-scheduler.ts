@@ -166,7 +166,8 @@ export class WorkerScheduler {
      * @param request - Goal 身份、原始意图与首个 Run 配置。
      * @param workspace - 已由 Supervisor 决定并准备的项目与执行工作区。
      * @returns Worker 构造的 Goal 候选；本方法不保存 Goal 或改变 Trigger 队列。
-     * @throws Worker 启动、配置解析、Goal 构造或进程通信失败时拒绝。
+     * @throws WorkerExecutionUnavailableError 注册、启动、握手或控制通道不可用时抛出。
+     * @throws WorkerGoalCreationRejectedError Worker 明确拒绝构造时抛出。
      * @example
      * ```ts
      * const goal = await scheduler.createGoal({ goalId: "goal-1", intent: "检查测试", mode: "normal" }, workspace);

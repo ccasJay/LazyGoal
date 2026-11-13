@@ -711,7 +711,8 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
             const result = await session.create(parsed.command);
             if (result.ok) return context.json(result, result.existing ? 200 : 202);
             const status = result.error === "create_failed" || result.error === "goal_unreadable" ? 500
-                : result.error === "model_catalog_unavailable" || result.error === "service_shutting_down" ? 503
+                : result.error === "model_catalog_unavailable" || result.error === "service_shutting_down"
+                    || result.error === "execution_unavailable" ? 503
                     : result.error === "goal_busy" || result.error === "goal_id_conflict" || result.error === "input_conflict" ? 409
                         : result.error === "profile_not_found" ? 500
                             : 400;
@@ -1107,7 +1108,8 @@ function controlErrorStatus(error: string): ControlHttpStatus {
     if (error === "goal_not_found") return 404;
     if (error === "session_unavailable" || error === "service_shutting_down"
         || error === "permissions_unavailable" || error === "review_unavailable"
-        || error === "goal_management_unavailable" || error === "model_catalog_unavailable") return 503;
+        || error === "goal_management_unavailable" || error === "model_catalog_unavailable"
+        || error === "execution_unavailable") return 503;
     if (error === "invalid_control_command" || error === "intent_id_mismatch" || error === "invalid_tool_input") return 400;
     if (error === "stale_run" || error === "goal_busy" || error === "conflict"
         || error === "model_switch_not_allowed" || error === "plan_mode_busy"

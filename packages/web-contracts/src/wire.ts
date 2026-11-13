@@ -1256,6 +1256,7 @@ export type BrowserCreateSessionResult =
             | "invalid_goal_input"
             | "goal_unreadable"
             | "service_shutting_down"
+            | "execution_unavailable"
             | "create_failed";
     };
 
