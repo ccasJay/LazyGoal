@@ -11,6 +11,7 @@ import type { ControlIntents } from "./useControlIntents";
 import { browserApi } from "../api";
 import { errorMessage } from "../types";
 import {
+  ACTIVITY_PAGE_LIMIT,
   ACTIVITY_PREFETCH_ITEM_BUDGET,
   ACTIVITY_PREFETCH_MAX_PAGES,
   applyActivityPage,
@@ -183,7 +184,7 @@ export function useGoalSession({
     const version = ++activityLoadVersion.current;
     const current = () => ownsView(target) && !signal?.aborted && version === activityLoadVersion.current;
     try {
-      const next = await browserApi.readGoalActivity(target.goalId, {}, signal);
+      const next = await browserApi.readGoalActivity(target.goalId, { limit: ACTIVITY_PAGE_LIMIT }, signal);
       if (!current() || next.goalId !== target.goalId) return undefined;
       const previous = latestActivityPage.current;
       const previousMessageIds = new Set(previous?.items.filter((item) => item.type === "message").map((item) => item.messageId));
@@ -241,7 +242,7 @@ export function useGoalSession({
       let items = 0;
       let pages = 0;
       while (cursor !== undefined && items < budgetItems && pages < maxPages) {
-        const page = await browserApi.readGoalActivity(target.goalId, { before: cursor });
+        const page = await browserApi.readGoalActivity(target.goalId, { before: cursor, limit: ACTIVITY_PAGE_LIMIT });
         if (!ownsView(target) || activityWindowVersion.current !== windowVersion || page.goalId !== target.goalId) return;
         setActivityWindow((current) => prependActivityPage(current, page));
         items += page.items.length;
@@ -280,7 +281,7 @@ export function useGoalSession({
     const version = activityWindowVersion.current;
     const current = () => ownsView(view) && activityWindowVersion.current === version;
     try {
-      const page = await readActivityWindow({ after: cursor });
+      const page = await readActivityWindow({ after: cursor, limit: ACTIVITY_PAGE_LIMIT });
       if (page === undefined || !current()) return;
       setActivityWindow((current) => appendActivityPage(current, page));
     } catch (error) {
@@ -298,7 +299,7 @@ export function useGoalSession({
     const version = ++activityWindowVersion.current;
     const current = () => ownsView(view) && activityWindowVersion.current === version;
     try {
-      const page = await readActivityWindow({});
+      const page = await readActivityWindow({ limit: ACTIVITY_PAGE_LIMIT });
       if (page === undefined || !current()) return;
       activityLoadVersion.current += 1;
       latestActivityPage.current = page;

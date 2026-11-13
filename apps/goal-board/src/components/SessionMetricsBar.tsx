@@ -26,7 +26,7 @@ export function SessionMetricsBar({ state, runStatus }: { state?: MetricsState; 
     </PopoverContent>
     </Popover>
     {metrics === undefined ? <span className="session-metric">{state?.kind === "error" ? "Metrics unavailable" : "Loading metrics…"}</span> : <>
-      <span className="session-metric">{metrics.roundCount} runs, {metrics.stepCount} steps</span>
+      <span className="session-metric">{metrics.roundCount} {metrics.roundCount === 1 ? "run" : "runs"}, {metrics.stepCount} {metrics.stepCount === 1 ? "step" : "steps"}</span>
       <span className="session-metric" title="Input / output tokens">{metricNumber(metrics.inputTokens)} in / {metricNumber(metrics.outputTokens)} out</span>
       <span className="session-metric" title="Application-observed end-to-end provider request rate">{metricSpeed(metrics.tokensPerSecond)} tok/s</span>
       <span className="session-metric">Cache {metricPercent(metrics.cacheHitRate)}</span>

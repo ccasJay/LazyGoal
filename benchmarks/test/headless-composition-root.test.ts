@@ -962,7 +962,7 @@ test("fails before creating episode when task descriptor requires an unauthorize
 });
 
 
-test("pi-ai diagnostic usage stays out of benchmark totals and counts as missing", async () => {
+test("pi-ai provider-reported usage counts toward benchmark totals", async () => {
     const { createServer } = await import("node:http");
     const { once } = await import("node:events");
     const { createLlmAdapter } = await import("../../packages/llm/src/index.js");
@@ -1013,7 +1013,7 @@ test("pi-ai diagnostic usage stays out of benchmark totals and counts as missing
         const result = await root.run({ id: "pi-usage" });
         assert.equal(result.model.completed, true);
         assert.equal(calls, 5);
-        assert.deepEqual(result.model.usage, { inputTokens: 0, outputTokens: 0, missingCalls: 5 });
+        assert.deepEqual(result.model.usage, { inputTokens: 500, outputTokens: 100, missingCalls: 0 });
     } finally {
         server.closeAllConnections();
         await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));

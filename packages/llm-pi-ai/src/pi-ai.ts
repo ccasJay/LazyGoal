@@ -11,6 +11,7 @@ import {
     LLMConfigurationError,
     LLMRequestModeMismatchError,
     classifyTransientModelFailure,
+    toSafeTokenCount,
     type LLMAdapter,
     type LLMConfig,
     type LLMContentBlock,
@@ -40,6 +41,28 @@ function providerFailureMessage(provider: string, stopReason: string, errorMessa
         return `Provider "${provider}" rejected the model request (HTTP ${status}). Check provider access and service status.`;
     }
     return `Provider "${provider}" did not complete a text response (${stopReason})`;
+}
+
+/**
+ * 把 pi-ai 上报的计数归一化为正式用量。
+ *
+ * @remarks
+ * pi-ai 在供应商未上报时使用全零占位，因此全零计数不视为有效上报，返回
+ * `undefined` 而不是伪造 0。缓存读取量仅在可读取时写入。
+ *
+ * @param usage - pi-ai AssistantMessage 的计数字段。
+ * @returns 可写入 `providerMetadata.usage` 的归一化计数；无有效上报时为 `undefined`。
+ */
+function normalizedUsage(
+    usage: AssistantMessage["usage"],
+): { readonly inputTokens: number; readonly outputTokens: number; readonly cachedInputTokens?: number } | undefined {
+    const inputTokens = toSafeTokenCount(usage.input);
+    const outputTokens = toSafeTokenCount(usage.output);
+    if (inputTokens === undefined || outputTokens === undefined || inputTokens + outputTokens === 0) return undefined;
+    const cachedInputTokens = toSafeTokenCount(usage.cacheRead);
+    return cachedInputTokens === undefined
+        ? { inputTokens, outputTokens }
+        : { inputTokens, outputTokens, cachedInputTokens };
 }
 
 const factories = {
@@ -128,8 +151,9 @@ function verifyToolCallArguments(raw: string | undefined, toolCall: { readonly a
  * @remarks
  * OpenCode Go 在线模型使用服务端传入的执行 API、容量与模型能力，并统一通过 Chat Completions 兼容路径执行；端点固定在本适配器。
  * 不执行登录、目录刷新或凭据持久化。
- * 内部聚合流式输出，只有正常结束的文本交给 Agent。pi-ai usage 无法证明
- * 原始计数是否存在，因此只返回诊断 piUsage，不参与正式用量累计。
+ * 内部聚合流式输出，只有正常结束的文本交给 Agent。pi-ai 计数为有限非负数时归一化写入
+ * `providerMetadata.usage` 并参与正式用量累计；全零计数视为未上报，不用 0 或估算值代替。
+ * 原始计数同时保留在诊断 `piUsage` 中。
  * 工具选择按模型 API 映射：auto/none 使用 simple 入口；required 使用完整 API，
  * OpenAI 发送 required，Anthropic/Google 发送 any。OpenCode Go 元数据声明不支持 required 时发送 auto，不改变 Runtime 的工具授权。
  */
@@ -484,6 +508,7 @@ export class PiAiAdapter implements LLMAdapter {
         const { input, output, cacheRead, cacheWrite, reasoning } = response.usage;
         const piUsage = Object.fromEntries(Object.entries({ input, output, cacheRead, cacheWrite, reasoning })
             .filter((entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1]) && entry[1] >= 0));
+        const usage = normalizedUsage(response.usage);
 
         // pi-ai 内容数组顺序即真实块归属；本适配器不请求图片，未知块类型在协议边界拒绝。
         const blocks: LLMContentBlock[] = [];
@@ -515,6 +540,7 @@ export class PiAiAdapter implements LLMAdapter {
                 ...(response.responseId === undefined ? {} : { responseId: response.responseId }),
                 stopReason: response.stopReason,
                 piUsage,
+                ...(usage === undefined ? {} : { usage }),
             },
         };
     }

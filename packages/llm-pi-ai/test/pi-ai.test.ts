@@ -91,6 +91,22 @@ test("PiAiAdapter maps ordered text history and isolates thinking and unverified
     assert.equal(response.blocks.some(block => block.type === "reasoning" && block.text.includes("private reasoning")), true);
 });
 
+test("pi-ai reports non-zero counts as normalized usage while keeping raw diagnostics", async () => {
+    const instance = adapter();
+    stub(instance, async () => result({
+        usage: {
+            input: 120, output: 30, cacheRead: 40, cacheWrite: 0, totalTokens: 150,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+    }));
+    const response = await instance.generate(request);
+    assert.deepEqual(readNormalizedUsage(response.providerMetadata), {
+        inputTokens: 120, outputTokens: 30, cachedInputTokens: 40,
+    });
+    const metadata = response.providerMetadata as Record<string, unknown>;
+    assert.deepEqual(metadata.piUsage, { input: 120, output: 30, cacheRead: 40, cacheWrite: 0 });
+});
+
 test("pi-ai keeps thinking out of tool-request text and final responses in both entrypoints", async () => {
     const cases: AssistantMessage["content"][] = [
         [{ type: "thinking", thinking: "PRIVATE_THINKING" }, { type: "text", text: json }],
@@ -505,7 +521,9 @@ test("real pi-ai SDK maps four wire protocols against local SSE servers", async 
                 const instance = adapter(provider, model, provider === "openai" || provider === "openai-compatible" ? `${url}/v1` : undefined);
                 const response = await instance.generate(request);
                 assert.equal(readAssistantText(response), json, provider);
-                assert.equal(readNormalizedUsage(response.providerMetadata), undefined);
+                const usage = readNormalizedUsage(response.providerMetadata);
+                assert.ok(usage !== undefined, provider);
+                assert.ok(usage.inputTokens > 0 && usage.outputTokens > 0, provider);
                 const metadata = response.providerMetadata as Record<string, any>;
                 assert.ok(metadata.piUsage.output > 0, provider);
                 assert.equal(metadata.provider, provider);

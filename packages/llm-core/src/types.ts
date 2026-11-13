@@ -209,7 +209,7 @@ export type LLMContentBlock = LLMTextBlock | LLMReasoningBlock | LLMToolCallBloc
  * 原生 OpenAI/Gemini Adapter 在响应携带用量时把归一化 token 计数写入
  * `providerMetadata.usage`（`{ inputTokens, outputTokens, cachedInputTokens? }`），
  * 供应商缺失或核心字段非法时该子对象缺省，不以 0 或估算值代替。
- * pi-ai 不提供计数原始存在性的保证，其数值仅写入 piUsage 诊断字段，usage 始终缺省。
+ * pi-ai 在计数非零且可读取时同样写入该子对象；全零视为未上报，保持缺省。
  *
  * @example
  * ```ts
