@@ -211,6 +211,11 @@ test("corrections use an unambiguous execution unit without crossing stage or me
   assert.equal((split.match(/data-stage-id="stage-1"/g) ?? []).length, 2);
   assert.ok(split.indexOf("A progress message") < split.indexOf('data-item-id="repair"'));
   assert.match(split, /Stage activity continued/);
+  const secondSection = split.indexOf('data-stage-id="stage-1"', split.indexOf('data-stage-id="stage-1"') + 1);
+  const continuedAt = split.indexOf("Stage activity continued", secondSection);
+  assert.ok(secondSection >= 0 && continuedAt > secondSection);
+  assert.ok(split.slice(secondSection, continuedAt).includes("Verify the implementation"),
+    "continued stage sections must repeat the stage title");
   const ambiguous = { ...owned, itemId: "other-stage", group: { ...owned.group, stageId: "stage-2" } };
   const separate = render([stage("run_stage_declared", 1), owned, correction, { ...owned, itemId: "activity:again" }, ambiguous], { running: true });
   assert.ok(separate.indexOf('data-item-id="repair"') > separate.indexOf('data-item-id="activity:action:run-1:action-1"'));

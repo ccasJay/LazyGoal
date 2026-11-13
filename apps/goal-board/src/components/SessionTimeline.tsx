@@ -565,7 +565,8 @@ function renderTimelineEntries(items: readonly SessionTimelineEntry[], options: 
       <TraceIcon>
         {status === "attention" ? <CircleHelp /> : presentation.animate ? <ActivitySnake /> : status === "completed" ? <Check /> : <span className="timeline-fact-dot" />}
       </TraceIcon>
-      <TraceTitle title={title}>{continued ? <><span className="sr-only">{title}: </span>Stage activity continued</> : title}</TraceTitle>
+      <TraceTitle title={title}>{title}</TraceTitle>
+      {continued && <TraceDescription>Stage activity continued</TraceDescription>}
       {activityCount > 0 && <TraceDescription>{activityCount} {activityCount === 1 ? "activity" : "activities"}</TraceDescription>}
       <TraceDescription>{status === "attention" ? "Needs attention" : status === "completed" ? "Accepted" : status === "running" ? "In progress" : status === "rejected" ? "Stage revised" : "Recorded"}</TraceDescription>
       {incomplete && <TraceDescription>Details not fully loaded</TraceDescription>}
