@@ -4,7 +4,7 @@
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
     "path": "packages/web-contracts/src/wire.ts#BrowserControlReceipt,BrowserControlIntentResult,BrowserCreateSessionResult,BrowserSessionInputResult,BrowserGoalPlanModeResult,BrowserModelSelectionResult,BrowserModelSelectionCommit,BrowserModelPreferenceOutcome,BrowserPermissionModeResult,BrowserToolGrantResult,BrowserGoalArchiveResult,BrowserGoalDeleteResult,BrowserActionReviewResult,BrowserSessionInputReceipt,BrowserToolGrantSummary,BrowserActionReview,BrowserActionCapability,BrowserToolGrantExtraFile,BrowserPermissionMode,BrowserGrantScope,BrowserSessionInputStatus,BrowserSessionInputKind,BrowserSessionInputErrorCode,BrowserActionReviewIssue,BrowserActionReviewScope",
-    "sha256": "504ff4a3ae98719267a9fb678c040172dbbd998e927be0f150657408122eaa35"
+    "sha256": "1f488536f3039e5ab7e4c99614583fc7f335d69ce0d8d11221a5f55d71b12425"
   },
   "generator": {
     "name": "ts-json-schema-generator",

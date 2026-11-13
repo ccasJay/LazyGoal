@@ -97,6 +97,11 @@ export class WorkerSocketPathError extends Error {
  * @remarks
  * 默认在 POSIX 上先尝试仅当前用户可访问的 `/tmp/lazygoal-<uid>`，再回退到
  * `os.tmpdir()`；覆盖项用于在不修改 `TMPDIR` 的前提下验证回退、属主与长度行为。
+ *
+ * @example
+ * ```ts
+ * const options: WorkerSocketPathOptions = { privateRoots: ["/tmp/lazygoal-501"], fallbackRoots: ["/tmp"], limit: 103 };
+ * ```
  */
 export interface WorkerSocketPathOptions {
     /** 优先尝试的私有根；必须由期望用户拥有、不是符号链接且仅本人可访问。 */

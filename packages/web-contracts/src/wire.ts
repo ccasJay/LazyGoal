@@ -1233,7 +1233,13 @@ export interface BrowserCreateSessionCommand {
     readonly modelId?: string;
 }
 
-/** 创建 Session 的 wire 结果。 */
+/**
+ * 创建 Session 的 wire 结果。
+ *
+ * @remarks
+ * `execution_unavailable` 表示本机执行通道不可用且可重试，`create_failed` 只用于未分类
+ * 的内部创建失败；两者不互换，其余错误码保持既有含义。
+ */
 export type BrowserCreateSessionResult =
     | {
         readonly ok: true;

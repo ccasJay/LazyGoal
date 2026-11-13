@@ -6,7 +6,7 @@ export const browserCreateSessionResultMetadata = {
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
     "path": "packages/web-contracts/src/wire.ts#BrowserCreateSessionResult,BrowserSessionInputReceipt,BrowserSessionInputKind,BrowserSessionInputStatus",
-    "sha256": "f1b9e40c40f25e084ea299ebe10ba021ff7e95f8db6f90edd2e267a30f513013"
+    "sha256": "ddf5671805af14120a1844471e85b72c3a44fdbe33d4280ff4f1139b5aea9112"
   },
   "generator": {
     "name": "ts-json-schema-generator",

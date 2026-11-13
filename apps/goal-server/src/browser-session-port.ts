@@ -8,9 +8,14 @@ import {
     type SessionMessageQuery,
     type GoalUserAction,
 } from "../../../packages/runtime/src/index";
-import { WorkerScheduler, allocateGoalWorkspace, admitTrigger, type RuntimeComposition } from "./runtime/index";
-import { summarizeTriggerName } from "./runtime/trigger-name";
-import { WorkerExecutionUnavailableError } from "./runtime/worker-execution-error";
+import {
+    WorkerExecutionUnavailableError,
+    WorkerScheduler,
+    allocateGoalWorkspace,
+    admitTrigger,
+    summarizeTriggerName,
+    type RuntimeComposition,
+} from "./runtime/index";
 import type { GoalTriggerContext } from "../../../packages/runtime/src/domain";
 import type { Trigger } from "../../../packages/runtime/src/trigger";
 import {

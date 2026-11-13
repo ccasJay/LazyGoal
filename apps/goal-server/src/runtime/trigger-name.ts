@@ -26,6 +26,11 @@ const SUMMARY_SYSTEM_PROMPT = [
 
 /**
  * 名称摘要的可选边界。
+ *
+ * @example
+ * ```ts
+ * const options: TriggerNameSummaryOptions = { maxOutputTokens: 256, timeoutMs: 1_000 };
+ * ```
  */
 export interface TriggerNameSummaryOptions {
     /** 模型输出预算上限；实际请求不超过内部的摘要上限。 */
