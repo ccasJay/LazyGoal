@@ -385,23 +385,24 @@ export interface RuntimeComposition {
     readonly trajectoryContextAssembler: TrajectoryModelContextAssembler;
     readonly adapter: LLMAdapter;
     /**
-     * 为一次性宿主请求构造指定模型选择对应的 Decide Adapter。
+     * 为一次性纯文本请求构造指定模型选择对应的摘要 Adapter。
      *
      * @remarks
      * 只构造 Adapter，不发布或修改进程级模型绑定；档案身份与动态执行元数据按该选择解析。
-     * 调用方应传入服务端已解析的模型选择，并为 OpenCode Go 请求提供稳定的 `sessionId`。
+     * 返回的 Adapter 用于不携带结构化输出、不携带工具的一次性文本生成，调用方应传入
+     * 服务端已解析的模型选择，并为 OpenCode Go 请求提供稳定的 `sessionId`。
      *
      * @param selection - 经服务端模型目录确认可选的完整模型选择。
-     * @returns 与该选择对应、可独立用于一次性请求的 Decide Adapter。
+     * @returns 与该选择对应、可独立用于一次性纯文本请求的 Adapter。
      * @throws ProviderProfileResolutionError 当选择引用的档案不再可用时抛出。
      * @throws ModelBindingUnavailableError 当选择的 Provider 与其连接配置不一致时抛出。
      * @throws LLMConfigurationError 当动态模型执行元数据不完整或无效时抛出。
      * @example
      * ```ts
-     * const adapter = root.createDecideAdapterForSelection(selection);
+     * const adapter = root.createSummaryAdapterForSelection(selection);
      * ```
      */
-    readonly createDecideAdapterForSelection: (selection: GoalModelSelection) => LLMAdapter;
+    readonly createSummaryAdapterForSelection: (selection: GoalModelSelection) => LLMAdapter;
     readonly profile: AgentProfile;
     readonly profiles: AgentProfileRegistry;
     readonly readFileTool?: ReadFileTool;
@@ -915,9 +916,9 @@ async function assembleRuntimeComposition(
             throw new ModelBindingUnavailableError(selection.provider, expectedProvider);
         }
     };
-    const createDecideAdapterForSelection = (selection: GoalModelSelection): LLMAdapter => {
+    const createSummaryAdapterForSelection = (selection: GoalModelSelection): LLMAdapter => {
         assertModelSelectionProvider(selection);
-        return createStageAdaptersForSelection(selection).decideAdapter;
+        return createStageAdaptersForSelection(selection).thinkAdapter;
     };
     const goalIdGenerator = options.goalIdGenerator ?? randomUUID;
     const runIdGenerator = options.runIdGenerator ?? randomUUID;
@@ -1187,7 +1188,7 @@ async function assembleRuntimeComposition(
         runTrackedOperation,
         modelCatalog,
         modelBinding,
-        createDecideAdapterForSelection,
+        createSummaryAdapterForSelection,
         alignModelBinding: alignGoalModelBinding,
         goalModelSelectionCoordinator,
         defaultModelSelection,

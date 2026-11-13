@@ -62,7 +62,7 @@ Web 手动创建 Goal 在名称摘要模型调用返回空正文、超时或报�
 
 ## 任务
 
-- [ ] //TODO 1. 将名称摘要改为 prompt_only 纯文本 best-effort，加入本地确定性回退与固定等待上限 → R1.1、R1.2、R1.3、R1.4；检查：受控适配器定向单测（空正文／仅 reasoning／围栏／超长／抛错／挂起）与既有身份冲突回归。
+- [x] //TODO 1. 将名称摘要改为 prompt_only 纯文本 best-effort，加入本地确定性回退与固定等待上限 → R1.1、R1.2、R1.3、R1.4；检查：受控适配器定向单测（空正文／仅 reasoning／围栏／超长／抛错／挂起）与既有身份冲突回归。
 - [ ] //TODO 2. 删除 `trigger-name-summary` 契约与生成物，并收敛装配入口为摘要适配器工厂 → R1.1；检查：`npm run contracts:generate` 后 `npm run contracts:generate -- --check` 通过且仓库无残留引用。
 - [ ] //TODO 3. 将 Worker 启动、注册与控制通道失败归类为 `execution_unavailable` 并映射 503 → R2.1；检查：Worker 启动失败定向测试断言错误码与状态码。
 - [ ] //TODO 4. 统一浏览器创建错误码文案并保留可重试草稿 → R2.1、R2.2、R2.3；检查：`npm --prefix apps/goal-board test` 文案映射单测。

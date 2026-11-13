@@ -143,22 +143,22 @@ const inactiveAdapter: LLMAdapter = {
     async generate() { throw new Error("This test does not use Supervisor model decisions"); },
 };
 
-function createRetryingWorkNameAdapter(): { readonly adapter: LLMAdapter; readonly calls: () => number } {
+function createWorkNameAdapter(): { readonly adapter: LLMAdapter; readonly calls: () => number } {
     let calls = 0;
     return {
         adapter: {
-            structuredOutputMode: "strict",
+            structuredOutputMode: "prompt_only",
             async generate(request) {
                 calls += 1;
-                assert.equal(request.structuredOutput?.name, "trigger_name_summary");
-                assert.equal(request.maxOutputTokens, 2048);
-                assert.equal(request.sessionId, calls <= 2 ? "goal-alpha" : "goal-beta");
+                assert.equal(request.structuredOutput, undefined);
+                assert.equal(request.toolChoice, "none");
+                assert.equal(request.maxOutputTokens, 256);
+                assert.equal(request.sessionId, calls === 1 ? "goal-alpha" : "goal-beta");
                 assert.equal(request.messages[1]?.role, "user");
-                const submittedText = calls <= 2 ? "Wait until the user cancels this Goal." : "Wait independently for cancellation.";
+                const submittedText = calls === 1 ? "Wait until the user cancels this Goal." : "Wait independently for cancellation.";
                 assert.equal(request.messages[1]?.content, submittedText);
-                if (calls === 1) throw new Error("Injected name-generation failure");
-                const name = calls === 2 ? "Wait for user cancellation" : "Wait independently for cancellation";
-                return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({ name }) }] };
+                const name = calls === 1 ? "```\nWait for user cancellation\n```" : "\"Wait independently for cancellation\"";
+                return { blocks: [{ index: 0, type: "text", format: "plain", text: name }] };
             },
         },
         calls: () => calls,
@@ -205,7 +205,7 @@ test("真实 Web 入口使用 Trigger 并行启动 Worker、观察状态、拒�
     let root: Awaited<ReturnType<typeof createCompositionRoot>> | undefined;
     let serving: Promise<number> | undefined;
     let triggerStore: TriggerStore | undefined;
-    const nameModel = createRetryingWorkNameAdapter();
+    const nameModel = createWorkNameAdapter();
 
     try {
         root = await createCompositionRoot({
@@ -250,10 +250,6 @@ test("真实 Web 入口使用 Trigger 并行启动 Worker、观察状态、拒�
             intent: "Wait until the user cancels this Goal.",
             modelId: "test-model",
         } as const;
-        const failedName = await request("/api/control", "POST", alphaCommand);
-        assert.equal(failedName.status, 500);
-        assert.deepEqual(failedName.body, { intentId: "work-alpha", status: "rejected", error: "create_failed" });
-        assert.equal(persistedTriggers.read(alphaCommand.inputId), undefined);
         const createAlphaControl = await request("/api/control", "POST", alphaCommand);
         assert.equal(createAlphaControl.status, 202, JSON.stringify(createAlphaControl.body));
         assert.equal(createAlphaControl.body.status, "accepted");
@@ -273,7 +269,7 @@ test("真实 Web 入口使用 Trigger 并行启动 Worker、观察状态、拒�
         });
         assert.equal(repeatedCreateAlpha.status, 409, JSON.stringify(repeatedCreateAlpha.body));
         assert.equal(repeatedCreateAlpha.body.error, "input_conflict");
-        assert.equal(nameModel.calls(), 2);
+        assert.equal(nameModel.calls(), 1);
         const betaCommand = {
             kind: "create_session",
             intentId: "work-beta",
@@ -289,7 +285,7 @@ test("真实 Web 入口使用 Trigger 并行启动 Worker、观察状态、拒�
         const betaWork = persistedTriggers.read(betaCommand.inputId);
         assert.ok(betaWork !== undefined && betaWork.type === "work");
         assert.equal(betaWork.name, "Wait independently for cancellation");
-        assert.equal(nameModel.calls(), 3);
+        assert.equal(nameModel.calls(), 2);
         await withTimeout(modelServer.started, "Both independent Workers did not enter the model", 15_000);
 
         const list = await request("/api/goals", "GET");
