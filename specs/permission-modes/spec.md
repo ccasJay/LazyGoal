@@ -66,22 +66,22 @@ superseded_by: null
 
 ## 任务
 
-- [ ] //TODO 1. 定义三轴 profile 契约与三档预设，替换 `default`／`yolo` 的持久化与读写接口 → R1.1；检查：permission/storage 单元测试与类型检查
-- [ ] //TODO 2. 实现边界判定表与 baseline（工作区树、`.git` 读、`writableRoots`、常规命令）→ R1.2, R1.3；检查：判定矩阵单元测试
-- [ ] //TODO 3. 退役逐 Action 上限硬拒绝，改为决策期读取当前 profile → R1.2；检查：runtime 回归测试与契约生成
-- [ ] //TODO 4. 实现 user 审阅的越界暂存、批准单次执行与拒绝回灌 → R2.1；检查：runtime 集成测试
-- [ ] //TODO 5. 实现 auto_review 确定性规则表与裁决事实记录 → R2.2；检查：runtime 测试
-- [ ] //TODO 6. 实现 never 直接拒绝与 danger-full-access 放行（保留 `.lazygoal` 拒绝）→ R2.3, R2.4；检查：runtime 与真实 Seatbelt 测试
-- [ ] //TODO 7. 暂存决定绑定 revision 与真实范围，恢复执行不重算 → R3.1；检查：恢复测试
-- [ ] //TODO 8. profile 损坏与读取失败失败关闭 → R3.2；检查：storage 测试
-- [ ] //TODO 9. 无人工宿主退化为 auto_review，退役 Worker 模型代审 → R4.1；检查：Worker 权限往返测试
-- [ ] //TODO 10. 生成 read-only 与 danger-full-access 的 Seatbelt 策略并报告平台强制能力 → R4.2；检查：策略快照与能力探测单元测试
+- [x] //TODO 1. 定义三轴 profile 契约与三档预设，替换 `default`／`yolo` 的持久化与读写接口 → R1.1；检查：permission/storage 单元测试与类型检查
+- [x] //TODO 2. 实现边界判定表与 baseline（工作区树、`.git` 读、`writableRoots`、常规命令）→ R1.2, R1.3；检查：判定矩阵单元测试
+- [x] //TODO 3. 退役逐 Action 上限硬拒绝，改为决策期读取当前 profile → R1.2；检查：runtime 回归测试与契约生成
+- [x] //TODO 4. 实现 user 审阅的越界暂存、批准单次执行与拒绝回灌 → R2.1；检查：runtime 集成测试
+- [x] //TODO 5. 实现 auto_review 确定性规则表与裁决事实记录 → R2.2；检查：runtime 测试
+- [x] //TODO 6. 实现 never 直接拒绝与 danger-full-access 放行（保留 `.lazygoal` 拒绝）→ R2.3, R2.4；检查：runtime 与真实 Seatbelt 测试
+- [x] //TODO 7. 暂存决定绑定 revision 与真实范围，恢复执行不重算 → R3.1；检查：恢复测试
+- [x] //TODO 8. profile 损坏与读取失败失败关闭 → R3.2；检查：storage 测试
+- [x] //TODO 9. 无人工宿主退化为 auto_review，退役 Worker 模型代审 → R4.1；检查：Worker 权限往返测试
+- [x] //TODO 10. 生成 read-only 与 danger-full-access 的 Seatbelt 策略并报告平台强制能力 → R4.2；检查：策略快照与能力探测单元测试
 - [ ] //TODO 11. 退役 Tool 级审批与 Tool Grant，权限入口收敛为三档加边界豁免 → R5.1；检查：goal-board 组件测试与类型检查
-- [ ] //TODO 12. 更新 permission、sandbox、runtime、goal-server、goal-board 的 overview 与语义表 → R1.1, R5.1；检查：`npm run check:docs`
+- [x] //TODO 12. 更新 permission、sandbox、runtime、goal-server、goal-board 的 overview 与语义表 → R1.1, R5.1；检查：`npm run check:docs`
 
 ## 执行记录
 
-- 状态：未执行
-- 验证：-
-- 结果：-
-- 未决：无
+- 状态：blocked
+- 验证：提交 `41fbf332`（未推送），验证时间 2026-11-13；`npx tsc --noEmit`、`node scripts/generate-contracts.mjs --check`、`npm run check:docs`、`npm run check:dependencies` 通过；`TMPDIR=/tmp/lgtest npm test` 3030/3030 与 99/99 通过。
+- 结果：R1.1–R5.1 均覆盖；新增权限档位、边界判定、三档 Seatbelt 策略、档位选择器与边界豁免面板，Goal 冻结上限字段与 Tool 级审批授权已退役。
+- 未决：任务 11 的 Tool Grant 账本删除（storage 存储、Coordinator 列表/撤销 API）尚未完成；其授权效果与界面入口已不存在，删除前保留为无消费者残余。
