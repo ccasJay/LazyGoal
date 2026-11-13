@@ -185,7 +185,7 @@ test("POST /api/goals reports busy for another Goal and unavailable without a se
     const missing = await unavailable.request("/api/goals/goal-b/inputs", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ kind: "message", inputId: "input-b", content: "消息" }),
+        body: JSON.stringify({ kind: "message", inputId: "input-b", content: "消息", runId: "run-a" }),
     });
     assert.equal(missing.status, 503);
     assert.equal(((await missing.json()) as { error: string }).error, "session_unavailable");
@@ -202,7 +202,7 @@ test("POST inputs admits messages, deduplicates identity and rejects conflicting
     // 首个 Run 仍然阻塞时受理后续消息：只等待持久化，不等待执行。
     await waitUntil(() => harness.decideCalls() === 1);
 
-    const accepted = await postInputs(api, "goal-inputs", { kind: "message", inputId: "input-2", content: "第二条" });
+    const accepted = await postInputs(api, "goal-inputs", { kind: "message", inputId: "input-2", content: "第二条", runId: "run-a" });
     assert.equal(accepted.status, 202);
     const acceptedBody = await accepted.json() as { ok: boolean; existing: boolean; receipt: { inputId: string; status: string; sequence: number } };
     assert.equal(acceptedBody.ok, true);
@@ -210,13 +210,13 @@ test("POST inputs admits messages, deduplicates identity and rejects conflicting
     assert.equal(acceptedBody.receipt.inputId, "input-2");
     assert.equal(acceptedBody.receipt.status, "pending");
 
-    const duplicate = await postInputs(api, "goal-inputs", { kind: "message", inputId: "input-2", content: "第二条" });
+    const duplicate = await postInputs(api, "goal-inputs", { kind: "message", inputId: "input-2", content: "第二条", runId: "run-a" });
     assert.equal(duplicate.status, 200);
     const duplicateBody = await duplicate.json() as { existing: boolean; receipt: { sequence: number } };
     assert.equal(duplicateBody.existing, true);
     assert.equal(duplicateBody.receipt.sequence, acceptedBody.receipt.sequence);
 
-    const conflict = await postInputs(api, "goal-inputs", { kind: "message", inputId: "input-2", content: "改写正文" });
+    const conflict = await postInputs(api, "goal-inputs", { kind: "message", inputId: "input-2", content: "改写正文", runId: "run-a" });
     assert.equal(conflict.status, 409);
     assert.equal(((await conflict.json()) as { error: string }).error, "INPUT_CONFLICT");
 
@@ -252,11 +252,11 @@ test("POST inputs validates strict union shapes and text limits", async () => {
         assert.equal(((await response.json()) as { error: string }).error, "INVALID_INPUT");
     }
 
-    const oversized = await postInputs(api, "goal-shape", { kind: "message", inputId: "input-big", content: "x".repeat(64_001) });
+    const oversized = await postInputs(api, "goal-shape", { kind: "message", inputId: "input-big", content: "x".repeat(64_001), runId: "run-a" });
     assert.equal(oversized.status, 413);
     assert.equal(((await oversized.json()) as { error: string }).error, "TEXT_TOO_LARGE");
 
-    const invalidGoal = await postInputs(api, "bad id", { kind: "message", inputId: "input-y", content: "正文" });
+    const invalidGoal = await postInputs(api, "bad id", { kind: "message", inputId: "input-y", content: "正文", runId: "run-a" });
     assert.equal(invalidGoal.status, 400);
     await harness.sessions.close();
 });
@@ -288,7 +288,7 @@ test("POST inputs rejects control commands with the runtime rejection codes and 
     assert.equal(mismatch.status, 409);
     assert.equal(((await mismatch.json()) as { error: string }).error, "INTERACTION_MISMATCH");
 
-    const missingGoal = await postInputs(api, "goal-absent", { kind: "message", inputId: "input-missing", content: "消息" });
+    const missingGoal = await postInputs(api, "goal-absent", { kind: "message", inputId: "input-missing", content: "消息", runId: "run-a" });
     assert.equal(missingGoal.status, 404);
     assert.equal(((await missingGoal.json()) as { error: string }).error, "GOAL_NOT_FOUND");
     await harness.sessions.close();
@@ -332,7 +332,7 @@ test("POST inputs applies queue control for continue and clear with revision che
     const api = createApi(harness);
     await harness.sessions.create({ goalId: "goal-queue", inputId: "input-first", content: "任务", profileId: "default" });
     await waitUntil(() => harness.decideCalls() === 1);
-    const queued = await postInputs(api, "goal-queue", { kind: "message", inputId: "input-2", content: "排队消息" });
+    const queued = await postInputs(api, "goal-queue", { kind: "message", inputId: "input-2", content: "排队消息", runId: "run-a" });
     assert.equal(queued.status, 202);
     const beforeClear = await waitForState(api, "goal-queue", (candidate) => candidate.pendingMessageCount === 1);
 
@@ -446,7 +446,7 @@ test("GET /api/goals/:goalId/events streams Goal-scoped state sync before input 
     assert.equal(JSON.parse(firstEvent.split("data: ")[1]!.split("\n")[0]!).type, "state_sync");
 
     // 后继 Run 与受理结果共用同一个 Goal 范围订阅。
-    await postInputs(api, "goal-events", { kind: "message", inputId: "input-2", content: "第二条" });
+    await postInputs(api, "goal-events", { kind: "message", inputId: "input-2", content: "第二条", runId: "run-a" });
     await readUntil((value) => value.includes("input_result"));
     assert.equal(text.includes("\"inputId\":\"input-2\""), true);
     assert.equal(text.includes("assistant_text_delta") || true, true);
@@ -489,7 +489,7 @@ test("shutting down refuses new writes without touching the store", async () => 
     assert.equal(created.status, 503);
     assert.equal(((await created.json()) as { error: string }).error, "service_shutting_down");
 
-    const submitted = await postInputs(api, "goal-closed", { kind: "message", inputId: "input-2", content: "消息" });
+    const submitted = await postInputs(api, "goal-closed", { kind: "message", inputId: "input-2", content: "消息", runId: "run-a" });
     assert.equal(submitted.status, 503);
     assert.equal(((await submitted.json()) as { error: string }).error, "session_unavailable");
     assert.equal(await harness.store.restore("goal-closed"), undefined);
@@ -502,7 +502,7 @@ test("receipts live in the persistent snapshot so a rebuilt session still answer
     const api = createApi(harness);
     await harness.sessions.create({ goalId: "goal-persist", inputId: "input-first", content: "任务", profileId: "default" });
     await waitUntil(() => harness.decideCalls() === 1);
-    await postInputs(api, "goal-persist", { kind: "message", inputId: "input-2", content: "持久消息" });
+    await postInputs(api, "goal-persist", { kind: "message", inputId: "input-2", content: "持久消息", runId: "run-a" });
     const persisted = await waitForState(api, "goal-persist", (candidate) => candidate.pendingMessageCount === 1);
     assert.equal(persisted.queuePaused, false);
 
@@ -559,9 +559,9 @@ test("统一输入 parser 剥离未知字段并保留关系检查", async () => 
         body: JSON.stringify(body),
     });
 
-    const unknownField = await post({ kind: "message", inputId: "input-1", content: "hello", extra: true });
+    const unknownField = await post({ kind: "message", inputId: "input-1", content: "hello", runId: "run-a", extra: true });
     assert.equal(unknownField.status, 202);
-    assert.deepEqual(submitted.at(-1), { kind: "message", inputId: "input-1", content: "hello" });
+    assert.deepEqual(submitted.at(-1), { kind: "message", inputId: "input-1", content: "hello", runId: "run-a" });
 
     const withoutScope = await post({
         kind: "respond", inputId: "input-1", runId: "run-1", requestId: "act-1",
@@ -611,7 +611,7 @@ test("统一输入 parser 剥离未知字段并保留关系检查", async () => 
     });
     assert.equal(blankResume.status, 400);
 
-    const body = { kind: "message", inputId: "input-1", content: "stable" };
+    const body = { kind: "message", inputId: "input-1", content: "stable", runId: "run-a" };
     const first = await post(body);
     const second = await post(body);
     assert.equal(first.status, 202);

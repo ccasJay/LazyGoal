@@ -241,6 +241,37 @@ export function useRunCommands({
     await onRefreshSession();
   }, [session, sessionState?.commitRevision, commandBusy, submitInput, onRefreshSession, setCommandError]);
 
+  /**
+   * 向已结算终态的手动 Goal 提交一条普通消息。
+   *
+   * @remarks 提交绑定当前终态 Run 身份；结果不明时保留原身份供按 `inputId` 核验，
+   * 不生成第二个 Run。非手动来源或未结算 Goal 由后端拒绝。
+   */
+  const submitContinuation = useCallback(async (content: string): Promise<boolean> => {
+    if (!session || commandBusy) return false;
+    if (!session.continuation?.available) return false;
+    const text = content.trim();
+    if (text.length === 0) return false;
+    setCommandError(null);
+    const receipt = await submitInput(session.goalId, {
+      kind: "message",
+      inputId: crypto.randomUUID(),
+      runId: session.currentRunId,
+      content: text,
+    });
+    if (receipt.status === "rejected") {
+      setCommandError(receipt.error);
+      if (receipt.refresh === true) await onRefreshSession();
+      return false;
+    }
+    if (receipt.status === "unknown") {
+      setCommandError("The message result is unknown. Verify it with the same identity before retrying.");
+      return false;
+    }
+    await onRefreshSession();
+    return true;
+  }, [session, commandBusy, submitInput, onRefreshSession, setCommandError]);
+
   return {
     commandBusy,
     commandError,
@@ -250,8 +281,8 @@ export function useRunCommands({
     submitDraftMessage,
     interruptCurrentRun,
     submitResume,
-    onInterrupt: interruptCurrentRun,
     onSubmitResume: submitResume,
+    onSubmitContinuation: submitContinuation,
     verifyIntent,
     retryIntent,
     discardIntent,

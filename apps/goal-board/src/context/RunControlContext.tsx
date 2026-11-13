@@ -28,6 +28,8 @@ export interface RunControlContextValue {
   readonly onInterrupt: () => Promise<void>;
   /** 恢复快照可能重复外部副作用时，要求调用者明确传入确认。 */
   readonly onSubmitResume: (acknowledgeUnknownEffects?: boolean) => Promise<void>;
+  /** 向已结算终态的手动 Goal 提交普通消息；返回是否已持久受理。 */
+  readonly onSubmitContinuation: (content: string) => Promise<boolean>;
   /** 按原身份核验收据；不改写为新的提交。 */
   readonly onVerifyIntent: (intentId: string) => Promise<void>;
   /** 以原身份重试；不生成新身份。 */

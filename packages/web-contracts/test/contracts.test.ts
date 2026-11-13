@@ -136,10 +136,14 @@ test("session input union strips branch extras and keeps discriminator", () => {
         kind: "message",
         inputId: "input-1",
         content: "hello",
+        runId: "run-1",
         debug: "private",
     }, "strip");
     assert.equal(message.ok, true);
-    if (message.ok) assert.equal("debug" in message.data, false);
+    if (message.ok) {
+        assert.equal("debug" in message.data, false);
+        assert.equal(message.data.kind, "message");
+    }
 
     const steer = browserSessionInputCommandBinding.read({
         kind: "steer",
@@ -158,10 +162,11 @@ test("session input union strips branch extras and keeps discriminator", () => {
         inputId: "input-1",
         content: "hello",
         runId: "run-1",
+        queueBinding: { messageId: "msg-1", queueRevision: 0 },
     }, "strip");
     assert.equal(crossBranch.ok, true);
     if (crossBranch.ok) {
-        assert.equal("runId" in crossBranch.data, false);
+        assert.equal("queueBinding" in crossBranch.data, false);
         assert.deepEqual(crossBranch.diagnostic?.paths, ["/*"]);
     }
 });

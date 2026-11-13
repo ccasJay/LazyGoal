@@ -276,6 +276,7 @@ export function useGoalBoardApp() {
     onSubmitDraftMessage: commandsManager.submitDraftMessage,
     onInterrupt: commandsManager.interruptCurrentRun,
     onSubmitResume: commandsManager.submitResume,
+    onSubmitContinuation: commandsManager.onSubmitContinuation,
     onVerifyIntent: commandsManager.verifyIntent,
     onRetryIntent: commandsManager.retryIntent,
     onDiscardIntent: commandsManager.discardIntent,

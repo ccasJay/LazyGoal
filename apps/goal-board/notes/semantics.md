@@ -50,7 +50,8 @@
 | GoalSessionContext | 局部持有 Goal 窄状态、固定 Activity 页、按需完整会话及视图状态。 | [Goal Board](../README.md) | [上下文契约](../src/context/GoalSessionContext.tsx) |
 | RunControlContext | 隔离支持的命令分发、控制意图状态与原子单飞防重锁；不持有普通消息队列。 | [Goal Board](../README.md) | [模块说明](./overview.md) |
 | New Goal 草稿 | 仅保存在页面状态的未提交首个意图；提交结果不明时保留原身份，受理成功后由服务端 Goal 与 Trigger 收据接管。 | [Goal Board](../README.md) | [MessageComposer](../src/components/MessageComposer.tsx) |
-| 新 Goal 输入 | 输入框只创建 Goal 并提交首个意图；已有 Goal 不提供普通续聊、Steer 或队列操作。 | [Goal Board](../README.md) | [输入区](../src/components/MessageComposer.tsx)、[会话视图](../src/components/GoalSession.tsx) |
+| 新 Goal 输入 | 输入框只创建 Goal 并提交首个意图；Steer 与队列操作仍不提供。 | [Goal Board](../README.md) | [输入区](../src/components/MessageComposer.tsx)、[会话视图](../src/components/GoalSession.tsx) |
+| 终态续接输入 | 仅在宿主投影 `continuation.available` 时出现在 Activity：手动创建、当前 Run 已结算终态且连接已确认。提交绑定该终态 Run；结果不明按原 `inputId` 核验，不自动重发；非手动来源或运行中的 Goal 不显示输入框。 | [Goal Board](../README.md) | [输入区](../src/components/MessageComposer.tsx)、[会话视图](../src/components/GoalSession.tsx) |
 | Worker 状态与恢复 | 已运行 Goal 显示所属 Worker；只有 Supervisor 明确记录的待恢复 Worker 退出可继续，恢复运行中检查点要求承认未知外部效果。 | [Goal Board](../README.md) | [会话视图](../src/components/GoalSession.tsx)、[Trigger 浏览器端口](../../goal-server/src/browser-session-port.ts) |
 | 会话渐进加载 | 固定水位 Activity 页支持更早与更新方向翻页；打开时自动预取更早页至 300 项预算，超出后滚动到顶部续取；最多缓存 3 页，阅读锚点按可见项稳定身份及项内偏移恢复。 | [Goal Board](../README.md) | [Activity 窗口](../src/activity-page-window.ts)、[SessionTimeline](../src/components/SessionTimeline.tsx) |
 | 会话输出消费 | 页面消费同一条 Goal SSE：保存不明的候选保持待核验；正式 Activity 以同一展示 key 替换候选；确定作废后立即移除临时正文并保留有限身份标记以忽略迟到片段。 | [Goal Board](../README.md) | [会话输出归约](../src/session-output-consumer.ts) |

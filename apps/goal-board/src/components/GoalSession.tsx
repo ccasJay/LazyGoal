@@ -129,6 +129,7 @@ export function GoalSession({
     setCommandError,
     stoppingRunId,
     onSubmitDraftMessage,
+    onSubmitContinuation,
     onInterrupt,
     onSubmitResume,
     onVerifyIntent,
@@ -143,7 +144,7 @@ export function GoalSession({
     connected: streamConnected,
     stale: stateStale,
     sessionUnreadable: sessionError !== null,
-    canSendText: false,
+    canSendText: session?.continuation?.available === true,
     stopping: session !== null && stoppingRunId === session.currentRunId,
   });
   const unverifiedActions = selectUnverifiedWorkbenchActions(control.state.intents);
@@ -159,6 +160,7 @@ export function GoalSession({
   const [draftNoticeDismissed, setDraftNoticeDismissed] = useState(false);
   const [decisionSummaries, setDecisionSummaries] = useState<readonly AcceptedDecisionSummary[]>([]);
   const [confirmUnknownEffects, setConfirmUnknownEffects] = useState(false);
+  const [continuationText, setContinuationText] = useState("");
 
   const projectionGoalKey = session?.goalId ?? null;
   useEffect(() => {
@@ -169,6 +171,7 @@ export function GoalSession({
   useEffect(() => {
     setDecisionSummaries([]);
     setConfirmUnknownEffects(false);
+    setContinuationText("");
   }, [projectionGoalKey]);
 
   useEffect(() => () => {
@@ -653,6 +656,20 @@ export function GoalSession({
                 && session.pendingAction?.status === "approved" && (
                   <div className="composer-note">The approved action is being recorded.</div>
                 )}
+              {session.continuation?.available === true && (
+                <MessageComposer
+                  key={`continuation-${session.currentRunId}`}
+                  busy={commandBusy || !workbench.send_message.available}
+                  placeholder="Continue this Goal with another message…"
+                  textareaLabel="Continue this Goal"
+                  showHint={false}
+                  draftValue={continuationText}
+                  onDraftChange={setContinuationText}
+                  submitLabels={{ idle: "Send message", busy: "Sending message", empty: "Type a message to send" }}
+                  footerControls={<CurrentModelControl label={currentModelName} enabled={false} onClick={() => undefined} />}
+                  onSubmit={onSubmitContinuation}
+                />
+              )}
               <SessionMetricsBar state={metricsByGoal[session.goalId]} runStatus={session.runStatus} />
               <AlertDialog open={confirmUnknownEffects} onOpenChange={setConfirmUnknownEffects}>
                 <AlertDialogContent>

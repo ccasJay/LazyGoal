@@ -328,6 +328,9 @@ function sessionStateEnvelope(
       runStatus: goal.runStatus,
       currentRunMode: goal.currentRunMode,
       currentRunStepCount: goal.runs[goal.runs.length - 1]?.stepCount ?? 0,
+      continuation: goal.runStatus === "completed"
+        ? { available: true }
+        : { available: false, reason: "run_not_terminal" as const },
       history: {
         messages: { included: false, source: "activity" },
         steps: { included: false, source: "activity" },

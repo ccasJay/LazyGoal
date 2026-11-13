@@ -55,7 +55,7 @@ Supervisor 自主准入并派发的 Goal 不接收 Web 普通续聊，仍可在�
 
 - [x] //TODO 1. 持久化手动创建来源并接入重启后的准入判断 → R1.1、R1.2；检查：来源、恢复与越权的定向测试。
 - [x] //TODO 2. 接通 Web 终态消息与各授权来源的续接指令的授权、持久受理和后继 Run 调度 → R2.2、R2.3、R2.4、R2.5、R3.1；检查：续接契约生成、真实 Worker、授权拒绝、并发与故障恢复测试。
-- [ ] //TODO 3. 恢复手动 Goal 的终态输入框和原身份核验，对齐 Session fixture 的命令与收据，补齐失败续接及来源限制场景，并更新所属模块契约说明 → R1.2、R2.1、R3.1；检查：Goal Board 编译、`npm run check:ui-harness` 与 Activity 定向流程。
+- [x] //TODO 3. 恢复手动 Goal 的终态输入框和原身份核验，对齐 Session fixture 的命令与收据，补齐失败续接及来源限制场景，并更新所属模块契约说明 → R1.2、R2.1、R3.1；检查：Goal Board 编译、`npm run check:ui-harness` 与 Activity 定向流程。
 
 ## 执行记录
 

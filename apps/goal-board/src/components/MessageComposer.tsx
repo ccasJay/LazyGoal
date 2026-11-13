@@ -41,9 +41,10 @@ export function CurrentModelControl({
 }
 
 /**
- * 新 Goal 首次提交意图的输入框。
+ * 文本输入框，用于新 Goal 首个意图或手动 Goal 的终态续接。
  *
- * @remarks 成功提交后仅清理与本次提交一致的草稿；此组件不接收已有 Goal 的消息或 Run 控制。
+ * @remarks 成功提交后仅清理与本次提交一致的草稿；是否允许提交由调用方按后端续接资格
+ * 与连接状态决定，本组件不自行推断来源或结算状态。
  */
 export function MessageComposer({
   busy,
@@ -57,6 +58,7 @@ export function MessageComposer({
   showHint = true,
   draftValue,
   onDraftChange,
+  submitLabels,
 }: {
   busy: boolean;
   sendDisabled?: boolean;
@@ -69,6 +71,7 @@ export function MessageComposer({
   showHint?: boolean;
   draftValue: string;
   onDraftChange: React.Dispatch<React.SetStateAction<string>>;
+  submitLabels?: { readonly idle: string; readonly busy: string; readonly empty?: string };
 }) {
   const [selectedCommand, setSelectedCommand] = useState(0);
   const [commandMenuClosed, setCommandMenuClosed] = useState(false);
@@ -76,6 +79,9 @@ export function MessageComposer({
   const candidates = inspection.kind === "candidates" && !commandMenuClosed ? inspection.candidates : [];
   const activeCandidate = candidates[Math.min(selectedCommand, candidates.length - 1)];
   const hasDraft = draftValue.trim().length > 0;
+  const submitLabel = busy
+    ? (submitLabels?.busy ?? "Submitting Goal")
+    : hasDraft ? (submitLabels?.idle ?? "Start Goal") : (submitLabels?.empty ?? submitLabels?.idle ?? "Start Goal");
 
   async function submit(content = draftValue) {
     if (busy || !content.trim()) return;
@@ -165,8 +171,8 @@ export function MessageComposer({
               <Button variant="ghost" size="sm"
                 type="submit"
                 className="send"
-                aria-label={busy ? "Submitting Goal" : "Start Goal"}
-                title={busy ? "Submitting this Goal" : "Start Goal"}
+                aria-label={submitLabel}
+                title={submitLabel}
                 disabled={busy || sendDisabled || !hasDraft}
               >
                 {busy ? <span className="loading-mark small" /> : <ArrowUp size={16} />}

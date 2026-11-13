@@ -69,7 +69,7 @@ test("session input intent must reuse its input identity", async () => {
         kind: "session_input",
         intentId: "intent-input-1",
         goalId: "goal-1",
-        input: { kind: "message", inputId: "input-1", content: "continue" },
+        input: { kind: "message", inputId: "input-1", content: "continue", runId: "run-1" },
     });
 
     assert.equal(response.status, 400);
