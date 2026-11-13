@@ -66,7 +66,7 @@ Web 手动创建 Goal 在名称摘要模型调用返回空正文、超时或报�
 - [x] //TODO 2. 删除 `trigger-name-summary` 契约与生成物，并收敛装配入口为摘要适配器工厂 → R1.1；检查：`npm run contracts:generate` 后 `npm run contracts:generate -- --check` 通过且仓库无残留引用。
 - [ ] //TODO 3. 将 Worker 启动、注册与控制通道失败归类为 `execution_unavailable` 并映射 503 → R2.1；检查：Worker 启动失败定向测试断言错误码与状态码。
 - [ ] //TODO 4. 统一浏览器创建错误码文案并保留可重试草稿 → R2.1、R2.2、R2.3；检查：`npm --prefix apps/goal-board test` 文案映射单测。
-- [ ] //TODO 5. 加固 Worker socket 路径解析：短私有根、平台长度校验、属主与权限校验、回退顺序 → R3.1、R3.2、R3.3；检查：registry 定向测试（超长根、不可用根、权限位）。
+- [x] //TODO 5. 加固 Worker socket 路径解析：短私有根、平台长度校验、属主与权限校验、回退顺序 → R3.1、R3.2、R3.3；检查：registry 定向测试（超长根、不可用根、权限位）。
 - [ ] //TODO 6. 同步更新 goal-server 与 model-contracts 的 overview／semantics 及公开 TSDoc → R1.1、R2.1、R3.1；检查：`npm run check:docs`。
 
 ## 执行记录
