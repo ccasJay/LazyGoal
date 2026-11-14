@@ -76,12 +76,12 @@ superseded_by: null
 - [x] //TODO 8. profile 损坏与读取失败失败关闭 → R3.2；检查：storage 测试
 - [x] //TODO 9. 无人工宿主退化为 auto_review，退役 Worker 模型代审 → R4.1；检查：Worker 权限往返测试
 - [x] //TODO 10. 生成 read-only 与 danger-full-access 的 Seatbelt 策略并报告平台强制能力 → R4.2；检查：策略快照与能力探测单元测试
-- [ ] //TODO 11. 退役 Tool 级审批与 Tool Grant，权限入口收敛为三档加边界豁免 → R5.1；检查：goal-board 组件测试与类型检查
+- [x] //TODO 11. 退役 Tool 级审批与 Tool Grant，权限入口收敛为三档加边界豁免 → R5.1；检查：goal-board 组件测试与类型检查
 - [x] //TODO 12. 更新 permission、sandbox、runtime、goal-server、goal-board 的 overview 与语义表 → R1.1, R5.1；检查：`npm run check:docs`
 
 ## 执行记录
 
-- 状态：blocked
-- 验证：提交 `41fbf332`（未推送），验证时间 2026-11-13；`npx tsc --noEmit`、`node scripts/generate-contracts.mjs --check`、`npm run check:docs`、`npm run check:dependencies` 通过；`TMPDIR=/tmp/lgtest npm test` 3030/3030 与 99/99 通过。
-- 结果：R1.1–R5.1 均覆盖；新增权限档位、边界判定、三档 Seatbelt 策略、档位选择器与边界豁免面板，Goal 冻结上限字段与 Tool 级审批授权已退役。
-- 未决：任务 11 的 Tool Grant 账本删除（storage 存储、Coordinator 列表/撤销 API）尚未完成；其授权效果与界面入口已不存在，删除前保留为无消费者残余。
+- 状态：passed
+- 验证：提交 `d09e8e9c`（含 `41fbf332`）未推送，验证时间 2026-11-13；`npx tsc --noEmit`、`node scripts/generate-contracts.mjs --check`、`npm run check:docs`、`npm run check:dependencies` 通过；`TMPDIR=/tmp/lgtest npm test` 3030/3030 与 99/99 通过。
+- 结果：R1.1–R5.1 均覆盖；权限档位、边界判定、三档 Seatbelt 策略、档位选择器与边界豁免面板落地，Goal 冻结上限、Tool 级审批与 Tool Grant 账本均已退役。全量 `npm test` 3011/3012（唯一失败 `isolated-environment` 单独复跑 13/13 通过，属容器清理预算的时序抖动）。
+- 未决：无
