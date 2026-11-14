@@ -12,11 +12,12 @@ var require_SessionMetricsSnapshot_validator = __commonJS({
   "SessionMetricsSnapshot-validator.cjs"(exports, module) {
     module.exports = validate10;
     module.exports.default = validate10;
-    var schema12 = { "type": "object", "properties": { "stepCount": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "reportedCalls": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "missingCalls": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "inputTokens": { "type": ["number", "null"] }, "outputTokens": { "type": ["number", "null"] }, "coverage": { "$ref": "#/definitions/MetricsCoverage" }, "cacheMeasuredCalls": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "cacheExcludedCalls": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "cacheHitRate": { "type": ["number", "null"] }, "throughputMeasuredCalls": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "throughputExcludedCalls": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "tokensPerSecond": { "type": ["number", "null"] }, "goalId": { "type": "string", "pattern": "\\S" }, "roundCount": { "type": "integer", "maximum": 9007199254740991 }, "contextRemainingPercent": { "type": ["number", "null"] }, "runs": { "type": "array", "items": { "$ref": "#/definitions/RunSessionMetrics" } } }, "required": ["cacheExcludedCalls", "cacheHitRate", "cacheMeasuredCalls", "coverage", "goalId", "inputTokens", "missingCalls", "outputTokens", "reportedCalls", "roundCount", "runs", "stepCount", "throughputExcludedCalls", "throughputMeasuredCalls", "tokensPerSecond"], "additionalProperties": false, "description": "\u6574\u4E2A Goal \u4F1A\u8BDD\u7684\u6A21\u578B\u6307\u6807\u805A\u5408\u5FEB\u7167\u3002" };
+    var schema12 = { "type": "object", "properties": { "stepCount": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "reportedCalls": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "missingCalls": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "inputTokens": { "type": ["number", "null"] }, "outputTokens": { "type": ["number", "null"] }, "coverage": { "$ref": "#/definitions/MetricsCoverage" }, "cacheMeasuredCalls": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "cacheExcludedCalls": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "cacheHitRate": { "type": ["number", "null"] }, "throughputMeasuredCalls": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "throughputExcludedCalls": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "tokensPerSecond": { "type": ["number", "null"] }, "goalId": { "type": "string", "pattern": "\\S" }, "roundCount": { "type": "integer", "maximum": 9007199254740991 }, "contextUsage": { "anyOf": [{ "$ref": "#/definitions/SessionMetricsContextUsage" }, { "type": "null" }], "description": "\u5F53\u524D\u5DE5\u4F5C\u7A97\u53E3\u5360\u7528\uFF1B\u5BB9\u91CF\u6216\u5360\u7528\u4E0D\u53EF\u7528\u65F6\u7701\u7565\u4E3A `null`\u3002" }, "runs": { "type": "array", "items": { "$ref": "#/definitions/RunSessionMetrics" } } }, "required": ["cacheExcludedCalls", "cacheHitRate", "cacheMeasuredCalls", "coverage", "goalId", "inputTokens", "missingCalls", "outputTokens", "reportedCalls", "roundCount", "runs", "stepCount", "throughputExcludedCalls", "throughputMeasuredCalls", "tokensPerSecond"], "additionalProperties": false };
     var schema13 = { "type": "string", "enum": ["complete", "partial", "unavailable"], "description": "\u6307\u6807\u8986\u76D6\u5EA6\u5206\u7C7B\u3002" };
+    var schema14 = { "type": "object", "properties": { "usedPercent": { "type": "number", "description": "\u5DF2\u7528\u6BD4\u4F8B\uFF080\u20131\uFF09\uFF1B\u8D85\u8FC7\u5BB9\u91CF\u65F6\u622A\u65AD\u4E3A 1\u3002" }, "capacityTokens": { "type": "number", "description": "\u5BB9\u91CF\u57FA\u6570\uFF08Token\uFF09\uFF1B\u5FC5\u987B\u4E3A\u6B63\u7684\u5B89\u5168\u6574\u6570\u3002" }, "source": { "type": "string", "enum": ["model", "configured"], "description": "\u5BB9\u91CF\u57FA\u6570\u6765\u6E90\uFF1A\u6A21\u578B\u6807\u79F0\u7A97\u53E3\u6216\u7528\u6237\u914D\u7F6E\u3002" }, "estimated": { "type": "boolean", "description": "\u5360\u7528\u662F\u5426\u6765\u81EA\u672C\u5730\u4F30\u7B97\u800C\u4E0D\u662F\u4F9B\u5E94\u5546\u4E0A\u62A5\u3002" } }, "required": ["usedPercent", "capacityTokens", "source", "estimated"], "additionalProperties": false, "description": "\u5F53\u524D\u5DE5\u4F5C\u7A97\u53E3\u7684\u5360\u7528\u7ED3\u7B97\u3002" };
     var func2 = Object.prototype.hasOwnProperty;
     var pattern0 = new RegExp("\\S", "u");
-    var schema14 = { "type": "object", "properties": { "stepCount": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "reportedCalls": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "missingCalls": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "inputTokens": { "type": ["number", "null"] }, "outputTokens": { "type": ["number", "null"] }, "coverage": { "$ref": "#/definitions/MetricsCoverage" }, "cacheMeasuredCalls": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "cacheExcludedCalls": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "cacheHitRate": { "type": ["number", "null"] }, "throughputMeasuredCalls": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "throughputExcludedCalls": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "tokensPerSecond": { "type": ["number", "null"] }, "runId": { "type": "string", "pattern": "\\S" } }, "required": ["cacheExcludedCalls", "cacheHitRate", "cacheMeasuredCalls", "coverage", "inputTokens", "missingCalls", "outputTokens", "reportedCalls", "runId", "stepCount", "throughputExcludedCalls", "throughputMeasuredCalls", "tokensPerSecond"], "additionalProperties": false, "description": "\u5355\u4E2A Run \u7684\u6A21\u578B\u7528\u91CF\u4E0E\u6B65\u6570\u7EDF\u8BA1\u3002" };
+    var schema15 = { "type": "object", "properties": { "stepCount": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "reportedCalls": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "missingCalls": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "inputTokens": { "type": ["number", "null"] }, "outputTokens": { "type": ["number", "null"] }, "coverage": { "$ref": "#/definitions/MetricsCoverage" }, "cacheMeasuredCalls": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "cacheExcludedCalls": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "cacheHitRate": { "type": ["number", "null"] }, "throughputMeasuredCalls": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "throughputExcludedCalls": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "tokensPerSecond": { "type": ["number", "null"] }, "runId": { "type": "string", "pattern": "\\S" } }, "required": ["cacheExcludedCalls", "cacheHitRate", "cacheMeasuredCalls", "coverage", "inputTokens", "missingCalls", "outputTokens", "reportedCalls", "runId", "stepCount", "throughputExcludedCalls", "throughputMeasuredCalls", "tokensPerSecond"], "additionalProperties": false, "description": "\u5355\u4E2A Run \u7684\u6A21\u578B\u7528\u91CF\u4E0E\u6B65\u6570\u7EDF\u8BA1\u3002" };
     function validate12(data, { instancePath = "", parentData, parentDataProperty, rootData = data } = {}) {
       let vErrors = null;
       let errors = 0;
@@ -139,7 +140,7 @@ var require_SessionMetricsSnapshot_validator = __commonJS({
           errors++;
         }
         for (const key0 in data) {
-          if (!func2.call(schema14.properties, key0)) {
+          if (!func2.call(schema15.properties, key0)) {
             const err13 = { instancePath, schemaPath: "#/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key0 }, message: "must NOT have additional properties" };
             if (vErrors === null) {
               vErrors = [err13];
@@ -248,7 +249,7 @@ var require_SessionMetricsSnapshot_validator = __commonJS({
         if (data.inputTokens !== void 0) {
           let data3 = data.inputTokens;
           if (!(typeof data3 == "number" && isFinite(data3)) && data3 !== null) {
-            const err23 = { instancePath: instancePath + "/inputTokens", schemaPath: "#/properties/inputTokens/type", keyword: "type", params: { type: schema14.properties.inputTokens.type }, message: "must be number,null" };
+            const err23 = { instancePath: instancePath + "/inputTokens", schemaPath: "#/properties/inputTokens/type", keyword: "type", params: { type: schema15.properties.inputTokens.type }, message: "must be number,null" };
             if (vErrors === null) {
               vErrors = [err23];
             } else {
@@ -260,7 +261,7 @@ var require_SessionMetricsSnapshot_validator = __commonJS({
         if (data.outputTokens !== void 0) {
           let data4 = data.outputTokens;
           if (!(typeof data4 == "number" && isFinite(data4)) && data4 !== null) {
-            const err24 = { instancePath: instancePath + "/outputTokens", schemaPath: "#/properties/outputTokens/type", keyword: "type", params: { type: schema14.properties.outputTokens.type }, message: "must be number,null" };
+            const err24 = { instancePath: instancePath + "/outputTokens", schemaPath: "#/properties/outputTokens/type", keyword: "type", params: { type: schema15.properties.outputTokens.type }, message: "must be number,null" };
             if (vErrors === null) {
               vErrors = [err24];
             } else {
@@ -357,7 +358,7 @@ var require_SessionMetricsSnapshot_validator = __commonJS({
         if (data.cacheHitRate !== void 0) {
           let data8 = data.cacheHitRate;
           if (!(typeof data8 == "number" && isFinite(data8)) && data8 !== null) {
-            const err33 = { instancePath: instancePath + "/cacheHitRate", schemaPath: "#/properties/cacheHitRate/type", keyword: "type", params: { type: schema14.properties.cacheHitRate.type }, message: "must be number,null" };
+            const err33 = { instancePath: instancePath + "/cacheHitRate", schemaPath: "#/properties/cacheHitRate/type", keyword: "type", params: { type: schema15.properties.cacheHitRate.type }, message: "must be number,null" };
             if (vErrors === null) {
               vErrors = [err33];
             } else {
@@ -433,7 +434,7 @@ var require_SessionMetricsSnapshot_validator = __commonJS({
         if (data.tokensPerSecond !== void 0) {
           let data11 = data.tokensPerSecond;
           if (!(typeof data11 == "number" && isFinite(data11)) && data11 !== null) {
-            const err40 = { instancePath: instancePath + "/tokensPerSecond", schemaPath: "#/properties/tokensPerSecond/type", keyword: "type", params: { type: schema14.properties.tokensPerSecond.type }, message: "must be number,null" };
+            const err40 = { instancePath: instancePath + "/tokensPerSecond", schemaPath: "#/properties/tokensPerSecond/type", keyword: "type", params: { type: schema15.properties.tokensPerSecond.type }, message: "must be number,null" };
             if (vErrors === null) {
               vErrors = [err40];
             } else {
@@ -964,44 +965,185 @@ var require_SessionMetricsSnapshot_validator = __commonJS({
             }
           }
         }
-        if (data.contextRemainingPercent !== void 0) {
-          let data14 = data.contextRemainingPercent;
-          if (!(typeof data14 == "number" && isFinite(data14)) && data14 !== null) {
-            const err47 = { instancePath: instancePath + "/contextRemainingPercent", schemaPath: "#/properties/contextRemainingPercent/type", keyword: "type", params: { type: schema12.properties.contextRemainingPercent.type }, message: "must be number,null" };
+        if (data.contextUsage !== void 0) {
+          let data14 = data.contextUsage;
+          const _errs32 = errors;
+          let valid2 = false;
+          const _errs33 = errors;
+          if (data14 && typeof data14 == "object" && !Array.isArray(data14)) {
+            if (data14.usedPercent === void 0) {
+              const err47 = { instancePath: instancePath + "/contextUsage", schemaPath: "#/definitions/SessionMetricsContextUsage/required", keyword: "required", params: { missingProperty: "usedPercent" }, message: "must have required property 'usedPercent'" };
+              if (vErrors === null) {
+                vErrors = [err47];
+              } else {
+                vErrors.push(err47);
+              }
+              errors++;
+            }
+            if (data14.capacityTokens === void 0) {
+              const err48 = { instancePath: instancePath + "/contextUsage", schemaPath: "#/definitions/SessionMetricsContextUsage/required", keyword: "required", params: { missingProperty: "capacityTokens" }, message: "must have required property 'capacityTokens'" };
+              if (vErrors === null) {
+                vErrors = [err48];
+              } else {
+                vErrors.push(err48);
+              }
+              errors++;
+            }
+            if (data14.source === void 0) {
+              const err49 = { instancePath: instancePath + "/contextUsage", schemaPath: "#/definitions/SessionMetricsContextUsage/required", keyword: "required", params: { missingProperty: "source" }, message: "must have required property 'source'" };
+              if (vErrors === null) {
+                vErrors = [err49];
+              } else {
+                vErrors.push(err49);
+              }
+              errors++;
+            }
+            if (data14.estimated === void 0) {
+              const err50 = { instancePath: instancePath + "/contextUsage", schemaPath: "#/definitions/SessionMetricsContextUsage/required", keyword: "required", params: { missingProperty: "estimated" }, message: "must have required property 'estimated'" };
+              if (vErrors === null) {
+                vErrors = [err50];
+              } else {
+                vErrors.push(err50);
+              }
+              errors++;
+            }
+            for (const key1 in data14) {
+              if (!(key1 === "usedPercent" || key1 === "capacityTokens" || key1 === "source" || key1 === "estimated")) {
+                const err51 = { instancePath: instancePath + "/contextUsage", schemaPath: "#/definitions/SessionMetricsContextUsage/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key1 }, message: "must NOT have additional properties" };
+                if (vErrors === null) {
+                  vErrors = [err51];
+                } else {
+                  vErrors.push(err51);
+                }
+                errors++;
+              }
+            }
+            if (data14.usedPercent !== void 0) {
+              let data15 = data14.usedPercent;
+              if (!(typeof data15 == "number" && isFinite(data15))) {
+                const err52 = { instancePath: instancePath + "/contextUsage/usedPercent", schemaPath: "#/definitions/SessionMetricsContextUsage/properties/usedPercent/type", keyword: "type", params: { type: "number" }, message: "must be number" };
+                if (vErrors === null) {
+                  vErrors = [err52];
+                } else {
+                  vErrors.push(err52);
+                }
+                errors++;
+              }
+            }
+            if (data14.capacityTokens !== void 0) {
+              let data16 = data14.capacityTokens;
+              if (!(typeof data16 == "number" && isFinite(data16))) {
+                const err53 = { instancePath: instancePath + "/contextUsage/capacityTokens", schemaPath: "#/definitions/SessionMetricsContextUsage/properties/capacityTokens/type", keyword: "type", params: { type: "number" }, message: "must be number" };
+                if (vErrors === null) {
+                  vErrors = [err53];
+                } else {
+                  vErrors.push(err53);
+                }
+                errors++;
+              }
+            }
+            if (data14.source !== void 0) {
+              let data17 = data14.source;
+              if (typeof data17 !== "string") {
+                const err54 = { instancePath: instancePath + "/contextUsage/source", schemaPath: "#/definitions/SessionMetricsContextUsage/properties/source/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                if (vErrors === null) {
+                  vErrors = [err54];
+                } else {
+                  vErrors.push(err54);
+                }
+                errors++;
+              }
+              if (!(data17 === "model" || data17 === "configured")) {
+                const err55 = { instancePath: instancePath + "/contextUsage/source", schemaPath: "#/definitions/SessionMetricsContextUsage/properties/source/enum", keyword: "enum", params: { allowedValues: schema14.properties.source.enum }, message: "must be equal to one of the allowed values" };
+                if (vErrors === null) {
+                  vErrors = [err55];
+                } else {
+                  vErrors.push(err55);
+                }
+                errors++;
+              }
+            }
+            if (data14.estimated !== void 0) {
+              if (typeof data14.estimated !== "boolean") {
+                const err56 = { instancePath: instancePath + "/contextUsage/estimated", schemaPath: "#/definitions/SessionMetricsContextUsage/properties/estimated/type", keyword: "type", params: { type: "boolean" }, message: "must be boolean" };
+                if (vErrors === null) {
+                  vErrors = [err56];
+                } else {
+                  vErrors.push(err56);
+                }
+                errors++;
+              }
+            }
+          } else {
+            const err57 = { instancePath: instancePath + "/contextUsage", schemaPath: "#/definitions/SessionMetricsContextUsage/type", keyword: "type", params: { type: "object" }, message: "must be object" };
             if (vErrors === null) {
-              vErrors = [err47];
+              vErrors = [err57];
             } else {
-              vErrors.push(err47);
+              vErrors.push(err57);
             }
             errors++;
           }
+          var _valid0 = _errs33 === errors;
+          valid2 = valid2 || _valid0;
+          if (!valid2) {
+            const _errs45 = errors;
+            if (data14 !== null) {
+              const err58 = { instancePath: instancePath + "/contextUsage", schemaPath: "#/properties/contextUsage/anyOf/1/type", keyword: "type", params: { type: "null" }, message: "must be null" };
+              if (vErrors === null) {
+                vErrors = [err58];
+              } else {
+                vErrors.push(err58);
+              }
+              errors++;
+            }
+            var _valid0 = _errs45 === errors;
+            valid2 = valid2 || _valid0;
+          }
+          if (!valid2) {
+            const err59 = { instancePath: instancePath + "/contextUsage", schemaPath: "#/properties/contextUsage/anyOf", keyword: "anyOf", params: {}, message: "must match a schema in anyOf" };
+            if (vErrors === null) {
+              vErrors = [err59];
+            } else {
+              vErrors.push(err59);
+            }
+            errors++;
+          } else {
+            errors = _errs32;
+            if (vErrors !== null) {
+              if (_errs32) {
+                vErrors.length = _errs32;
+              } else {
+                vErrors = null;
+              }
+            }
+          }
         }
         if (data.runs !== void 0) {
-          let data15 = data.runs;
-          if (Array.isArray(data15)) {
-            const len0 = data15.length;
+          let data19 = data.runs;
+          if (Array.isArray(data19)) {
+            const len0 = data19.length;
             for (let i0 = 0; i0 < len0; i0++) {
-              if (!validate12(data15[i0], { instancePath: instancePath + "/runs/" + i0, parentData: data15, parentDataProperty: i0, rootData })) {
+              if (!validate12(data19[i0], { instancePath: instancePath + "/runs/" + i0, parentData: data19, parentDataProperty: i0, rootData })) {
                 vErrors = vErrors === null ? validate12.errors : vErrors.concat(validate12.errors);
                 errors = vErrors.length;
               }
             }
           } else {
-            const err48 = { instancePath: instancePath + "/runs", schemaPath: "#/properties/runs/type", keyword: "type", params: { type: "array" }, message: "must be array" };
+            const err60 = { instancePath: instancePath + "/runs", schemaPath: "#/properties/runs/type", keyword: "type", params: { type: "array" }, message: "must be array" };
             if (vErrors === null) {
-              vErrors = [err48];
+              vErrors = [err60];
             } else {
-              vErrors.push(err48);
+              vErrors.push(err60);
             }
             errors++;
           }
         }
       } else {
-        const err49 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+        const err61 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
         if (vErrors === null) {
-          vErrors = [err49];
+          vErrors = [err61];
         } else {
-          vErrors.push(err49);
+          vErrors.push(err61);
         }
         errors++;
       }

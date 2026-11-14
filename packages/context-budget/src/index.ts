@@ -42,6 +42,7 @@ export {
     EpochCapacityError,
     exceedsCompactThreshold,
     resolveEpochCapacity,
+    tryResolveEpochCapacity,
 } from "./epoch-capacity";
 export type { EpochCapacity, EpochCapacityInput } from "./epoch-capacity";
 

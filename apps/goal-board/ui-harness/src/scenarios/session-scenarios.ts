@@ -6,6 +6,7 @@ import type {
   BrowserGoalSessionStateEnvelope,
   BrowserInteractionDetailResult,
   BrowserSessionState,
+  SessionMetricsSnapshot,
 } from "../../../../../packages/web-contracts/src/index";
 import {
   createDefaultModelCatalog,
@@ -248,3 +249,51 @@ export const sessionWaitingScenario: FixtureScenario = {
     data: createDefaultModelCatalog(),
   },
 };
+
+/** 带 Context 占用结算的 Session 指标场景，用于验证主行比例与可访问详情。 */
+export const sessionContextMetricsScenario: FixtureScenario = {
+  ...sessionWaitingScenario,
+  id: "session-context-metrics",
+  description: "Session metrics bar with an estimated context usage on a configured work window",
+  metrics: {
+    [WAITING_GOAL_ID]: {
+      data: metricsSnapshot({
+        usedPercent: 0.62,
+        capacityTokens: 200000,
+        source: "configured",
+        estimated: true,
+      }),
+    },
+  },
+};
+
+/** Context 占用不可用时的 Session 指标场景。 */
+export const sessionContextUnavailableScenario: FixtureScenario = {
+  ...sessionWaitingScenario,
+  id: "session-context-unavailable",
+  description: "Session metrics bar without a usable context work window",
+  metrics: {
+    [WAITING_GOAL_ID]: { data: metricsSnapshot(null) },
+  },
+};
+
+function metricsSnapshot(contextUsage: SessionMetricsSnapshot["contextUsage"]): SessionMetricsSnapshot {
+  return {
+    goalId: WAITING_GOAL_ID,
+    roundCount: 1,
+    stepCount: 3,
+    reportedCalls: 2,
+    missingCalls: 0,
+    inputTokens: 120000,
+    outputTokens: 4000,
+    coverage: "complete",
+    cacheMeasuredCalls: 0,
+    cacheExcludedCalls: 2,
+    cacheHitRate: null,
+    throughputMeasuredCalls: 0,
+    throughputExcludedCalls: 2,
+    tokensPerSecond: null,
+    contextUsage,
+    runs: [],
+  };
+}

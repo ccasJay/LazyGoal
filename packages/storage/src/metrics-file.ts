@@ -6,6 +6,11 @@ export type ModelCallMetricUsageFile =
         readonly outputTokens: number;
         readonly cachedInputTokens?: number;
     }
+    | {
+        readonly source: "estimated";
+        /** 供应商未上报用量时的本地 Token 估算；取值范围由 Store 运行时校验。 */
+        readonly inputTokens: number;
+    }
     | { readonly source: "unavailable" };
 
 /** 模型调用指标 JSONL 的文件记录。 */

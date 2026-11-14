@@ -1127,10 +1127,14 @@ test("Trajectory、Model Input 与 Metrics 合同保留开放 JSON 与数值边�
     assert.equal(isMetricValues({ ...metrics, stepCount: 1.5 }), false);
 
     const runMetrics = { ...metrics, runId: "run-1" };
-    const snapshot = { goalId: "goal-1", roundCount: 1, ...metrics, contextRemainingPercent: 1, runs: [runMetrics] };
+    const contextUsage = { usedPercent: 0.5, capacityTokens: 200, source: "model", estimated: false };
+    const snapshot = { goalId: "goal-1", roundCount: 1, ...metrics, contextUsage, runs: [runMetrics] };
     assert.equal(isMetricsSnapshot(snapshot), true);
-    assert.equal(isMetricsSnapshot({ ...snapshot, contextRemainingPercent: 1.1 }), false);
-    assert.equal(isMetricsSnapshot({ ...snapshot, contextRemainingPercent: -0.1 }), false);
+    assert.equal(isMetricsSnapshot({ ...snapshot, contextUsage: { ...contextUsage, usedPercent: 1.1 } }), false);
+    assert.equal(isMetricsSnapshot({ ...snapshot, contextUsage: { ...contextUsage, usedPercent: -0.1 } }), false);
+    assert.equal(isMetricsSnapshot({ ...snapshot, contextUsage: { ...contextUsage, capacityTokens: 0 } }), false);
+    assert.equal(isMetricsSnapshot({ ...snapshot, contextUsage: { ...contextUsage, source: "user" } }), false);
+    assert.equal(isMetricsSnapshot({ ...snapshot, contextUsage: null }), true);
     assert.equal(isMetricsSnapshot({ ...snapshot, runs: [{ ...runMetrics, runId: "" }] }), false);
     assert.equal(isMetricsSnapshot({ ...snapshot, runs: [runMetrics] }), true);
 });

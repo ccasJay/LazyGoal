@@ -5,6 +5,7 @@ export {
 export type {
     MetricsCoverage,
     RunSessionMetrics,
+    SessionMetricsContextCapacityResolver,
     SessionMetricsSnapshot,
     SessionMetricsWatchEvent,
 } from "./session-metrics-service";

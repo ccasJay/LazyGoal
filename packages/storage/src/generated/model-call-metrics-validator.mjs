@@ -473,21 +473,18 @@ var require_ModelCallMetricFileRecord_validator = __commonJS({
                   }
                   errors++;
                 }
-                for (const key3 in data14) {
-                  if (!(key3 === "source")) {
-                    const err43 = { instancePath: instancePath + "/usage", schemaPath: "#/definitions/ModelCallMetricUsageFile/anyOf/1/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key3 }, message: "must NOT have additional properties" };
-                    if (vErrors === null) {
-                      vErrors = [err43];
-                    } else {
-                      vErrors.push(err43);
-                    }
-                    errors++;
+                if (data14.inputTokens === void 0) {
+                  const err43 = { instancePath: instancePath + "/usage", schemaPath: "#/definitions/ModelCallMetricUsageFile/anyOf/1/required", keyword: "required", params: { missingProperty: "inputTokens" }, message: "must have required property 'inputTokens'" };
+                  if (vErrors === null) {
+                    vErrors = [err43];
+                  } else {
+                    vErrors.push(err43);
                   }
+                  errors++;
                 }
-                if (data14.source !== void 0) {
-                  let data19 = data14.source;
-                  if (typeof data19 !== "string") {
-                    const err44 = { instancePath: instancePath + "/usage/source", schemaPath: "#/definitions/ModelCallMetricUsageFile/anyOf/1/properties/source/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                for (const key3 in data14) {
+                  if (!(key3 === "source" || key3 === "inputTokens")) {
+                    const err44 = { instancePath: instancePath + "/usage", schemaPath: "#/definitions/ModelCallMetricUsageFile/anyOf/1/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key3 }, message: "must NOT have additional properties" };
                     if (vErrors === null) {
                       vErrors = [err44];
                     } else {
@@ -495,8 +492,11 @@ var require_ModelCallMetricFileRecord_validator = __commonJS({
                     }
                     errors++;
                   }
-                  if ("unavailable" !== data19) {
-                    const err45 = { instancePath: instancePath + "/usage/source", schemaPath: "#/definitions/ModelCallMetricUsageFile/anyOf/1/properties/source/const", keyword: "const", params: { allowedValue: "unavailable" }, message: "must be equal to constant" };
+                }
+                if (data14.source !== void 0) {
+                  let data19 = data14.source;
+                  if (typeof data19 !== "string") {
+                    const err45 = { instancePath: instancePath + "/usage/source", schemaPath: "#/definitions/ModelCallMetricUsageFile/anyOf/1/properties/source/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                     if (vErrors === null) {
                       vErrors = [err45];
                     } else {
@@ -504,25 +504,102 @@ var require_ModelCallMetricFileRecord_validator = __commonJS({
                     }
                     errors++;
                   }
+                  if ("estimated" !== data19) {
+                    const err46 = { instancePath: instancePath + "/usage/source", schemaPath: "#/definitions/ModelCallMetricUsageFile/anyOf/1/properties/source/const", keyword: "const", params: { allowedValue: "estimated" }, message: "must be equal to constant" };
+                    if (vErrors === null) {
+                      vErrors = [err46];
+                    } else {
+                      vErrors.push(err46);
+                    }
+                    errors++;
+                  }
+                }
+                if (data14.inputTokens !== void 0) {
+                  let data20 = data14.inputTokens;
+                  if (!(typeof data20 == "number" && isFinite(data20))) {
+                    const err47 = { instancePath: instancePath + "/usage/inputTokens", schemaPath: "#/definitions/ModelCallMetricUsageFile/anyOf/1/properties/inputTokens/type", keyword: "type", params: { type: "number" }, message: "must be number" };
+                    if (vErrors === null) {
+                      vErrors = [err47];
+                    } else {
+                      vErrors.push(err47);
+                    }
+                    errors++;
+                  }
                 }
               } else {
-                const err46 = { instancePath: instancePath + "/usage", schemaPath: "#/definitions/ModelCallMetricUsageFile/anyOf/1/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                const err48 = { instancePath: instancePath + "/usage", schemaPath: "#/definitions/ModelCallMetricUsageFile/anyOf/1/type", keyword: "type", params: { type: "object" }, message: "must be object" };
                 if (vErrors === null) {
-                  vErrors = [err46];
+                  vErrors = [err48];
                 } else {
-                  vErrors.push(err46);
+                  vErrors.push(err48);
                 }
                 errors++;
               }
               var _valid1 = _errs49 === errors;
               valid4 = valid4 || _valid1;
+              if (!valid4) {
+                const _errs56 = errors;
+                if (data14 && typeof data14 == "object" && !Array.isArray(data14)) {
+                  if (data14.source === void 0) {
+                    const err49 = { instancePath: instancePath + "/usage", schemaPath: "#/definitions/ModelCallMetricUsageFile/anyOf/2/required", keyword: "required", params: { missingProperty: "source" }, message: "must have required property 'source'" };
+                    if (vErrors === null) {
+                      vErrors = [err49];
+                    } else {
+                      vErrors.push(err49);
+                    }
+                    errors++;
+                  }
+                  for (const key4 in data14) {
+                    if (!(key4 === "source")) {
+                      const err50 = { instancePath: instancePath + "/usage", schemaPath: "#/definitions/ModelCallMetricUsageFile/anyOf/2/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key4 }, message: "must NOT have additional properties" };
+                      if (vErrors === null) {
+                        vErrors = [err50];
+                      } else {
+                        vErrors.push(err50);
+                      }
+                      errors++;
+                    }
+                  }
+                  if (data14.source !== void 0) {
+                    let data21 = data14.source;
+                    if (typeof data21 !== "string") {
+                      const err51 = { instancePath: instancePath + "/usage/source", schemaPath: "#/definitions/ModelCallMetricUsageFile/anyOf/2/properties/source/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                      if (vErrors === null) {
+                        vErrors = [err51];
+                      } else {
+                        vErrors.push(err51);
+                      }
+                      errors++;
+                    }
+                    if ("unavailable" !== data21) {
+                      const err52 = { instancePath: instancePath + "/usage/source", schemaPath: "#/definitions/ModelCallMetricUsageFile/anyOf/2/properties/source/const", keyword: "const", params: { allowedValue: "unavailable" }, message: "must be equal to constant" };
+                      if (vErrors === null) {
+                        vErrors = [err52];
+                      } else {
+                        vErrors.push(err52);
+                      }
+                      errors++;
+                    }
+                  }
+                } else {
+                  const err53 = { instancePath: instancePath + "/usage", schemaPath: "#/definitions/ModelCallMetricUsageFile/anyOf/2/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                  if (vErrors === null) {
+                    vErrors = [err53];
+                  } else {
+                    vErrors.push(err53);
+                  }
+                  errors++;
+                }
+                var _valid1 = _errs56 === errors;
+                valid4 = valid4 || _valid1;
+              }
             }
             if (!valid4) {
-              const err47 = { instancePath: instancePath + "/usage", schemaPath: "#/definitions/ModelCallMetricUsageFile/anyOf", keyword: "anyOf", params: {}, message: "must match a schema in anyOf" };
+              const err54 = { instancePath: instancePath + "/usage", schemaPath: "#/definitions/ModelCallMetricUsageFile/anyOf", keyword: "anyOf", params: {}, message: "must match a schema in anyOf" };
               if (vErrors === null) {
-                vErrors = [err47];
+                vErrors = [err54];
               } else {
-                vErrors.push(err47);
+                vErrors.push(err54);
               }
               errors++;
             } else {
@@ -537,35 +614,35 @@ var require_ModelCallMetricFileRecord_validator = __commonJS({
             }
           }
           if (data.requestDurationMs !== void 0) {
-            let data20 = data.requestDurationMs;
-            if (!(typeof data20 == "number" && isFinite(data20))) {
-              const err48 = { instancePath: instancePath + "/requestDurationMs", schemaPath: "#/anyOf/1/properties/requestDurationMs/type", keyword: "type", params: { type: "number" }, message: "must be number" };
+            let data22 = data.requestDurationMs;
+            if (!(typeof data22 == "number" && isFinite(data22))) {
+              const err55 = { instancePath: instancePath + "/requestDurationMs", schemaPath: "#/anyOf/1/properties/requestDurationMs/type", keyword: "type", params: { type: "number" }, message: "must be number" };
               if (vErrors === null) {
-                vErrors = [err48];
+                vErrors = [err55];
               } else {
-                vErrors.push(err48);
+                vErrors.push(err55);
               }
               errors++;
             }
           }
           if (data.decodeDurationMs !== void 0) {
-            let data21 = data.decodeDurationMs;
-            if (!(typeof data21 == "number" && isFinite(data21))) {
-              const err49 = { instancePath: instancePath + "/decodeDurationMs", schemaPath: "#/anyOf/1/properties/decodeDurationMs/type", keyword: "type", params: { type: "number" }, message: "must be number" };
+            let data23 = data.decodeDurationMs;
+            if (!(typeof data23 == "number" && isFinite(data23))) {
+              const err56 = { instancePath: instancePath + "/decodeDurationMs", schemaPath: "#/anyOf/1/properties/decodeDurationMs/type", keyword: "type", params: { type: "number" }, message: "must be number" };
               if (vErrors === null) {
-                vErrors = [err49];
+                vErrors = [err56];
               } else {
-                vErrors.push(err49);
+                vErrors.push(err56);
               }
               errors++;
             }
           }
         } else {
-          const err50 = { instancePath, schemaPath: "#/anyOf/1/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+          const err57 = { instancePath, schemaPath: "#/anyOf/1/type", keyword: "type", params: { type: "object" }, message: "must be object" };
           if (vErrors === null) {
-            vErrors = [err50];
+            vErrors = [err57];
           } else {
-            vErrors.push(err50);
+            vErrors.push(err57);
           }
           errors++;
         }
@@ -573,11 +650,11 @@ var require_ModelCallMetricFileRecord_validator = __commonJS({
         valid0 = valid0 || _valid0;
       }
       if (!valid0) {
-        const err51 = { instancePath, schemaPath: "#/anyOf", keyword: "anyOf", params: {}, message: "must match a schema in anyOf" };
+        const err58 = { instancePath, schemaPath: "#/anyOf", keyword: "anyOf", params: {}, message: "must match a schema in anyOf" };
         if (vErrors === null) {
-          vErrors = [err51];
+          vErrors = [err58];
         } else {
-          vErrors.push(err51);
+          vErrors.push(err58);
         }
         errors++;
       } else {

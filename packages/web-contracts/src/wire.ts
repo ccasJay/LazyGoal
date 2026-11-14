@@ -2186,13 +2186,32 @@ export interface RunSessionMetrics extends SessionMetricsValues {
 }
 
 /** 整个 Goal 会话的模型指标聚合快照。 */
+/**
+ * 当前工作窗口的占用结算。
+ *
+ * @remarks
+ * 只描述最近一次已结算调用在当前模型上的占用，不累加历史调用。`usedPercent`
+ * 以 `capacityTokens` 为基数；`source` 说明基数来自模型标称窗口还是用户配置。
+ */
+export interface SessionMetricsContextUsage {
+    /** 已用比例（0–1）；超过容量时截断为 1。 */
+    readonly usedPercent: number;
+    /** 容量基数（Token）；必须为正的安全整数。 */
+    readonly capacityTokens: number;
+    /** 容量基数来源：模型标称窗口或用户配置。 */
+    readonly source: "model" | "configured";
+    /** 占用是否来自本地估算而不是供应商上报。 */
+    readonly estimated: boolean;
+}
+
 export interface SessionMetricsSnapshot extends SessionMetricsValues {
     /** @pattern \S */
     readonly goalId: string;
     /** @asType integer
      * @maximum 9007199254740991 */
     readonly roundCount: number;
-    readonly contextRemainingPercent?: number | null;
+    /** 当前工作窗口占用；容量或占用不可用时省略为 `null`。 */
+    readonly contextUsage?: SessionMetricsContextUsage | null;
     readonly runs: readonly RunSessionMetrics[];
 }
 

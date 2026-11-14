@@ -162,10 +162,11 @@ export async function runCompletionReviewEvaluation(env: Readonly<Record<string,
     const usage = { inputTokens: 0, outputTokens: 0, missingCalls: 0 };
     for (const record of metrics) {
         if (record.recordType !== "call_finished") continue;
-        if (record.usage.source === "unavailable") usage.missingCalls++;
-        else {
+        if (record.usage.source === "provider_reported") {
             usage.inputTokens += record.usage.inputTokens;
             usage.outputTokens += record.usage.outputTokens;
+        } else {
+            usage.missingCalls++;
         }
     }
     const report = { status: completionReviewStatus(completionReviewScenarios.length * 3, rows.length, incomplete, falseCompletions, falseRejections),

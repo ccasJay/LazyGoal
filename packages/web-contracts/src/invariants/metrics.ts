@@ -31,17 +31,21 @@ export function isMetricValues(values: MetricsValues): boolean {
 }
 
 /**
- * 会话指标快照的上下文剩余比例不变量。
+ * 会话指标快照的 Context 占用不变量。
  *
  * @param snapshot - 已通过结构解析的指标快照。
- * @returns 可选剩余比例位于 0 与 1 之间时为 `true`。
- *
+ * @returns 可选占用未出现时为 `true`；出现时比例、容量与来源均合法才为 `true`。
  * @example
  * ```ts
- * if (hasValidContextRemainingPercent(snapshot)) console.log(snapshot.goalId);
+ * if (hasValidContextUsage(snapshot)) console.log(snapshot.goalId);
  * ```
  */
-export function hasValidContextRemainingPercent(snapshot: SessionMetricsSnapshot): boolean {
-    const value = snapshot.contextRemainingPercent;
-    return value === undefined || value === null || (value >= 0 && value <= 1);
+export function hasValidContextUsage(snapshot: SessionMetricsSnapshot): boolean {
+    const usage = snapshot.contextUsage;
+    if (usage === undefined || usage === null) return true;
+    return usage.usedPercent >= 0
+        && usage.usedPercent <= 1
+        && Number.isSafeInteger(usage.capacityTokens)
+        && usage.capacityTokens > 0
+        && (usage.source === "model" || usage.source === "configured");
 }

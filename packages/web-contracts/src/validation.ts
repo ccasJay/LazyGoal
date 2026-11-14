@@ -48,7 +48,7 @@ import {
 import {
     hasConsistentTerminalDetail,
     hasNoProviderCredentialKey,
-    hasValidContextRemainingPercent,
+    hasValidContextUsage,
     isActivityPage,
     isInteractionView,
     isJsonValue,
@@ -855,7 +855,7 @@ export function isMetricsSnapshot(value: unknown): value is SessionMetricsSnapsh
     const result = sessionMetricsSnapshotBinding.read(value, "strip");
     if (!result.ok) return false;
     return hasValidMetricValues(result.data)
-        && hasValidContextRemainingPercent(result.data)
+        && hasValidContextUsage(result.data)
         && result.data.runs.every((run) => hasValidMetricValues(run));
 }
 

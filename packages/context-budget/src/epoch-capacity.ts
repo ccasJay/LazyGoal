@@ -124,6 +124,28 @@ export function resolveEpochCapacity(input: EpochCapacityInput): EpochCapacity {
 }
 
 /**
+ * 尝试解析 Epoch 工作窗口，不抛出配置错误。
+ *
+ * @remarks
+ * 供只读展示使用：容量不可确定或配置不自洽时返回 `undefined`，由调用方显示
+ * Context 不可用，而不是把错误传播给指标查询。
+ *
+ * @param input - 模型窗口、用户上限与阈值。
+ * @returns 已解析的容量；不可确定时为 `undefined`。
+ * @example
+ * ```ts
+ * const capacity = tryResolveEpochCapacity({ modelContextWindowTokens: 128_000 });
+ * ```
+ */
+export function tryResolveEpochCapacity(input: EpochCapacityInput): EpochCapacity | undefined {
+    try {
+        return resolveEpochCapacity(input);
+    } catch {
+        return undefined;
+    }
+}
+
+/**
  * 判断占用是否严格超过整理阈值。
  *
  * @param occupiedTokens - 当前工作窗口的结算占用。

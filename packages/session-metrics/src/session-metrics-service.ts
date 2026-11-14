@@ -35,12 +35,36 @@ export type SessionMetricsWatchEvent =
 
 interface RunProjection {
     readonly metrics: RunSessionMetrics;
-    readonly latestContextUsage: { readonly modelId: string; readonly inputTokens: number; readonly outputTokens: number } | null;
+    readonly latestContextUsage: {
+        readonly modelId: string;
+        readonly inputTokens: number;
+        readonly outputTokens: number;
+        readonly estimated: boolean;
+    } | null;
     readonly cachedInputTokens: number;
     readonly cacheInputTokens: number;
     readonly throughputOutputTokens: number;
     readonly requestDurationMs: number;
 }
+
+/**
+ * 计算 Goal 工作窗口容量的宿主回调。
+ *
+ * @remarks
+ * 由 Composition Root 提供，以便指标投影与发送前校验共用同一套容量判定；
+ * 无法确定容量时返回 `undefined`，投影据此报告 Context 不可用。
+ *
+ * @example
+ * ```ts
+ * const resolve: SessionMetricsContextCapacityResolver = (goal) =>
+ *     resolveEpochCapacity({ modelContextWindowTokens: goal.state.modelSelection.contextWindowTokens });
+ * ```
+ */
+export type SessionMetricsContextCapacityResolver = (goal: Goal) => {
+    readonly capacityTokens: number;
+    readonly thresholdPercent: number;
+    readonly source: "model" | "configured";
+} | undefined;
 
 /**
  * 会话指标查询服务。
@@ -63,11 +87,14 @@ export class SessionMetricsService implements ModelCallMetricsRecorder {
     /**
      * @param goals - 当前及已完成 Goal 快照的读取边界。
      * @param metrics - 每个 Goal/Run 调用事实的读取边界。
+     * @param coverageStore - 历史覆盖与缺口标记的读取边界。
+     * @param resolveCapacity - 可选的 Goal 工作窗口容量解析；省略时 Context 占用始终不可用。
      */
     constructor(
         private readonly goals: Pick<GoalStore, "restore">,
         private readonly metrics: MetricsStore,
         private readonly coverageStore: ModelCallMetricsCoverageStore,
+        private readonly resolveCapacity?: SessionMetricsContextCapacityResolver,
     ) {}
 
     /**
@@ -207,12 +234,20 @@ export class SessionMetricsService implements ModelCallMetricsRecorder {
             ? null
             : safeRatio(throughputOutputTokens, requestDurationMs / 1000);
         const latestContextUsage = projections.at(-1)?.latestContextUsage;
-        const contextWindowTokens = goal.state.modelSelection.contextWindowTokens;
-        const contextRemainingPercent = latestContextUsage !== null && latestContextUsage !== undefined
-            && latestContextUsage.modelId === goal.state.modelSelection.modelId
-            && contextWindowTokens !== undefined
-            ? Math.max(0, 1 - sumSafe([latestContextUsage.inputTokens, latestContextUsage.outputTokens], "latest context usage") / contextWindowTokens)
-            : null;
+        const usageOnCurrentModel = latestContextUsage !== null && latestContextUsage !== undefined
+            && latestContextUsage.modelId === goal.state.modelSelection.modelId;
+        const capacity = usageOnCurrentModel ? this.resolveCapacity?.(goal) : undefined;
+        const contextUsage = capacity === undefined || latestContextUsage === null || latestContextUsage === undefined
+            ? null
+            : Object.freeze({
+                usedPercent: Math.min(1, sumSafe(
+                    [latestContextUsage.inputTokens, latestContextUsage.outputTokens],
+                    "latest context usage",
+                ) / capacity.capacityTokens),
+                capacityTokens: capacity.capacityTokens,
+                source: capacity.source,
+                estimated: latestContextUsage.estimated,
+            });
 
         return Object.freeze({
             goalId: goal.id,
@@ -229,7 +264,7 @@ export class SessionMetricsService implements ModelCallMetricsRecorder {
             throughputMeasuredCalls,
             throughputExcludedCalls,
             tokensPerSecond,
-            contextRemainingPercent,
+            contextUsage,
             runs: Object.freeze(runMetrics),
         });
     }
@@ -461,13 +496,15 @@ function projectRunMetrics(
         : safeRatio(summedThroughputOutputs, summedRequestDurations / 1000);
     const latestCall = [...calls.values()].at(-1);
     const latestFinished = latestCall?.finished?.record;
+    const latestUsage = latestFinished?.outcome === "completed" ? latestFinished.usage : undefined;
     const latestContextUsage = latestCall?.started?.record.modelId !== undefined
-        && latestFinished?.outcome === "completed"
-        && latestFinished.usage.source === "provider_reported"
+        && latestUsage !== undefined
+        && (latestUsage.source === "provider_reported" || latestUsage.source === "estimated")
         ? {
             modelId: latestCall.started.record.modelId,
-            inputTokens: latestFinished.usage.inputTokens,
-            outputTokens: latestFinished.usage.outputTokens,
+            inputTokens: latestUsage.inputTokens,
+            outputTokens: latestUsage.source === "provider_reported" ? latestUsage.outputTokens : 0,
+            estimated: latestUsage.source === "estimated",
         }
         : null;
 

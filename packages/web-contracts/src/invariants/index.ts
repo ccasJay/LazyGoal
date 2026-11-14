@@ -5,7 +5,7 @@ export {
 } from "./activity";
 export { isInteractionView } from "./interaction";
 export {
-    hasValidContextRemainingPercent,
+    hasValidContextUsage,
     isMetricValues,
 } from "./metrics";
 export { hasNoProviderCredentialKey } from "./provider";

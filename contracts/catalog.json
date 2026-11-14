@@ -8883,7 +8883,8 @@
     "declaredTypes": [
      "SessionMetricsSnapshot",
      "MetricsCoverage",
-     "RunSessionMetrics"
+     "RunSessionMetrics",
+     "SessionMetricsContextUsage"
     ],
     "outputDirectory": "packages/web-contracts/src/generated",
     "artifacts": {

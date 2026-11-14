@@ -29,7 +29,7 @@ import type {
     DiagnosticTraceSink,
     ModelCallMetricsRecorder,
 } from "../../runtime/src/index";
-import { createDefaultModelContextBudgetPolicy, type ModelCapabilities } from "../../context-budget/src/index";
+import { createDefaultModelContextBudgetPolicy, CharacterModelInputEstimator, type ModelCapabilities } from "../../context-budget/src/index";
 import {
     callModel,
     recordLlmDiagnosticTrace,
@@ -501,6 +501,13 @@ export class LLMStepExecutor implements StepExecutor {
             ...(this.modelInputStore === undefined ? {} : { modelInputStore: this.modelInputStore }),
             ...(this.metricsRecorder === undefined ? {} : { metricsRecorder: this.metricsRecorder }),
             ...(input.executionStream === undefined ? {} : { executionStream: input.executionStream }),
+            estimateInputTokens: (request) => {
+                const estimator = this.modelCapabilities?.tokenEstimator;
+                if (estimator?.unit === "token") return estimator.estimate(request);
+                // 没有 tokenizer 时按 ASCII 约 4 字符/token 的保守换算；仅用于缺失用量样本的估算标记。
+                const characters = new CharacterModelInputEstimator().estimate(request);
+                return Math.max(1, Math.ceil(characters / 4));
+            },
         }, {
             context: {
                 goalId: goal.id,

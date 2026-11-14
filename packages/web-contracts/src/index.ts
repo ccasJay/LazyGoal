@@ -178,6 +178,7 @@ export {
 export {
     type MetricsCoverage,
     type RunSessionMetrics,
+    type SessionMetricsContextUsage,
     type SessionMetricsSnapshot,
 } from "./metrics";
 

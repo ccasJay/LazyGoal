@@ -70,6 +70,7 @@ import {
     ModelCapabilitiesError,
     resolveTokenEstimatorEncoding,
     resolveEpochCapacity,
+    tryResolveEpochCapacity,
     type EpochCapacity,
     type ModelCapabilities,
     type ModelContextBudgetPolicy,
@@ -746,7 +747,12 @@ async function assembleRuntimeComposition(
             listHistory: () => primaryGoalStore.listHistory(),
         };
     const metricsStore = new JsonFileMetricsStore(goalsDirectory);
-    const sessionMetricsService = new SessionMetricsService(store, metricsStore, metricsStore);
+    const sessionMetricsService = new SessionMetricsService(store, metricsStore, metricsStore, (goal) => tryResolveEpochCapacity({
+        modelContextWindowTokens: goal.state.modelSelection.contextWindowTokens
+            ?? modelCapabilities?.contextWindowTokens,
+        configuredLimitTokens: contextConfig?.epochLimitTokens,
+        thresholdPercent: contextConfig?.compactThresholdPercent,
+    }));
     const metricsAwareGoalStore: GoalStore = {
         async save(goal) {
             await store.save(goal);

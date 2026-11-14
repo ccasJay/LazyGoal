@@ -38,11 +38,11 @@ function validateMetricRecord(record: ModelCallMetricFileRecord): readonly strin
     }
     if (!hasValidOccurredAt(record.occurredAt)) issues.push("occurredAt must be an ISO-8601 timestamp");
     if (record.recordType === "call_finished") {
-        if (record.usage.source === "provider_reported") {
+        if (record.usage.source === "provider_reported" || record.usage.source === "estimated") {
             for (const [field, value] of [
                 ["usage.inputTokens", record.usage.inputTokens],
-                ["usage.outputTokens", record.usage.outputTokens],
-                ["usage.cachedInputTokens", record.usage.cachedInputTokens],
+                ["usage.outputTokens", record.usage.source === "provider_reported" ? record.usage.outputTokens : undefined],
+                ["usage.cachedInputTokens", record.usage.source === "provider_reported" ? record.usage.cachedInputTokens : undefined],
             ] as const) {
                 if (value !== undefined && (!Number.isInteger(value) || value < 0 || !Number.isSafeInteger(value))) {
                     issues.push(`${field} must be a non-negative safe integer`);

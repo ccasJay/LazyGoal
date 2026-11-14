@@ -93,6 +93,14 @@ export interface ModelCallDependencies {
     readonly metricsRecorder?: ModelCallMetricsRecorder;
     /** 可选的执行流发布通道；发布失败不会改变调用结果。 */
     readonly executionStream?: ExecutionStreamPublisher;
+    /**
+     * 供应商未上报用量时使用的输入 Token 估算。
+     *
+     * @remarks
+     * 只应基于本次请求的固定内容计算；实现必须返回非负安全整数。估算失败或未提供时
+     * 该调用记录为 `unavailable`，不会伪造精度。
+     */
+    readonly estimateInputTokens?: (request: LLMRequest) => number;
 }
 
 /**
@@ -230,12 +238,19 @@ export async function callModel(
         throw error;
     }
     const usage = readNormalizedUsage(response.providerMetadata);
+    const estimatedInputTokens = usage === undefined
+        ? dependencies.estimateInputTokens?.(providerRequest)
+        : undefined;
     await appendModelMetric(dependencies.metricsRecorder, {
         recordType: "call_finished",
         ...metricIdentity,
         occurredAt: new Date().toISOString(),
         outcome: "completed",
-        usage: usage === undefined ? { source: "unavailable" } : { source: "provider_reported", ...usage },
+        usage: usage === undefined
+            ? estimatedInputTokens === undefined || !Number.isSafeInteger(estimatedInputTokens) || estimatedInputTokens < 0
+                ? { source: "unavailable" }
+                : { source: "estimated", inputTokens: estimatedInputTokens }
+            : { source: "provider_reported", ...usage },
         ...(requestDurationMs === undefined ? {} : { requestDurationMs }),
         ...(decodeDurationMs === undefined ? {} : { decodeDurationMs }),
     });
