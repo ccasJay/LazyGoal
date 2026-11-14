@@ -1752,14 +1752,8 @@ function assertEpochState(value: Record<string, unknown>): void {
         || !Number.isSafeInteger(value.openedAtSequence) || (value.openedAtSequence as number) < 0) {
         throw new TrajectoryProtocolError("Epoch state is invalid");
     }
-    if (value.compactionEventId !== undefined) {
-        assertNonEmptyString(value.compactionEventId, "Epoch compactionEventId");
-    }
     if (value.compactionSourceRunId !== undefined) {
         assertNonEmptyString(value.compactionSourceRunId, "Epoch compactionSourceRunId");
-        if (value.compactionEventId === undefined) {
-            throw new TrajectoryProtocolError("Epoch compactionSourceRunId requires a compactionEventId");
-        }
     }
 }
 

@@ -222,6 +222,17 @@ export {
     selectEpochConversationStart,
     selectLatestConversationStart,
 } from "./context-epoch";
+export {
+    evaluateCompactionBody,
+    renderCompactionTranscript,
+    selectCompactionWindow,
+} from "./context-compaction";
+export type {
+    ContextCompactionInput,
+    ContextCompactionPort,
+    ContextCompactionResult,
+    ContextCompactionSkipReason,
+} from "./context-compaction";
 export type {
     GoalCatalog,
     GoalCatalogEntry,

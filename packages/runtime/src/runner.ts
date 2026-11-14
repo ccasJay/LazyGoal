@@ -180,6 +180,7 @@ import {
 import {
     TrajectoryAppendError,
     TrajectoryCommitMarkerError,
+    allocateDiagnosticTraceRecord,
     trajectoryWatermark,
     type DiagnosticTraceSink,
     type TrajectoryEvent,
@@ -215,6 +216,12 @@ import {
     selectLatestConversationStart,
     toEpochRange,
 } from "./context-epoch";
+import {
+    evaluateCompactionBody,
+    renderCompactionTranscript,
+    selectCompactionWindow,
+    type ContextCompactionInput,
+} from "./context-compaction";
 import { withGoalMutationGate } from "./goal-mutation-gate";
 import { RunRecoveryReader } from "./run-recovery-reader";
 import {
@@ -1033,6 +1040,21 @@ export interface RunnerDependencies {
     readonly trajectoryStore?: TrajectoryStore;
     /** 可选诊断记录边界；诊断故障不得改变 Snapshot 或 Domain Event 语义。 */
     readonly traceSink?: DiagnosticTraceSink;
+    /**
+     * 可选的阈值压缩调度。
+     *
+     * @remarks
+     * 省略时不调度压缩。`readOccupancy` 返回当次已结算的工作窗口占用与容量；
+     * `compact` 只执行一次提炼调用。Runtime 负责候选选择、有效性判断与提交边界。
+     */
+    readonly contextCompaction?: {
+        readonly readOccupancy: (goal: Goal) => Promise<{
+            readonly occupiedTokens: number;
+            readonly capacityTokens: number;
+            readonly thresholdPercent: number;
+        } | null>;
+        readonly compact: (input: ContextCompactionInput) => Promise<string | undefined>;
+    };
     /** structured@1 Patch 接受时使用的 Working Memory 限制。 */
     readonly workingMemoryLimits?: WorkingMemoryLimitsInput;
     /**
@@ -1105,6 +1127,7 @@ class RunExecutor {
     private readonly contextLookupPort: ContextLookupPort | undefined;
     private readonly executionStream: ExecutionStreamPublisher | undefined;
     private readonly traceSink: DiagnosticTraceSink | undefined;
+    private readonly contextCompaction: RunnerDependencies["contextCompaction"];
     private readonly sandboxPlanResolver: SandboxPlanResolver | undefined;
     private readonly permissionProfileStore: ProjectPermissionProfileStore | undefined;
     private readonly activeRunControllers = new Map<string, AbortController>();
@@ -1141,6 +1164,7 @@ class RunExecutor {
         this.contextLookupPort = dependencies.contextLookupPort;
         this.executionStream = dependencies.executionStream;
         this.traceSink = dependencies.traceSink;
+        this.contextCompaction = dependencies.contextCompaction;
         this.checkpointCommitter = dependencies.checkpointCommitter
             ?? new TrajectoryCheckpointCommitter({
                 store: dependencies.store,
@@ -1871,6 +1895,144 @@ class RunExecutor {
      * 每个 `(goalId, runId)` 只读取自身 Snapshot 提交边界内的事实；读取失败或非零
      * 水位缺少提交边界时抛出 `RunNavigationRecoveryError`，停止本次依赖该导航的模型推进。
      */
+    /**
+     * 在完成交互与已结算执行单元的边界上按阈值执行一轮提炼。
+     *
+     * @remarks
+     * 占用严格超过阈值才触发；正文无效、未缩减或提炼失败时保持旧窗口并继续执行。
+     * 提交点唯一：把压缩正文与来源范围写入 Epoch 切换事件，并在同一提交中保存新 Epoch。
+     */
+    private async maybeCompactContext(goal: Goal, control?: ExecutionControl): Promise<Goal> {
+        const scheduler = this.contextCompaction;
+        if (scheduler === undefined) return goal;
+        if (goal.state.run.status !== "running") return goal;
+        if (goal.state.run.pendingAction !== undefined
+            || goal.state.run.pendingActionBatch !== undefined
+            || goal.state.run.pendingInteraction !== undefined
+            || goal.state.run.pendingThink !== undefined
+            || goal.state.run.pendingModelRepair !== undefined
+            || goal.state.run.pendingProgram !== undefined) {
+            return goal;
+        }
+        const occupancy = await scheduler.readOccupancy(goal);
+        if (occupancy === null) return goal;
+        if (occupancy.occupiedTokens * 100 <= occupancy.thresholdPercent * occupancy.capacityTokens) return goal;
+
+        const epoch = goal.state.run.contextEpoch;
+        const window = selectCompactionWindow(goal.state.messages, epoch.conversationStartIndex);
+        if (window === undefined) return goal;
+        const evictedTranscript = renderCompactionTranscript(window.evicted);
+        if (evictedTranscript.length === 0) return goal;
+
+        let body: string | undefined;
+        try {
+            body = await scheduler.compact({
+                intent: goal.definition.intent,
+                ...(goal.state.run.approvedTask === undefined
+                    ? {}
+                    : { objective: goal.state.run.approvedTask.objective }),
+                evictedTranscript,
+                recentTranscript: renderCompactionTranscript(window.retained),
+                evictedCharacters: evictedTranscript.length,
+            });
+        } catch (error) {
+            if (isExecutionAbortedError(error)) throw error;
+            await this.recordCompactionFailure(goal, error);
+            return goal;
+        }
+        throwIfAborted(control);
+        const result = evaluateCompactionBody(body, evictedTranscript.length);
+        if (result.kind !== "compacted") return goal;
+
+        const openedAtSequence = goal.state.run.committedThroughSequence + 1;
+        const source = await this.readCompactionSource(goal, epoch.openedAtSequence, control);
+        if (source === undefined) return goal;
+        const nextEpoch = advanceContextEpoch(
+            epoch,
+            goal.state.messages,
+            window.retainedStartIndex,
+            openedAtSequence,
+            { sourceRunId: goal.state.run.id },
+        );
+        const closedEpoch = toEpochRange(
+            epoch,
+            goal.state.messages.length,
+            goal.state.run.committedThroughSequence,
+        );
+        const nextGoal = this.withRun(goal, {
+            ...goal.state.run,
+            contextEpoch: nextEpoch,
+        });
+        return this.commitDecision(nextGoal, [{
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            phase: "executing",
+            eventType: "context_epoch_advanced",
+            payload: {
+                type: "context_epoch_advanced",
+                closedEpoch,
+                openedEpoch: nextEpoch,
+                reason: "threshold_compaction",
+                compaction: {
+                    body: result.body,
+                    sourceRunId: goal.state.run.id,
+                    firstSequence: source.firstSequence,
+                    lastSequence: source.lastSequence,
+                    eventIds: source.eventIds,
+                },
+            },
+        }], undefined, control);
+    }
+
+    /**
+     * 读取被移出历史对应的已提交事件范围。
+     *
+     * @remarks
+     * 当前 Epoch 的 `openedAtSequence` 与提交边界定义被移出范围；代表事件身份只用于
+     * 恢复时核验，不参与正文。没有可读的 Trajectory 时不提交压缩。
+     */
+    private async readCompactionSource(
+        goal: Goal,
+        firstSequence: number,
+        control?: ExecutionControl,
+    ): Promise<{ readonly firstSequence: number; readonly lastSequence: number; readonly eventIds: readonly string[] } | undefined> {
+        const store = this.trajectoryStore;
+        if (store === undefined) return undefined;
+        const lastSequence = goal.state.run.committedThroughSequence;
+        if (lastSequence < firstSequence) return undefined;
+        const committed = await store.readWithBoundary(
+            { goalId: goal.id, runId: goal.state.run.id },
+            lastSequence,
+        );
+        const inRange = committed.committed.filter((event) =>
+            event.sequence >= firstSequence && event.sequence <= lastSequence);
+        if (inRange.length === 0) return undefined;
+        throwIfAborted(control);
+        return Object.freeze({
+            firstSequence: inRange[0]!.sequence,
+            lastSequence: inRange[inRange.length - 1]!.sequence,
+            eventIds: Object.freeze([inRange[0]!.eventId, inRange[inRange.length - 1]!.eventId]
+                .filter((id, index, ids) => ids.indexOf(id) === index)),
+        });
+    }
+
+    /** @returns 提炼失败的诊断已尽力写入后的 Promise；诊断故障不改变执行结果。 */
+    private async recordCompactionFailure(goal: Goal, error: unknown): Promise<void> {
+        if (this.traceSink === undefined) return;
+        try {
+            await this.traceSink.append(allocateDiagnosticTraceRecord({
+                goalId: goal.id,
+                runId: goal.state.run.id,
+                kind: "context_compaction_failed",
+                payload: {
+                    message: error instanceof Error ? error.message : String(error),
+                },
+            }));
+        } catch {
+            // 诊断失败不得改变执行结果。
+        }
+    }
+
     private async populateHistoricalContext(goal: Goal, control?: ExecutionControl): Promise<Goal> {
         if (goal.state.historicalStages !== undefined && goal.state.notes !== undefined) {
             return goal;
@@ -4466,6 +4628,7 @@ class RunExecutor {
             }
 
             goal = await this.populateHistoricalContext(goal, control);
+            goal = await this.maybeCompactContext(goal, control);
 
             const executionUnitId = goal.state.run.pendingThink?.executionUnitId
                 ?? goal.state.run.pendingModelRepair?.executionUnitId

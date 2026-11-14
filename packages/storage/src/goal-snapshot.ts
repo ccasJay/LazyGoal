@@ -520,12 +520,6 @@ export interface GoalSnapshotContextEpochV1 {
     readonly conversationStartIndex: number;
     readonly openedAtSequence: number;
     /**
-     * 开启本 Epoch 的压缩事件身份。
-     *
-     * @minLength 1
-     */
-    readonly compactionEventId?: string;
-    /**
      * 压缩正文的来源 Run。
      *
      * @minLength 1

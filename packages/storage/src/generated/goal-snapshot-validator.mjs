@@ -10369,7 +10369,7 @@ var require_GoalSnapshotV1_validator = __commonJS({
               errors++;
             }
             for (const key8 in data52) {
-              if (!(key8 === "version" || key8 === "number" || key8 === "conversationStartIndex" || key8 === "openedAtSequence" || key8 === "compactionEventId" || key8 === "compactionSourceRunId")) {
+              if (!(key8 === "version" || key8 === "number" || key8 === "conversationStartIndex" || key8 === "openedAtSequence" || key8 === "compactionSourceRunId")) {
                 const err101 = { instancePath: instancePath + "/contextEpoch", schemaPath: "#/definitions/GoalSnapshotContextEpochV1/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key8 }, message: "must NOT have additional properties" };
                 if (vErrors === null) {
                   vErrors = [err101];
@@ -10436,11 +10436,11 @@ var require_GoalSnapshotV1_validator = __commonJS({
                 errors++;
               }
             }
-            if (data52.compactionEventId !== void 0) {
-              let data57 = data52.compactionEventId;
+            if (data52.compactionSourceRunId !== void 0) {
+              let data57 = data52.compactionSourceRunId;
               if (typeof data57 === "string") {
                 if (func9(data57) < 1) {
-                  const err107 = { instancePath: instancePath + "/contextEpoch/compactionEventId", schemaPath: "#/definitions/GoalSnapshotContextEpochV1/properties/compactionEventId/minLength", keyword: "minLength", params: { limit: 1 }, message: "must NOT have fewer than 1 characters" };
+                  const err107 = { instancePath: instancePath + "/contextEpoch/compactionSourceRunId", schemaPath: "#/definitions/GoalSnapshotContextEpochV1/properties/compactionSourceRunId/minLength", keyword: "minLength", params: { limit: 1 }, message: "must NOT have fewer than 1 characters" };
                   if (vErrors === null) {
                     vErrors = [err107];
                   } else {
@@ -10449,7 +10449,7 @@ var require_GoalSnapshotV1_validator = __commonJS({
                   errors++;
                 }
               } else {
-                const err108 = { instancePath: instancePath + "/contextEpoch/compactionEventId", schemaPath: "#/definitions/GoalSnapshotContextEpochV1/properties/compactionEventId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                const err108 = { instancePath: instancePath + "/contextEpoch/compactionSourceRunId", schemaPath: "#/definitions/GoalSnapshotContextEpochV1/properties/compactionSourceRunId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                 if (vErrors === null) {
                   vErrors = [err108];
                 } else {
@@ -10458,44 +10458,22 @@ var require_GoalSnapshotV1_validator = __commonJS({
                 errors++;
               }
             }
-            if (data52.compactionSourceRunId !== void 0) {
-              let data58 = data52.compactionSourceRunId;
-              if (typeof data58 === "string") {
-                if (func9(data58) < 1) {
-                  const err109 = { instancePath: instancePath + "/contextEpoch/compactionSourceRunId", schemaPath: "#/definitions/GoalSnapshotContextEpochV1/properties/compactionSourceRunId/minLength", keyword: "minLength", params: { limit: 1 }, message: "must NOT have fewer than 1 characters" };
-                  if (vErrors === null) {
-                    vErrors = [err109];
-                  } else {
-                    vErrors.push(err109);
-                  }
-                  errors++;
-                }
-              } else {
-                const err110 = { instancePath: instancePath + "/contextEpoch/compactionSourceRunId", schemaPath: "#/definitions/GoalSnapshotContextEpochV1/properties/compactionSourceRunId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-                if (vErrors === null) {
-                  vErrors = [err110];
-                } else {
-                  vErrors.push(err110);
-                }
-                errors++;
-              }
-            }
           } else {
-            const err111 = { instancePath: instancePath + "/contextEpoch", schemaPath: "#/definitions/GoalSnapshotContextEpochV1/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+            const err109 = { instancePath: instancePath + "/contextEpoch", schemaPath: "#/definitions/GoalSnapshotContextEpochV1/type", keyword: "type", params: { type: "object" }, message: "must be object" };
             if (vErrors === null) {
-              vErrors = [err111];
+              vErrors = [err109];
             } else {
-              vErrors.push(err111);
+              vErrors.push(err109);
             }
             errors++;
           }
         }
       } else {
-        const err112 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+        const err110 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
         if (vErrors === null) {
-          vErrors = [err112];
+          vErrors = [err110];
         } else {
-          vErrors.push(err112);
+          vErrors.push(err110);
         }
         errors++;
       }

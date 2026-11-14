@@ -812,6 +812,26 @@ export interface ModelTrajectoryContext {
     readonly warm: readonly WarmCompactEntry[];
     /** 本轮固定输入与 Hot/Warm 配额报告。 */
     readonly budget: ModelContextBudgetPlan;
+    /** 当前 Epoch 的已提交提炼正文；省略表示本窗口没有压缩接续。 */
+    readonly compaction?: ModelContextCompactionView;
+}
+
+/**
+ * 当前 Epoch 的压缩接续正文。
+ *
+ * @remarks
+ * 正文来自已提交的 Epoch 切换事件，不由 Goal 快照复制；它只替代被移出窗口的历史，
+ * 不替代 Working Memory、任务状态或最新观察。
+ */
+export interface ModelContextCompactionView {
+    /** 压缩正文。 */
+    readonly body: string;
+    /** 压缩正文的来源 Run。 */
+    readonly sourceRunId: string;
+    /** 来源范围的首个已提交序号。 */
+    readonly firstSequence: number;
+    /** 来源范围的末个已提交序号。 */
+    readonly lastSequence: number;
 }
 
 /** 模型可见的 Context Epoch 控制状态。 */
@@ -828,6 +848,8 @@ export interface ModelContextEpochView {
     readonly epochNumber: number;
     readonly conversationStartIndex: number;
     readonly openedAtSequence: number;
+    /** 开启本 Epoch 的压缩来源 Run；省略表示本 Epoch 不是由 Compact 开启。 */
+    readonly compactionSourceRunId?: string;
     readonly control: ModelContextControl;
 }
 

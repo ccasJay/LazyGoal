@@ -64,6 +64,7 @@ function createWorkingContextPayload(
         payload.trajectoryContext = {
             hot: trajectoryContext.hot,
             ...(trajectoryContext.warm.length > 0 ? { warm: trajectoryContext.warm } : {}),
+            ...(trajectoryContext.compaction === undefined ? {} : { compaction: trajectoryContext.compaction }),
         };
     }
 

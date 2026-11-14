@@ -324,6 +324,9 @@ function projectContextEpoch(
         epochNumber: state.number,
         conversationStartIndex: state.conversationStartIndex,
         openedAtSequence: state.openedAtSequence,
+        ...(state.compactionSourceRunId === undefined
+            ? {}
+            : { compactionSourceRunId: state.compactionSourceRunId }),
         control: {
             status: "active" as const,
         },

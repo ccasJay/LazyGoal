@@ -63,7 +63,6 @@ test("advanceContextEpoch 携带压缩指针，未提供时省略该字段", () 
     const current = createInitialContextEpoch();
 
     const withPointer = advanceContextEpoch(current, messages, 2, 5, {
-        eventId: "event-5",
         sourceRunId: "run-compaction",
     });
     assert.deepEqual({ ...withPointer }, {
@@ -71,15 +70,14 @@ test("advanceContextEpoch 携带压缩指针，未提供时省略该字段", () 
         number: 1,
         conversationStartIndex: 2,
         openedAtSequence: 5,
-        compactionEventId: "event-5",
         compactionSourceRunId: "run-compaction",
     });
 
     const withoutPointer = advanceContextEpoch(current, messages, 2, 5);
-    assert.equal("compactionEventId" in withoutPointer, false);
+    assert.equal("compactionSourceRunId" in withoutPointer, false);
     assert.throws(
-        () => advanceContextEpoch(current, messages, 2, 5, { eventId: "", sourceRunId: "run-compaction" }),
-        /compaction pointer must be non-empty/,
+        () => advanceContextEpoch(current, messages, 2, 5, { sourceRunId: "" }),
+        /compaction source run must be non-empty/,
     );
 });
 
@@ -132,7 +130,6 @@ test("压缩指针随 Goal 快照往返，正文不进入快照", () => {
                     number: 1,
                     conversationStartIndex: 0,
                     openedAtSequence: 0,
-                    compactionEventId: "event-7",
                     compactionSourceRunId: "run-compaction",
                 },
             },
@@ -145,7 +142,6 @@ test("压缩指针随 Goal 快照往返，正文不进入快照", () => {
         number: 1,
         conversationStartIndex: 0,
         openedAtSequence: 0,
-        compactionEventId: "event-7",
         compactionSourceRunId: "run-compaction",
     });
     assert.equal(JSON.stringify(encoded).includes("已验证"), false);

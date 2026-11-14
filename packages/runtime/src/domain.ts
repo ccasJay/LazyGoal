@@ -1060,14 +1060,7 @@ export interface ModelContextEpochState {
     readonly number: number;
     readonly conversationStartIndex: number;
     readonly openedAtSequence: number;
-    /**
-     * 开启本 Epoch 的压缩事件身份；省略表示本 Epoch 不是由 Compact 开启。
-     *
-     * @remarks
-     * 压缩正文不进入快照；恢复时按该身份从来源 Run 的 Trajectory 读取已提交事件。
-     */
-    readonly compactionEventId?: string | undefined;
-    /** 压缩正文的来源 Run；省略时与当前 Run 相同。 */
+    /** 压缩正文的来源 Run；省略时表示本 Epoch 不是由 Compact 开启。 */
     readonly compactionSourceRunId?: string | undefined;
 }
 
