@@ -642,3 +642,61 @@ function validWarmEntry() {
         sourceHash: "sha256:finding",
     };
 }
+
+test("已提交的阈值压缩正文按 Epoch 指针进入下一轮分层上下文", async () => {
+    const compactionBody = "已验证：登录弹窗改用显式 closeOnOutsideClick；未解决：Safari 全量回归未跑。";
+    const switchEvent = event(6, "unit-2", {
+        type: "context_epoch_advanced",
+        closedEpoch: {
+            number: 0,
+            conversationStartIndex: 0,
+            conversationEndIndexExclusive: 2,
+            closedThroughSequence: 5,
+        },
+        openedEpoch: {
+            version: 1,
+            number: 1,
+            conversationStartIndex: 1,
+            openedAtSequence: 6,
+            compactionSourceRunId: "run-layered",
+        },
+        reason: "threshold_compaction",
+        compaction: {
+            body: compactionBody,
+            sourceRunId: "run-layered",
+            firstSequence: 1,
+            lastSequence: 5,
+            eventIds: ["event-1", "event-5"],
+        },
+    });
+    const trajectoryStore = new MemoryTrajectoryStore([switchEvent]);
+    const assembler = new TrajectoryModelContextAssembler({
+        trajectoryStore,
+        policy,
+    });
+    const base = layeredExecutingGoal(6);
+    const goal: Goal = {
+        ...base,
+        state: {
+            ...base.state,
+            run: {
+                ...base.state.run,
+                contextEpoch: {
+                    version: 1,
+                    number: 1,
+                    conversationStartIndex: 1,
+                    openedAtSequence: 6,
+                    compactionSourceRunId: "run-layered",
+                },
+            },
+        },
+    };
+    const view = new ModelInferenceProjector().project(goal, [], createEmptyWorkingMemory());
+
+    const assembled = await assembler.assemble({ goal, view });
+
+    assert.equal(assembled.trajectoryContext?.compaction?.body, compactionBody);
+    assert.equal(assembled.trajectoryContext?.compaction?.sourceRunId, "run-layered");
+    assert.equal(assembled.trajectoryContext?.compaction?.firstSequence, 1);
+    assert.equal(assembled.trajectoryContext?.compaction?.lastSequence, 5);
+});
