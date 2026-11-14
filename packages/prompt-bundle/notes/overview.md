@@ -17,3 +17,7 @@ Decide 与 Think 共用的 [Global Overview](../src/global-system-prompt/global-
 ## 协议适配与限制
 
 `createDefaultPromptBundleProtocolValidator` 只接受 `structured@1 + trajectory-layered@1 + bm25-lite@1 + Prompt Bundle v1`，不提供默认值、迁移或回退。本包不读取历史 frame、不组装请求、不调用模型；Section 差异计算与请求组装由 Agent 侧消费者完成。当前支持范围不因拆包扩展。
+
+## Context Epoch 提炼
+
+`context-compaction@1` 是本包拥有的阈值提炼提示词模板，经 `renderContextCompactionPrompt` 按需读取并编译，不进入 Bundle Manifest：它不属于任何执行阶段的 system prompt，也不产生动态 section。模板只接收 Goal 意图、已批准目标、即将移出的历史与保留的近期交互；它要求模型保留已验证发现、未解决问题、仍生效的决策与理由，禁止发明事实或引用，并把输出限制为严格短于被替换历史。正文以变量值传入，模板语法不会被二次执行。

@@ -87,6 +87,8 @@ export interface ExecutionComponentDependencies {
     readonly sandboxPlanResolver?: SandboxPlanResolver;
     /** 每次合法 launch 或后继 Run 生成 runId；省略时使用随机 UUID。 */
     readonly runIdGenerator?: () => string;
+    /** 阈值压缩调度；省略时不调度压缩。 */
+    readonly contextCompaction?: RunnerDependencies["contextCompaction"];
 }
 
 /**
@@ -270,6 +272,9 @@ function collectRunnerDependencies(
         ...(dependencies.sandboxPlanResolver === undefined
             ? {}
             : { sandboxPlanResolver: dependencies.sandboxPlanResolver }),
+        ...(dependencies.contextCompaction === undefined
+            ? {}
+            : { contextCompaction: dependencies.contextCompaction }),
     };
 }
 

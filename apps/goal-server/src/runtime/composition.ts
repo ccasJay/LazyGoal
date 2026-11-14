@@ -36,6 +36,7 @@ import {
     type TrajectoryQueryPort,
     type TrajectoryStore,
     type ToolPolicy,
+    type RunnerDependencies,
     IndexedContextLookupService,
     hasUnsettledSessionWork,
 } from "../../../../packages/runtime/src/index";
@@ -85,6 +86,7 @@ import {
 } from "../../../../packages/model-execution/src/index";
 import {
     createDefaultPromptBundleRenderer,
+    renderContextCompactionPrompt,
     createDefaultPromptBundleProtocolValidator,
 } from "../../../../packages/prompt-bundle/src/index";
 import {
@@ -96,6 +98,7 @@ import {
 } from "../../../../packages/config/src/index";
 import {
     LLMConfigurationError,
+    readAssistantText,
     type LLMConfig,
 } from "../../../../packages/llm-core/src/index";
 import { loadContextConfig, loadRuntimeConfig } from "../../../../packages/config/src/index";
@@ -945,6 +948,36 @@ async function assembleRuntimeComposition(
         assertModelSelectionProvider(selection);
         alignModelBinding(selection);
     };
+    const contextCompaction: NonNullable<RunnerDependencies["contextCompaction"]> = {
+        readOccupancy: async (goal) => {
+            const snapshot = await sessionMetricsService.read(goal.id);
+            const usage = snapshot?.contextUsage;
+            if (usage === undefined || usage === null) return null;
+            const capacity = tryResolveEpochCapacity({
+                modelContextWindowTokens: goal.state.modelSelection.contextWindowTokens
+                    ?? modelCapabilities?.contextWindowTokens,
+                configuredLimitTokens: contextConfig?.epochLimitTokens,
+                thresholdPercent: contextConfig?.compactThresholdPercent,
+            });
+            if (capacity === undefined) return null;
+            return {
+                occupiedTokens: Math.round(usage.usedPercent * usage.capacityTokens),
+                capacityTokens: usage.capacityTokens,
+                thresholdPercent: capacity.thresholdPercent,
+            };
+        },
+        compact: async (input) => {
+            const prompt = await renderContextCompactionPrompt(input);
+            const response = await modelBinding.current().decideAdapter.generate({
+                messages: [{ role: "system", content: prompt }],
+                ...(modelCapabilities === undefined
+                    ? {}
+                    : { maxOutputTokens: modelCapabilities.maxOutputTokens }),
+            });
+            const text = readAssistantText(response).trim();
+            return text.length === 0 ? undefined : text;
+        },
+    };
     const executionComponents = createExecutionComponents({
         store: checkpointStore,
         executor: await createAgentExecutor({
@@ -970,6 +1003,7 @@ async function assembleRuntimeComposition(
         sandboxPlanResolver: ({ workspaceRoot, action, effectiveScope }) => effectiveScope === undefined
             ? undefined
             : { actionId: action.actionId, workspaceRoot, scope: effectiveScope },
+        contextCompaction,
         trajectoryStore,
         traceSink,
         workingMemoryLimits,
