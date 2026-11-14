@@ -1,9 +1,9 @@
 ---
 feature: context-epoch-window
-status: proposed
+status: delivered
 risk: high
 created_at: 2026-11-14
-delivered_at: null
+delivered_at: 2026-11-14
 supersedes: []
 superseded_by: null
 ---
@@ -57,17 +57,9 @@ superseded_by: null
 | high | R3.2 永久删除旧布局的 Goal 数据。共享调度、授权及配置可能同处一个工作区。 | 实际清理只覆盖已授权的旧 Goal 专属数据。测试使用临时目录。执行前核对具体数据根及清理边界。 |
 | high | R2.3–R2.6 涉及跨文件持久化、进程中断和模型重试。部分提交或错误重放可能改变任务上下文。 | 以故障注入验证恢复边界。真实供应商调用使用已授权的模型和范围。 |
 
-## 任务
-
-- [x] //TODO 1. 让 Goal 在新布局下持久化和按 Run 查询，并提供旧布局清理入口 → R3.1、R3.2；检查：临时工作区文件往返与清理范围测试
-- [x] //TODO 2. 让普通请求使用已配置工作窗口并报告当前 Context 占用 → R1.1、R1.2、R1.3、R1.4；检查：容量解析和指标投影测试
-- [x] //TODO 3. 让超过阈值的工作窗口经一轮提炼后可续写和恢复 → R2.1、R2.3、R2.4；检查：单次压缩及提交边界测试
-- [x] //TODO 4. 让供应商超窗请求只进行一次整理和一次重试 → R2.5、R2.6；检查：适配器超窗与重试计数测试
-- [x] //TODO 5. 让用户通过 `/compact` 使用同一压缩和恢复流程 → R2.2、R2.3、R2.4；检查：命令解析和同一 Epoch 重复触发测试
-
 ## 执行记录
 
-- 状态：已执行
-- 验证：`npm test`（3051 项）、`npm run test:ui-harness`（39 项）、`apps/goal-board npm run build`、`npm run check:docs`、`npm run check:dependencies`、`npm run contracts:generate -- --check` 全部通过。
+- 状态：passed
+- 验证：`npm test`（3051 项）、`npm run test:ui-harness`（39 项）、`apps/goal-board npm run build`、`npm run check:docs`、`npm run check:dependencies`、`npm run contracts:generate -- --check` 全部通过；被测提交 db3da20fdf0b56e81200be243e530cf414d64961。
 - 结果：R1.1–R3.2 全部实现并由对应检查覆盖；`/compact` 经受统一会话输入在安全边界执行。
 - 未决：当前网络下 `beam-free` 被供应商以区域限制拒绝（HTTP 403 RegionError），真实模型验收改用可用免费模型。
