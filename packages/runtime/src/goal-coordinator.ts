@@ -91,17 +91,13 @@ import {
 import { withGoalMutationGate } from "./goal-mutation-gate";
 import { recordToolInputDiagnostic } from "./tool-input-diagnostic";
 import {
-    DefaultPermissionGrantService,
+    DefaultPermissionExemptionService,
     createSandboxGrantMatcher,
-    createToolGrantMatcher,
-    toolGrantMatchersEqual,
     type PermissionProfile,
     type ProjectPermissionProfile,
     type ProjectPermissionProfileStore,
     type SandboxGrantStore,
-    type ToolGrantScope,
-    type ToolGrantStore,
-    type UnifiedGrantSummary,
+    type PermissionExemptionSummary,
 } from "./tool-grant";
 import { DEFAULT_PERMISSION_PROFILE } from "../../permission/src/index";
 
@@ -381,7 +377,6 @@ export interface GoalCoordinatorDependencies {
     /** 工具注册表；省略时按空 InMemoryToolRegistry 处理。 */
     readonly toolRegistry?: ToolRegistry;
     /** 可选的 Goal/Workspace 授权账本；持续授权只有配置此 Port 才可批准。 */
-    readonly toolGrantStore?: ToolGrantStore;
     /** 可选的 Sandbox 持续授权账本；沙箱能力持续授权只有配置此 Port 才可批准。 */
     readonly sandboxGrantStore?: SandboxGrantStore;
     /** 当前 workspace 的稳定身份，与 Grant 账本目录绑定。 */
@@ -427,7 +422,6 @@ export class GoalCoordinator {
     private readonly scheduler: RunScheduler;
     private readonly runIdGenerator: () => string;
     private readonly toolRegistry: ToolRegistry;
-    private readonly toolGrantStore: ToolGrantStore | undefined;
     private readonly sandboxGrantStore: SandboxGrantStore | undefined;
     private readonly permissionProfileStore: ProjectPermissionProfileStore | undefined;
     private readonly workspaceId: string | undefined;
@@ -447,7 +441,6 @@ export class GoalCoordinator {
         this.scheduler = dependencies.scheduler;
         this.runIdGenerator = dependencies.runIdGenerator ?? randomUUID;
         this.toolRegistry = dependencies.toolRegistry ?? new InMemoryToolRegistry();
-        this.toolGrantStore = dependencies.toolGrantStore;
         this.sandboxGrantStore = dependencies.sandboxGrantStore;
         this.permissionProfileStore = dependencies.permissionProfileStore;
         this.workspaceId = dependencies.workspaceId;
@@ -471,75 +464,6 @@ export class GoalCoordinator {
     }
 
     /**
-     * 列出当前 workspace 下可见的持续授权。
-     *
-     * @param ref - 当前 Goal 与 Run 身份。
-     * @returns 当前 Goal Grant 与 workspace Grant；不返回其它 workspace 的记录。
-     * @throws 未配置 Grant Store 或请求身份与当前 workspace 不匹配时拒绝。
-     * @example
-     * ```ts
-     * const grants = await coordinator.listToolGrants({ goalId, runId });
-     * ```
-     */
-    async listToolGrants(ref: RunRef): Promise<readonly import("./tool-grant").ToolGrant[]> {
-        if (this.toolGrantStore === undefined || this.workspaceId === undefined) {
-            throw new Error("Tool Grant storage is unavailable");
-        }
-        const goal = await this.restore(ref);
-        if (goal === undefined || goal.state.run.id !== ref.runId) throw new Error("Run not found");
-        return this.toolGrantStore.list({ workspaceId: this.workspaceId, goalId: goal.id });
-    }
-
-    /**
-     * 撤销当前 workspace 中一条可见的持续授权。
-     *
-     * @param request - 目标 Run、Grant ID 和目标授权范围。
-     * @returns 已撤销 Grant；撤销完成后后续匹配 Action 必须重新等待审批。
-     * @remarks 撤销与当前 Run 的审计事实和 Snapshot 保存按 Goal 串行；若后续审计提交失败，
-     *   Grant 仍保持已撤销，原始错误继续传播。
-     * @throws Run 不存在、Grant 越权或存储/Trajectory 写入失败时拒绝。
-     * @example
-     * ```ts
-     * await coordinator.revokeToolGrant({ ref, grantId: "grant-1", scope: "workspace" });
-     * ```
-     */
-    async revokeToolGrant(request: {
-        readonly ref: RunRef;
-        readonly grantId: string;
-        readonly scope: ToolGrantScope;
-    }): Promise<import("./tool-grant").ToolGrant> {
-        if (this.toolGrantStore === undefined || this.workspaceId === undefined) {
-            throw new Error("Tool Grant storage is unavailable");
-        }
-        const toolGrantStore = this.toolGrantStore;
-        const workspaceId = this.workspaceId;
-        return withGoalMutationGate(this.store, request.ref.goalId, async () => {
-            const goal = await this.restore(request.ref);
-            if (goal === undefined) throw new Error("Run not found");
-            if (goal.state.run.id !== request.ref.runId) throw new Error("Run reference does not match the current Goal");
-            const visible = await toolGrantStore.list({
-                workspaceId,
-                ...(request.scope === "goal" ? { goalId: goal.id } : {}),
-            });
-            const grant = visible.find((candidate) => candidate.id === request.grantId && candidate.scope === request.scope);
-            if (grant === undefined) throw new Error("Tool Grant is outside the requested scope");
-            const revoked = await toolGrantStore.revoke({
-                grantId: request.grantId,
-                workspaceId,
-                ...(request.scope === "goal" ? { goalId: goal.id } : {}),
-            });
-            await this.commitGoalWithFacts(goal, [{
-                goalId: goal.id,
-                runId: goal.state.run.id,
-                phase: "executing",
-                eventType: "tool_grant_revoked",
-                payload: { type: "tool_grant_revoked", grantId: revoked.id, scope: revoked.scope },
-            }]);
-            return revoked;
-        });
-    }
-
-    /**
      * 统一列出当前项目与 Goal 作用域下的所有 Tool 与 Sandbox 持续授权。
      *
      * @param ref - 当前 Goal 与 Run 身份。
@@ -550,20 +474,13 @@ export class GoalCoordinator {
      * const grants = await coordinator.listGrants({ goalId, runId });
      * ```
      */
-    async listGrants(ref: RunRef): Promise<readonly UnifiedGrantSummary[]> {
+    async listGrants(ref: RunRef): Promise<readonly PermissionExemptionSummary[]> {
         if (this.workspaceId === undefined) {
             throw new Error("Workspace identity is unavailable");
         }
         const goal = await this.restore(ref);
         if (goal === undefined || goal.state.run.id !== ref.runId) throw new Error("Run not found");
-        const service = new DefaultPermissionGrantService(
-            this.toolGrantStore ?? {
-                findActiveMatching: async () => undefined,
-                stage: async () => { throw new Error("Unavailable"); },
-                activate: async () => { throw new Error("Unavailable"); },
-                list: async () => [],
-                revoke: async () => { throw new Error("Unavailable"); },
-            },
+        const service = new DefaultPermissionExemptionService(
             this.sandboxGrantStore ?? {
                 findActiveMatching: async () => undefined,
                 stage: async () => { throw new Error("Unavailable"); },
@@ -589,7 +506,6 @@ export class GoalCoordinator {
      */
     async revokeGrant(request: {
         readonly ref: RunRef;
-        readonly kind: "tool" | "sandbox";
         readonly grantId: string;
     }): Promise<void> {
         if (this.workspaceId === undefined) {
@@ -601,42 +517,20 @@ export class GoalCoordinator {
             if (goal === undefined) throw new Error("Run not found");
             if (goal.state.run.id !== request.ref.runId) throw new Error("Run reference does not match the current Goal");
 
-            let scope: "goal" | "workspace";
-            if (request.kind === "tool") {
-                if (this.toolGrantStore === undefined) throw new Error("Tool Grant storage is unavailable");
-                const revoked = await this.toolGrantStore.revoke({
-                    grantId: request.grantId,
-                    workspaceId,
-                    goalId: goal.id,
-                });
-                scope = revoked.scope;
-            } else if (request.kind === "sandbox") {
-                if (this.sandboxGrantStore === undefined) throw new Error("Sandbox Grant storage is unavailable");
-                const revoked = await this.sandboxGrantStore.revoke({
-                    grantId: request.grantId,
-                    workspaceId,
-                    goalId: goal.id,
-                });
-                scope = revoked.scope;
-            } else {
-                throw new Error(`Unsupported grant kind: ${request.kind as string}`);
-            }
+            if (this.sandboxGrantStore === undefined) throw new Error("Sandbox Grant storage is unavailable");
+            const revoked = await this.sandboxGrantStore.revoke({
+                grantId: request.grantId,
+                workspaceId,
+                goalId: goal.id,
+            });
 
-            const fact: TrajectoryEventDraft = request.kind === "tool"
-                ? {
-                    goalId: goal.id,
-                    runId: goal.state.run.id,
-                    phase: "executing",
-                    eventType: "tool_grant_revoked",
-                    payload: { type: "tool_grant_revoked", grantId: request.grantId, scope },
-                }
-                : {
-                    goalId: goal.id,
-                    runId: goal.state.run.id,
-                    phase: "executing",
-                    eventType: "sandbox_grant_revoked",
-                    payload: { type: "sandbox_grant_revoked", grantId: request.grantId, scope },
-                };
+            const fact: TrajectoryEventDraft = {
+                goalId: goal.id,
+                runId: goal.state.run.id,
+                phase: "executing",
+                eventType: "sandbox_grant_revoked",
+                payload: { type: "sandbox_grant_revoked", grantId: request.grantId, scope: revoked.scope },
+            };
             await this.commitGoalWithFacts(goal, [fact]);
         });
     }
@@ -1323,10 +1217,8 @@ export class GoalCoordinator {
         approvalKind: "tool" | "sandbox" | undefined,
     ): readonly ActionApprovalScope[] {
         if (this.workspaceId === undefined) return ["action"];
-        const persistent = approvalKind === "sandbox"
-            ? this.sandboxGrantStore !== undefined
-            : this.toolGrantStore !== undefined;
-        return persistent ? ["action", "goal", "workspace"] : ["action"];
+        if (approvalKind !== "sandbox") return ["action"];
+        return this.sandboxGrantStore !== undefined ? ["action", "goal", "workspace"] : ["action"];
     }
 
     /**
@@ -1372,35 +1264,7 @@ export class GoalCoordinator {
             return { ok: true, grantId: grant.id };
         }
 
-        if (this.toolGrantStore === undefined) {
-            return { ok: false, message: "Persistent Tool authorization is unavailable for this workspace" };
-        }
-        const registration = this.toolRegistry.get(pendingAction.action.toolId);
-        if (registration === undefined) {
-            return { ok: false, message: "Cannot authorize an unregistered Tool" };
-        }
-        const prepared = registration.prepare(finalInput, control);
-        if (!prepared.ok) {
-            return { ok: false, message: "Cannot authorize an Action with invalid Tool input" };
-        }
-        const matcher = await createToolGrantMatcher(
-            pendingAction.action.toolId,
-            prepared.input,
-            this.workspaceRoot,
-        );
-        const grant = await this.toolGrantStore.stage({
-            scope: approvalScope,
-            ...(approvalScope === "goal" ? { goalId: goal.id } : {}),
-            workspaceId: this.workspaceId,
-            source: {
-                goalId: goal.id,
-                runId: goal.state.run.id,
-                actionId: pendingAction.action.actionId,
-                approvalInputId,
-            },
-            matcher,
-        });
-        return { ok: true, grantId: grant.id };
+        return { ok: false, message: "Only boundary approvals can be persisted" };
     }
 
     /**
@@ -1487,19 +1351,7 @@ export class GoalCoordinator {
             }
         }
 
-        let targetPaths: string[] = [];
-        try {
-            const matcher = await createToolGrantMatcher(toolId, finalInput, this.workspaceRoot);
-            if (matcher.kind === "target_path") targetPaths.push(matcher.path);
-        } catch (error) {
-            if (isExecutionAbortedError(error)) throw error;
-            return {
-                ok: false,
-                code: "INVALID_TOOL_INPUT",
-                message: error instanceof Error ? error.message : String(error),
-            };
-        }
-        targetPaths.push(...effectiveSandboxScope.extraFiles.map((file) => file.canonicalPath));
+        const targetPaths: string[] = effectiveSandboxScope.extraFiles.map((file) => file.canonicalPath);
 
         const requiresSandboxApproval = evaluateSandboxAuthorization({
             isSeatbeltSupported: isSeatbeltSupported(),
@@ -3024,35 +2876,6 @@ export class GoalCoordinator {
             await this.sandboxGrantStore.activate(pending.grantId, source);
             return;
         }
-
-        if (this.toolGrantStore === undefined) {
-            throw new Error("Approved Action references an unavailable Tool Grant store");
-        }
-        const grant = (await this.toolGrantStore.list({
-            workspaceId: this.workspaceId,
-            goalId: goal.id,
-        })).find((candidate) => candidate.id === pending.grantId);
-        if (
-            grant === undefined
-            || grant.scope !== pending.approvalScope
-            || grant.workspaceId !== this.workspaceId
-            || grant.source.goalId !== source.goalId
-            || grant.source.runId !== source.runId
-            || grant.source.actionId !== source.actionId
-        ) {
-            throw new Error("Approved Action Grant does not match the committed Goal identity");
-        }
-        const registration = this.toolRegistry.get(executionAction.toolId);
-        if (registration === undefined) throw new Error("Approved Action Tool is no longer registered");
-        const prepared = registration.prepare(executionAction.input);
-        if (!prepared.ok) throw new Error("Approved Action Tool input is no longer valid");
-        const matcher = await createToolGrantMatcher(executionAction.toolId, prepared.input, this.workspaceRoot);
-        if (!toolGrantMatchersEqual(grant.matcher, matcher)) {
-            throw new Error("Approved Action Grant matcher does not match the committed Tool input");
-        }
-        await this.toolGrantStore.activate(pending.grantId, {
-            ...source,
-        });
     }
 
     private async afterSchedule(

@@ -12,7 +12,7 @@ var require_SandboxGrantLedgerFile_validator = __commonJS({
   "SandboxGrantLedgerFile-validator.cjs"(exports, module) {
     module.exports = validate10;
     module.exports.default = validate10;
-    var schema13 = { "type": "object", "properties": { "id": { "type": "string" }, "scope": { "type": "string", "enum": ["goal", "workspace"] }, "workspaceId": { "type": "string" }, "goalId": { "type": "string" }, "source": { "$ref": "#/definitions/ToolGrantFileSource" }, "matcher": { "$ref": "#/definitions/SandboxGrantFileMatcher" }, "status": { "type": "string", "enum": ["pending", "active", "revoked"] } }, "required": ["id", "scope", "workspaceId", "source", "matcher", "status"], "additionalProperties": false, "description": "Sandbox Grant \u8D26\u672C\u4E2D\u7684\u5355\u6761\u6388\u6743\u6587\u4EF6\u8868\u793A\u3002" };
+    var schema13 = { "type": "object", "properties": { "id": { "type": "string" }, "scope": { "type": "string", "enum": ["goal", "workspace"] }, "workspaceId": { "type": "string" }, "goalId": { "type": "string" }, "source": { "$ref": "#/definitions/GrantFileSource" }, "matcher": { "$ref": "#/definitions/SandboxGrantFileMatcher" }, "status": { "type": "string", "enum": ["pending", "active", "revoked"] } }, "required": ["id", "scope", "workspaceId", "source", "matcher", "status"], "additionalProperties": false, "description": "Sandbox Grant \u8D26\u672C\u4E2D\u7684\u5355\u6761\u6388\u6743\u6587\u4EF6\u8868\u793A\u3002" };
     var schema16 = { "type": "object", "properties": { "extraFiles": { "type": "array", "items": { "$ref": "#/definitions/SandboxGrantFileExtraFile" } }, "network": { "type": "string", "enum": ["none", "all_outbound"] } }, "required": ["extraFiles", "network"], "additionalProperties": false, "description": "Sandbox Grant \u8D26\u672C\u4E2D\u7684\u53D7\u9650\u8303\u56F4\u3002" };
     var schema17 = { "type": "object", "properties": { "canonicalPath": { "type": "string" }, "access": { "type": "string", "enum": ["read", "write"] }, "kind": { "type": "string", "enum": ["file", "directory_tree"] } }, "required": ["canonicalPath", "access", "kind"], "additionalProperties": false, "description": "Sandbox Grant \u8D26\u672C\u4E2D\u7684\u989D\u5916\u6587\u4EF6\u8303\u56F4\u3002" };
     function validate14(data, { instancePath = "", parentData, parentDataProperty, rootData = data } = {}) {
@@ -438,7 +438,7 @@ var require_SandboxGrantLedgerFile_validator = __commonJS({
           let data4 = data.source;
           if (data4 && typeof data4 == "object" && !Array.isArray(data4)) {
             if (data4.goalId === void 0) {
-              const err12 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/ToolGrantFileSource/required", keyword: "required", params: { missingProperty: "goalId" }, message: "must have required property 'goalId'" };
+              const err12 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/GrantFileSource/required", keyword: "required", params: { missingProperty: "goalId" }, message: "must have required property 'goalId'" };
               if (vErrors === null) {
                 vErrors = [err12];
               } else {
@@ -447,7 +447,7 @@ var require_SandboxGrantLedgerFile_validator = __commonJS({
               errors++;
             }
             if (data4.runId === void 0) {
-              const err13 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/ToolGrantFileSource/required", keyword: "required", params: { missingProperty: "runId" }, message: "must have required property 'runId'" };
+              const err13 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/GrantFileSource/required", keyword: "required", params: { missingProperty: "runId" }, message: "must have required property 'runId'" };
               if (vErrors === null) {
                 vErrors = [err13];
               } else {
@@ -456,7 +456,7 @@ var require_SandboxGrantLedgerFile_validator = __commonJS({
               errors++;
             }
             if (data4.actionId === void 0) {
-              const err14 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/ToolGrantFileSource/required", keyword: "required", params: { missingProperty: "actionId" }, message: "must have required property 'actionId'" };
+              const err14 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/GrantFileSource/required", keyword: "required", params: { missingProperty: "actionId" }, message: "must have required property 'actionId'" };
               if (vErrors === null) {
                 vErrors = [err14];
               } else {
@@ -465,7 +465,7 @@ var require_SandboxGrantLedgerFile_validator = __commonJS({
               errors++;
             }
             if (data4.approvalInputId === void 0) {
-              const err15 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/ToolGrantFileSource/required", keyword: "required", params: { missingProperty: "approvalInputId" }, message: "must have required property 'approvalInputId'" };
+              const err15 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/GrantFileSource/required", keyword: "required", params: { missingProperty: "approvalInputId" }, message: "must have required property 'approvalInputId'" };
               if (vErrors === null) {
                 vErrors = [err15];
               } else {
@@ -475,7 +475,7 @@ var require_SandboxGrantLedgerFile_validator = __commonJS({
             }
             for (const key1 in data4) {
               if (!(key1 === "goalId" || key1 === "runId" || key1 === "actionId" || key1 === "approvalInputId")) {
-                const err16 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/ToolGrantFileSource/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key1 }, message: "must NOT have additional properties" };
+                const err16 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/GrantFileSource/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key1 }, message: "must NOT have additional properties" };
                 if (vErrors === null) {
                   vErrors = [err16];
                 } else {
@@ -486,7 +486,7 @@ var require_SandboxGrantLedgerFile_validator = __commonJS({
             }
             if (data4.goalId !== void 0) {
               if (typeof data4.goalId !== "string") {
-                const err17 = { instancePath: instancePath + "/source/goalId", schemaPath: "#/definitions/ToolGrantFileSource/properties/goalId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                const err17 = { instancePath: instancePath + "/source/goalId", schemaPath: "#/definitions/GrantFileSource/properties/goalId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                 if (vErrors === null) {
                   vErrors = [err17];
                 } else {
@@ -497,7 +497,7 @@ var require_SandboxGrantLedgerFile_validator = __commonJS({
             }
             if (data4.runId !== void 0) {
               if (typeof data4.runId !== "string") {
-                const err18 = { instancePath: instancePath + "/source/runId", schemaPath: "#/definitions/ToolGrantFileSource/properties/runId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                const err18 = { instancePath: instancePath + "/source/runId", schemaPath: "#/definitions/GrantFileSource/properties/runId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                 if (vErrors === null) {
                   vErrors = [err18];
                 } else {
@@ -508,7 +508,7 @@ var require_SandboxGrantLedgerFile_validator = __commonJS({
             }
             if (data4.actionId !== void 0) {
               if (typeof data4.actionId !== "string") {
-                const err19 = { instancePath: instancePath + "/source/actionId", schemaPath: "#/definitions/ToolGrantFileSource/properties/actionId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                const err19 = { instancePath: instancePath + "/source/actionId", schemaPath: "#/definitions/GrantFileSource/properties/actionId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                 if (vErrors === null) {
                   vErrors = [err19];
                 } else {
@@ -519,7 +519,7 @@ var require_SandboxGrantLedgerFile_validator = __commonJS({
             }
             if (data4.approvalInputId !== void 0) {
               if (typeof data4.approvalInputId !== "string") {
-                const err20 = { instancePath: instancePath + "/source/approvalInputId", schemaPath: "#/definitions/ToolGrantFileSource/properties/approvalInputId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                const err20 = { instancePath: instancePath + "/source/approvalInputId", schemaPath: "#/definitions/GrantFileSource/properties/approvalInputId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                 if (vErrors === null) {
                   vErrors = [err20];
                 } else {
@@ -529,7 +529,7 @@ var require_SandboxGrantLedgerFile_validator = __commonJS({
               }
             }
           } else {
-            const err21 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/ToolGrantFileSource/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+            const err21 = { instancePath: instancePath + "/source", schemaPath: "#/definitions/GrantFileSource/type", keyword: "type", params: { type: "object" }, message: "must be object" };
             if (vErrors === null) {
               vErrors = [err21];
             } else {

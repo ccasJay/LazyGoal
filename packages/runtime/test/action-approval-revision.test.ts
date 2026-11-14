@@ -48,7 +48,6 @@ function createRevisionHarness(
         trajectoryStore,
         scheduler: new InlineScheduler(runner),
         toolRegistry: fixture.registry,
-        toolGrantStore: fixture.toolGrantStore,
         sandboxGrantStore: fixture.sandboxGrantStore,
         workspaceId: "ws-1",
         workspaceRoot: fixture.workspaceRoot,

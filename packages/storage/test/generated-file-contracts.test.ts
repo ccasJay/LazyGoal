@@ -15,7 +15,6 @@ import {
     JsonFileProcessSessionStore,
     JsonFileProjectPermissionProfileStore,
     JsonFileSandboxGrantStore,
-    JsonFileToolGrantStore,
     goalSnapshotCodec,
     ModelCallMetricStoreProtocolError,
 } from "../src/index";
@@ -46,27 +45,6 @@ test("Snapshot 生成绑定拒绝未知字段，语义校验拒绝空身份", ()
         () => goalSnapshotCodec.decode({ ...encoded, id: "" }),
         GoalSnapshotProtocolError,
     );
-});
-
-test("Tool Grant 账本拒绝未知字段和错误版本", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "lazygoal-generated-grant-"));
-    try {
-        const store = new JsonFileToolGrantStore(directory);
-        await store.stage({
-            scope: "workspace",
-            workspaceId: "workspace-1",
-            source: { goalId: "goal-1", runId: "run-1", actionId: "action-1", approvalInputId: "input-1" },
-            matcher: { kind: "exact_input", toolId: "bash", version: 1, digest: `sha256:${"a".repeat(64)}` },
-        });
-        const path = join(directory, "tool-grants.json");
-        const ledger = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
-        await writeFile(path, JSON.stringify({ ...ledger, extra: true }), "utf8");
-        await assert.rejects(store.list({ workspaceId: "workspace-1", goalId: "goal-1" }));
-        await writeFile(path, JSON.stringify({ ...ledger, version: 2 }), "utf8");
-        await assert.rejects(store.list({ workspaceId: "workspace-1", goalId: "goal-1" }));
-    } finally {
-        await rm(directory, { recursive: true, force: true });
-    }
 });
 
 test("Sandbox Grant 账本拒绝未知字段和错误版本", async () => {

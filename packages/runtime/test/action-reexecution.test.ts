@@ -50,7 +50,6 @@ function createReexecutionHarness(
         trajectoryStore,
         scheduler: new InlineScheduler(runner),
         toolRegistry: fixture.registry,
-        toolGrantStore: fixture.toolGrantStore,
         sandboxGrantStore: fixture.sandboxGrantStore,
         workspaceId: "ws-1",
         workspaceRoot: fixture.workspaceRoot,
@@ -247,7 +246,7 @@ test("重执行不产生持续授权，拒绝重执行保留此前未知效果�
         assert.equal(declined.ok, true);
 
         // 拒绝重执行不产生持续授权。
-        assert.deepEqual(await fixture.toolGrantStore.list({ workspaceId: "ws-1", goalId: goal.id }), []);
+        assert.deepEqual(await fixture.sandboxGrantStore.list({ workspaceId: "ws-1", goalId: goal.id }), []);
 
         // 此前效果未知的事实保留在轨迹中，且没有伪造成功结果。
         const events = await trajectoryStore.read(ref);

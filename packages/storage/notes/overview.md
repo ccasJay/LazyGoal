@@ -26,7 +26,6 @@ Snapshot、Trajectory、Profile 和调用事实的文件 Schema 与 Store。本�
 | [GoalSnapshotCodec](../src/goal-snapshot-codec.ts) | Runtime Goal↔v1 Snapshot 的 encode/decode 转换；隔离由 `binding.read` 的副本提供，不再叠加外层 `structuredClone`；只接受当前 v1，不迁移或回写历史版本 | 文件系统 I/O、读写 Store |
 | [InMemoryGoalStore](../src/goal-store.ts) | 实现 Runtime `GoalStore` Port：save 经 Codec encode、restore 经 decode | 跨实例或跨进程恢复 |
 | [JsonFileGoalStore](../src/goal-store.ts) | 实现 `GoalStore` 与 `GoalCatalog`：base64url 文件名、经共享原语以 compact JSON + trailing newline 原子替换快照、可核对的无覆盖创建、目录扫描摘要 | 跨进程锁、乐观锁、租约或版本冲突检测 |
-| [JsonFileToolGrantStore](../src/json-file-tool-grant-store.ts) | 以生成绑定严格验证 workspace 授权账本，经共享原语保存 pending/active/revoked Grant，按来源 Action 幂等暂存/激活 | Goal 状态转换、跨进程锁或分布式事务 |
 | [JsonFileModelPreferenceStore](../src/json-file-model-preference-store.ts) | 以生成绑定严格解析并保存 Web 模型偏好身份；损坏文件不被覆盖 | 模型可选性判断、Goal Snapshot 或跨进程锁 |
 | [JsonFileTrajectoryStore](../src/json-file-trajectory-store.ts) | 将每个 Goal/Run 的事实事件（包括结构化 `model_context_frame`）追加到安全编码的 JSONL 分段，并把大型 payload 外置为内容寻址 Blob；维护可删除重建的 SQLite 查询索引；提供序列范围读取与 Snapshot 边界分类；追加结果未知时核对当前分段尾部 | Snapshot 恢复、marker 推导边界、跨进程锁、exactly-once 与旧存储编码迁移 |
 | [TrajectoryIndex](../src/trajectory-index.ts) | 单 Run 的 SQLite 查询索引：事件元数据、Action/ModelCall/Program 关联与 JSONL 字节位置；DELETE journal，可由 JSONL 完整重建 | 事实存储、可见性判断、WAL 并发写入与跨版本迁移 |
@@ -73,7 +72,7 @@ Snapshot 原样保存 Goal 级 `commitRevision`、`inputLedger` 与 `messageQueu
 
 `JsonFileGoalStore.save` 对 Snapshot 只编码一次，并调用共享 `atomicWriteJson` 以 compact JSON + trailing newline 原子替换：临时文件、`0600` 文件、`0700` 目录、`fsync`、`EINTR`／`EAGAIN`／`EBUSY` 三次重试、目标内容核对与失败清理由写入原语统一执行。替换已成功但调用返回临时错误时继续完成归档标记清理，不重放 Runtime 提交。`listResumable` 只扫描正式 `.json` 普通文件并忽略 `.tmp`；任一正式快照损坏都会报告协议错误而非静默跳过；过滤三个终态后按 `mtime` 倒序、`goalId` 升序返回摘要。`listHistory` 面向历史复盘：遇到无法解码的快照时跳过该条并计入 `unreadableCount`，不让一条旧版本快照使整份历史列表不可用；目录级读取失败仍然拒绝。保存快照后在 `catalog/<goalId>.json` 写入只读派生摘要；列表优先使用摘要并用快照 `mtime`／`size` 校验，缺失、损坏或指纹不匹配时回退完整 decode 并重写摘要。摘要写失败不影响已完成的快照保存。`readRevision` 使用进程内 revision hint 与文件 `mtime`／`size` 校验；未命中或文件被外部替换时回退完整 `restore` 并刷新 hint。它只用于变更检测，不保证跨进程实时，也不能替代恢复读取。
 
-`JsonFileToolGrantStore` 将当前 workspace 的 Grant 写入私有 `tool-grants.json`；损坏 JSON、结构或语义错误、重复 ID/来源或同一来源授权冲突均失败关闭，不会重置账本。只有 active 且 workspace 与操作匹配的 Grant 可被 Runner 查询；goal 范围还必须匹配 `goalId`。pending Grant 仅供 Coordinator 在批准 Snapshot 提交后恢复激活，revoked Grant 不再匹配。Store 实例内写入经 `KeyedSerialQueue` 串行化，不提供跨进程并发事务。
+`JsonFileSandboxGrantStore` 将当前 workspace 的边界豁免写入私有账本；损坏 JSON、结构或语义错误、重复 ID/来源或同一来源冲突均失败关闭，不会重置账本。只有 active 且 workspace 与操作匹配的豁免可被 Runner 查询；goal 范围还必须匹配 `goalId`。pending 记录仅供 Coordinator 在批准 Snapshot 提交后恢复激活，revoked 记录不再匹配。Store 实例内写入经 `KeyedSerialQueue` 串行化，不提供跨进程并发事务。
 
 `JsonFileTrajectoryStore` 将轨迹写入 `<directory>/<base64url(goalId)>/<base64url(runId)>.jsonl`；超过 64 MiB 后继续写入 `<run>.part2.jsonl` 等分段，超过 64 KiB 的 payload 写入同 Goal 的 `blobs/<sha256>.json`，JSONL 行只保留 `payloadRef`。同目录的 `<run>.index.db` 是只保存查询元数据与字节位置的可重建索引；首次追加或查询前会校验索引与 JSONL 的最后位置，索引超前时重建、落后时从最后已验证位置补齐，缺失时从 JSONL 完整重建。索引行按 Run 缓冲，在缓冲达到 128 行、显式 `flushIndex` 或任何索引读取前合并为一个事务写入；缓冲未写入只表示索引滞后，JSONL 仍是唯一事实源，写入失败时丢弃缓冲并标记为脏，由后续读取修复。索引使用 DELETE journal，不使用 WAL。
 

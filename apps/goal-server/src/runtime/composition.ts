@@ -51,7 +51,6 @@ import {
     JsonFileMetricsStore,
     JsonFileTrajectoryStore,
     JsonFileContextRetrievalIndexStore,
-    JsonFileToolGrantStore,
     JsonFileSandboxGrantStore,
     JsonFileProjectPermissionProfileStore,
     JsonFileModelPreferenceStore,
@@ -759,7 +758,6 @@ async function assembleRuntimeComposition(
         },
     };
     const primaryTrajectoryStore = new JsonFileTrajectoryStore(trajectoriesDirectory);
-    const toolGrantStore = new JsonFileToolGrantStore(workspaceHomePaths.workspaceDirectory);
     const sandboxGrantStore = new JsonFileSandboxGrantStore(workspaceHomePaths.workspaceDirectory);
     const permissionProfileStore = options.permissionProfileStore
         ?? new JsonFileProjectPermissionProfileStore(workspaceHomePaths.workspaceDirectory);
@@ -947,7 +945,6 @@ async function assembleRuntimeComposition(
         profiles,
         toolRegistry,
         toolPolicy,
-        toolGrantStore,
         sandboxGrantStore,
         permissionProfileStore,
         workspaceId: workspaceHomePaths.workspaceId,
@@ -1144,7 +1141,6 @@ async function assembleRuntimeComposition(
                     for (const directory of [trajectoriesDirectory, tracesDirectory, metricsDirectory, contextSidecarsDirectory, join(dataDirectory, "model-inputs")]) {
                         await rm(join(directory, encodedGoalId), { recursive: true, force: true });
                     }
-                    await toolGrantStore.deleteGoalGrants(workspaceHomePaths.workspaceId, goalId);
                     await sandboxGrantStore.deleteGoalGrants(workspaceHomePaths.workspaceId, goalId);
                     await processSessionStore.deleteGoalSessions(goalId);
                     await primaryGoalStore.deleteTerminal(goalId);

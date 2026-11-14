@@ -17,7 +17,6 @@ import {
     type SandboxGrantStore,
     type SandboxPlanResolver,
     type StepExecutor,
-    type ToolGrantStore,
     type ToolPolicy,
     type TrajectoryCheckpointCommitterPort,
     type TrajectoryStore,
@@ -38,7 +37,7 @@ type ExecutionControl = NonNullable<Parameters<typeof launch>[2]>;
  * 组合 Launcher、Runner、InlineScheduler、共享提交器与 Coordinator，不解析
  * 环境、不创建模型供应商、默认文件存储或默认工具，也不接管这些依赖的所有权。
  * 相同依赖只注入一次：`store`、`trajectoryStore`、`checkpointCommitter` 与
- * `toolGrantStore`/`sandboxGrantStore` 由 Launcher、Runner 和 Coordinator 共用。
+ * `sandboxGrantStore` 由 Launcher、Runner 和 Coordinator 共用。
  *
  * @example
  * ```ts
@@ -62,7 +61,6 @@ export interface ExecutionComponentDependencies {
     /** Tool 执行前的策略边界；省略时由 Runtime 使用允许策略。 */
     readonly toolPolicy?: ToolPolicy;
     /** 会话或 Workspace 级持续 Tool 授权账本；同时作为 Runner 的授权查询。 */
-    readonly toolGrantStore?: ToolGrantStore;
     /** Sandbox 持续授权账本；同时作为 Runner 的授权查询。 */
     readonly sandboxGrantStore?: SandboxGrantStore;
     /** 项目权限档位存储；Runner 与 Coordinator 共用同一实例。 */
@@ -248,7 +246,6 @@ function collectRunnerDependencies(
         executor: dependencies.executor,
         ...(dependencies.toolRegistry === undefined ? {} : { toolRegistry: dependencies.toolRegistry }),
         ...(dependencies.toolPolicy === undefined ? {} : { toolPolicy: dependencies.toolPolicy }),
-        ...(dependencies.toolGrantStore === undefined ? {} : { toolGrantLookup: dependencies.toolGrantStore }),
         ...(dependencies.sandboxGrantStore === undefined
             ? {}
             : { sandboxGrantLookup: dependencies.sandboxGrantStore }),
@@ -289,7 +286,6 @@ function collectCoordinatorDependencies(options: {
         scheduler: new InlineScheduler(options.runner),
         runIdGenerator: options.runIdGenerator,
         ...(dependencies.toolRegistry === undefined ? {} : { toolRegistry: dependencies.toolRegistry }),
-        ...(dependencies.toolGrantStore === undefined ? {} : { toolGrantStore: dependencies.toolGrantStore }),
         ...(dependencies.sandboxGrantStore === undefined ? {} : { sandboxGrantStore: dependencies.sandboxGrantStore }),
         ...(dependencies.permissionProfileStore === undefined
             ? {}

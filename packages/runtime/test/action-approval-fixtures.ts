@@ -26,7 +26,7 @@ import {
     type StepExecutor,
     type ToolCallAction,
 } from "../src/index";
-import { InMemoryGoalStore, JsonFileSandboxGrantStore, JsonFileToolGrantStore } from "../../storage/src/index";
+import { InMemoryGoalStore, JsonFileSandboxGrantStore } from "../../storage/src/index";
 import {
     currentProtocols,
     InMemoryTrajectoryStore,
@@ -38,12 +38,31 @@ import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandS
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
 /** 受控写入 Tool 的输入契约；字段级错误由 Tool Contract 负责。 */
-const WRITE_INPUT_SCHEMA = objectInputSchema({ path: { type: "string" }, content: { type: "string" } });
+const WRITE_INPUT_SCHEMA = objectInputSchema(
+    {
+        path: { type: "string" },
+        content: { type: "string" },
+        sandboxAccess: { type: "object", additionalProperties: true },
+    },
+    ["path", "content"],
+);
 
 /** 受控写入 Tool 的输入形状。 */
 export interface WriteToolInput {
     readonly path: string;
     readonly content: string;
+    readonly sandboxAccess?: {
+        readonly files?: readonly {
+            readonly path: string;
+            readonly access: "read" | "write";
+            readonly kind: "file" | "directory_tree";
+            readonly purpose: string;
+        }[];
+        readonly network?: {
+            readonly targets: readonly string[];
+            readonly purpose: string;
+        };
+    };
 }
 
 /** 一次受控 Tool 调用的捕获记录。 */
@@ -100,7 +119,6 @@ export const APPROVAL_PROFILE: AgentProfile = {
 export interface ApprovalFixture {
     readonly workspaceRoot: string;
     readonly store: InMemoryGoalStore;
-    readonly toolGrantStore: JsonFileToolGrantStore;
     readonly sandboxGrantStore: JsonFileSandboxGrantStore;
     readonly registry: InMemoryToolRegistry;
     readonly calls: CapturedToolCall[];
@@ -116,7 +134,6 @@ export async function createApprovalFixture(
 ): Promise<ApprovalFixture> {
     const workspaceRoot = await mkdtemp(join(tmpdir(), "lazygoal-approval-"));
     const store = new InMemoryGoalStore();
-    const toolGrantStore = new JsonFileToolGrantStore(workspaceRoot);
     const sandboxGrantStore = new JsonFileSandboxGrantStore(workspaceRoot);
     const calls: CapturedToolCall[] = [];
     const registration = createTestToolRegistration(createControlledWriteTool(calls, {
@@ -130,7 +147,6 @@ export async function createApprovalFixture(
     return {
         workspaceRoot,
         store,
-        toolGrantStore,
         sandboxGrantStore,
         registry,
         calls,
@@ -148,6 +164,17 @@ export function createAwaitingApprovalGoal(
         readonly actionId?: string;
         readonly input?: JsonValue;
         readonly toolId?: string;
+        /** 审批类别；默认为 Tool 审批，传 `sandbox` 时得到边界审批。 */
+        readonly approvalKind?: "tool" | "sandbox";
+        /** 边界审批的已解析能力范围；仅在 `approvalKind: "sandbox"` 时生效。 */
+        readonly effectiveSandboxScope?: {
+            readonly extraFiles: readonly {
+                readonly canonicalPath: string;
+                readonly access: "read" | "write";
+                readonly kind: "file" | "directory_tree";
+            }[];
+            readonly network: "none" | "all_outbound";
+        };
     } = {},
 ): Goal {
     const goalId = options.goalId ?? "goal-approval";
@@ -171,6 +198,14 @@ export function createAwaitingApprovalGoal(
         kind: "stage_action",
         status: "awaiting_approval",
         action: { actionId, toolId, input },
+        ...(options.approvalKind === "sandbox"
+            ? {
+                approvalKind: "sandbox" as const,
+                ...(options.effectiveSandboxScope === undefined
+                    ? {}
+                    : { effectiveSandboxScope: options.effectiveSandboxScope }),
+            }
+            : {}),
     });
     if (!staged.ok) throw new Error(staged.error.message);
 
@@ -301,7 +336,6 @@ export function createApprovalCoordinator(
         trajectoryStore,
         scheduler: new InlineScheduler(runner),
         toolRegistry: fixture.registry,
-        toolGrantStore: fixture.toolGrantStore,
         sandboxGrantStore: fixture.sandboxGrantStore,
         workspaceId: "ws-1",
         workspaceRoot: fixture.workspaceRoot,

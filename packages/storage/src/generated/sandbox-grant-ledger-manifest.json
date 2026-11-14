@@ -3,8 +3,8 @@
   "version": 1,
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
-    "path": "packages/storage/src/grant-ledger.ts#ToolGrantFileMatcher,ToolGrantFileSource,ToolGrantFile,ToolGrantLedgerFile,SandboxGrantFileExtraFile,SandboxGrantFileScope,SandboxGrantFileMatcher,SandboxGrantFile,SandboxGrantLedgerFile",
-    "sha256": "5e7b221c5e496ced38f3f6e1ad61e5bef3c89258806fd2adf91ce9095d4158ed"
+    "path": "packages/storage/src/grant-ledger.ts#GrantFileSource,SandboxGrantFileExtraFile,SandboxGrantFileScope,SandboxGrantFileMatcher,SandboxGrantFile,SandboxGrantLedgerFile",
+    "sha256": "61bb0a174754609592897afa54e48f9865ac9a437b32d0adb53118066865f711"
   },
   "generator": {
     "name": "ts-json-schema-generator",

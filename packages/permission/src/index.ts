@@ -7,7 +7,8 @@ export type {
     EffectiveSandboxScope,
     GrantRef,
     GrantStatus,
-    PermissionGrantService,
+    PermissionExemptionService,
+    PermissionExemptionSummary,
     PermissionProfile,
     PermissionScope,
     ProjectPermissionProfile,
@@ -20,17 +21,27 @@ export type {
     SandboxGrantScope,
     SandboxGrantStore,
     SandboxMode,
-    ToolGrant,
-    ToolGrantLookup,
-    ToolGrantMatcher,
-    ToolGrantScope,
-    ToolGrantStore,
-    UnifiedGrantSummary,
 } from "./types";
 
 export {
     PermissionProfileConflictError,
 } from "./types";
+
+export {
+    evaluateSandboxAuthorization,
+    NETWORK_ALL_OUTBOUND_NOTICE,
+} from "./sandbox-authorization";
+
+export {
+    computeInputDigest,
+    createSandboxGrantMatcher,
+    matchesSandboxGrant,
+    matchesSandboxGrantMatcher,
+} from "./grant-matching";
+
+export {
+    DefaultPermissionExemptionService,
+} from "./permission-exemption-service";
 
 export {
     DEFAULT_PERMISSION_PROFILE,
@@ -44,26 +55,3 @@ export {
     type PermissionBoundaryRequest,
     type PermissionRiskClass,
 } from "./permission-boundary";
-
-export {
-    createToolGrantMatcher,
-    toolGrantMatchersEqual,
-} from "./tool-grant-matcher";
-
-export {
-    evaluateSandboxAuthorization,
-    NETWORK_ALL_OUTBOUND_NOTICE,
-} from "./sandbox-authorization";
-
-export {
-    computeInputDigest,
-    createSandboxGrantMatcher,
-    matchesSandboxGrant,
-    matchesSandboxGrantMatcher,
-    matchesToolGrant,
-    matchesToolGrantMatcher,
-} from "./grant-matching";
-
-export {
-    DefaultPermissionGrantService,
-} from "./permission-grant-service";

@@ -370,7 +370,6 @@ test("持续授权隔离与撤销：不同命令不复用，撤销后重新拦�
         // 步骤 3：统一列表查询 listGrants
         const unifiedGrants = await coordinator.listGrants({ goalId: "goal-1", runId: "run-2" });
         assert.equal(unifiedGrants.length, 1);
-        assert.equal(unifiedGrants[0]?.kind, "sandbox");
         assert.equal(unifiedGrants[0]?.toolId, "bash");
         assert.ok(unifiedGrants[0]?.inputDigest);
         const grantId = unifiedGrants[0]?.id!;
@@ -378,7 +377,6 @@ test("持续授权隔离与撤销：不同命令不复用，撤销后重新拦�
         // 步骤 4：统一撤销 revokeGrant
         await coordinator.revokeGrant({
             ref: { goalId: "goal-1", runId: "run-2" },
-            kind: "sandbox",
             grantId,
         });
 
@@ -476,7 +474,13 @@ class PersistThenFailGoalStore implements GoalStore {
 test("修订参数后选择 Goal 授权：matcher 与最终版本一致，单次批准不产生 Grant", async () => {
     const fixture = await createApprovalFixture();
     try {
-        const goal = createAwaitingApprovalGoal();
+        const goal = createAwaitingApprovalGoal({
+            approvalKind: "sandbox",
+            effectiveSandboxScope: {
+                extraFiles: [{ canonicalPath: join(await realpath(fixture.workspaceRoot), ".git/index"), access: "write", kind: "file" }],
+                network: "none",
+            },
+        });
         await fixture.store.save(goal);
         const { coordinator } = createApprovalCoordinator(fixture);
         const ref = { goalId: goal.id, runId: goal.state.run.id };
@@ -484,7 +488,7 @@ test("修订参数后选择 Goal 授权：matcher 与最终版本一致，单次
         const review = await coordinator.reviewActionApproval({
             ref,
             actionId: "action-approval",
-            input: { path: "b.txt", content: "revised" },
+            input: { path: "b.txt", content: "revised", sandboxAccess: { files: [{ path: ".git/index", access: "write", kind: "file", purpose: "审批覆盖一次越界写入" }] } },
             scope: "goal",
         });
         assert.equal(review.ok, true);
@@ -495,23 +499,23 @@ test("修订参数后选择 Goal 授权：matcher 与最终版本一致，单次
             action: {
                 kind: "approve_action_revision",
                 actionId: "action-approval",
-                input: { path: "b.txt", content: "revised" },
+                input: { path: "b.txt", content: "revised", sandboxAccess: { files: [{ path: ".git/index", access: "write", kind: "file", purpose: "审批覆盖一次越界写入" }] } },
                 reviewRef: review.review.reviewRef,
                 scope: "goal",
             },
         });
         assert.equal(resumed.ok, true);
 
-        const grants = await fixture.toolGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
+        const grants = await fixture.sandboxGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
         assert.equal(grants.length, 1);
         const grant = grants[0];
         assert.equal(grant?.status, "active");
         assert.equal(grant?.scope, "goal");
-        assert.equal(grant?.matcher.kind, "target_path");
-        // 匹配器来自最终获批参数，而不是原请求。
-        assert.equal(
-            grant?.matcher.kind === "target_path" ? grant.matcher.path : "",
-            `${await realpath(fixture.workspaceRoot)}/b.txt`,
+        // 匹配器摘要来自最终获批输入，范围来自本次边界申请。
+        assert.match(grant?.matcher.inputDigest ?? "", /^[0-9a-f]{64}$/);
+        assert.deepEqual(
+            grant?.matcher.scope.extraFiles.map(file => file.canonicalPath),
+            [`${await realpath(fixture.workspaceRoot)}/.git/index`],
         );
         assert.equal(grant?.source.actionId, "action-approval");
         assert.ok((grant?.source.approvalInputId ?? "").length > 0);
@@ -615,8 +619,7 @@ test("修订 Sandbox Action 时 pending Grant 使用最终批准的完整文件�
             trajectoryStore,
             scheduler: new InlineScheduler(runner),
             toolRegistry: registry,
-            toolGrantStore: fixture.toolGrantStore,
-            sandboxGrantStore: fixture.sandboxGrantStore,
+                sandboxGrantStore: fixture.sandboxGrantStore,
             workspaceId: "ws-1",
             workspaceRoot: fixture.workspaceRoot,
         });
@@ -656,7 +659,13 @@ test("修订 Sandbox Action 时 pending Grant 使用最终批准的完整文件�
 test("单次批准不产生持续授权", async () => {
     const fixture = await createApprovalFixture();
     try {
-        const goal = createAwaitingApprovalGoal();
+        const goal = createAwaitingApprovalGoal({
+            approvalKind: "sandbox",
+            effectiveSandboxScope: {
+                extraFiles: [{ canonicalPath: join(await realpath(fixture.workspaceRoot), ".git/index"), access: "write", kind: "file" }],
+                network: "none",
+            },
+        });
         await fixture.store.save(goal);
         const { coordinator } = createApprovalCoordinator(fixture);
         const ref = { goalId: goal.id, runId: goal.state.run.id };
@@ -666,7 +675,7 @@ test("单次批准不产生持续授权", async () => {
             action: { kind: "approve_action", actionId: "action-approval" },
         });
         assert.equal(resumed.ok, true);
-        assert.deepEqual(await fixture.toolGrantStore.list({ workspaceId: "ws-1", goalId: goal.id }), []);
+        assert.deepEqual(await fixture.sandboxGrantStore.list({ workspaceId: "ws-1", goalId: goal.id }), []);
     } finally {
         await fixture.dispose();
     }
@@ -675,7 +684,13 @@ test("单次批准不产生持续授权", async () => {
 test("授权暂存后批准保存失败：新决定可以继续，旧 pending 永不激活", async () => {
     const fixture = await createApprovalFixture();
     try {
-        const goal = createAwaitingApprovalGoal();
+        const goal = createAwaitingApprovalGoal({
+            approvalKind: "sandbox",
+            effectiveSandboxScope: {
+                extraFiles: [{ canonicalPath: join(await realpath(fixture.workspaceRoot), ".git/index"), access: "write", kind: "file" }],
+                network: "none",
+            },
+        });
         const store = new FailingSaveGoalStore(1);
         await store.seed(goal);
         const { coordinator } = createApprovalCoordinator(fixture, { store });
@@ -684,7 +699,7 @@ test("授权暂存后批准保存失败：新决定可以继续，旧 pending �
         const review = await coordinator.reviewActionApproval({
             ref,
             actionId: "action-approval",
-            input: { path: "b.txt", content: "revised" },
+            input: { path: "b.txt", content: "revised", sandboxAccess: { files: [{ path: ".git/index", access: "write", kind: "file", purpose: "审批覆盖一次越界写入" }] } },
             scope: "goal",
         });
         assert.equal(review.ok, true);
@@ -697,7 +712,7 @@ test("授权暂存后批准保存失败：新决定可以继续，旧 pending �
                 action: {
                     kind: "approve_action_revision",
                     actionId: "action-approval",
-                    input: { path: "b.txt", content: "revised" },
+                    input: { path: "b.txt", content: "revised", sandboxAccess: { files: [{ path: ".git/index", access: "write", kind: "file", purpose: "审批覆盖一次越界写入" }] } },
                     reviewRef: review.review.reviewRef,
                     scope: "goal",
                     approvalInputId: "input-first",
@@ -705,7 +720,7 @@ test("授权暂存后批准保存失败：新决定可以继续，旧 pending �
             }),
             /snapshot save failed/,
         );
-        const afterFailure = await fixture.toolGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
+        const afterFailure = await fixture.sandboxGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
         assert.equal(afterFailure.length, 1);
         assert.equal(afterFailure[0]?.status, "pending");
 
@@ -714,7 +729,7 @@ test("授权暂存后批准保存失败：新决定可以继续，旧 pending �
         const secondReview = await coordinator.reviewActionApproval({
             ref,
             actionId: "action-approval",
-            input: { path: "c.txt", content: "second" },
+            input: { path: "c.txt", content: "second", sandboxAccess: { files: [{ path: ".git/index", access: "write", kind: "file", purpose: "审批覆盖一次越界写入" }] } },
             scope: "workspace",
         });
         assert.equal(secondReview.ok, true);
@@ -724,7 +739,7 @@ test("授权暂存后批准保存失败：新决定可以继续，旧 pending �
             action: {
                 kind: "approve_action_revision",
                 actionId: "action-approval",
-                input: { path: "c.txt", content: "second" },
+                input: { path: "c.txt", content: "second", sandboxAccess: { files: [{ path: ".git/index", access: "write", kind: "file", purpose: "审批覆盖一次越界写入" }] } },
                 reviewRef: secondReview.review.reviewRef,
                 scope: "workspace",
                 approvalInputId: "input-second",
@@ -732,8 +747,8 @@ test("授权暂存后批准保存失败：新决定可以继续，旧 pending �
         });
         assert.equal(second.ok, true);
 
-        const goalGrants = await fixture.toolGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
-        const workspaceGrants = await fixture.toolGrantStore.list({ workspaceId: "ws-1" });
+        const goalGrants = await fixture.sandboxGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
+        const workspaceGrants = await fixture.sandboxGrantStore.list({ workspaceId: "ws-1" });
         const grants = [...new Map(
             [...goalGrants, ...workspaceGrants].map((grant) => [grant.id, grant]),
         ).values()];
@@ -743,9 +758,9 @@ test("授权暂存后批准保存失败：新决定可以继续，旧 pending �
         assert.equal(stale?.status, "pending");
         assert.equal(active?.status, "active");
         assert.equal(active?.scope, "workspace");
-        assert.equal(
-            active?.matcher.kind === "target_path" ? active.matcher.path : "",
-            `${await realpath(fixture.workspaceRoot)}/c.txt`,
+        assert.deepEqual(
+            active?.matcher.scope.extraFiles.map(file => file.canonicalPath),
+            [`${await realpath(fixture.workspaceRoot)}/.git/index`],
         );
     } finally {
         await fixture.dispose();
@@ -755,7 +770,14 @@ test("授权暂存后批准保存失败：新决定可以继续，旧 pending �
 test("Snapshot 保存失败后的批准事实尾不会授权被 Interrupt 取消的 Action", async () => {
     const fixture = await createApprovalFixture();
     try {
-        const goal = createAwaitingApprovalGoal({ goalId: "goal-interrupt-after-approval-save-failure" });
+        const goal = createAwaitingApprovalGoal({
+            approvalKind: "sandbox",
+            effectiveSandboxScope: {
+                extraFiles: [{ canonicalPath: join(await realpath(fixture.workspaceRoot), ".git/index"), access: "write", kind: "file" }],
+                network: "none",
+            },
+            goalId: "goal-interrupt-after-approval-save-failure"
+        });
         const store = new FailingSaveGoalStore(1);
         await store.seed(goal);
         const { coordinator, runner, trajectoryStore } = createApprovalCoordinator(fixture, { store });
@@ -770,7 +792,7 @@ test("Snapshot 保存失败后的批准事实尾不会授权被 Interrupt 取消
             },
         }), /snapshot save failed/);
         assert.equal(
-            (await fixture.toolGrantStore.list({ workspaceId: "ws-1", goalId: goal.id }))[0]?.status,
+            (await fixture.sandboxGrantStore.list({ workspaceId: "ws-1", goalId: goal.id }))[0]?.status,
             "pending",
         );
 
@@ -781,7 +803,7 @@ test("Snapshot 保存失败后的批准事实尾不会授权被 Interrupt 取消
         assert.equal(saved?.state.run.pendingAction, undefined);
         assert.equal(fixture.calls.length, 0);
         assert.equal(
-            (await fixture.toolGrantStore.list({ workspaceId: "ws-1", goalId: goal.id }))[0]?.status,
+            (await fixture.sandboxGrantStore.list({ workspaceId: "ws-1", goalId: goal.id }))[0]?.status,
             "pending",
         );
         const events = await trajectoryStore.read(ref);
@@ -790,7 +812,7 @@ test("Snapshot 保存失败后的批准事实尾不会授权被 Interrupt 取消
         assert.equal(advanced.ok, true);
         assert.equal(advanced.ok && advanced.kind, "terminal");
         assert.equal(
-            (await fixture.toolGrantStore.list({ workspaceId: "ws-1", goalId: goal.id }))[0]?.status,
+            (await fixture.sandboxGrantStore.list({ workspaceId: "ws-1", goalId: goal.id }))[0]?.status,
             "pending",
         );
     } finally {
@@ -801,7 +823,14 @@ test("Snapshot 保存失败后的批准事实尾不会授权被 Interrupt 取消
 test("重开 JSON Snapshot 后仅激活与已保存批准绑定的 pending Grant", async () => {
     const fixture = await createApprovalFixture();
     try {
-        const goal = createAwaitingApprovalGoal({ goalId: "goal-persisted-grant-approval" });
+        const goal = createAwaitingApprovalGoal({
+            approvalKind: "sandbox",
+            effectiveSandboxScope: {
+                extraFiles: [{ canonicalPath: join(await realpath(fixture.workspaceRoot), ".git/index"), access: "write", kind: "file" }],
+                network: "none",
+            },
+            goalId: "goal-persisted-grant-approval"
+        });
         const diskStore = new JsonFileGoalStore(join(fixture.workspaceRoot, "goals"));
         const persistentStore = new PersistThenFailGoalStore(diskStore);
         const trajectoryStore = new JsonFileTrajectoryStore(join(fixture.workspaceRoot, "trajectory"));
@@ -814,8 +843,7 @@ test("重开 JSON Snapshot 后仅激活与已保存批准绑定的 pending Grant
                 async schedule() { throw new Error("scheduler boundary reached"); },
             },
             toolRegistry: fixture.registry,
-            toolGrantStore: fixture.toolGrantStore,
-            sandboxGrantStore: fixture.sandboxGrantStore,
+                sandboxGrantStore: fixture.sandboxGrantStore,
             workspaceId: "ws-1",
             workspaceRoot: fixture.workspaceRoot,
         });
@@ -834,7 +862,7 @@ test("重开 JSON Snapshot 后仅激活与已保存批准绑定的 pending Grant
         assert.equal(committed?.state.run.pendingAction?.status, "approved");
         const grantId = committed?.state.run.pendingAction?.grantId;
         assert.ok(grantId);
-        const pending = await fixture.toolGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
+        const pending = await fixture.sandboxGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
         assert.equal(pending.find((grant) => grant.id === grantId)?.status, "pending");
         const events = await trajectoryStore.read(ref);
         assert.equal(events.some((event) => event.eventType === "action_approved"), true);
@@ -847,13 +875,12 @@ test("重开 JSON Snapshot 后仅激活与已保存批准绑定的 pending Grant
                 async schedule() { throw new Error("scheduler boundary reached"); },
             },
             toolRegistry: fixture.registry,
-            toolGrantStore: fixture.toolGrantStore,
-            sandboxGrantStore: fixture.sandboxGrantStore,
+                sandboxGrantStore: fixture.sandboxGrantStore,
             workspaceId: "ws-1",
             workspaceRoot: fixture.workspaceRoot,
         });
         await assert.rejects(recovered.advance(ref), /scheduler boundary reached/);
-        const activated = await fixture.toolGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
+        const activated = await fixture.sandboxGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
         assert.equal(activated.find((grant) => grant.id === grantId)?.status, "active");
         assert.equal(fixture.calls.length, 0);
     } finally {
@@ -864,7 +891,14 @@ test("重开 JSON Snapshot 后仅激活与已保存批准绑定的 pending Grant
 test("state_committed marker 故障不改变已保存批准的 Grant 绑定", async () => {
     const fixture = await createApprovalFixture();
     try {
-        const goal = createAwaitingApprovalGoal({ goalId: "goal-marker-with-persisted-approval" });
+        const goal = createAwaitingApprovalGoal({
+            approvalKind: "sandbox",
+            effectiveSandboxScope: {
+                extraFiles: [{ canonicalPath: join(await realpath(fixture.workspaceRoot), ".git/index"), access: "write", kind: "file" }],
+                network: "none",
+            },
+            goalId: "goal-marker-with-persisted-approval"
+        });
         const store = new JsonFileGoalStore(join(fixture.workspaceRoot, "goals"));
         const diskTrajectory = new JsonFileTrajectoryStore(join(fixture.workspaceRoot, "trajectory"));
         const trajectoryStore = new Proxy(diskTrajectory, {
@@ -889,8 +923,7 @@ test("state_committed marker 故障不改变已保存批准的 Grant 绑定", as
                 async schedule() { throw new Error("scheduler boundary reached"); },
             },
             toolRegistry: fixture.registry,
-            toolGrantStore: fixture.toolGrantStore,
-            sandboxGrantStore: fixture.sandboxGrantStore,
+                sandboxGrantStore: fixture.sandboxGrantStore,
             workspaceId: "ws-1",
             workspaceRoot: fixture.workspaceRoot,
         });
@@ -909,7 +942,7 @@ test("state_committed marker 故障不改变已保存批准的 Grant 绑定", as
         assert.equal(saved?.state.run.pendingAction?.status, "approved");
         const grantId = saved?.state.run.pendingAction?.grantId;
         assert.ok(grantId);
-        const grants = await fixture.toolGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
+        const grants = await fixture.sandboxGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
         assert.equal(grants.find((grant) => grant.id === grantId)?.status, "pending");
         const events = await diskTrajectory.read(ref);
         assert.equal(events.some((event) => event.eventType === "action_approved"), true);
@@ -923,13 +956,12 @@ test("state_committed marker 故障不改变已保存批准的 Grant 绑定", as
                 async schedule() { throw new Error("scheduler boundary reached"); },
             },
             toolRegistry: fixture.registry,
-            toolGrantStore: fixture.toolGrantStore,
-            sandboxGrantStore: fixture.sandboxGrantStore,
+                sandboxGrantStore: fixture.sandboxGrantStore,
             workspaceId: "ws-1",
             workspaceRoot: fixture.workspaceRoot,
         });
         await assert.rejects(recovered.advance(ref), /scheduler boundary reached/);
-        const active = await fixture.toolGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
+        const active = await fixture.sandboxGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
         assert.equal(active.find((grant) => grant.id === grantId)?.status, "active");
     } finally {
         await fixture.dispose();
@@ -939,9 +971,16 @@ test("state_committed marker 故障不改变已保存批准的 Grant 绑定", as
 test("advance 不会在已有 Interrupt 的旧 Snapshot 上激活 pending Grant", async () => {
     const fixture = await createApprovalFixture();
     try {
-        const awaiting = createAwaitingApprovalGoal({ goalId: "goal-advance-skips-interrupted-grant" });
+        const awaiting = createAwaitingApprovalGoal({
+            approvalKind: "sandbox",
+            effectiveSandboxScope: {
+                extraFiles: [{ canonicalPath: join(await realpath(fixture.workspaceRoot), ".git/index"), access: "write", kind: "file" }],
+                network: "none",
+            },
+            goalId: "goal-advance-skips-interrupted-grant"
+        });
         const approvalInputId = "approval-input-before-interrupt";
-        const grant = await fixture.toolGrantStore.stage({
+        const grant = await fixture.sandboxGrantStore.stage({
             scope: "goal",
             workspaceId: "ws-1",
             goalId: awaiting.id,
@@ -952,10 +991,13 @@ test("advance 不会在已有 Interrupt 的旧 Snapshot 上激活 pending Grant"
                 approvalInputId,
             },
             matcher: {
-                kind: "target_path",
                 toolId: "write_file",
                 version: 1,
-                path: `${await realpath(fixture.workspaceRoot)}/a.txt`,
+                inputDigest: "0000000000000000000000000000000000000000000000000000000000000000",
+                scope: {
+                    extraFiles: [{ canonicalPath: `${await realpath(fixture.workspaceRoot)}/a.txt`, access: "write", kind: "file" }],
+                    network: "none",
+                },
             },
         });
         const approved = transition(awaiting.state.run, {
@@ -990,14 +1032,13 @@ test("advance 不会在已有 Interrupt 的旧 Snapshot 上激活 pending Grant"
                 async schedule() { throw new Error("scheduler boundary reached"); },
             },
             toolRegistry: fixture.registry,
-            toolGrantStore: fixture.toolGrantStore,
-            sandboxGrantStore: fixture.sandboxGrantStore,
+                sandboxGrantStore: fixture.sandboxGrantStore,
             workspaceId: "ws-1",
             workspaceRoot: fixture.workspaceRoot,
         });
 
         await assert.rejects(coordinator.advance({ goalId: goal.id, runId: goal.state.run.id }), /scheduler boundary reached/);
-        const grants = await fixture.toolGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
+        const grants = await fixture.sandboxGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
         assert.equal(grants.find((candidate) => candidate.id === grant.id)?.status, "pending");
         assert.equal(fixture.calls.length, 0);
     } finally {
@@ -1008,11 +1049,18 @@ test("advance 不会在已有 Interrupt 的旧 Snapshot 上激活 pending Grant"
 test("Interrupt wins while persistent approval is being staged outside the Goal mutation gate", async () => {
     const fixture = await createApprovalFixture();
     try {
-        const goal = createAwaitingApprovalGoal({ goalId: "goal-interrupt-during-grant-stage" });
+        const goal = createAwaitingApprovalGoal({
+            approvalKind: "sandbox",
+            effectiveSandboxScope: {
+                extraFiles: [{ canonicalPath: join(await realpath(fixture.workspaceRoot), ".git/index"), access: "write", kind: "file" }],
+                network: "none",
+            },
+            goalId: "goal-interrupt-during-grant-stage"
+        });
         await fixture.store.save(goal);
         const staged = deferred();
         const releaseStage = deferred();
-        const toolGrantStore = new Proxy(fixture.toolGrantStore, {
+        const gatedSandboxGrantStore = new Proxy(fixture.sandboxGrantStore, {
             get(target, property, receiver) {
                 if (property === "stage") {
                     return async (...args: Parameters<typeof target.stage>) => {
@@ -1031,8 +1079,7 @@ test("Interrupt wins while persistent approval is being staged outside the Goal 
             trajectoryStore: base.trajectoryStore,
             scheduler: new InlineScheduler(base.runner),
             toolRegistry: fixture.registry,
-            toolGrantStore,
-            sandboxGrantStore: fixture.sandboxGrantStore,
+            sandboxGrantStore: gatedSandboxGrantStore,
             workspaceId: "ws-1",
             workspaceRoot: fixture.workspaceRoot,
         });
@@ -1060,7 +1107,7 @@ test("Interrupt wins while persistent approval is being staged outside the Goal 
         assert.equal(saved?.state.run.pendingAction, undefined);
         assert.equal(fixture.calls.length, 0);
 
-        const grants = await fixture.toolGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
+        const grants = await fixture.sandboxGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
         assert.equal(grants.length, 1);
         assert.equal(grants[0]?.status, "pending");
         assert.equal(
@@ -1075,9 +1122,16 @@ test("Interrupt wins while persistent approval is being staged outside the Goal 
 test("Grant revocation does not restore a stale waiting snapshot over an accepted Interrupt", async () => {
     const fixture = await createApprovalFixture();
     try {
-        const goal = createAwaitingApprovalGoal({ goalId: "goal-revoke-during-interrupt" });
+        const goal = createAwaitingApprovalGoal({
+            approvalKind: "sandbox",
+            effectiveSandboxScope: {
+                extraFiles: [{ canonicalPath: join(await realpath(fixture.workspaceRoot), ".git/index"), access: "write", kind: "file" }],
+                network: "none",
+            },
+            goalId: "goal-revoke-during-interrupt"
+        });
         await fixture.store.save(goal);
-        const grant = await fixture.toolGrantStore.stage({
+        const grant = await fixture.sandboxGrantStore.stage({
             scope: "goal",
             workspaceId: "ws-1",
             goalId: goal.id,
@@ -1088,17 +1142,20 @@ test("Grant revocation does not restore a stale waiting snapshot over an accepte
                 approvalInputId: "previous-approval",
             },
             matcher: {
-                kind: "target_path",
                 toolId: "write_file",
                 version: 1,
-                path: join(fixture.workspaceRoot, "a.txt"),
+                inputDigest: "0000000000000000000000000000000000000000000000000000000000000000",
+                scope: {
+                    extraFiles: [{ canonicalPath: join(fixture.workspaceRoot, "a.txt"), access: "write", kind: "file" }],
+                    network: "none",
+                },
             },
         });
-        await fixture.toolGrantStore.activate(grant.id, grant.source);
+        await fixture.sandboxGrantStore.activate(grant.id, grant.source);
 
         const revoking = deferred();
         const releaseRevoke = deferred();
-        const toolGrantStore = new Proxy(fixture.toolGrantStore, {
+        const gatedSandboxGrantStore = new Proxy(fixture.sandboxGrantStore, {
             get(target, property, receiver) {
                 if (property === "revoke") {
                     return async (...args: Parameters<typeof target.revoke>) => {
@@ -1117,14 +1174,13 @@ test("Grant revocation does not restore a stale waiting snapshot over an accepte
             trajectoryStore: base.trajectoryStore,
             scheduler: new InlineScheduler(base.runner),
             toolRegistry: fixture.registry,
-            toolGrantStore,
-            sandboxGrantStore: fixture.sandboxGrantStore,
+            sandboxGrantStore: gatedSandboxGrantStore,
             workspaceId: "ws-1",
             workspaceRoot: fixture.workspaceRoot,
         });
         const ref = { goalId: goal.id, runId: goal.state.run.id };
 
-        const revoke = coordinator.revokeGrant({ ref, kind: "tool", grantId: grant.id });
+        const revoke = coordinator.revokeGrant({ ref, grantId: grant.id });
         await revoking.promise;
         const interrupt = base.runner.interrupt(ref, "interrupt-during-grant-revoke");
         await setImmediate();
@@ -1141,7 +1197,7 @@ test("Grant revocation does not restore a stale waiting snapshot over an accepte
             base.trajectoryStore.events.filter((event) => event.eventType === "run_cancelled").length,
             1,
         );
-        const grants = await fixture.toolGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
+        const grants = await fixture.sandboxGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
         assert.equal(grants.find((item) => item.id === grant.id)?.status, "revoked");
     } finally {
         await fixture.dispose();
@@ -1151,39 +1207,48 @@ test("Grant revocation does not restore a stale waiting snapshot over an accepte
 test("Tool Grant 撤销的审计提交失败时仍保留已撤销授权与原 Snapshot", async () => {
     const fixture = await createApprovalFixture();
     try {
-        const goal = createAwaitingApprovalGoal({ goalId: "goal-tool-grant-revoke-save-failure" });
+        const goal = createAwaitingApprovalGoal({
+            approvalKind: "sandbox",
+            effectiveSandboxScope: {
+                extraFiles: [{ canonicalPath: join(await realpath(fixture.workspaceRoot), ".git/index"), access: "write", kind: "file" }],
+                network: "none",
+            },
+            goalId: "goal-tool-grant-revoke-save-failure"
+        });
         const source = {
             goalId: goal.id,
             runId: goal.state.run.id,
             actionId: "previous-action",
             approvalInputId: "previous-approval",
         };
-        const grant = await fixture.toolGrantStore.stage({
+        const grant = await fixture.sandboxGrantStore.stage({
             scope: "goal",
             workspaceId: "ws-1",
             goalId: goal.id,
             source,
             matcher: {
-                kind: "target_path",
                 toolId: "write_file",
                 version: 1,
-                path: join(fixture.workspaceRoot, "a.txt"),
+                inputDigest: "0000000000000000000000000000000000000000000000000000000000000000",
+                scope: {
+                    extraFiles: [{ canonicalPath: join(fixture.workspaceRoot, "a.txt"), access: "write", kind: "file" }],
+                    network: "none",
+                },
             },
         });
-        await fixture.toolGrantStore.activate(grant.id, source);
+        await fixture.sandboxGrantStore.activate(grant.id, source);
 
         const store = new FailingSaveGoalStore(1);
         await store.seed(goal);
         const { coordinator } = createApprovalCoordinator(fixture, { store });
 
-        await assert.rejects(coordinator.revokeToolGrant({
+        await assert.rejects(coordinator.revokeGrant({
             ref: { goalId: goal.id, runId: goal.state.run.id },
             grantId: grant.id,
-            scope: "goal",
         }), /snapshot save failed/);
 
         assert.equal((await store.restore(goal.id))?.state.run.status, "waiting");
-        const grants = await fixture.toolGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
+        const grants = await fixture.sandboxGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
         assert.equal(grants.find((candidate) => candidate.id === grant.id)?.status, "revoked");
     } finally {
         await fixture.dispose();
@@ -1191,6 +1256,47 @@ test("Tool Grant 撤销的审计提交失败时仍保留已撤销授权与原 Sn
 });
 
 test("同一决定身份重复暂存复用同一条授权记录", async () => {
+    const fixture = await createApprovalFixture();
+    try {
+        const goal = createAwaitingApprovalGoal({
+            approvalKind: "sandbox",
+            effectiveSandboxScope: {
+                extraFiles: [{ canonicalPath: join(await realpath(fixture.workspaceRoot), ".git/index"), access: "write", kind: "file" }],
+                network: "none",
+            },
+        });
+        await fixture.store.save(goal);
+        const { coordinator } = createApprovalCoordinator(fixture);
+        const ref = { goalId: goal.id, runId: goal.state.run.id };
+
+        const review = await coordinator.reviewActionApproval({
+            ref,
+            actionId: "action-approval",
+            input: { path: "b.txt", content: "revised", sandboxAccess: { files: [{ path: ".git/index", access: "write", kind: "file", purpose: "审批覆盖一次越界写入" }] } },
+            scope: "goal",
+        });
+        assert.equal(review.ok, true);
+        if (!review.ok) return;
+
+        const action = {
+            kind: "approve_action_revision" as const,
+            actionId: "action-approval",
+            input: { path: "b.txt", content: "revised", sandboxAccess: { files: [{ path: ".git/index", access: "write", kind: "file", purpose: "审批覆盖一次越界写入" }] } },
+            reviewRef: review.review.reviewRef,
+            scope: "goal" as const,
+            approvalInputId: "input-stable",
+        };
+        const first = await coordinator.resume({ ref, action });
+        assert.equal(first.ok, true);
+        const grants = await fixture.sandboxGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
+        assert.equal(grants.length, 1);
+        assert.equal(grants[0]?.status, "active");
+    } finally {
+        await fixture.dispose();
+    }
+});
+
+test("非边界审批不能选择持久期限", async () => {
     const fixture = await createApprovalFixture();
     try {
         const goal = createAwaitingApprovalGoal();
@@ -1201,25 +1307,21 @@ test("同一决定身份重复暂存复用同一条授权记录", async () => {
         const review = await coordinator.reviewActionApproval({
             ref,
             actionId: "action-approval",
-            input: { path: "b.txt", content: "revised" },
-            scope: "goal",
+            input: { path: "a.txt", content: "original" },
         });
         assert.equal(review.ok, true);
         if (!review.ok) return;
+        assert.deepEqual([...review.review.availableScopes], ["action"]);
 
-        const action = {
-            kind: "approve_action_revision" as const,
-            actionId: "action-approval",
-            input: { path: "b.txt", content: "revised" },
-            reviewRef: review.review.reviewRef,
-            scope: "goal" as const,
-            approvalInputId: "input-stable",
-        };
-        const first = await coordinator.resume({ ref, action });
-        assert.equal(first.ok, true);
-        const grants = await fixture.toolGrantStore.list({ workspaceId: "ws-1", goalId: goal.id });
-        assert.equal(grants.length, 1);
-        assert.equal(grants[0]?.status, "active");
+        const rejected = await coordinator.resume({
+            ref,
+            action: { kind: "approve_action", actionId: "action-approval", scope: "goal" },
+        });
+        assert.equal(rejected.ok, false);
+        assert.deepEqual(
+            await fixture.sandboxGrantStore.list({ workspaceId: "ws-1", goalId: goal.id }),
+            [],
+        );
     } finally {
         await fixture.dispose();
     }

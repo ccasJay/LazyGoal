@@ -508,16 +508,15 @@ export type {
 } from "./tool";
 export {
     computeInputDigest,
-    DefaultPermissionGrantService,
+    DefaultPermissionExemptionService,
     createSandboxGrantMatcher,
-    createToolGrantMatcher,
     evaluateSandboxAuthorization,
     matchesSandboxGrant,
     matchesSandboxGrantMatcher,
-    toolGrantMatchersEqual,
 } from "./tool-grant";
 export type {
-    PermissionGrantService,
+    PermissionExemptionService,
+    PermissionExemptionSummary,
     PermissionProfile,
     PermissionScope,
     ProjectPermissionProfile,
@@ -527,12 +526,6 @@ export type {
     SandboxGrantMatcher,
     SandboxGrantScope,
     SandboxGrantStore,
-    ToolGrant,
-    ToolGrantLookup,
-    ToolGrantMatcher,
-    ToolGrantScope,
-    ToolGrantStore,
-    UnifiedGrantSummary,
 } from "./tool-grant";
 export { launch, createGoalCheckpoint } from "./launcher";
 export type {

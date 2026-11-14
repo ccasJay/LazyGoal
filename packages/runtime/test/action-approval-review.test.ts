@@ -35,7 +35,6 @@ function createReviewCoordinator(
             },
         },
         toolRegistry: fixture.registry,
-        toolGrantStore: fixture.toolGrantStore,
         sandboxGrantStore: fixture.sandboxGrantStore,
         workspaceId: "ws-1",
         workspaceRoot: fixture.workspaceRoot,
@@ -66,18 +65,16 @@ test("预检返回最终 canonical 参数、实际目标与审阅引用，且不
         assert.deepEqual(result.review.finalInput, { path: "b.txt", content: "revised" });
         assert.equal(result.review.changed, true);
         assert.equal(result.review.scope, "action");
-        assert.deepEqual([...result.review.availableScopes], ["action", "goal", "workspace"]);
+        assert.deepEqual([...result.review.availableScopes], ["action"]);
         assert.equal(result.review.requiresSandboxApproval, false);
         assert.match(result.review.reviewRef, /^review:[0-9a-f]{32}$/);
-        assert.deepEqual(result.review.capability.targetPaths, [
-            `${await realpath(fixture.workspaceRoot)}/b.txt`,
-        ]);
+        assert.deepEqual(result.review.capability.targetPaths, []);
 
         // 预检不保存批准、不暂存授权、不执行工具。
         const stored = await fixture.store.restore(goal.id);
         assert.equal(stored?.state.run.pendingAction?.status, "awaiting_approval");
         assert.equal(stored?.state.run.pendingAction?.executionVersion, undefined);
-        assert.deepEqual(await fixture.toolGrantStore.list({ workspaceId: "ws-1" }), []);
+        assert.deepEqual(await fixture.sandboxGrantStore.list({ workspaceId: "ws-1" }), []);
         assert.deepEqual(await fixture.sandboxGrantStore.list({ workspaceId: "ws-1" }), []);
         assert.equal(fixture.calls.length, 0);
     } finally {
@@ -139,9 +136,7 @@ test("预检原样审阅时 changed 为 false 且沿用原参数", async () => {
         if (!result.ok) return;
         assert.equal(result.review.changed, false);
         assert.deepEqual(result.review.finalInput, { path: "a.txt", content: "original" });
-        assert.deepEqual(result.review.capability.targetPaths, [
-            `${await realpath(fixture.workspaceRoot)}/a.txt`,
-        ]);
+        assert.deepEqual(result.review.capability.targetPaths, []);
     } finally {
         await fixture.dispose();
     }
