@@ -51,6 +51,7 @@
 | 观察释放 | 卸载视图或切换 Goal 只回收浏览器本地的订阅、请求与合并帧；不发送 Interrupt，不撤销已受理输入，也不关闭宿主 Runtime。 | [Goal Board](../README.md) | [观察恢复语义](../src/session-stream-recovery.ts) |
 | GoalSessionContext | 局部持有 Goal 窄状态、固定 Activity 页、按需完整会话及视图状态。 | [Goal Board](../README.md) | [上下文契约](../src/context/GoalSessionContext.tsx) |
 | RunControlContext | 隔离支持的命令分发、控制意图状态与原子单飞防重锁；不持有普通消息队列。 | [Goal Board](../README.md) | [模块说明](./overview.md) |
+| `/compact` 命令 | 续接输入框识别的无参 Slash 命令；只提交一次 `compact` 会话输入，不写入对话，失败时展示稳定原因。 | [Goal Board](../README.md) | [输入分发](../src/types.ts)、[运行命令](../src/hooks/useRunCommands.ts) |
 | New Goal 草稿 | 仅保存在页面状态的未提交首个意图；提交结果不明时保留原身份，受理成功后由服务端 Goal 与 Trigger 收据接管。 | [Goal Board](../README.md) | [MessageComposer](../src/components/MessageComposer.tsx) |
 | 新 Goal 输入 | 输入框只创建 Goal 并提交首个意图；Steer 与队列操作仍不提供。 | [Goal Board](../README.md) | [输入区](../src/components/MessageComposer.tsx)、[会话视图](../src/components/GoalSession.tsx) |
 | 终态续接输入 | 仅在宿主投影 `continuation.available` 时出现在 Activity：手动创建、当前 Run 已结算终态且连接已确认。提交绑定该终态 Run；结果不明按原 `inputId` 核验，不自动重发；非手动来源或运行中的 Goal 不显示输入框。 | [Goal Board](../README.md) | [输入区](../src/components/MessageComposer.tsx)、[会话视图](../src/components/GoalSession.tsx) |

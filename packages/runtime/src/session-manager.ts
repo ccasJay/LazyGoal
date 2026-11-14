@@ -2,8 +2,10 @@ import { randomUUID } from "node:crypto";
 
 import type { AgentProfileRegistry } from "./agent-profile";
 import { isRunEnded } from "./domain";
-import type { GoalModelSelection, Goal, JsonValue, RunEndStatus, RunMode } from "./domain";
+import type { GoalModelSelection, Goal, JsonValue, RunEndStatus, RunMode, RunRef } from "./domain";
 import type { GoalStore } from "./goal-store";
+import type { ExecutionControl } from "../../execution-control/src/index";
+import type { ContextCompactionCommandOutcome } from "./runner";
 import type { GoalCoordinator } from "./goal-coordinator";
 import type { GoalProtocolValidator } from "./domain";
 import {
@@ -52,6 +54,7 @@ import {
     findSessionInputRecord,
     nextSessionInputSequence,
     pauseQueuedMessagesForTerminalRun,
+    SessionInputAdmissionError,
     toSessionInputReceipt,
     validateSessionInputShape,
     type SessionInputDigest,
@@ -347,6 +350,12 @@ export interface SessionManagerDependencies {
         | "scheduleAuthorizedAction"
         | "reviewActionApproval"
     >;
+    /**
+     * 用户命令触发的上下文整理入口。
+     *
+     * @remarks 省略时 `/compact` 以 `CONTEXT_COMPACTION_UNAVAILABLE` 拒绝。
+     */
+    readonly compactContext?: ((ref: RunRef, control?: ExecutionControl) => Promise<ContextCompactionCommandOutcome>) | undefined;
     /** 冻结 Profile 解析。 */
     readonly profiles: AgentProfileRegistry;
     /** 新 Run 身份生成器。 */
@@ -448,6 +457,7 @@ export class SessionManager implements SessionHandlePort {
     private readonly interactionAttachments = new Map<string, SessionInteractionAttachment>();
     private readonly pendingWakes = new Set<string>();
     private readonly admission: SessionInputAdmission;
+    private readonly compactContext: SessionManagerDependencies["compactContext"];
     private readonly executions = new Map<string, Promise<void>>();
     private readonly backgroundTasks = new Set<Promise<void>>();
     private readonly explicitContinuations = new Set<string>();
@@ -488,6 +498,7 @@ export class SessionManager implements SessionHandlePort {
             onAdmitted: (goalId, input) => this.wakeAfterAdmission(goalId, input),
         };
         this.admission = new SessionInputAdmission(admissionDependencies);
+        this.compactContext = dependencies.compactContext;
     }
 
     /** 当前实例活动执行名额的持有 Goal；空闲时为 `undefined`。 */
@@ -862,7 +873,9 @@ export class SessionManager implements SessionHandlePort {
                     ? await this.admitRespond(goalId, input)
                     : input.kind === "resume"
                         ? await this.admitResume(goalId, input)
-                        : await this.admission.admit(goalId, input);
+                        : input.kind === "compact"
+                            ? await this.admitCompact(goalId, input)
+                            : await this.admission.admit(goalId, input);
         await this.publishInputResult(goalId, input, result);
         return result;
     }
@@ -932,6 +945,120 @@ export class SessionManager implements SessionHandlePort {
      * 独立后台任务交接。提交可观察地失败时抛出底层异常，调用方必须按原身份查询
      * 或重试——交互解析结果以 Snapshot 为准；已提交的重复身份返回原收据且不重新推进。
      */
+    /**
+     * 受理一次用户触发的上下文整理。
+     *
+     * @remarks
+     * 命令不写入对话、不创建业务 Run。整理在执行名额内完成；无法推进窗口时返回带原因的
+     * 稳定拒绝，不写入受理账本。
+     */
+    private async admitCompact(
+        goalId: string,
+        input: Extract<SessionInput, { readonly kind: "compact" }>,
+    ): Promise<SessionInputAdmissionResult> {
+        const shape = validateSessionInputShape(input);
+        if (shape !== undefined) return { ok: false, code: shape.code, message: shape.message };
+        const digest = computeSessionInputDigest(input);
+        const current = await this.store.restore(goalId);
+        if (current === undefined) {
+            return { ok: false, code: "GOAL_NOT_FOUND", message: `Goal "${goalId}" was not found` };
+        }
+        const existing = findSessionInputRecord(current, input.inputId);
+        if (existing !== undefined) {
+            return existing.digest === digest && existing.kind === "compact"
+                ? { ok: true, existing: true, receipt: toSessionInputReceipt(goalId, existing) }
+                : {
+                    ok: false,
+                    code: "INPUT_CONFLICT",
+                    message: `Input "${input.inputId}" already exists with a different kind or payload`,
+                };
+        }
+        if (current.state.run.id !== input.runId) {
+            return {
+                ok: false,
+                code: "RUN_NOT_FOUND",
+                message: `Run "${input.runId}" is not the current Run of Goal "${goalId}"`,
+            };
+        }
+        const compact = this.compactContext;
+        if (compact === undefined) {
+            return {
+                ok: false,
+                code: "CONTEXT_COMPACTION_UNAVAILABLE",
+                message: "Context compaction is not available in this runtime",
+            };
+        }
+        const claim = this.claimPromotion(goalId);
+        if (claim.kind === "busy" || claim.kind === "closed") {
+            return this.promotionRejection(claim.kind, goalId);
+        }
+        try {
+            const outcome = await compact({ goalId, runId: input.runId });
+            if (outcome.kind !== "compacted") {
+                this.releasePromotion(goalId, claim);
+                return {
+                    ok: false,
+                    code: "CONTEXT_COMPACTION_UNAVAILABLE",
+                    message: compactionUnavailableMessage(outcome.reason),
+                };
+            }
+            const receipt = await this.recordAppliedCompact(goalId, input, digest);
+            this.releasePromotion(goalId, claim);
+            return { ok: true, existing: false, receipt };
+        } catch (error) {
+            this.releasePromotion(goalId, claim);
+            throw error;
+        }
+    }
+
+    /** 把已生效的整理请求写入受理账本，保留可查询的收据。 */
+    private async recordAppliedCompact(
+        goalId: string,
+        input: Extract<SessionInput, { readonly kind: "compact" }>,
+        digest: ReturnType<typeof computeSessionInputDigest>,
+    ): Promise<SessionInputReceipt> {
+        const record = await withGoalMutationGate(this.store, goalId, async () => {
+            const goal = await this.store.restore(goalId);
+            if (goal === undefined) {
+                throw new SessionInputAdmissionError(goalId, input.inputId, `Goal "${goalId}" was not found`);
+            }
+            const sequence = nextSessionInputSequence(goal);
+            const admitted: SessionInputRecord = {
+                inputId: input.inputId,
+                kind: "compact",
+                digest,
+                sequence,
+                status: "applied",
+                admittedAtRevision: (goal.state.commitRevision ?? 0) + 1,
+                appliedRunId: goal.state.run.id,
+            };
+            const nextGoal: Goal = {
+                ...goal,
+                state: {
+                    ...goal.state,
+                    inputLedger: [...(goal.state.inputLedger ?? []), admitted],
+                },
+            };
+            await this.committer.commit(nextGoal, {
+                facts: [{
+                    goalId,
+                    runId: goal.state.run.id,
+                    phase: goal.state.workflow.phase,
+                    eventType: "session_input_admitted",
+                    payload: {
+                        type: "session_input_admitted",
+                        inputId: input.inputId,
+                        kind: "compact",
+                        sequence,
+                    },
+                }],
+                sessionState: "caller",
+            });
+            return admitted;
+        });
+        return toSessionInputReceipt(goalId, record);
+    }
+
     private async admitRespond(
         goalId: string,
         input: Extract<SessionInput, { readonly kind: "respond" }>,
@@ -2274,5 +2401,25 @@ export class SessionManager implements SessionHandlePort {
 
     private failure(code: SessionManagerErrorCode, message: string): { readonly ok: false; readonly error: { readonly code: SessionManagerErrorCode; readonly message: string } } {
         return { ok: false, error: { code, message } };
+    }
+}
+
+/** 把整理不可用的稳定原因转换为面向用户的反馈。 */
+function compactionUnavailableMessage(
+    reason: "unsupported" | "goal_not_found" | "run_mismatch" | "not_at_safe_boundary" | "empty_window" | "not_reduced",
+): string {
+    switch (reason) {
+        case "unsupported":
+            return "Context compaction is not configured for this runtime";
+        case "goal_not_found":
+            return "The Goal no longer exists";
+        case "run_mismatch":
+            return "The Goal has advanced to another Run; retry compaction on the current Run";
+        case "not_at_safe_boundary":
+            return "The Goal is waiting on an external action and cannot switch context windows yet";
+        case "empty_window":
+            return "There is no older working window to compact";
+        case "not_reduced":
+            return "The compaction result was not smaller than the history it replaces";
     }
 }

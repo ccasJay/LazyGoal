@@ -3787,8 +3787,8 @@ var require_BrowserGoalEvent_validator = __commonJS({
       validate18.errors = vErrors;
       return errors === 0;
     }
-    var schema46 = { "type": "string", "enum": ["message", "steer", "interrupt", "respond", "resume", "queue_control"], "description": "\u4F1A\u8BDD\u8F93\u5165\u79CD\u7C7B\u3002" };
-    var schema50 = { "type": "string", "enum": ["INVALID_INPUT", "INPUT_CONFLICT", "INPUT_NOT_FOUND", "GOAL_NOT_FOUND", "BUSY", "STEER_CONFLICT", "INTERRUPT_CONFLICT", "STALE_REVISION", "INTERACTION_MISMATCH", "INTERACTION_REQUIRED", "QUEUE_PAUSED", "RUN_NOT_RESUMABLE", "QUEUE_FULL", "QUEUE_TEXT_TOO_LARGE", "TEXT_TOO_LARGE", "QUEUE_NOT_PAUSED", "QUEUE_REVISION_MISMATCH", "QUEUED_MESSAGE_NOT_FOUND", "RUN_NOT_FOUND", "RUN_NOT_RUNNING", "CONTINUATION_UNAVAILABLE", "RUN_CONTROL_UNAVAILABLE", "input_admission_failed", "session_unavailable"], "description": "\u8F93\u5165\u53D7\u7406\u4E0E\u67E5\u8BE2\u7684\u7A33\u5B9A wire \u62D2\u7EDD\u4EE3\u7801\u3002" };
+    var schema46 = { "type": "string", "enum": ["message", "steer", "interrupt", "respond", "resume", "queue_control", "compact"], "description": "\u4F1A\u8BDD\u8F93\u5165\u79CD\u7C7B\u3002" };
+    var schema50 = { "type": "string", "enum": ["INVALID_INPUT", "INPUT_CONFLICT", "INPUT_NOT_FOUND", "GOAL_NOT_FOUND", "BUSY", "STEER_CONFLICT", "INTERRUPT_CONFLICT", "STALE_REVISION", "INTERACTION_MISMATCH", "INTERACTION_REQUIRED", "QUEUE_PAUSED", "RUN_NOT_RESUMABLE", "QUEUE_FULL", "QUEUE_TEXT_TOO_LARGE", "TEXT_TOO_LARGE", "QUEUE_NOT_PAUSED", "QUEUE_REVISION_MISMATCH", "QUEUED_MESSAGE_NOT_FOUND", "RUN_NOT_FOUND", "RUN_NOT_RUNNING", "CONTINUATION_UNAVAILABLE", "RUN_CONTROL_UNAVAILABLE", "CONTEXT_COMPACTION_UNAVAILABLE", "input_admission_failed", "session_unavailable"], "description": "\u8F93\u5165\u53D7\u7406\u4E0E\u67E5\u8BE2\u7684\u7A33\u5B9A wire \u62D2\u7EDD\u4EE3\u7801\u3002" };
     var schema47 = { "type": "object", "properties": { "goalId": { "type": "string", "pattern": "\\S" }, "inputId": { "type": "string", "pattern": "\\S" }, "kind": { "$ref": "#/definitions/BrowserSessionInputKind" }, "sequence": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "status": { "$ref": "#/definitions/BrowserSessionInputStatus" }, "admittedAtRevision": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "targetRunId": { "type": "string", "pattern": "\\S" }, "appliedRunId": { "type": "string", "pattern": "\\S" }, "messageIndex": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 } }, "required": ["goalId", "inputId", "kind", "sequence", "status", "admittedAtRevision"], "additionalProperties": false, "description": "\u4E00\u6761\u5DF2\u6301\u4E45\u5316\u8F93\u5165\u7684\u53D7\u7406\u6536\u636E\u6295\u5F71\u3002" };
     var schema49 = { "type": "string", "enum": ["pending", "applied", "cleared"], "description": "\u8F93\u5165\u8D26\u672C\u4E2D\u7684\u53D7\u7406\u72B6\u6001\u3002" };
     function validate36(data, { instancePath = "", parentData, parentDataProperty, rootData = data } = {}) {
@@ -3915,7 +3915,7 @@ var require_BrowserGoalEvent_validator = __commonJS({
             }
             errors++;
           }
-          if (!(data2 === "message" || data2 === "steer" || data2 === "interrupt" || data2 === "respond" || data2 === "resume" || data2 === "queue_control")) {
+          if (!(data2 === "message" || data2 === "steer" || data2 === "interrupt" || data2 === "respond" || data2 === "resume" || data2 === "queue_control" || data2 === "compact")) {
             const err12 = { instancePath: instancePath + "/kind", schemaPath: "#/definitions/BrowserSessionInputKind/enum", keyword: "enum", params: { allowedValues: schema46.enum }, message: "must be equal to one of the allowed values" };
             if (vErrors === null) {
               vErrors = [err12];
@@ -4204,7 +4204,7 @@ var require_BrowserGoalEvent_validator = __commonJS({
             }
             errors++;
           }
-          if (!(data2 === "message" || data2 === "steer" || data2 === "interrupt" || data2 === "respond" || data2 === "resume" || data2 === "queue_control")) {
+          if (!(data2 === "message" || data2 === "steer" || data2 === "interrupt" || data2 === "respond" || data2 === "resume" || data2 === "queue_control" || data2 === "compact")) {
             const err10 = { instancePath: instancePath + "/kind", schemaPath: "#/definitions/BrowserSessionInputKind/enum", keyword: "enum", params: { allowedValues: schema46.enum }, message: "must be equal to one of the allowed values" };
             if (vErrors === null) {
               vErrors = [err10];
@@ -4253,7 +4253,7 @@ var require_BrowserGoalEvent_validator = __commonJS({
             }
             errors++;
           }
-          if (!(data6 === "INVALID_INPUT" || data6 === "INPUT_CONFLICT" || data6 === "INPUT_NOT_FOUND" || data6 === "GOAL_NOT_FOUND" || data6 === "BUSY" || data6 === "STEER_CONFLICT" || data6 === "INTERRUPT_CONFLICT" || data6 === "STALE_REVISION" || data6 === "INTERACTION_MISMATCH" || data6 === "INTERACTION_REQUIRED" || data6 === "QUEUE_PAUSED" || data6 === "RUN_NOT_RESUMABLE" || data6 === "QUEUE_FULL" || data6 === "QUEUE_TEXT_TOO_LARGE" || data6 === "TEXT_TOO_LARGE" || data6 === "QUEUE_NOT_PAUSED" || data6 === "QUEUE_REVISION_MISMATCH" || data6 === "QUEUED_MESSAGE_NOT_FOUND" || data6 === "RUN_NOT_FOUND" || data6 === "RUN_NOT_RUNNING" || data6 === "CONTINUATION_UNAVAILABLE" || data6 === "RUN_CONTROL_UNAVAILABLE" || data6 === "input_admission_failed" || data6 === "session_unavailable")) {
+          if (!(data6 === "INVALID_INPUT" || data6 === "INPUT_CONFLICT" || data6 === "INPUT_NOT_FOUND" || data6 === "GOAL_NOT_FOUND" || data6 === "BUSY" || data6 === "STEER_CONFLICT" || data6 === "INTERRUPT_CONFLICT" || data6 === "STALE_REVISION" || data6 === "INTERACTION_MISMATCH" || data6 === "INTERACTION_REQUIRED" || data6 === "QUEUE_PAUSED" || data6 === "RUN_NOT_RESUMABLE" || data6 === "QUEUE_FULL" || data6 === "QUEUE_TEXT_TOO_LARGE" || data6 === "TEXT_TOO_LARGE" || data6 === "QUEUE_NOT_PAUSED" || data6 === "QUEUE_REVISION_MISMATCH" || data6 === "QUEUED_MESSAGE_NOT_FOUND" || data6 === "RUN_NOT_FOUND" || data6 === "RUN_NOT_RUNNING" || data6 === "CONTINUATION_UNAVAILABLE" || data6 === "RUN_CONTROL_UNAVAILABLE" || data6 === "CONTEXT_COMPACTION_UNAVAILABLE" || data6 === "input_admission_failed" || data6 === "session_unavailable")) {
             const err14 = { instancePath: instancePath + "/code", schemaPath: "#/definitions/BrowserSessionInputErrorCode/enum", keyword: "enum", params: { allowedValues: schema50.enum }, message: "must be equal to one of the allowed values" };
             if (vErrors === null) {
               vErrors = [err14];

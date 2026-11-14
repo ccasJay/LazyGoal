@@ -1017,6 +1017,7 @@ async function assembleRuntimeComposition(
         store: checkpointStore,
         committer: checkpointCommitter,
         coordinator: executionComponents.commands,
+        compactContext: executionComponents.compactContext,
         profiles,
         runIdGenerator,
         protocolValidator,

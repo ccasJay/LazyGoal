@@ -23,7 +23,8 @@ export type SessionInputKind =
     | "interrupt"
     | "respond"
     | "resume"
-    | "queue_control";
+    | "queue_control"
+    | "compact";
 
 /**
  * 交互回答提交的响应分支。
@@ -145,6 +146,11 @@ export type SessionInput =
         readonly queueRevision: number;
         /** `remove` 时指定要删除的待处理消息。 */
         readonly messageId?: string;
+    }
+    | {
+        readonly kind: "compact";
+        readonly inputId: string;
+        readonly runId: string;
     };
 
 /** 目标 Run 明确的控制类输入；普通消息与队列控制不在此列。 */
@@ -303,7 +309,8 @@ export type SessionInputRejectionCode =
     | "QUEUED_MESSAGE_NOT_FOUND"
     | "RUN_NOT_FOUND"
     | "RUN_NOT_RUNNING"
-    | "RUN_CONTROL_UNAVAILABLE";
+    | "RUN_CONTROL_UNAVAILABLE"
+    | "CONTEXT_COMPACTION_UNAVAILABLE";
 
 /**
  * 输入受理的稳定结果。
@@ -504,6 +511,12 @@ export function validateSessionInputShape(
             }
             if (input.action !== "remove" && input.messageId !== undefined) {
                 return { code: "INVALID_INPUT", message: "Only remove accepts a messageId" };
+            }
+            return undefined;
+        }
+        case "compact": {
+            if (typeof input.runId !== "string" || input.runId.trim().length === 0) {
+                return { code: "INVALID_INPUT", message: "Compaction requires a target runId" };
             }
             return undefined;
         }

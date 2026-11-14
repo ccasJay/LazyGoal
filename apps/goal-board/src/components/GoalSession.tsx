@@ -1,4 +1,5 @@
 import { Button } from "./ui/button";
+import { dispatchBrowserInput } from "../types";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -130,12 +131,27 @@ export function GoalSession({
     stoppingRunId,
     onSubmitDraftMessage,
     onSubmitContinuation,
+    compactSession,
     onInterrupt,
     onSubmitResume,
     onVerifyIntent,
     onRetryIntent,
     onDiscardIntent,
   } = useRunControlContext();
+
+  /** 在会话输入框内先识别 Slash 命令，再决定是否作为普通消息提交。 */
+  const submitSessionMessage = async (content: string): Promise<boolean> => {
+    const dispatched = await dispatchBrowserInput(content);
+    if (dispatched.kind === "error") {
+      setCommandError(dispatched.message);
+      return false;
+    }
+    if (dispatched.kind === "compact") {
+      setContinuationText("");
+      return compactSession();
+    }
+    return onSubmitContinuation(content);
+  };
 
   const timeline = useRef<HTMLDivElement>(null);
   const workbench = selectWorkbenchActions({
@@ -688,7 +704,7 @@ export function GoalSession({
                       onClick={() => setModelPickerTarget({ kind: "goal", goalId: session.goalId, runId: session.currentRunId })}
                     />
                   }
-                  onSubmit={onSubmitContinuation}
+                  onSubmit={submitSessionMessage}
                 />
               )}
               <SessionMetricsBar state={metricsByGoal[session.goalId]} runStatus={session.runStatus} />

@@ -63,11 +63,11 @@ superseded_by: null
 - [x] //TODO 2. 让普通请求使用已配置工作窗口并报告当前 Context 占用 → R1.1、R1.2、R1.3、R1.4；检查：容量解析和指标投影测试
 - [x] //TODO 3. 让超过阈值的工作窗口经一轮提炼后可续写和恢复 → R2.1、R2.3、R2.4；检查：单次压缩及提交边界测试
 - [x] //TODO 4. 让供应商超窗请求只进行一次整理和一次重试 → R2.5、R2.6；检查：适配器超窗与重试计数测试
-- [ ] //TODO 5. 让用户通过 `/compact` 使用同一压缩和恢复流程 → R2.2、R2.3、R2.4；检查：命令解析和同一 Epoch 重复触发测试
+- [x] //TODO 5. 让用户通过 `/compact` 使用同一压缩和恢复流程 → R2.2、R2.3、R2.4；检查：命令解析和同一 Epoch 重复触发测试
 
 ## 执行记录
 
-- 状态：未执行
-- 验证：-
-- 结果：-
-- 未决：无
+- 状态：已执行
+- 验证：`npm test`（3051 项）、`npm run test:ui-harness`（39 项）、`apps/goal-board npm run build`、`npm run check:docs`、`npm run check:dependencies`、`npm run contracts:generate -- --check` 全部通过。
+- 结果：R1.1–R3.2 全部实现并由对应检查覆盖；`/compact` 经受统一会话输入在安全边界执行。
+- 未决：当前网络下 `beam-free` 被供应商以区域限制拒绝（HTTP 403 RegionError），真实模型验收改用可用免费模型。

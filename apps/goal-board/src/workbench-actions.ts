@@ -197,7 +197,7 @@ export function selectUnverifiedWorkbenchActions(
 }
 
 function unverifiedActionOf(
-  kind: "message" | "steer" | "interrupt" | "respond" | "resume" | "queue_control",
+  kind: "message" | "steer" | "interrupt" | "respond" | "resume" | "queue_control" | "compact",
 ): { readonly actionId: WorkbenchActionId; readonly label: string } | undefined {
   switch (kind) {
     case "message": return { actionId: "send_message", label: "Message" };

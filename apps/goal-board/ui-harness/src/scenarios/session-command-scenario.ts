@@ -574,3 +574,29 @@ export const sessionCommandScenario: FixtureScenario = {
     return acceptedMessageReceipt(command);
   },
 };
+
+/**
+ * 在已完成 Goal 上拒绝上下文整理命令的场景。
+ *
+ * @remarks
+ * 其余控制命令仍交给完整命令场景处理；`/compact` 返回稳定拒绝，用于验证
+ * 输入框只派发命令、不写入对话，并把原因呈现给用户。
+ */
+export const sessionCompactUnavailableScenario: FixtureScenario = {
+  ...sessionCommandScenario,
+  id: "session-compact-unavailable",
+  description: "Completed session rejects a /compact command with a stable reason",
+  handleControl: (command, context) => {
+    if (command.kind === "session_input"
+      && command.goalId === GOAL_ID
+      && command.input.kind === "compact") {
+      return {
+        intentId: command.intentId,
+        status: "rejected",
+        error: "context_compaction_unavailable",
+        refresh: true,
+      };
+    }
+    return sessionCommandScenario.handleControl?.(command, context);
+  },
+};

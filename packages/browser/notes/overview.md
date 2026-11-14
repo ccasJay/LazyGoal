@@ -31,7 +31,7 @@ Activity 响应项数有界；当前文件 JSONL 读取器仍可扫描整个 Run
 
 所有 JSON 请求体先经传输层校验（Content-Type、字节上限与 UTF-8/JSON 解码），再由 `@lazygoal/web-contracts` 生成的命令绑定读取并剥离未知字段；route 保留 wire ID、路径身份、kind/跨字段关系、固定 HTTP 错误映射与有界未知字段诊断，不维护第二套 body 字段白名单。Provider 档案可选的 `null` 值按 DTO 保留并交由下游解释为清空，`apiKey: null` 被合同拒绝。
 
-`POST /api/goals/:goalId/inputs` 受理统一会话输入联合：`message`、`steer`、`interrupt`、`respond`、`resume` 与 `queue_control`，每项都携带 Goal 内稳定 `inputId`。Browser 只做严格 wire 校验与安全投影，受理、去重、队列、执行所有权与恢复判定全部委派 Runtime 会话所有者：新受理返回 202，同身份同载荷的既有收据返回 200，业务拒绝返回稳定错误码（字段错误 400、文本超限 413、Goal 缺失 404、身份／状态／容量冲突与 busy 409、关闭或保存结果不明 503）。`respond` 携带当前 `runId`、`requestId` 与回答、提案批准/反馈或 Action 批准/拒绝载荷，由 Runtime 再次校验等待类型与身份；旧身份、错配等待点或载荷冲突不写入收据，普通文本也不能代答结构化等待。`GET /api/goals/:goalId/inputs/:inputId` 按身份返回持久化收据及应用关联，未找到与读取失败分别返回明确结果。
+`POST /api/goals/:goalId/inputs` 受理统一会话输入联合：`message`、`steer`、`interrupt`、`respond`、`resume`、`queue_control` 与 `compact`，每项都携带 Goal 内稳定 `inputId`。`compact` 只携带目标 `runId`，由 Runtime 绑定 Goal 的当前 Epoch 执行一轮整理：不写入对话、不创建业务 Run；无法切换窗口时以 `context_compaction_unavailable` 返回稳定原因。Browser 只做严格 wire 校验与安全投影，受理、去重、队列、执行所有权与恢复判定全部委派 Runtime 会话所有者：新受理返回 202，同身份同载荷的既有收据返回 200，业务拒绝返回稳定错误码（字段错误 400、文本超限 413、Goal 缺失 404、身份／状态／容量冲突与 busy 409、关闭或保存结果不明 503）。`respond` 携带当前 `runId`、`requestId` 与回答、提案批准/反馈或 Action 批准/拒绝载荷，由 Runtime 再次校验等待类型与身份；旧身份、错配等待点或载荷冲突不写入收据，普通文本也不能代答结构化等待。`GET /api/goals/:goalId/inputs/:inputId` 按身份返回持久化收据及应用关联，未找到与读取失败分别返回明确结果。
 
 Plan Run 的待审批会话 DTO 会投影候选路线中的全部阶段顺序、目标和验收条件，文本受有界投影处理。普通会话不返回路线字段；候选仍属于待审批 Snapshot，不代表 Runtime 已批准或正在执行的阶段。
 

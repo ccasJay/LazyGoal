@@ -53,7 +53,8 @@ export type BrowserSessionInputKind =
     | "interrupt"
     | "respond"
     | "resume"
-    | "queue_control";
+    | "queue_control"
+    | "compact";
 
 /** 输入账本中的受理状态。 */
 export type BrowserSessionInputStatus = "pending" | "applied" | "cleared";
@@ -957,6 +958,7 @@ export type BrowserSessionInputErrorCode =
     | "RUN_NOT_RUNNING"
     | "CONTINUATION_UNAVAILABLE"
     | "RUN_CONTROL_UNAVAILABLE"
+    | "CONTEXT_COMPACTION_UNAVAILABLE"
     | "input_admission_failed"
     | "session_unavailable";
 
@@ -1102,6 +1104,13 @@ export type BrowserSessionInputCommand =
         readonly queueRevision: number;
         /** @pattern \S */
         readonly messageId?: string;
+    }
+    | {
+        readonly kind: "compact";
+        /** @pattern \S */
+        readonly inputId: string;
+        /** @pattern \S */
+        readonly runId: string;
     };
 
 /** 一条输入受理／拒绝的公开结果。 */

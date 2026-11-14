@@ -11,9 +11,11 @@ import type {
 } from "../../../packages/web-contracts/src/index";
 import {
   createSlashCommandRegistry,
+  compactCommandDefinition,
   modelCommandDefinition,
   planCommandDefinition,
   type ModelCommandEffect,
+  type SlashCommandEffect,
 } from "../../../packages/slash-command/src/index";
 import { BrowserApiError } from "./api";
 
@@ -205,9 +207,10 @@ export const statuses: readonly GoalStatus[] = [
   "Stopped",
 ];
 
-export const slashCommands = createSlashCommandRegistry<ModelCommandEffect>();
+export const slashCommands = createSlashCommandRegistry<SlashCommandEffect>();
 slashCommands.register(planCommandDefinition);
 slashCommands.register(modelCommandDefinition);
+slashCommands.register(compactCommandDefinition);
 
 export type ModelPickerTarget =
   | { readonly kind: "draft" }
@@ -343,6 +346,7 @@ export function errorMessage(error: unknown): string {
       case "model_restore_failed": return "The saved model binding could not be restored. This Run was not advanced.";
       case "invalid_model_selection": return "Choose a valid model from this list.";
       case "goal_not_found": return "This Goal is no longer available in the current workspace.";
+      case "context_compaction_unavailable": return "The working window cannot be compacted right now. Wait for the current action to settle, then retry /compact.";
       case "activity_read_failed": return "This Goal's saved Activity could not be read. Its local history may be from an incompatible version.";
       case "stale_run":
       case "stale_request":
@@ -376,6 +380,7 @@ export type BrowserInputDispatch =
   | { readonly kind: "text"; readonly content: string }
   | { readonly kind: "plan" }
   | { readonly kind: "model" }
+  | { readonly kind: "compact" }
   | { readonly kind: "error"; readonly message: string };
 
 export async function dispatchBrowserInput(input: string): Promise<BrowserInputDispatch> {
@@ -388,6 +393,10 @@ export async function dispatchBrowserInput(input: string): Promise<BrowserInputD
     case "rejected":
       return { kind: "error", message: result.message };
     case "executed":
-      return result.effect.kind === "enter_plan_mode" ? { kind: "plan" } : { kind: "model" };
+      return result.effect.kind === "enter_plan_mode"
+        ? { kind: "plan" }
+        : result.effect.kind === "compact_context"
+          ? { kind: "compact" }
+          : { kind: "model" };
   }
 }

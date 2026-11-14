@@ -7,6 +7,7 @@ import {
     TrajectoryCheckpointCommitter,
     launch,
     type AgentProfileRegistry,
+    type ContextCompactionCommandOutcome,
     type ContextLookupPort,
     type DiagnosticTraceSink,
     type GoalCoordinatorDependencies,
@@ -14,6 +15,7 @@ import {
     type LaunchRequest,
     type LaunchResult,
     type RunnerDependencies,
+    type RunRef,
     type SandboxGrantStore,
     type SandboxPlanResolver,
     type StepExecutor,
@@ -149,6 +151,8 @@ export type ExecutionCommands = Pick<
 export interface ExecutionComponents {
     /** 调用方需要的执行与控制命令。 */
     readonly commands: ExecutionCommands;
+    /** 用户命令触发的上下文整理；供会话层在安全边界调用。 */
+    readonly compactContext: (ref: RunRef, control?: ExecutionControl) => Promise<ContextCompactionCommandOutcome>;
 }
 
 /**
@@ -198,6 +202,7 @@ export function createExecutionComponents(
     }));
 
     return {
+        compactContext: (ref, control) => runner.compactContextNow(ref, control),
         commands: {
             launch: (request, control) => launch(
                 request,

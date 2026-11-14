@@ -939,7 +939,7 @@ export interface GoalSnapshotStateV1 {
  */
 export interface GoalSnapshotSessionInputV1 {
     readonly inputId: string;
-    readonly kind: "message" | "steer" | "interrupt" | "respond" | "resume" | "queue_control";
+    readonly kind: "message" | "steer" | "interrupt" | "respond" | "resume" | "queue_control" | "compact";
     readonly digest: string;
     readonly sequence: number;
     readonly status: "pending" | "applied" | "cleared";

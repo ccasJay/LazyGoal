@@ -1237,6 +1237,12 @@ async function parseSessionInputCommand(
             : { ok: false, error: "INVALID_INPUT", status: 400 };
     }
 
+    if (command.kind === "compact") {
+        return isWireId(command.runId, 256)
+            ? { ok: true, command }
+            : { ok: false, error: "INVALID_INPUT", status: 400 };
+    }
+
     if (command.action === "remove") {
         return command.messageId !== undefined && isWireId(command.messageId, 256)
             ? { ok: true, command }

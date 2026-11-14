@@ -191,5 +191,18 @@ export type ModelCommandEffect =
     | { readonly kind: "open_model_selector" }
     | { readonly kind: "enter_plan_mode" };
 
+/**
+ * `/compact` 产生的控制副作用。
+ *
+ * @remarks
+ * UI 收到该 effect 后向 Runtime 提交一次整理请求；命令本身不执行提炼，也不修改对话。
+ *
+ * @example
+ * ```ts
+ * const effect: CompactCommandEffect = { kind: "compact_context" };
+ * ```
+ */
+export type CompactCommandEffect = { readonly kind: "compact_context" };
+
 /** Slash 命令产生的 UI/Runtime 控制副作用。 */
-export type SlashCommandEffect = ModelCommandEffect;
+export type SlashCommandEffect = ModelCommandEffect | CompactCommandEffect;

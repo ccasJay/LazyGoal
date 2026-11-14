@@ -305,7 +305,8 @@ export class SessionInputAdmission {
             case "steer":
             case "interrupt":
             case "respond":
-            case "resume": {
+            case "resume":
+            case "compact": {
                 return {
                     planned: false,
                     result: rejection(

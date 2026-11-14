@@ -12,7 +12,7 @@ var require_BrowserSessionInputCommand_validator = __commonJS({
   "BrowserSessionInputCommand-validator.cjs"(exports, module) {
     module.exports = validate10;
     module.exports.default = validate10;
-    var schema12 = { "anyOf": [{ "type": "object", "properties": { "kind": { "type": "string", "const": "message" }, "inputId": { "type": "string", "pattern": "\\S" }, "content": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" } }, "required": ["kind", "inputId", "content", "runId"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "steer" }, "inputId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "content": { "type": "string", "pattern": "\\S" }, "queueBinding": { "$ref": "#/definitions/BrowserQueueBinding" } }, "required": ["kind", "inputId", "runId", "content"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "interrupt" }, "inputId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" } }, "required": ["kind", "inputId", "runId"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "respond" }, "inputId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "requestId": { "type": "string", "pattern": "\\S" }, "response": { "$ref": "#/definitions/BrowserSessionInteractionResponse" } }, "required": ["kind", "inputId", "runId", "requestId", "response"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "resume" }, "inputId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "commitRevision": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "content": { "type": "string", "pattern": "\\S" }, "acknowledgeUnknownEffects": { "type": "boolean", "description": "\u5DF2\u786E\u8BA4 Worker \u9000\u51FA\u540E\u6062\u590D\u8FD0\u884C\u4E2D\u68C0\u67E5\u70B9\u65F6\uFF0C\u627F\u8BA4\u539F\u52A8\u4F5C\u7684\u5916\u90E8\u526F\u4F5C\u7528\u53EF\u80FD\u672A\u77E5\u3002" } }, "required": ["kind", "inputId", "runId", "commitRevision"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "queue_control" }, "inputId": { "type": "string", "pattern": "\\S" }, "action": { "type": "string", "enum": ["continue", "clear", "remove"] }, "queueRevision": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "messageId": { "type": "string", "pattern": "\\S" } }, "required": ["kind", "inputId", "action", "queueRevision"], "additionalProperties": false }], "description": "`POST /api/goals/:goalId/inputs` \u7684\u4E25\u683C wire \u547D\u4EE4\u3002" };
+    var schema12 = { "anyOf": [{ "type": "object", "properties": { "kind": { "type": "string", "const": "message" }, "inputId": { "type": "string", "pattern": "\\S" }, "content": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" } }, "required": ["kind", "inputId", "content", "runId"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "steer" }, "inputId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "content": { "type": "string", "pattern": "\\S" }, "queueBinding": { "$ref": "#/definitions/BrowserQueueBinding" } }, "required": ["kind", "inputId", "runId", "content"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "interrupt" }, "inputId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" } }, "required": ["kind", "inputId", "runId"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "respond" }, "inputId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "requestId": { "type": "string", "pattern": "\\S" }, "response": { "$ref": "#/definitions/BrowserSessionInteractionResponse" } }, "required": ["kind", "inputId", "runId", "requestId", "response"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "resume" }, "inputId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "commitRevision": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "content": { "type": "string", "pattern": "\\S" }, "acknowledgeUnknownEffects": { "type": "boolean", "description": "\u5DF2\u786E\u8BA4 Worker \u9000\u51FA\u540E\u6062\u590D\u8FD0\u884C\u4E2D\u68C0\u67E5\u70B9\u65F6\uFF0C\u627F\u8BA4\u539F\u52A8\u4F5C\u7684\u5916\u90E8\u526F\u4F5C\u7528\u53EF\u80FD\u672A\u77E5\u3002" } }, "required": ["kind", "inputId", "runId", "commitRevision"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "queue_control" }, "inputId": { "type": "string", "pattern": "\\S" }, "action": { "type": "string", "enum": ["continue", "clear", "remove"] }, "queueRevision": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "messageId": { "type": "string", "pattern": "\\S" } }, "required": ["kind", "inputId", "action", "queueRevision"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "compact" }, "inputId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" } }, "required": ["kind", "inputId", "runId"], "additionalProperties": false }], "description": "`POST /api/goals/:goalId/inputs` \u7684\u4E25\u683C wire \u547D\u4EE4\u3002" };
     var pattern0 = new RegExp("\\S", "u");
     var schema15 = { "type": "string", "enum": ["action", "goal", "workspace"], "description": "wire \u4E0A\u53EF\u7528\u7684\u6388\u6743\u671F\u9650\u3002" };
     function validate12(data, { instancePath = "", parentData, parentDataProperty, rootData = data } = {}) {
@@ -2229,17 +2229,135 @@ var require_BrowserSessionInputCommand_validator = __commonJS({
                 }
                 var _valid0 = _errs67 === errors;
                 valid0 = valid0 || _valid0;
+                if (!valid0) {
+                  const _errs80 = errors;
+                  if (data && typeof data == "object" && !Array.isArray(data)) {
+                    if (data.kind === void 0) {
+                      const err98 = { instancePath, schemaPath: "#/anyOf/6/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
+                      if (vErrors === null) {
+                        vErrors = [err98];
+                      } else {
+                        vErrors.push(err98);
+                      }
+                      errors++;
+                    }
+                    if (data.inputId === void 0) {
+                      const err99 = { instancePath, schemaPath: "#/anyOf/6/required", keyword: "required", params: { missingProperty: "inputId" }, message: "must have required property 'inputId'" };
+                      if (vErrors === null) {
+                        vErrors = [err99];
+                      } else {
+                        vErrors.push(err99);
+                      }
+                      errors++;
+                    }
+                    if (data.runId === void 0) {
+                      const err100 = { instancePath, schemaPath: "#/anyOf/6/required", keyword: "required", params: { missingProperty: "runId" }, message: "must have required property 'runId'" };
+                      if (vErrors === null) {
+                        vErrors = [err100];
+                      } else {
+                        vErrors.push(err100);
+                      }
+                      errors++;
+                    }
+                    for (const key7 in data) {
+                      if (!(key7 === "kind" || key7 === "inputId" || key7 === "runId")) {
+                        const err101 = { instancePath, schemaPath: "#/anyOf/6/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key7 }, message: "must NOT have additional properties" };
+                        if (vErrors === null) {
+                          vErrors = [err101];
+                        } else {
+                          vErrors.push(err101);
+                        }
+                        errors++;
+                      }
+                    }
+                    if (data.kind !== void 0) {
+                      let data30 = data.kind;
+                      if (typeof data30 !== "string") {
+                        const err102 = { instancePath: instancePath + "/kind", schemaPath: "#/anyOf/6/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                        if (vErrors === null) {
+                          vErrors = [err102];
+                        } else {
+                          vErrors.push(err102);
+                        }
+                        errors++;
+                      }
+                      if ("compact" !== data30) {
+                        const err103 = { instancePath: instancePath + "/kind", schemaPath: "#/anyOf/6/properties/kind/const", keyword: "const", params: { allowedValue: "compact" }, message: "must be equal to constant" };
+                        if (vErrors === null) {
+                          vErrors = [err103];
+                        } else {
+                          vErrors.push(err103);
+                        }
+                        errors++;
+                      }
+                    }
+                    if (data.inputId !== void 0) {
+                      let data31 = data.inputId;
+                      if (typeof data31 === "string") {
+                        if (!pattern0.test(data31)) {
+                          const err104 = { instancePath: instancePath + "/inputId", schemaPath: "#/anyOf/6/properties/inputId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                          if (vErrors === null) {
+                            vErrors = [err104];
+                          } else {
+                            vErrors.push(err104);
+                          }
+                          errors++;
+                        }
+                      } else {
+                        const err105 = { instancePath: instancePath + "/inputId", schemaPath: "#/anyOf/6/properties/inputId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                        if (vErrors === null) {
+                          vErrors = [err105];
+                        } else {
+                          vErrors.push(err105);
+                        }
+                        errors++;
+                      }
+                    }
+                    if (data.runId !== void 0) {
+                      let data32 = data.runId;
+                      if (typeof data32 === "string") {
+                        if (!pattern0.test(data32)) {
+                          const err106 = { instancePath: instancePath + "/runId", schemaPath: "#/anyOf/6/properties/runId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                          if (vErrors === null) {
+                            vErrors = [err106];
+                          } else {
+                            vErrors.push(err106);
+                          }
+                          errors++;
+                        }
+                      } else {
+                        const err107 = { instancePath: instancePath + "/runId", schemaPath: "#/anyOf/6/properties/runId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                        if (vErrors === null) {
+                          vErrors = [err107];
+                        } else {
+                          vErrors.push(err107);
+                        }
+                        errors++;
+                      }
+                    }
+                  } else {
+                    const err108 = { instancePath, schemaPath: "#/anyOf/6/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                    if (vErrors === null) {
+                      vErrors = [err108];
+                    } else {
+                      vErrors.push(err108);
+                    }
+                    errors++;
+                  }
+                  var _valid0 = _errs80 === errors;
+                  valid0 = valid0 || _valid0;
+                }
               }
             }
           }
         }
       }
       if (!valid0) {
-        const err98 = { instancePath, schemaPath: "#/anyOf", keyword: "anyOf", params: {}, message: "must match a schema in anyOf" };
+        const err109 = { instancePath, schemaPath: "#/anyOf", keyword: "anyOf", params: {}, message: "must match a schema in anyOf" };
         if (vErrors === null) {
-          vErrors = [err98];
+          vErrors = [err109];
         } else {
-          vErrors.push(err98);
+          vErrors.push(err109);
         }
         errors++;
       } else {

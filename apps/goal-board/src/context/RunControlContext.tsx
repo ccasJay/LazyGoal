@@ -30,6 +30,8 @@ export interface RunControlContextValue {
   readonly onSubmitResume: (acknowledgeUnknownEffects?: boolean) => Promise<void>;
   /** 向已结算终态的手动 Goal 提交普通消息；返回是否已持久受理。 */
   readonly onSubmitContinuation: (content: string) => Promise<boolean>;
+  /** 请求整理当前 Goal 的工作窗口；不写入对话、不创建业务 Run。 */
+  readonly compactSession: () => Promise<boolean>;
   /** 按原身份核验收据；不改写为新的提交。 */
   readonly onVerifyIntent: (intentId: string) => Promise<void>;
   /** 以原身份重试；不生成新身份。 */

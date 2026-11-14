@@ -496,7 +496,7 @@ export type {
     SessionOpenResult,
     SessionQueryResult,
 } from "./session-manager";
-export { Runner, type InterruptRunResult, type SteerInputResult } from "./runner";
+export { Runner, type ContextCompactionCommandOutcome, type InterruptRunResult, type SteerInputResult } from "./runner";
 export {
     RunNavigationRecoveryError,
     RunRecoveryReader,

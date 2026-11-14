@@ -337,6 +337,55 @@ class StageExecutionFailure extends Error {
 /** 触发一轮上下文提炼的来源。 */
 type ContextCompactionTrigger = "threshold" | "context_window" | "command";
 
+/** 一轮提炼的内部结论；`goal` 只在确实提交新 Epoch 时携带。 */
+type ContextCompactionStep =
+    | { readonly kind: "compacted"; readonly goal: Goal }
+    | {
+        readonly kind: "skipped";
+        readonly reason:
+            | "unsupported"
+            | "not_running"
+            | "pending"
+            | "capacity_unavailable"
+            | "below_threshold"
+            | "no_window"
+            | "empty"
+            | "invalid"
+            | "not_reduced"
+            | "failed"
+            | "source_unavailable";
+    };
+
+/**
+ * 用户命令触发的上下文整理结果。
+ *
+ * @remarks
+ * `compacted` 携带新 Epoch 的序号与窗口起点；`unavailable` 用稳定原因说明为何本次
+ * 没有推进窗口，调用方据此生成面向用户的反馈。
+ *
+ * @example
+ * ```ts
+ * const outcome = await runner.compactContextNow({ goalId: "goal-1", runId: "run-1" });
+ * if (outcome.kind === "unavailable") console.log(outcome.reason);
+ * ```
+ */
+export type ContextCompactionCommandOutcome =
+    | {
+        readonly kind: "compacted";
+        readonly epochNumber: number;
+        readonly conversationStartIndex: number;
+    }
+    | {
+        readonly kind: "unavailable";
+        readonly reason:
+            | "unsupported"
+            | "goal_not_found"
+            | "run_mismatch"
+            | "not_at_safe_boundary"
+            | "empty_window"
+            | "not_reduced";
+    };
+
 class StageCheckpointFailure extends Error {
     constructor(readonly original: unknown) {
         super(original instanceof Error ? original.message : String(original));
@@ -1911,7 +1960,8 @@ class RunExecutor {
      * 提交点唯一：把压缩正文与来源范围写入 Epoch 切换事件，并在同一提交中保存新 Epoch。
      */
     private async maybeCompactContext(goal: Goal, control?: ExecutionControl): Promise<Goal> {
-        return this.compactContext(goal, "threshold", control);
+        const step = await this.compactContext(goal, "threshold", control);
+        return step.kind === "compacted" ? step.goal : goal;
     }
 
     /**
@@ -1927,29 +1977,35 @@ class RunExecutor {
         goal: Goal,
         trigger: ContextCompactionTrigger,
         control?: ExecutionControl,
-    ): Promise<Goal> {
+    ): Promise<ContextCompactionStep> {
         const scheduler = this.contextCompaction;
-        if (scheduler === undefined) return goal;
-        if (goal.state.run.status !== "running") return goal;
+        if (scheduler === undefined) return { kind: "skipped", reason: "unsupported" };
+        const status = goal.state.run.status;
+        const ended = status === "completed" || status === "failed" || status === "cancelled";
+        if (status !== "running" && status !== "waiting" && !(trigger === "command" && ended)) {
+            return { kind: "skipped", reason: "not_running" };
+        }
         if (goal.state.run.pendingAction !== undefined
             || goal.state.run.pendingActionBatch !== undefined
             || goal.state.run.pendingInteraction !== undefined
             || goal.state.run.pendingThink !== undefined
             || goal.state.run.pendingProgram !== undefined
             || (goal.state.run.pendingModelRepair !== undefined && trigger !== "context_window")) {
-            return goal;
+            return { kind: "skipped", reason: "pending" };
         }
         if (trigger === "threshold") {
             const occupancy = await scheduler.readOccupancy(goal);
-            if (occupancy === null) return goal;
-            if (occupancy.occupiedTokens * 100 <= occupancy.thresholdPercent * occupancy.capacityTokens) return goal;
+            if (occupancy === null) return { kind: "skipped", reason: "capacity_unavailable" };
+            if (occupancy.occupiedTokens * 100 <= occupancy.thresholdPercent * occupancy.capacityTokens) {
+                return { kind: "skipped", reason: "below_threshold" };
+            }
         }
 
         const epoch = goal.state.run.contextEpoch;
         const window = selectCompactionWindow(goal.state.messages, epoch.conversationStartIndex);
-        if (window === undefined) return goal;
+        if (window === undefined) return { kind: "skipped", reason: "no_window" };
         const evictedTranscript = renderCompactionTranscript(window.evicted);
-        if (evictedTranscript.length === 0) return goal;
+        if (evictedTranscript.length === 0) return { kind: "skipped", reason: "empty" };
 
         let body: string | undefined;
         try {
@@ -1965,15 +2021,15 @@ class RunExecutor {
         } catch (error) {
             if (isExecutionAbortedError(error)) throw error;
             await this.recordCompactionFailure(goal, error);
-            return goal;
+            return { kind: "skipped", reason: "failed" };
         }
         throwIfAborted(control);
         const result = evaluateCompactionBody(body, evictedTranscript.length);
-        if (result.kind !== "compacted") return goal;
+        if (result.kind !== "compacted") return { kind: "skipped", reason: result.reason };
 
         const openedAtSequence = goal.state.run.committedThroughSequence + 1;
         const source = await this.readCompactionSource(goal, epoch.openedAtSequence, control);
-        if (source === undefined) return goal;
+        if (source === undefined) return { kind: "skipped", reason: "source_unavailable" };
         const nextEpoch = advanceContextEpoch(
             epoch,
             goal.state.messages,
@@ -1995,7 +2051,7 @@ class RunExecutor {
             : trigger === "context_window"
                 ? "context_window_recovery" as const
                 : "command_compaction" as const;
-        return this.commitDecision(nextGoal, [{
+        const committed = await this.commitDecision(nextGoal, [{
             goalId: goal.id,
             runId: goal.state.run.id,
             phase: "executing",
@@ -2014,6 +2070,49 @@ class RunExecutor {
                 },
             },
         }], undefined, control);
+        return { kind: "compacted", goal: committed };
+    }
+
+    /**
+     * 按用户命令整理当前 Goal 的工作窗口。
+     *
+     * @remarks
+     * 绑定 Goal 的当前 Epoch，不创建业务 Run，也不写入对话。已进入终态的 Run 仍可追加
+     * 上下文事件，保留原终态与 Step 计数；正在等待外部动作且无法切换时返回稳定原因。
+     *
+     * @param ref - 目标 Goal 与 Run 的关联键。
+     * @returns 整理结果与原因；不会抛出可预期的不满足边界条件。
+     * @example
+     * ```ts
+     * const outcome = await runner.compactContextNow({ goalId: "goal-1", runId: "run-1" });
+     * ```
+     */
+    async compactContextNow(ref: RunRef, control?: ExecutionControl): Promise<ContextCompactionCommandOutcome> {
+        throwIfAborted(control);
+        const goal = await this.store.restore(ref.goalId);
+        if (goal === undefined) return { kind: "unavailable", reason: "goal_not_found" };
+        if (goal.state.run.id !== ref.runId) return { kind: "unavailable", reason: "run_mismatch" };
+        const step = await this.compactContext(goal, "command", control);
+        if (step.kind === "compacted") {
+            const epoch = step.goal.state.run.contextEpoch;
+            return {
+                kind: "compacted",
+                epochNumber: epoch.number,
+                conversationStartIndex: epoch.conversationStartIndex,
+            };
+        }
+        return {
+            kind: "unavailable",
+            reason: step.reason === "unsupported"
+                ? "unsupported"
+                : step.reason === "not_running"
+                    ? "not_at_safe_boundary"
+                    : step.reason === "pending"
+                        ? "not_at_safe_boundary"
+                        : step.reason === "no_window" || step.reason === "empty"
+                            ? "empty_window"
+                            : "not_reduced",
+        };
     }
 
     /**
@@ -2024,9 +2123,8 @@ class RunExecutor {
      * 返回 `undefined`，由调用方按恢复失败结束本次 Run。
      */
     private async recoverContextWindow(goal: Goal, control?: ExecutionControl): Promise<Goal | undefined> {
-        const before = goal.state.run.contextEpoch;
-        const next = await this.compactContext(goal, "context_window", control);
-        return next.state.run.contextEpoch.number > before.number ? next : undefined;
+        const step = await this.compactContext(goal, "context_window", control);
+        return step.kind === "compacted" ? step.goal : undefined;
     }
 
     /** 构造一次已用尽超窗恢复机会的稳定执行错误。 */
@@ -7503,6 +7601,28 @@ export class Runner {
         control?: ExecutionControl,
     ): Promise<RunnerResult> {
         return this.executor.runUntilBlocked(ref, options, control);
+    }
+
+    /**
+     * 按用户命令整理当前 Goal 的工作窗口。
+     *
+     * @remarks
+     * 绑定 Goal 的当前 Epoch，不创建业务 Run，也不写入对话。已进入终态的 Run 仍可追加
+     * 上下文事件，保留原终态与 Step 计数；无法推进窗口时返回带原因的稳定结果。
+     *
+     * @param ref - 目标 Goal 与 Run 的关联键。
+     * @param control - 当前调用的取消控制。
+     * @returns 整理结果与原因。
+     * @example
+     * ```ts
+     * const outcome = await runner.compactContextNow({ goalId: "goal-1", runId: "run-1" });
+     * ```
+     */
+    compactContextNow(
+        ref: RunRef,
+        control?: ExecutionControl,
+    ): Promise<ContextCompactionCommandOutcome> {
+        return this.executor.compactContextNow(ref, control);
     }
 
     /**

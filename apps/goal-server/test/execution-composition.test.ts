@@ -187,7 +187,7 @@ test("仅注入现有 Port 即可推进到等待点、只读恢复与终态后�
     }));
 
     // 组件只返回调用方需要的命令 Port，不暴露 Runner、提交器或 Coordinator。
-    assert.deepEqual(Object.keys(components), ["commands"]);
+    assert.deepEqual(Object.keys(components), ["compactContext", "commands"]);
 
     const launched = await components.commands.launch({
         goalId: "goal-composition",

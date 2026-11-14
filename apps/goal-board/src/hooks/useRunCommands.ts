@@ -75,6 +75,10 @@ export function useRunCommands({
         setCommandError(null);
         return true;
       }
+      if (dispatched.kind === "compact") {
+        setCommandError("Open a Goal before compacting its working window.");
+        return false;
+      }
       const intent = dispatched.content.trim();
       if (!intent || commandBusy) return false;
       if (draftModelId === null) {
@@ -271,6 +275,32 @@ export function useRunCommands({
     return true;
   }, [session, commandBusy, submitInput, onRefreshSession, setCommandError]);
 
+  /**
+   * 请求整理当前 Goal 的工作窗口。
+   *
+   * @remarks 命令不写入对话，也不创建业务 Run；无法切换窗口时展示稳定原因。
+   */
+  const compactSession = useCallback(async (): Promise<boolean> => {
+    if (!session || commandBusy) return false;
+    setCommandError(null);
+    const receipt = await submitInput(session.goalId, {
+      kind: "compact",
+      inputId: crypto.randomUUID(),
+      runId: session.currentRunId,
+    });
+    if (receipt.status === "rejected") {
+      setCommandError(errorMessage(new BrowserApiError(receipt.error, 0, receipt.refresh === true)));
+      if (receipt.refresh === true) await onRefreshSession();
+      return false;
+    }
+    if (receipt.status === "unknown") {
+      setCommandError("The compaction result is unknown. Verify it before retrying.");
+      return false;
+    }
+    await onRefreshSession();
+    return true;
+  }, [session, commandBusy, submitInput, onRefreshSession, setCommandError]);
+
   return {
     commandBusy,
     commandError,
@@ -278,6 +308,7 @@ export function useRunCommands({
     setCommandError,
     stoppingRunId,
     submitDraftMessage,
+    compactSession,
     interruptCurrentRun,
     submitResume,
     onSubmitResume: submitResume,
