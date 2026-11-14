@@ -11,6 +11,7 @@ import {
     CheckpointGateGoalStore,
     ManagedResourceRegistry,
     RuntimeLifecycle,
+    DEFAULT_GOAL_MODEL_SELECTION,
     DefaultGoalModelSelectionCoordinator,
     TrajectoryCheckpointCommitter,
     allocateDiagnosticTraceRecord,
@@ -24,6 +25,7 @@ import {
     type SessionInteractionHandlers,
     type AgentProfile,
     type AgentProfileRegistry,
+    type Goal,
     type GoalCatalog,
     type GoalStore,
     type GoalModelSelection,
@@ -67,6 +69,8 @@ import {
     createModelCapabilities,
     ModelCapabilitiesError,
     resolveTokenEstimatorEncoding,
+    resolveEpochCapacity,
+    type EpochCapacity,
     type ModelCapabilities,
     type ModelContextBudgetPolicy,
     type ModelContextBudgetPolicyInput,
@@ -93,7 +97,7 @@ import {
     LLMConfigurationError,
     type LLMConfig,
 } from "../../../../packages/llm-core/src/index";
-import { loadRuntimeConfig } from "../../../../packages/config/src/index";
+import { loadContextConfig, loadRuntimeConfig } from "../../../../packages/config/src/index";
 import {
     ensureSecureConfigFile,
     ensureSecureHomeDirectories,
@@ -300,6 +304,11 @@ export interface RuntimeCompositionOptions {
     readonly gracePeriodMs?: number;
     readonly modelInputEstimator?: ModelInputEstimator;
     readonly modelContextBudget?: ModelContextBudgetPolicyInput;
+    /** 显式覆盖 `[context]` 小节；省略时从 Home 配置文件读取。 */
+    readonly contextConfig?: {
+        readonly epochLimitTokens?: number;
+        readonly compactThresholdPercent?: number;
+    };
     readonly modelCatalog?: LlmModelCatalog;
     readonly modelBinding?: MutableModelBinding;
     readonly goalModelSelectionCoordinator?: GoalModelSelectionCoordinator;
@@ -599,6 +608,13 @@ async function assembleRuntimeComposition(
     const configuredEstimator = resolveModelInputEstimator(options.modelInputEstimator);
     const modelCapabilities = readModelCapabilities(env, configuredEstimator);
     const modelInputEstimator = modelCapabilities?.tokenEstimator ?? configuredEstimator;
+    const contextConfig = options.contextConfig ?? await loadContextConfig({ homePaths });
+    const resolveGoalEpochCapacity = (goal: Goal): EpochCapacity => resolveEpochCapacity({
+        modelContextWindowTokens: goal.state.modelSelection.contextWindowTokens
+            ?? modelCapabilities?.contextWindowTokens,
+        configuredLimitTokens: contextConfig?.epochLimitTokens,
+        thresholdPercent: contextConfig?.compactThresholdPercent,
+    });
     const workspaceRoot = await resolveWorkspaceRoot(options.cwd ?? process.cwd());
     const workspaceIdentityRoot = await resolveWorkspaceRoot(options.workspaceIdentityRoot ?? workspaceRoot);
     const workspaceHomePaths = await resolveWorkspaceHomePaths(homePaths, workspaceIdentityRoot);
@@ -802,7 +818,10 @@ async function assembleRuntimeComposition(
         ...(defaultExecutionMetadata !== undefined ? {
             contextWindowTokens: defaultExecutionMetadata.contextWindowTokens,
             maxOutputTokens: defaultExecutionMetadata.maxOutputTokens,
-        } : modelCapabilities === undefined ? {} : {
+        } : modelCapabilities === undefined ? {
+            contextWindowTokens: DEFAULT_GOAL_MODEL_SELECTION.contextWindowTokens!,
+            maxOutputTokens: DEFAULT_GOAL_MODEL_SELECTION.maxOutputTokens!,
+        } : {
             contextWindowTokens: modelCapabilities.contextWindowTokens,
             maxOutputTokens: modelCapabilities.maxOutputTokens,
         }),
@@ -931,6 +950,9 @@ async function assembleRuntimeComposition(
             metricsRecorder: sessionMetricsService,
             trajectoryContextAssembler,
             ...(modelCapabilities === undefined ? {} : { modelCapabilities }),
+            assertEpochCapacity: (goal) => {
+                resolveGoalEpochCapacity(goal);
+            },
         }),
         profiles,
         toolRegistry,

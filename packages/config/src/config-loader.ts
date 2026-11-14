@@ -55,6 +55,11 @@ export interface LazyGoalRuntimeConfig {
     readonly tui?: {
         readonly executionMode?: "autonomous" | "confirm";
     };
+    /** Context Epoch 工作窗口配置。 */
+    readonly context?: {
+        readonly epochLimitTokens?: number;
+        readonly compactThresholdPercent?: number;
+    };
     /** GEPA 运行时配置（若已在主配置中声明）。 */
     readonly gepa?: GepaConfig;
 }
@@ -217,12 +222,58 @@ export async function loadRuntimeConfig(options: LoadConfigOptions = {}): Promis
         ? validateGepaConfig(fileConfig.gepa, configFile)
         : undefined;
 
+    const context = fileConfig.context === undefined
+        ? undefined
+        : {
+            ...(fileConfig.context.epoch_limit_tokens === undefined
+                ? {}
+                : { epochLimitTokens: fileConfig.context.epoch_limit_tokens }),
+            ...(fileConfig.context.compact_threshold_percent === undefined
+                ? {}
+                : { compactThresholdPercent: fileConfig.context.compact_threshold_percent }),
+        };
+
     return {
         llm: verifiedLlmConfig,
         ...(activeProfileName !== undefined ? { activeProfile: activeProfileName } : {}),
         ...(workspaceRoot !== undefined ? { workspaceRoot } : {}),
         ...(executionMode !== undefined ? { tui: { executionMode } } : {}),
+        ...(context === undefined ? {} : { context }),
         ...(gepa !== undefined ? { gepa } : {}),
+    };
+}
+
+/**
+ * 仅加载 `config.toml` 的 `[context]` 小节。
+ *
+ * @remarks
+ * 供不经过完整 LLM 凭据校验的宿主读取 Epoch 工作窗口配置；缺失文件或小节时返回空对象，
+ * 字段校验与完整加载一致。
+ *
+ * @param options - Home 路径与可选的显式配置文件路径。
+ * @returns 已校验的 Epoch 上限与整理阈值；均未配置时为 `undefined`。
+ * @throws TomlConfigurationError 当 `[context]` 结构或字段值非法时。
+ * @example
+ * ```ts
+ * const context = await loadContextConfig({ homePaths });
+ * ```
+ */
+export async function loadContextConfig(options: {
+    readonly env?: NodeJS.ProcessEnv;
+    readonly homePaths?: LazyGoalHomePaths;
+    readonly customConfigFile?: string;
+} = {}): Promise<{ readonly epochLimitTokens?: number; readonly compactThresholdPercent?: number } | undefined> {
+    const homePaths = options.homePaths ?? resolveLazyGoalHomePaths(options.env);
+    const configFile = options.customConfigFile ?? homePaths.configFile;
+    if (!existsSync(configFile)) return undefined;
+    const parsed = parseTomlConfig(await readFile(configFile, "utf-8"), configFile);
+    const section = parsed.context;
+    if (section === undefined) return undefined;
+    return {
+        ...(section.epoch_limit_tokens === undefined ? {} : { epochLimitTokens: section.epoch_limit_tokens }),
+        ...(section.compact_threshold_percent === undefined
+            ? {}
+            : { compactThresholdPercent: section.compact_threshold_percent }),
     };
 }
 

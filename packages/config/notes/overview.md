@@ -29,3 +29,7 @@ Home 路径解析是纯操作，不创建目录或清单。启动入口显式创
 `<home>/provider-profiles.json` 保存用户通过设置页维护的多份 Provider 档案（kind、凭据、端点、容量与默认模型）及其激活标识，版本化为 `version: 1`，以 0600 权限、临时文件重命名原子替换，同一实例写入串行化。文件损坏、版本不受支持、档案校验失败或激活标识悬空时一律 fail-fast，不静默重建或丢弃已保存档案；文件不存在时返回空集合，且不会创建文件或从 `config.toml` 导入凭据。
 
 `provider-rules.ts` 是供应商白名单、strict 输出门禁、`baseURL` 允许集合与容量判定的单一来源，环境变量入口与档案校验共用它；`toLlmConfig` 是档案到 `LLMConfig` 的唯一映射。档案存在时它是受管配置的权威，`config.toml` 的 `[llm]` 退化为"未选择任何受管档案"时的回退。凭据只允许存在于该文件与进程内配置，不得进入 Goal、Trajectory 或 Diagnostic Trace。
+
+## Context 工作窗口
+
+`config.toml` 的 `[context]` 提供 `epoch_limit_tokens` 与 `compact_threshold_percent`。前者为正的安全整数，用于把工作窗口收窄到小于模型标称容量的值；后者接受 1–99 的整数，默认 80。`loadContextConfig` 只解析该小节，供不经过凭据校验的宿主读取；完整加载路径把相同值映射为 `LazyGoalRuntimeConfig.context`。字段与取值在解析阶段校验，非法配置快速失败。容量基数与阈值的使用规则由 `context-budget` 的 `resolveEpochCapacity` 统一解释。

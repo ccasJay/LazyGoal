@@ -1130,6 +1130,8 @@ export const DEFAULT_GOAL_MODEL_SELECTION: GoalModelSelection = Object.freeze({
     provider: "default",
     modelId: "default-model",
     structuredOutputMode: "prompt_only",
+    contextWindowTokens: 200_000,
+    maxOutputTokens: 8_192,
     inputEstimator: Object.freeze({ kind: "character-v1" as const }),
 });
 

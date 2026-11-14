@@ -60,10 +60,11 @@ export type {
     WorkspaceTomlSection,
     ProfileTomlSection,
     TuiTomlSection,
+    ContextTomlSection,
     GepaTomlSection,
     GepaConfig,
     LazyGoalTomlConfig,
     ProfileTomlConfig,
 } from "./toml-config";
-export { loadRuntimeConfig, loadReflectionRuntimeConfig, loadGepaModelConfigs } from "./config-loader";
+export { loadRuntimeConfig, loadReflectionRuntimeConfig, loadGepaModelConfigs, loadContextConfig } from "./config-loader";
 export type { CliConfigOverrides, LazyGoalRuntimeConfig, LoadConfigOptions, GepaModelConfigs } from "./config-loader";

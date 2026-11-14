@@ -36,6 +36,15 @@ export type {
     ModelInputMeasurementUnit,
 } from "./model-context-budget";
 
+export {
+    DEFAULT_COMPACT_THRESHOLD_PERCENT,
+    EPOCH_CAPACITY_UNAVAILABLE,
+    EpochCapacityError,
+    exceedsCompactThreshold,
+    resolveEpochCapacity,
+} from "./epoch-capacity";
+export type { EpochCapacity, EpochCapacityInput } from "./epoch-capacity";
+
 export type { ContextUnit, ContextUnitAdapter } from "./context-unit";
 
 export {

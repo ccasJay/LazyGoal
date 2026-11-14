@@ -32,7 +32,7 @@ import {
     MutableModelBinding,
 } from "../src/index";
 import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
-import { DropOldestContextCompactor } from "../../context-budget/src/index";
+import { DropOldestContextCompactor, EpochCapacityError } from "../../context-budget/src/index";
 import { buildStepRequest } from "../../model-request/src/index";
 import { createCurrentContextAssembler, createInMemoryTrajectoryStore, currentProtocols, currentWorkingMemory } from "../../agent/test/current-fixtures";
 import { bindMessagesToRun, messageOutline, testAssistantMessage, testUserMessage } from "../../runtime/test/current-fixtures";
@@ -209,6 +209,39 @@ function createExecutor(adapter: LLMAdapter): LLMStepExecutor {
         trajectoryContextAssembler: createCurrentContextAssembler(),
     });
 }
+
+test("Epoch 容量不可确定时不调用 Adapter 并给出配置提示", async () => {
+    let generateCalls = 0;
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "strict",
+        async generate(): Promise<LLMResponse> {
+            generateCalls += 1;
+            return textResponse("never called");
+        },
+    };
+    const executor = new LLMStepExecutor({
+        adapter,
+        renderer,
+        contextCompactor,
+        trajectoryContextAssembler: createCurrentContextAssembler(),
+        assertEpochCapacity: () => {
+            throw new EpochCapacityError(
+                "The model context window is unknown; configure [context].epoch_limit_tokens",
+            );
+        },
+    });
+
+    await assert.rejects(
+        () => executor.execute({
+            goal: createTestGoal("run-capacity"),
+            authorizedTools: [],
+            workingMemory: currentWorkingMemory,
+        }),
+        (error: unknown) => error instanceof EpochCapacityError
+            && /epoch_limit_tokens/.test(error.message),
+    );
+    assert.equal(generateCalls, 0);
+});
 
 test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 AgentDecision", async () => {
     const currentGoal = createTestGoal("run-1", profile, [

@@ -281,3 +281,28 @@ test("validateGepaConfig 遇到 reflection_profile 包含非法字符或路径�
         );
     }
 });
+
+test("parseTomlConfig 解析并校验 [context] 小节", () => {
+    const parsed = parseTomlConfig(`
+[context]
+epoch_limit_tokens = 120000
+compact_threshold_percent = 75
+`);
+    assert.deepEqual({ ...parsed.context }, {
+        epoch_limit_tokens: 120000,
+        compact_threshold_percent: 75,
+    });
+});
+
+test("parseTomlConfig 拒绝 [context] 的未知字段与非法取值", () => {
+    for (const toml of [
+        "[context]\nunknown = 1\n",
+        "[context]\nepoch_limit_tokens = 0\n",
+        "[context]\nepoch_limit_tokens = 1.5\n",
+        "[context]\ncompact_threshold_percent = 0\n",
+        "[context]\ncompact_threshold_percent = 100\n",
+        "[context]\ncompact_threshold_percent = 80.5\n",
+    ]) {
+        assert.throws(() => parseTomlConfig(toml), TomlConfigurationError, toml);
+    }
+});

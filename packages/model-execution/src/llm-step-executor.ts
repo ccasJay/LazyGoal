@@ -90,6 +90,14 @@ export interface LLMStepExecutorDependencies {
     readonly modelCapabilities?: ModelCapabilities;
     /** 可替换的模型执行绑定提供者；每次 Decide 或 Think 阶段开始时读取当前绑定。 */
     readonly bindingProvider?: ModelExecutionBindingProvider;
+    /**
+     * 发送模型调用前校验 Epoch 工作窗口；不可确定容量时抛出配置错误。
+     *
+     * @remarks
+     * 在编号模型输入、写入指标与调用 Adapter 之前执行，因此被拒绝的请求不产生任何
+     * 调用副作用。
+     */
+    readonly assertEpochCapacity?: (goal: Goal) => void;
 }
 
 /**
@@ -114,6 +122,7 @@ export class LLMStepExecutor implements StepExecutor {
     private readonly metricsRecorder: ModelCallMetricsRecorder | undefined;
     private readonly trajectoryContextAssembler: TrajectoryModelContextAssembler | undefined;
     private readonly modelCapabilities: ModelCapabilities | undefined;
+    private readonly assertEpochCapacity: ((goal: Goal) => void) | undefined;
     /**
      * 每个执行单元当前仍然有效的候选预览身份。
      *
@@ -130,6 +139,7 @@ export class LLMStepExecutor implements StepExecutor {
         this.traceSink = dependencies.traceSink;
         this.modelInputStore = dependencies.modelInputStore;
         this.metricsRecorder = dependencies.metricsRecorder;
+        this.assertEpochCapacity = dependencies.assertEpochCapacity;
         this.trajectoryContextAssembler = dependencies.trajectoryContextAssembler;
         this.modelCapabilities = dependencies.modelCapabilities;
         if (dependencies.bindingProvider !== undefined) {
@@ -484,6 +494,7 @@ export class LLMStepExecutor implements StepExecutor {
         stageOutputs: readonly string[],
     ): Promise<{ readonly response: LLMResponse; readonly startedAt: number; readonly callId: string }> {
         const { goal, control } = input;
+        this.assertEpochCapacity?.(goal);
         return callModel({
             adapter,
             ...(this.traceSink === undefined ? {} : { traceSink: this.traceSink }),
