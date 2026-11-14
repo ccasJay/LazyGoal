@@ -12,8 +12,11 @@ import { test } from "node:test";
 
 import type { ModelCallMetricRecord } from "../../runtime/src/index";
 import {
+    goalDirectory as goalDirectoryPath,
+    goalMetricsCoveragePath,
     JsonFileMetricsStore,
     ModelCallMetricStoreProtocolError,
+    runMetricsPath,
 } from "../src/index";
 
 function started(callId = "call-1"): ModelCallMetricRecord {
@@ -51,14 +54,8 @@ test("JsonFileMetricsStore persists numeric call facts and restores them in orde
 
         await Promise.all([store.append(start), store.append(finish)]);
 
-        const goalDirectory = join(
-            directory,
-            Buffer.from("goal/1", "utf8").toString("base64url"),
-        );
-        const filePath = join(
-            goalDirectory,
-            `${Buffer.from("run 1", "utf8").toString("base64url")}.jsonl`,
-        );
+        const goalDirectory = goalDirectoryPath(directory, "goal/1");
+        const filePath = runMetricsPath(directory, "goal/1", "run 1");
         const jsonl = await readFile(filePath, "utf8");
         assert.equal(jsonl.includes("prompt"), false);
         assert.equal(jsonl.includes("response"), false);
@@ -179,14 +176,7 @@ test("JsonFileMetricsStore rejects malformed JSON and conflicting call facts", a
             ModelCallMetricStoreProtocolError,
         );
 
-        const goalDirectory = join(
-            directory,
-            Buffer.from("goal/1", "utf8").toString("base64url"),
-        );
-        const filePath = join(
-            goalDirectory,
-            `${Buffer.from("run 1", "utf8").toString("base64url")}.jsonl`,
-        );
+        const filePath = runMetricsPath(directory, "goal/1", "run 1");
         await writeFile(filePath, "{broken\n", "utf8");
 
         await assert.rejects(
@@ -212,7 +202,7 @@ test("JsonFileMetricsStore preserves first-seen history coverage and deduplicate
         await store.initializeGoal("goal-old", false);
 
         if (process.platform !== "win32") {
-            const coveragePath = join(directory, Buffer.from("goal-new", "utf8").toString("base64url"), "coverage.jsonl");
+            const coveragePath = goalMetricsCoveragePath(directory, "goal-new");
             assert.equal((await stat(coveragePath)).mode & 0o777, 0o600);
         }
 

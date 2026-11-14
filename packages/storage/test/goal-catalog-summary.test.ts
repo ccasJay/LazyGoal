@@ -5,8 +5,13 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { createGoal, type Goal } from "../../runtime/src/index";
-import { encodePathSegment } from "../src/path-segment";
-import { goalSnapshotCodec, JsonFileGoalStore } from "../src/index";
+import {
+    goalCatalogSummaryPath,
+    goalDirectory,
+    goalSnapshotPath,
+    goalSnapshotCodec,
+    JsonFileGoalStore,
+} from "../src/index";
 
 function goalWithId(id: string): Goal {
     const goal = createGoal({
@@ -34,11 +39,11 @@ function goalWithId(id: string): Goal {
 }
 
 function summaryPath(directory: string, id: string): string {
-    return join(directory, "catalog", `${encodePathSegment(id)}.json`);
+    return goalCatalogSummaryPath(directory, id);
 }
 
 function snapshotPath(directory: string, id: string): string {
-    return join(directory, `${encodePathSegment(id)}.json`);
+    return goalSnapshotPath(directory, id);
 }
 
 test("saving a snapshot writes a derived catalog summary with the snapshot fingerprint", async () => {
@@ -84,9 +89,9 @@ test("listHistory reads catalog summaries without opening snapshots", async () =
         const scan = await store.listHistory();
 
         assert.deepEqual(scan.entries.map((entry) => entry.goalId).sort(), ["goal-1", "goal-2"]);
-        const catalogDirectory = join(directory, "catalog");
+        const summaryName = join("indexes", "summary.json");
         assert.deepEqual(
-            reads.filter((path) => !path.startsWith(catalogDirectory)),
+            reads.filter((path) => !path.endsWith(summaryName)),
             [],
         );
     } finally {
@@ -146,11 +151,13 @@ test("listHistory reconciles the snapshot directory and keeps unreadable counts"
         const saved = goalWithId("goal-saved");
         const external = goalWithId("goal-external");
         await store.save(saved);
+        await mkdir(goalDirectory(directory, external.id), { recursive: true });
         await writeFile(
             snapshotPath(directory, external.id),
             `${JSON.stringify(goalSnapshotCodec.encode(external))}\n`,
         );
-        await writeFile(join(directory, `${encodePathSegment("goal-bad")}.json`), "{");
+        await mkdir(goalDirectory(directory, "goal-bad"), { recursive: true });
+        await writeFile(snapshotPath(directory, "goal-bad"), "{");
 
         const scan = await store.listHistory();
 
@@ -187,7 +194,7 @@ test("a catalog summary write failure does not fail the completed snapshot save"
     try {
         const store = new JsonFileGoalStore(directory, {
             mkdir: (async (path: Parameters<typeof mkdir>[0], options?: Parameters<typeof mkdir>[1]) => {
-                if (String(path).endsWith("catalog")) throw new Error("catalog denied");
+                if (String(path).endsWith("indexes")) throw new Error("catalog denied");
                 return mkdir(path, options);
             }) as typeof mkdir,
         });

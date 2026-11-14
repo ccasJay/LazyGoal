@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { goalSnapshotCodec, GoalSnapshotProtocolError, JsonFileGoalStore } from "../src/index";
+import { goalSnapshotPath } from "../src/index";
 import type { GoalSnapshotMessageV1 } from "../src/index";
 import {
     appendGoalMessage,
@@ -134,7 +135,7 @@ test("真实 JsonFileGoalStore 重建后保留身份、来源、修订与消息�
         await store.save(appended.goal);
 
         const raw = JSON.parse(await readFile(
-            join(directory, `${Buffer.from("goal-file", "utf8").toString("base64url")}.json`),
+            goalSnapshotPath(directory, "goal-file"),
             "utf8",
         ));
         const rawMessage = raw.state.messages.at(-1);

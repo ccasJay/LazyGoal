@@ -1,9 +1,9 @@
-import { encodePathSegment } from "./path-segment";
 import {
     mkdir,
     readFile,
 } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname } from "node:path";
+import { goalMetricsCoveragePath, runMetricsPath } from "./goal-workspace-layout";
 
 import type {
     MetricsStore,
@@ -134,7 +134,7 @@ export class JsonFileMetricsStore implements MetricsStore, ModelCallMetricsCover
         const key = this.keyFor(record.goalId, record.runId);
         const filePath = this.filePath(record.goalId, record.runId);
         return this.appendQueue.run(key, async () => {
-            await this.ensureGoalDirectory(record.goalId);
+            await this.ensureRunDirectory(record.goalId, record.runId);
             await appendJsonl({
                 path: filePath,
                 value: parsed.data,
@@ -333,7 +333,7 @@ export class JsonFileMetricsStore implements MetricsStore, ModelCallMetricsCover
         if (!parsed.ok || validateCoverageRecord(parsed.data).length > 0) {
             throw new ModelCallMetricStoreProtocolError("Invalid model call metric coverage record");
         }
-        await this.ensureGoalDirectory(record.goalId);
+        await this.ensureIndexesDirectory(record.goalId);
         await appendJsonl({
             path: this.coverageFilePath(record.goalId),
             value: parsed.data,
@@ -341,32 +341,26 @@ export class JsonFileMetricsStore implements MetricsStore, ModelCallMetricsCover
         });
     }
 
-    private async ensureGoalDirectory(goalId: string): Promise<void> {
-        const goalDirectory = join(this.directory, this.encode(goalId));
-        await mkdir(goalDirectory, { recursive: true, mode: 0o700 });
+    private async ensureRunDirectory(goalId: string, runId: string): Promise<void> {
+        await mkdir(dirname(this.filePath(goalId, runId)), { recursive: true, mode: 0o700 });
+    }
+
+    private async ensureIndexesDirectory(goalId: string): Promise<void> {
+        await mkdir(dirname(this.coverageFilePath(goalId)), { recursive: true, mode: 0o700 });
     }
 
     private filePath(goalId: string, runId: string): string {
-        return join(
-            this.directory,
-            this.encode(goalId),
-            `${this.encode(runId)}.jsonl`,
-        );
+        return runMetricsPath(this.directory, goalId, runId);
     }
 
     private coverageFilePath(goalId: string): string {
-        return join(this.directory, this.encode(goalId), "coverage.jsonl");
+        return goalMetricsCoveragePath(this.directory, goalId);
     }
 
     private keyFor(goalId: string, runId: string): string {
         this.assertIdentifier(goalId, "goalId");
         this.assertIdentifier(runId, "runId");
         return JSON.stringify([goalId, runId]);
-    }
-
-    private encode(value: string): string {
-        this.assertIdentifier(value, "metric identifier");
-        return encodePathSegment(value);
     }
 
     private assertIdentifier(value: string, field: string): void {

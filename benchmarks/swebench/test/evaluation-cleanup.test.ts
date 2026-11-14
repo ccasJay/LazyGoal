@@ -101,22 +101,16 @@ class FakeContainer extends SwebenchContainer {
     override async copyWorkerArtifact(
         _instanceId: string,
         outputDirectory: string,
-        kind: "goals" | "trajectories" | "traces",
+        kind: "goals",
     ): Promise<string> {
         this.events.push(`copy:${kind}`);
         if (this.hangCopy) return new Promise<string>(() => undefined);
         if (this.failures.has(kind)) throw new Error(`${kind} copy failed`);
         const directory = join(outputDirectory, "runtime", kind);
         await mkdir(directory, { recursive: true });
-        if (kind === "goals") {
-            await new JsonFileGoalStore(directory).save(createGoal({ ...currentProtocols,
-                id: metadata.goalId, runId: metadata.runId, intent: task.problem_statement, promptBundleVersion: 1,
-                profile: { id: "test", systemPrompt: "test", instructions: [], toolIds: [] } }));
-        } else if (kind === "traces") {
-            const goalDirectory = join(directory, Buffer.from(metadata.goalId).toString("base64url"));
-            await mkdir(goalDirectory, { recursive: true });
-            await writeFile(join(goalDirectory, Buffer.from(metadata.runId).toString("base64url") + ".jsonl"), "");
-        }
+        await new JsonFileGoalStore(directory).save(createGoal({ ...currentProtocols,
+            id: metadata.goalId, runId: metadata.runId, intent: task.problem_statement, promptBundleVersion: 1,
+            profile: { id: "test", systemPrompt: "test", instructions: [], toolIds: [] } }));
         return directory;
     }
 
@@ -153,13 +147,12 @@ test("Supervisor records independent artifact failures and closes after the fina
     const output = await mkdtemp(join(tmpdir(), "swe-supervisor-"));
     const events: string[] = [];
     const result = await runSwebenchSupervisor(options(
-        new FakeContainer(events, new Set(["trajectories", "traces", "patch"])), output,
+        new FakeContainer(events, new Set(["goals", "patch"])), output,
     ));
-    assert.deepEqual(events, ["start", "inject", "preflight", "open", "copy:goals", "copy:trajectories", "copy:traces", "patch", "close"]);
+    assert.deepEqual(events, ["start", "inject", "preflight", "open", "copy:goals", "patch", "close"]);
     assert.equal(result.patch, null);
-    assert.equal(result.persistence?.goalSnapshot, "runtime/goals");
-    assert.equal(result.persistence?.trajectory, "runtime/goals");
-    assert.equal(result.errors.filter((error) => error.stage === "artifact_copy").length, 2);
+    assert.equal(result.persistence, null);
+    assert.equal(result.errors.filter((error) => error.stage === "artifact_copy").length, 1);
     assert.equal(result.errors.filter((error) => error.stage === "patch_export").length, 1);
     assert.equal(result.errors[0]?.stage, "transport");
 });
@@ -182,7 +175,7 @@ test("Supervisor still copies and removes the container when setup fails", async
     const output = await mkdtemp(join(tmpdir(), "swe-supervisor-"));
     const events: string[] = [];
     const result = await runSwebenchSupervisor(options(new FakeContainer(events, new Set(["start"])), output));
-    assert.deepEqual(events, ["start", "copy:goals", "copy:trajectories", "copy:traces", "patch", "close"]);
+    assert.deepEqual(events, ["start", "copy:goals", "patch", "close"]);
     assert.equal(result.errors[0]?.stage, "container_start");
     assert.equal(result.patch?.startsWith("diff --git"), true);
     assert.equal(result.persistence?.goalSnapshot, "runtime/goals");

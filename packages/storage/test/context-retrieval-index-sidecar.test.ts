@@ -9,8 +9,9 @@ import {
     writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
+import { goalIndexesDirectory, retrievalIndexPath } from "../src/index";
 
 import {
     CONTEXT_RETRIEVAL_INDEX_VERSION,
@@ -78,12 +79,12 @@ test("JsonFileContextRetrievalIndexStore 原子保存、权限和 restore 边界
     }), undefined);
 
     const goalDirectory = join(directory, Buffer.from(goalId).toString("base64url"));
-    const runDirectory = join(goalDirectory, Buffer.from(runId).toString("base64url"));
-    const filePath = join(runDirectory, "retrieval-v1.json");
+    const retrievalDirectory = goalIndexesDirectory(directory, goalId);
+    const filePath = retrievalIndexPath(directory, goalId, runId);
     assert.equal((await stat(goalDirectory)).mode & 0o777, 0o700);
-    assert.equal((await stat(runDirectory)).mode & 0o777, 0o700);
+    assert.equal((await stat(retrievalDirectory)).mode & 0o777, 0o700);
     assert.equal((await stat(filePath)).mode & 0o777, 0o600);
-    assert.deepEqual((await readdir(runDirectory)).filter((name) => name.endsWith(".tmp")), []);
+    assert.deepEqual((await readdir(dirname(filePath))).filter((name) => name.endsWith(".tmp")), []);
     assert.match(await readFile(filePath, "utf8"), /"schemaVersion": 1/);
 });
 
@@ -94,12 +95,7 @@ test("缺失、损坏和删除重建路径不修改领域状态", async (t) => {
 
     assert.equal(await store.restore(goalId, runId), undefined);
     await store.save(sidecar());
-    const filePath = join(
-        directory,
-        Buffer.from(goalId).toString("base64url"),
-        Buffer.from(runId).toString("base64url"),
-        "retrieval-v1.json",
-    );
+    const filePath = retrievalIndexPath(directory, goalId, runId);
     await writeFile(filePath, "{broken", "utf8");
     assert.equal(await store.restore(goalId, runId), undefined);
     await store.remove(goalId, runId);
@@ -112,10 +108,9 @@ test("同目录下遗留的旧 warm-v1.json 文件不被处理，Retrieval Index
     t.after(async () => rm(directory, { recursive: true, force: true }));
     const store = new JsonFileContextRetrievalIndexStore(directory);
 
-    const goalDir = join(directory, Buffer.from(goalId).toString("base64url"));
-    const runDir = join(goalDir, Buffer.from(runId).toString("base64url"));
-    await mkdir(runDir, { recursive: true });
-    const legacyWarmFile = join(runDir, "warm-v1.json");
+    const retrievalDirectory = dirname(retrievalIndexPath(directory, goalId, runId));
+    await mkdir(retrievalDirectory, { recursive: true });
+    const legacyWarmFile = join(retrievalDirectory, "warm-v1.json");
     const legacyContent = JSON.stringify({ schemaVersion: 1, legacy: "historical-warm-data" });
     await writeFile(legacyWarmFile, legacyContent, "utf8");
 

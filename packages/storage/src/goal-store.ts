@@ -7,11 +7,19 @@ import {
     readFile,
     readdir,
     rename,
+    rm,
     stat,
     unlink,
     writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
+import {
+    goalArchiveMarkerPath,
+    goalCatalogSummaryPath,
+    goalDirectory,
+    goalIndexesDirectory,
+    goalSnapshotPath,
+} from "./goal-workspace-layout";
 
 import { isRunEnded } from "../../runtime/src/index";
 import type {
@@ -137,10 +145,10 @@ export class InMemoryGoalStore implements GoalStore {
  * 基于本地 JSON 文件的 Goal 最新快照存储。
  *
  * @remarks
- * 每个 Goal 只对应一个文件，文件名由 goalId 的 base64url 编码生成；
- * 写入通过同目录临时文件和 rename 完成，避免恢复到半写入快照。保存前
- * 经 Codec 编码并校验严格 v1 协议；恢复时解码，历史版本与未知版本统一
- * 抛出 {@link GoalSnapshotProtocolError}，读取失败绝不触发写回。
+ * 每个 Goal 对应 `<directory>/<base64url(goalId)>/snapshot.json`，同一目录还保存
+ * 该 Goal 的 Run 执行文件与 Goal 级索引；写入通过同目录临时文件和 rename 完成，
+ * 避免恢复到半写入快照。保存前经 Codec 编码并校验严格 v1 协议；恢复时解码，
+ * 历史版本与未知版本统一抛出 {@link GoalSnapshotProtocolError}，读取失败绝不触发写回。
  *
  * 多个写入者并发保存同一 Goal 时采用最后完成替换者覆盖的语义，不提供
  * 乐观锁、租约或版本冲突检测。文件系统错误原样传播。
@@ -186,6 +194,10 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
     async createForTrigger(triggerId: string, goal: Goal): Promise<boolean> {
         if (!triggerId.trim()) throw new Error("Invalid Trigger identity");
         const snapshot = goalSnapshotCodec.encode(goal);
+        await this.fileOperations.mkdir(goalDirectory(this.directory, goal.id), {
+            recursive: true,
+            mode: 0o700,
+        });
         return createJsonFileWithIntent({
             directory: this.directory,
             triggerId,
@@ -350,7 +362,7 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
     }
 
     /**
-     * 移除一个 Goal 的快照与归档标记；调用者负责清理其他存储中的运行数据。
+     * 删除一个终态 Goal 的目录，包含快照、Run 执行文件与 Goal 级索引。
      *
      * @param goalId - 要删除的正式工作区 Goal 身份。
      * @returns 快照不存在时为 false；删除成功时为 true。
@@ -365,22 +377,16 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
         if (goal === undefined) return false;
         const status = goal.state.run.status;
         if (!isRunEnded(status)) throw new Error("goal_not_terminal");
-        await unlink(this.archivePath(goalId)).catch((error: NodeJS.ErrnoException) => {
-            if (error.code !== "ENOENT") throw error;
-        });
-        await unlink(this.filePath(goalId));
-        await this.fileOperations.unlink(this.catalogSummaryPath(goalId)).catch((error: NodeJS.ErrnoException) => {
-            if (error.code !== "ENOENT") throw error;
-        });
+        await rm(goalDirectory(this.directory, goalId), { recursive: true, force: true });
         this.revisionHints.delete(goalId);
         return true;
     }
 
     private async scanEntries(includeTerminal: boolean, tolerateUnreadable: boolean): Promise<GoalCatalogScan> {
-        let files;
+        let entries;
 
         try {
-            files = await readdir(this.directory, { withFileTypes: true });
+            entries = await readdir(this.directory, { withFileTypes: true });
         } catch (error) {
             if (
                 error instanceof Error
@@ -392,39 +398,38 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
             throw error;
         }
 
-        const archived = new Set(files.map((file) => file.name));
-        const summaries = await this.readCatalogSummaries();
         const candidates: Array<{
             readonly entry: GoalCatalogEntry;
             readonly mtimeMs: number;
         }> = [];
         let unreadableCount = 0;
 
-        const snapshotFiles = files
-            .filter((file) => file.isFile() && file.name.endsWith(".json"))
+        const goalDirectories = entries
+            .filter((entry) => entry.isDirectory())
             .sort((left, right) => left.name < right.name
                 ? -1
                 : left.name > right.name
                     ? 1
                     : 0);
 
-        for (const file of snapshotFiles) {
-            const filePath = join(this.directory, file.name);
+        for (const directory of goalDirectories) {
+            const snapshotPath = join(this.directory, directory.name, "snapshot.json");
             let fileStats: Awaited<ReturnType<typeof stat>>;
 
             try {
-                fileStats = await stat(filePath);
+                fileStats = await stat(snapshotPath);
             } catch (error) {
+                if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
                 if (!tolerateUnreadable) throw error;
                 unreadableCount += 1;
                 continue;
             }
 
-            const isArchived = archived.has(`${file.name}.archived`);
-            const summary = summaries.get(file.name.slice(0, -".json".length));
-            const entry = summary !== undefined && this.summaryMatches(summary, file, fileStats)
+            const isArchived = await this.hasArchiveMarker(directory.name);
+            const summary = await this.readCatalogSummary(directory.name);
+            const entry = summary !== undefined && this.summaryMatches(summary, directory.name, fileStats)
                 ? this.entryFromSummary(summary, fileStats, isArchived)
-                : await this.entryFromSnapshot(file, filePath, fileStats, isArchived)
+                : await this.entryFromSnapshot(snapshotPath, fileStats, isArchived)
                     .catch((error: unknown) => {
                         if (!tolerateUnreadable) throw error;
                         unreadableCount += 1;
@@ -455,13 +460,13 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
         return { entries: candidates.map(({ entry }) => entry), unreadableCount };
     }
 
-    /** 状态来自派生摘要时，用快照指纹确认摘要仍然对应当前文件。 */
+    /** 状态来自派生摘要时，用快照指纹确认摘要仍然对应同一个 Goal。 */
     private summaryMatches(
         summary: GoalCatalogSummary,
-        file: { readonly name: string },
+        directoryName: string,
         fileStats: { readonly mtimeMs: number; readonly size: number },
     ): boolean {
-        return encodePathSegment(summary.goalId) === file.name.slice(0, -".json".length)
+        return encodePathSegment(summary.goalId) === directoryName
             && summary.snapshotMtimeMs === fileStats.mtimeMs
             && summary.snapshotSize === fileStats.size;
     }
@@ -493,19 +498,18 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
 
     /** 摘要缺失或指纹不匹配时解码快照，并回写派生摘要。 */
     private async entryFromSnapshot(
-        file: { readonly name: string },
-        filePath: string,
+        snapshotPath: string,
         fileStats: { readonly mtimeMs: number; readonly size: number },
         archived: boolean,
     ): Promise<GoalCatalogEntry> {
         const goal = this.decodeSnapshot(
-            await this.fileOperations.readFile(filePath, "utf8"),
-            file.name,
+            await this.fileOperations.readFile(snapshotPath, "utf8"),
+            snapshotPath,
         );
 
-        if (this.filePath(goal.id) !== filePath) {
+        if (this.filePath(goal.id) !== snapshotPath) {
             throw new GoalSnapshotProtocolError(
-                `Goal snapshot filename does not match Goal ID in "${file.name}"`,
+                `Goal snapshot path does not match Goal ID in "${snapshotPath}"`,
             );
         }
 
@@ -531,35 +535,28 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
         return entry;
     }
 
-    /** @returns 已落盘的派生 catalog 摘要，按快照文件名（不含扩展名）索引。 */
-    private async readCatalogSummaries(): Promise<ReadonlyMap<string, GoalCatalogSummary>> {
-        const summaries = new Map<string, GoalCatalogSummary>();
-        let names: string[];
-
+    /** @returns 已落盘的派生目录摘要；缺失、不可读或不合法时返回 `undefined`。 */
+    private async readCatalogSummary(directoryName: string): Promise<GoalCatalogSummary | undefined> {
         try {
-            names = await readdir(this.catalogDirectory());
+            return parseCatalogSummary(JSON.parse(await this.fileOperations.readFile(
+                join(this.directory, directoryName, "indexes", "summary.json"),
+                "utf8",
+            )));
+        } catch {
+            // 损坏的派生摘要按未命中处理，由快照解码重建。
+            return undefined;
+        }
+    }
+
+    /** @returns Goal 目录中存在归档标记时为 true。 */
+    private async hasArchiveMarker(directoryName: string): Promise<boolean> {
+        try {
+            await stat(join(this.directory, directoryName, "archived"));
+            return true;
         } catch (error) {
-            if (error instanceof Error && (error as NodeJS.ErrnoException).code === "ENOENT") {
-                return summaries;
-            }
+            if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
             throw error;
         }
-
-        for (const name of names) {
-            if (!name.endsWith(".json")) continue;
-            try {
-                const summary = parseCatalogSummary(JSON.parse(
-                    await this.fileOperations.readFile(join(this.catalogDirectory(), name), "utf8"),
-                ));
-                if (summary !== undefined) {
-                    summaries.set(name.slice(0, -".json".length), summary);
-                }
-            } catch {
-                // 损坏的派生摘要按未命中处理，由快照解码重建。
-            }
-        }
-
-        return summaries;
     }
 
     /**
@@ -573,7 +570,10 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
         goal: Goal,
         fileStats: { readonly mtimeMs: number; readonly size: number },
     ): Promise<void> {
-        await this.fileOperations.mkdir(this.catalogDirectory(), { recursive: true, mode: 0o700 });
+        await this.fileOperations.mkdir(goalIndexesDirectory(this.directory, goal.id), {
+            recursive: true,
+            mode: 0o700,
+        });
         await atomicWriteJson({
             path: this.catalogSummaryPath(goal.id),
             value: {
@@ -700,20 +700,15 @@ export class JsonFileGoalStore implements GoalStore, GoalCatalog {
     }
 
     private filePath(goalId: string): string {
-        const encodedGoalId = encodePathSegment(goalId);
-        return join(this.directory, `${encodedGoalId}.json`);
+        return goalSnapshotPath(this.directory, goalId);
     }
 
     private archivePath(goalId: string): string {
-        return `${this.filePath(goalId)}.archived`;
-    }
-
-    private catalogDirectory(): string {
-        return join(this.directory, "catalog");
+        return goalArchiveMarkerPath(this.directory, goalId);
     }
 
     private catalogSummaryPath(goalId: string): string {
-        return join(this.catalogDirectory(), `${encodePathSegment(goalId)}.json`);
+        return goalCatalogSummaryPath(this.directory, goalId);
     }
 
     private decodeSnapshot(content: string, label: string): Goal {

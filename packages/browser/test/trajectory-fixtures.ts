@@ -46,12 +46,16 @@ export async function writeTrajectory(
     directory: string,
     eventsByRun: Readonly<Record<string, readonly TrajectoryEvent[]>>,
 ): Promise<void> {
-    const goalDirectory = join(directory, encodePathSegment(goalId));
-    await mkdir(goalDirectory, { recursive: true });
-
     for (const [targetRunId, events] of Object.entries(eventsByRun)) {
+        const runDirectory = join(
+            directory,
+            encodePathSegment(goalId),
+            "runs",
+            encodePathSegment(targetRunId),
+        );
+        await mkdir(runDirectory, { recursive: true });
         await writeFile(
-            join(goalDirectory, `${encodePathSegment(targetRunId)}.jsonl`),
+            join(runDirectory, "trajectory.jsonl"),
             events.map((event) => JSON.stringify({ storageEncodingVersion: 2, ...event })).join("\n") + "\n",
             "utf8",
         );

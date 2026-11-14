@@ -49,7 +49,8 @@ test("AlfworldEnvironmentSpec declares managed image and uses only EnvironmentHa
     assert.equal(preflight.ok, true);
     await spec.collectArtifacts(env, root, 1000);
     assert.ok(calls.some((call) => call.includes(ALFWORLD_CONTAINER_SIDECAR_PATH)));
-    assert.equal(copyOutSources.length, 3);
+    assert.equal(copyOutSources.length, 1);
     assert.ok(copyOutSources.every((source) => source.startsWith("/opt/lazygoal/state/YWxmd29ybGQ/")));
+    assert.ok(copyOutSources.every((source) => source.endsWith("/goals")));
     assert.equal(Object.keys(env).includes("containerName"), false);
 });

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { createGoal } from "../../runtime/src/index";
-import { JsonFileGoalStore } from "../src/index";
+import { goalSnapshotPath, JsonFileGoalStore } from "../src/index";
 import { encodePathSegment } from "../src/path-segment";
 
 const profile = {
@@ -35,7 +35,7 @@ test("JsonFileGoalStore.readRevision 使用 hint 并在外部写入后回退恢�
         assert.equal(await store.readRevision(goal.id), 0);
         assert.equal(await store.readRevision(goal.id), 0);
 
-        const filePath = join(directory, `${encodePathSegment(goal.id)}.json`);
+        const filePath = goalSnapshotPath(directory, goal.id);
         const snapshot = JSON.parse(await readFile(filePath, "utf8")) as {
             state: { commitRevision?: number };
         };

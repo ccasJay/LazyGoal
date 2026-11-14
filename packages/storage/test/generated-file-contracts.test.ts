@@ -8,6 +8,7 @@ import { createGoal } from "../../runtime/src/index";
 import { currentProtocols } from "../../runtime/test/current-fixtures";
 import {
     GoalSnapshotProtocolError,
+    goalSnapshotPath,
     JsonFileGoalStore,
     JsonFileMetricsStore,
     JsonFileModelInputStore,
@@ -17,6 +18,8 @@ import {
     JsonFileSandboxGrantStore,
     goalSnapshotCodec,
     ModelCallMetricStoreProtocolError,
+    runMetricsPath,
+    runModelInputsPath,
 } from "../src/index";
 
 function goal() {
@@ -124,11 +127,7 @@ test("指标、进程会话和模型输入文件拒绝未知字段或非法时�
             callId: "call-1",
             occurredAt: new Date().toISOString(),
         });
-        const metricPath = join(
-            metricsDirectory,
-            Buffer.from("goal-1").toString("base64url"),
-            `${Buffer.from("run-1").toString("base64url")}.jsonl`,
-        );
+        const metricPath = runMetricsPath(metricsDirectory, "goal-1", "run-1");
         await writeFile(
             metricPath,
             `${JSON.stringify({
@@ -172,12 +171,7 @@ test("指标、进程会话和模型输入文件拒绝未知字段或非法时�
             occurredAt: new Date().toISOString(),
             messages: [],
         });
-        const inputPath = join(
-            inputDirectory,
-            Buffer.from("goal-1").toString("base64url"),
-            Buffer.from("run-1").toString("base64url"),
-            "requests.jsonl",
-        );
+        const inputPath = runModelInputsPath(inputDirectory, "goal-1", "run-1");
         const manifest = JSON.parse(await readFile(inputPath, "utf8")) as Record<string, unknown>;
         await writeFile(inputPath, `${JSON.stringify({ ...manifest, extra: true })}\n`, "utf8");
         await assert.rejects(inputs.read("goal-1", "run-1"), /Invalid model input manifest/);
@@ -193,7 +187,7 @@ test("Snapshot 文件存储实际消费生成绑定", async () => {
     try {
         const store = new JsonFileGoalStore(directory);
         await store.save(goal());
-        const path = join(directory, `${Buffer.from("goal-generated-binding").toString("base64url")}.json`);
+        const path = goalSnapshotPath(directory, "goal-generated-binding");
         const snapshot = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
         await writeFile(path, JSON.stringify({ ...snapshot, extra: true }), "utf8");
         await assert.rejects(store.restore("goal-generated-binding"), GoalSnapshotProtocolError);

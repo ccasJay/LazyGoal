@@ -1,4 +1,5 @@
 import { encodePathSegment } from "./path-segment";
+import { goalBlobsDirectory, runModelInputsPath } from "./goal-workspace-layout";
 import { isModelConversationMessage } from "../../model-contracts/src/index";
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
@@ -37,7 +38,8 @@ function isValidManifest(value: ModelInputManifest, goalId: string, runId: strin
  * 按 Goal/Run 保存调用清单与 SHA-256 寻址正文，未变化的 system 文本不重复写入。
  *
  * @remarks
- * 完整正文只留在工作区本地，文件权限 0600；读取当前仍遍历整个 Run 清单。
+ * 完整正文只留在工作区本地，文件权限 0600；正文存入 Goal 层内容寻址的 `blobs/`，
+ * 调用清单存入 `<goal>/runs/<run>/model-inputs.jsonl`。读取当前仍遍历整个 Run 清单。
  * 清单追加前正文必须落盘；崩溃可留下未引用正文，但不会产生缺正文的有效调用。
  * 正文在同一 Goal 的所有 Run 之间复用。单实例按 Goal 串行追加，不承诺多进程共同写入或 exactly-once。
  *
@@ -49,7 +51,7 @@ function isValidManifest(value: ModelInputManifest, goalId: string, runId: strin
  *
  * @example
  * ```ts
- * const store = new JsonFileModelInputStore("/workspace/model-inputs");
+ * const store = new JsonFileModelInputStore("~/.lazygoal/workspaces/<workspace-id>/goals");
  * await store.append(input);
  * ```
  */
@@ -59,7 +61,7 @@ export class JsonFileModelInputStore implements ModelInputStore {
     private readonly fileOperations: Required<ModelInputFileOperations>;
 
     /**
-     * @param directory - 正式工作区或隔离评测的模型输入根目录。
+     * @param directory - 工作区 Goal 存储根目录；写入时按需创建 Run 目录与 Blob 目录。
      * @param fileOperations - 可选文件操作替身，用于确定性验证副作用或故障；生产默认使用 Node 文件系统。
      */
     constructor(
@@ -78,12 +80,12 @@ export class JsonFileModelInputStore implements ModelInputStore {
     }
     /** @returns 全部正文写入且调用清单追加完成后 resolve。 @throws 写入失败拒绝。 */
     append(record: ModelInputRecord): Promise<void> {
-        const directory = this.path(record.goalId, record.runId);
-        const key = dirname(directory);
-        const bodyDirectory = join(key, "messages");
+        const path = this.path(record.goalId, record.runId);
+        const key = this.goalKey(record.goalId);
+        const bodyDirectory = goalBlobsDirectory(this.directory, record.goalId);
         return this.queue.run(key, async () => {
             await this.fileOperations.mkdir(bodyDirectory, { recursive: true, mode: 0o700 });
-            await this.fileOperations.mkdir(directory, { recursive: true, mode: 0o700 });
+            await this.fileOperations.mkdir(dirname(path), { recursive: true, mode: 0o700 });
             const known = await this.knownBodies(key, bodyDirectory);
             const messages: ModelInputManifestMessage[] = [];
             for (const message of record.messages) {
@@ -97,7 +99,7 @@ export class JsonFileModelInputStore implements ModelInputStore {
             }
             const { messages: _, ...identity } = record;
             await appendJsonl({
-                path: join(directory, "requests.jsonl"),
+                path,
                 value: { schemaVersion: 1, ...identity, messages },
                 durable: false,
             });
@@ -156,9 +158,10 @@ export class JsonFileModelInputStore implements ModelInputStore {
     }
     /** @returns 完整且顺序不变的输入事实；不存在时为空。 @throws 格式、正文哈希或身份不匹配时拒绝。 */
     async read(goalId: string, runId: string): Promise<readonly ModelInputRecord[]> {
-        const directory = this.path(goalId, runId);
+        const path = this.path(goalId, runId);
+        const bodyDirectory = goalBlobsDirectory(this.directory, goalId);
         let content: string;
-        try { content = await this.fileOperations.readFile(join(directory, "requests.jsonl"), "utf8"); }
+        try { content = await this.fileOperations.readFile(path, "utf8"); }
         catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
         const bodies = new Map<string, string>();
         const result: ModelInputRecord[] = [];
@@ -171,7 +174,7 @@ export class JsonFileModelInputStore implements ModelInputStore {
                 if (!/^[a-f0-9]{64}$/.test(message.ref)) throw new Error("Invalid model input message reference");
                 let body = bodies.get(message.ref);
                 if (body === undefined) {
-                    body = await this.fileOperations.readFile(join(dirname(directory), "messages", `${message.ref}.txt`), "utf8");
+                    body = await this.fileOperations.readFile(join(bodyDirectory, `${message.ref}.txt`), "utf8");
                     if (digest(body) !== message.ref) throw new Error("Model input content hash mismatch");
                     bodies.set(message.ref, body);
                 }
@@ -194,11 +197,11 @@ export class JsonFileModelInputStore implements ModelInputStore {
         return result;
     }
     /**
-     * 删除一个 Run 的模型输入清单。
+     * 删除一个 Run 的模型输入清单文件。
      *
      * @remarks
-     * 只删除 `<goal>/<run>/requests.jsonl` 所在目录；同 Goal 共享的 `messages/`
-     * 正文不在本方法内删除。调用方必须先确认该 Run 的清单已经整体失效。
+     * 只删除 `model-inputs.jsonl`；同一 Run 目录下的轨迹、指标与 Trace，以及同 Goal
+     * 共享的 `blobs/` 正文都不在本次删除范围内。调用方必须先确认该 Run 的清单已经整体失效。
      *
      * @param goalId - Goal 稳定标识。
      * @param runId - Run 稳定标识。
@@ -211,8 +214,10 @@ export class JsonFileModelInputStore implements ModelInputStore {
      * ```
      */
     async deleteRun(goalId: string, runId: string): Promise<void> {
-        await this.fileOperations.rm(this.path(goalId, runId), { recursive: true, force: true });
+        await this.fileOperations.rm(this.path(goalId, runId), { force: true });
     }
 
-    private path(goalId: string, runId: string) { return join(this.directory, id(goalId), id(runId)); }
+    private path(goalId: string, runId: string) { return runModelInputsPath(this.directory, goalId, runId); }
+
+    private goalKey(goalId: string) { return id(goalId); }
 }

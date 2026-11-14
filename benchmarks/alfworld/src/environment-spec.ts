@@ -182,22 +182,20 @@ export class AlfworldEnvironmentSpec
             taskKey,
             ...(this.runId === undefined ? [] : [encode(this.runId)]),
         );
-        const copied: Partial<Record<"goals" | "trajectories" | "traces", string>> = {};
+        const copied: Partial<Record<"goals", string>> = {};
         await mkdir(runtimeRoot, { recursive: true });
-        for (const kind of ["goals", "trajectories", "traces"] as const) {
-            try {
-                const target = join(runtimeRoot, kind);
-                copied[kind] = await env.copyOut(`/opt/lazygoal/state/${benchmarkKey}/${taskKey}/${kind}`, target);
-                await access(copied[kind]);
-            } catch (error) {
-                errors.push({ stage: "artifact_copy", message: bounded(error) });
-            }
+        const target = join(runtimeRoot, "goals");
+        try {
+            copied.goals = await env.copyOut(`/opt/lazygoal/state/${benchmarkKey}/${taskKey}/goals`, target);
+            await access(copied.goals);
+        } catch (error) {
+            errors.push({ stage: "artifact_copy", message: bounded(error) });
         }
         if (copied.goals !== undefined) {
             persistence = {
                 goalSnapshot: relative(output, copied.goals),
-                trajectory: relative(output, copied.trajectories ?? copied.goals),
-                ...(copied.traces === undefined ? {} : { diagnosticTrace: relative(output, copied.traces) }),
+                trajectory: relative(output, copied.goals),
+                diagnosticTrace: relative(output, copied.goals),
             };
         }
         let environment: EpisodeEnvironmentFacts = { done: false, won: false, steps: 0, goalConditionSuccessRate: 0 };

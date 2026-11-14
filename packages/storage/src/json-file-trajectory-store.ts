@@ -1,4 +1,9 @@
-import { encodePathSegment } from "./path-segment";
+import {
+    goalBlobsDirectory,
+    runTrajectoryBasePath,
+    runTrajectoryIndexPath,
+    runTrajectorySegmentPath,
+} from "./goal-workspace-layout";
 import { isRecord, canonicalJson } from "../../contracts/src/index";
 import { createHash } from "node:crypto";
 import {
@@ -294,10 +299,10 @@ function toTrajectorySummary(row: TrajectoryIndexRow): TrajectoryEventSummary {
  *
  * @remarks
  * 每个 `(goalId, runId)` 使用
- * `<directory>/<base64url(goalId)>/<base64url(runId)>.jsonl` 作为第一个分段，超过
- * 分段阈值后继续写入 `<run>.part2.jsonl` 等文件。超过阈值的 payload 以规范 JSON
- * 写入同 Goal 的 `blobs/<sha256>.json`，JSONL 行只保留 `payloadRef`；读取时重新
- * 物化完整领域事件。实例内追加按 Run 串行化，下一序号优先取实例内会话级序号缓存，
+ * `<directory>/<base64url(goalId)>/runs/<base64url(runId)>/trajectory.jsonl` 作为第一个
+ * 分段，超过分段阈值后继续写入 `trajectory.part2.jsonl` 等文件。超过阈值的 payload
+ * 以规范 JSON 写入同 Goal 的 `blobs/<sha256>.json`，JSONL 行只保留 `payloadRef`；读取时
+ * 重新物化完整领域事件。实例内追加按 Run 串行化，下一序号优先取实例内会话级序号缓存，
  * 缓存 miss 时从最后一个分段向前反向扫描最后非空行取得，不读取全部历史；缓存只
  * 承担性能角色，实例重建后自然失效，恢复权威始终是读取路径的全量协议校验。不兼容的
  * 存储编码直接失败。该实现不提供跨进程锁、Outbox 或 exactly-once 语义。Snapshot 的
@@ -309,7 +314,7 @@ function toTrajectorySummary(row: TrajectoryIndexRow): TrajectoryEventSummary {
  *
  * @example
  * ```ts
- * const store = new JsonFileTrajectoryStore("~/.lazygoal/workspaces/<workspace-id>/trajectories");
+ * const store = new JsonFileTrajectoryStore("~/.lazygoal/workspaces/<workspace-id>/goals");
  * await store.append(draft);
  * const view = await store.readWithBoundary(
  *     { goalId: "goal-1", runId: "run-1" },
@@ -331,7 +336,7 @@ export class JsonFileTrajectoryStore implements TrajectoryStore, TrajectoryQuery
     private readonly segmentThresholdBytes: number;
 
     /**
-     * @param directory - Trajectory 根目录；追加时按需创建 Goal 子目录与 Blob 目录。
+     * @param directory - 工作区 Goal 存储根目录；追加时按需创建 Goal、Run 与 Blob 目录。
      * @param fileOperations - 可选文件操作替身，用于确定性验证写入故障；生产默认使用 Node 文件系统。
      * @param limits - 可选存储阈值；生产使用固定默认值，测试可缩小以覆盖 Blob 与分段。
      */
@@ -441,7 +446,7 @@ export class JsonFileTrajectoryStore implements TrajectoryStore, TrajectoryQuery
 
             await this.writeEventLine(
                 filePath,
-                this.goalDirectory(draft.goalId),
+                dirname(filePath),
                 encoded.stored,
             );
             this.sequenceCache.set(key, sequence);
@@ -1361,7 +1366,7 @@ export class JsonFileTrajectoryStore implements TrajectoryStore, TrajectoryQuery
         const existing = this.indexes.get(key);
         if (existing !== undefined) return existing;
 
-        await this.fileOperations.mkdir(this.goalDirectory(goalId), { recursive: true, mode: 0o700 });
+        await this.fileOperations.mkdir(dirname(this.indexPath(goalId, runId)), { recursive: true, mode: 0o700 });
         const path = this.indexPath(goalId, runId);
         let index: TrajectoryIndex;
 
@@ -1745,7 +1750,7 @@ export class JsonFileTrajectoryStore implements TrajectoryStore, TrajectoryQuery
     }
 
     private indexPath(goalId: string, runId: string): string {
-        return `${this.baseFilePath(goalId, runId)}.index.db`;
+        return runTrajectoryIndexPath(this.directory, goalId, runId);
     }
 
     private assertQuery(query: TrajectoryReadQuery): void {
@@ -1780,26 +1785,20 @@ export class JsonFileTrajectoryStore implements TrajectoryStore, TrajectoryQuery
         return `${goalId}\u0000${runId}`;
     }
 
-    private goalDirectory(goalId: string): string {
-        return join(this.directory, this.encodeIdentifier(goalId));
-    }
-
     private baseFilePath(goalId: string, runId: string): string {
-        return join(this.goalDirectory(goalId), this.encodeIdentifier(runId));
+        this.assertIdentifier(goalId, "goalId");
+        this.assertIdentifier(runId, "runId");
+        return runTrajectoryBasePath(this.directory, goalId, runId);
     }
 
     private segmentFilePath(goalId: string, runId: string, segment: number): string {
-        const base = this.baseFilePath(goalId, runId);
-        return segment === 0 ? `${base}.jsonl` : `${base}.part${segment + 1}.jsonl`;
+        this.assertIdentifier(goalId, "goalId");
+        this.assertIdentifier(runId, "runId");
+        return runTrajectorySegmentPath(this.directory, goalId, runId, segment);
     }
 
     private blobDirectory(goalId: string): string {
-        return join(this.goalDirectory(goalId), "blobs");
-    }
-
-    private encodeIdentifier(value: string): string {
-        this.assertIdentifier(value, "trajectory identifier");
-        return encodePathSegment(value);
+        return goalBlobsDirectory(this.directory, goalId);
     }
 
     private assertIdentifier(value: string, field: string): void {

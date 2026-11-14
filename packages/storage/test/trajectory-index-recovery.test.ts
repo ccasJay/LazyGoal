@@ -9,16 +9,19 @@ import {
     type TrajectoryEventDraft,
     type TrajectoryQueryContext,
 } from "../../runtime/src/index";
-import { JsonFileModelInputStore, JsonFileTrajectoryStore } from "../src/index";
-import { encodePathSegment } from "../src/path-segment";
+import {
+    JsonFileModelInputStore,
+    JsonFileTrajectoryStore,
+    runDirectory,
+    runTrajectoryIndexPath,
+    runTrajectorySegmentPath,
+} from "../src/index";
 
 const goalId = "goal-recovery";
 const runId = "run-recovery";
-const encodedGoal = encodePathSegment(goalId);
-const encodedRun = encodePathSegment(runId);
 
-const jsonlPath = (directory: string) => join(directory, encodedGoal, `${encodedRun}.jsonl`);
-const indexPath = (directory: string) => join(directory, encodedGoal, `${encodedRun}.index.db`);
+const jsonlPath = (directory: string) => runTrajectorySegmentPath(directory, goalId, runId, 0);
+const indexPath = (directory: string) => runTrajectoryIndexPath(directory, goalId, runId);
 const context = (committedThroughSequence: number): TrajectoryQueryContext => ({ goalId, runId, committedThroughSequence });
 
 function runStarted(): TrajectoryEventDraft {
@@ -147,7 +150,7 @@ test("duplicate sequences written by competing writers fail closed", async () =>
             eventType: "run_started",
             payload: { type: "run_started" },
         };
-        await mkdir(join(directory, encodedGoal), { recursive: true });
+        await mkdir(runDirectory(directory, goalId, runId), { recursive: true });
         await writeFile(jsonlPath(directory), `${JSON.stringify(event)}\n${JSON.stringify({ ...event, eventId: "other" })}\n`, "utf8");
         const store = new JsonFileTrajectoryStore(directory);
         await assert.rejects(

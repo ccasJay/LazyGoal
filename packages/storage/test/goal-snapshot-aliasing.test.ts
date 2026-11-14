@@ -12,6 +12,7 @@ import {
 import { testUserMessage } from "../../runtime/test/current-fixtures";
 import {
     goalSnapshotCodec,
+    goalSnapshotPath,
     InMemoryGoalStore,
     JsonFileGoalStore,
 } from "../src/index";
@@ -131,7 +132,7 @@ test("JsonFileGoalStore 以 compact JSON 写入并保持往返一致", async () 
         const store = new JsonFileGoalStore(directory);
         await store.save(goal);
 
-        const filePath = join(directory, `${encodePathSegment(goal.id)}.json`);
+        const filePath = goalSnapshotPath(directory, goal.id);
         const content = await readFile(filePath, "utf8");
         assert.equal(content, `${JSON.stringify(JSON.parse(content))}\n`);
         assert.equal(content.includes("\n  \""), false);

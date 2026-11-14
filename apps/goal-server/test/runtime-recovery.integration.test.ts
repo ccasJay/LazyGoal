@@ -419,9 +419,13 @@ test("损坏 Snapshot 与缺失工具按既有边界 fail-closed", async () => {
     });
     try {
         const corruptedGoalId = "goal-corrupted";
-        await mkdir(runtime.goalsDirectory, { recursive: true });
+        const corruptedPath = join(
+            runtime.goalsDirectory,
+            Buffer.from(corruptedGoalId, "utf8").toString("base64url"),
+        );
+        await mkdir(corruptedPath, { recursive: true });
         await writeFile(
-            join(runtime.goalsDirectory, `${Buffer.from(corruptedGoalId, "utf8").toString("base64url")}.json`),
+            join(corruptedPath, "snapshot.json"),
             "{ not a valid snapshot",
         );
         await assert.rejects(

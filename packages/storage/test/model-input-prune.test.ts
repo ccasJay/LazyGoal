@@ -28,7 +28,7 @@ test("prune-model-inputs only deletes a fully orphaned Run with --apply", async 
         });
         await mkdir(join(workspace, "goals"), { recursive: true });
         await new JsonFileGoalStore(join(workspace, "goals")).save(goal);
-        const modelInputStore = new JsonFileModelInputStore(join(workspace, "model-inputs"));
+        const modelInputStore = new JsonFileModelInputStore(join(workspace, "goals"));
         await modelInputStore.append({
             goalId,
             runId,
@@ -39,7 +39,7 @@ test("prune-model-inputs only deletes a fully orphaned Run with --apply", async 
             messages: [{ role: "system", source: "system", content: "system" }],
         });
 
-        const runDirectory = join(workspace, "model-inputs", encodePathSegment(goalId), encodePathSegment(runId));
+        const runDirectory = join(workspace, "goals", encodePathSegment(goalId), "runs", encodePathSegment(runId));
         assert.equal(existsSync(runDirectory), true);
 
         const dryRun = spawnSync("npx", ["tsx", resolve("scripts/prune-model-inputs.ts"), "--workspace", workspace], { encoding: "utf8" });
@@ -51,7 +51,8 @@ test("prune-model-inputs only deletes a fully orphaned Run with --apply", async 
         const applied = spawnSync("npx", ["tsx", resolve("scripts/prune-model-inputs.ts"), "--workspace", workspace, "--goal", goalId, "--run", runId, "--apply"], { encoding: "utf8" });
         assert.equal(applied.status, 0, applied.stderr);
         assert.match(applied.stdout, /\[deleted\] goal-prune\/run-prune/);
-        assert.equal(existsSync(runDirectory), false);
+        assert.equal(existsSync(join(runDirectory, "model-inputs.jsonl")), false);
+        assert.equal(existsSync(runDirectory), true);
         assert.deepEqual(await modelInputStore.read(goalId, runId), []);
     } finally {
         await rm(workspace, { recursive: true, force: true });

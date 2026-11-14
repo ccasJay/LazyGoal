@@ -207,7 +207,7 @@ export class SwebenchContainer {
      *
      * @param instanceId - 经过 metadata 校验的题目 ID，用于计算 Storage namespace。
      * @param outputDirectory - 宿主本次评测的专属 output 目录。
-     * @param kind - Goal、Trajectory 或 Diagnostic Trace 目录。
+     * @param kind - Goal 目录（只支持 `goals`）。
      * @param signal - 复制过程的可选取消信号。
      * @returns 宿主上复制出的目录路径。
      * @throws Docker 复制失败或参数不安全时抛出。
@@ -219,7 +219,7 @@ export class SwebenchContainer {
     async copyWorkerArtifact(
         instanceId: string,
         outputDirectory: string,
-        kind: "goals" | "trajectories" | "traces",
+        kind: "goals",
         signal?: AbortSignal,
     ): Promise<string> {
         if (!/^[a-zA-Z0-9_.-]+__[a-zA-Z0-9_.-]+-\d+$/u.test(instanceId)) throw new TypeError("instanceId is invalid");

@@ -44,16 +44,8 @@ export interface WorkspaceHomePaths {
     readonly workspaceDirectory: string;
     /** workspace 身份清单文件。 */
     readonly manifestFile: string;
-    /** Goal 快照目录。 */
+    /** Goal 目录根；每个 Goal 的快照、Run 执行文件、Blob 与索引都在其子目录内。 */
     readonly goalsDirectory: string;
-    /** 执行轨迹目录。 */
-    readonly trajectoriesDirectory: string;
-    /** 诊断 Trace 目录。 */
-    readonly tracesDirectory: string;
-    /** 模型调用指标与覆盖标记目录。 */
-    readonly metricsDirectory: string;
-    /** Context Sidecar 目录。 */
-    readonly contextSidecarsDirectory: string;
     /** Benchmark 运行根目录。 */
     readonly benchmarksDirectory: string;
     /** GEPA 运行根目录。 */
@@ -167,10 +159,6 @@ export async function resolveWorkspaceHomePaths(
         workspaceDirectory,
         manifestFile: join(workspaceDirectory, "workspace.json"),
         goalsDirectory: join(workspaceDirectory, "goals"),
-        trajectoriesDirectory: join(workspaceDirectory, "trajectories"),
-        tracesDirectory: join(workspaceDirectory, "traces"),
-        metricsDirectory: join(workspaceDirectory, "metrics"),
-        contextSidecarsDirectory: join(workspaceDirectory, "context-sidecars"),
         benchmarksDirectory: join(workspaceDirectory, "benchmarks"),
         gepaDirectory: join(workspaceDirectory, "gepa"),
         benchmarkCacheDirectory: join(home.cacheDir, "benchmarks"),
@@ -270,10 +258,6 @@ export async function ensureSecureWorkspaceDirectories(
     const directories = [
         paths.workspaceDirectory,
         paths.goalsDirectory,
-        paths.trajectoriesDirectory,
-        paths.tracesDirectory,
-        paths.metricsDirectory,
-        paths.contextSidecarsDirectory,
         paths.benchmarksDirectory,
         paths.gepaDirectory,
     ];

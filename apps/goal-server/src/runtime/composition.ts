@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { realpath, rm } from "node:fs/promises";
+import { realpath } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 import {
@@ -356,10 +356,6 @@ export interface RuntimeComposition {
     readonly workspaceHomeDirectory: string;
     readonly dataDirectory: string;
     readonly goalsDirectory: string;
-    readonly trajectoriesDirectory: string;
-    readonly tracesDirectory: string;
-    readonly metricsDirectory: string;
-    readonly contextSidecarsDirectory: string;
     readonly llmConfig?: LLMConfig;
     /** 受管 Provider 档案存储，供 Settings 管理接口使用。 */
     readonly providerProfileStore: JsonFileProviderProfileStore;
@@ -610,12 +606,6 @@ async function assembleRuntimeComposition(
         ? resolve(options.dataDirectory)
         : workspaceHomePaths.workspaceDirectory;
     const goalsDirectory = join(dataDirectory, "goals");
-    const trajectoriesDirectory = join(dataDirectory, "trajectories");
-    const tracesDirectory = join(dataDirectory, "traces");
-    const metricsDirectory = dataDirectory === workspaceHomePaths.workspaceDirectory
-        ? workspaceHomePaths.metricsDirectory
-        : join(dataDirectory, "metrics");
-    const contextSidecarsDirectory = join(dataDirectory, "context-sidecars");
     const profilesDirectory = homePaths.agentProfilesDir;
     const profilePath = join(profilesDirectory, `${DEFAULT_PROFILE_ID}.json`);
 
@@ -739,7 +729,7 @@ async function assembleRuntimeComposition(
             listResumable: () => primaryGoalStore.listResumable(),
             listHistory: () => primaryGoalStore.listHistory(),
         };
-    const metricsStore = new JsonFileMetricsStore(metricsDirectory);
+    const metricsStore = new JsonFileMetricsStore(goalsDirectory);
     const sessionMetricsService = new SessionMetricsService(store, metricsStore, metricsStore);
     const metricsAwareGoalStore: GoalStore = {
         async save(goal) {
@@ -757,18 +747,18 @@ async function assembleRuntimeComposition(
             return goal;
         },
     };
-    const primaryTrajectoryStore = new JsonFileTrajectoryStore(trajectoriesDirectory);
+    const primaryTrajectoryStore = new JsonFileTrajectoryStore(goalsDirectory);
     const sandboxGrantStore = new JsonFileSandboxGrantStore(workspaceHomePaths.workspaceDirectory);
     const permissionProfileStore = options.permissionProfileStore
         ?? new JsonFileProjectPermissionProfileStore(workspaceHomePaths.workspaceDirectory);
     const trajectoryStore = primaryTrajectoryStore;
-    const retrievalIndexStore = new JsonFileContextRetrievalIndexStore(contextSidecarsDirectory);
+    const retrievalIndexStore = new JsonFileContextRetrievalIndexStore(goalsDirectory);
     const contextLookupService = new IndexedContextLookupService({
         trajectoryStore,
         indexStore: retrievalIndexStore,
     });
-    const traceSink = new JsonFileDiagnosticTraceSink(tracesDirectory);
-    const modelInputStore = new JsonFileModelInputStore(join(dataDirectory, "model-inputs"));
+    const traceSink = new JsonFileDiagnosticTraceSink(goalsDirectory);
+    const modelInputStore = new JsonFileModelInputStore(goalsDirectory);
     const trajectoryContextAssembler = new TrajectoryModelContextAssembler({
         trajectoryStore,
         policy: modelContextPolicy,
@@ -1095,10 +1085,6 @@ async function assembleRuntimeComposition(
         workspaceHomeDirectory: workspaceHomePaths.workspaceDirectory,
         dataDirectory,
         goalsDirectory,
-        trajectoriesDirectory,
-        tracesDirectory,
-        metricsDirectory,
-        contextSidecarsDirectory,
         ...(llmConfig === undefined ? {} : { llmConfig }),
         providerProfileStore,
         permissionProfileStore,
@@ -1137,10 +1123,6 @@ async function assembleRuntimeComposition(
                     const status = goal.state.run.status;
                     if (status !== "completed" && status !== "failed" && status !== "cancelled") return "goal_not_terminal";
                     if (hasUnsettledSessionWork(goal)) return "goal_has_pending_inputs";
-                    const encodedGoalId = Buffer.from(goalId, "utf8").toString("base64url");
-                    for (const directory of [trajectoriesDirectory, tracesDirectory, metricsDirectory, contextSidecarsDirectory, join(dataDirectory, "model-inputs")]) {
-                        await rm(join(directory, encodedGoalId), { recursive: true, force: true });
-                    }
                     await sandboxGrantStore.deleteGoalGrants(workspaceHomePaths.workspaceId, goalId);
                     await processSessionStore.deleteGoalSessions(goalId);
                     await primaryGoalStore.deleteTerminal(goalId);
@@ -1161,7 +1143,7 @@ async function assembleRuntimeComposition(
         executionStream,
         readTrajectory,
         readWorkspaceTrajectory,
-        readWorkspaceModelInputs: (goalId, runId) => new JsonFileModelInputStore(join(workspaceHomePaths.workspaceDirectory, "model-inputs")).read(goalId, runId),
+        readWorkspaceModelInputs: (goalId, runId) => new JsonFileModelInputStore(goalsDirectory).read(goalId, runId),
         checkpointStore,
         sessions,
         interactions: {

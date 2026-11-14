@@ -6,16 +6,13 @@ import { test } from "node:test";
 import { DatabaseSync } from "node:sqlite";
 
 import type { TrajectoryEventDraft } from "../../runtime/src/index";
-import { JsonFileTrajectoryStore } from "../src/index";
-import { encodePathSegment } from "../src/path-segment";
+import { JsonFileTrajectoryStore, runTrajectoryIndexPath, runTrajectorySegmentPath } from "../src/index";
 
 const goalId = "goal-index";
 const runId = "run-index";
-const encodedGoal = encodePathSegment(goalId);
-const encodedRun = encodePathSegment(runId);
 
-const jsonlPath = (directory: string) => join(directory, encodedGoal, `${encodedRun}.jsonl`);
-const indexPath = (directory: string) => join(directory, encodedGoal, `${encodedRun}.index.db`);
+const jsonlPath = (directory: string) => runTrajectorySegmentPath(directory, goalId, runId, 0);
+const indexPath = (directory: string) => runTrajectoryIndexPath(directory, goalId, runId);
 
 interface IndexRow {
     sequence: number;

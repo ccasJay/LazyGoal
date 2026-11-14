@@ -6,8 +6,7 @@ import { open as openFile } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
 import { test } from "node:test";
 
-import { JsonFileTrajectoryStore } from "../src/index";
-import { encodePathSegment } from "../src/path-segment";
+import { JsonFileTrajectoryStore, runDirectory, runTrajectorySegmentPath } from "../src/index";
 
 /** 压测规模三档:小、中、大轨迹。 */
 const SCALES = [100, 1_000, 10_000] as const;
@@ -72,8 +71,7 @@ test("索引分页不读取 payload，且 10,000 事件重建有上限", async (
     const runId = "run-index-bench";
 
     try {
-        const goalDirectory = join(directory, encodePathSegment(goalId));
-        await mkdir(goalDirectory, { recursive: true });
+        await mkdir(runDirectory(directory, goalId, runId), { recursive: true });
         const base = Date.parse("2026-01-01T00:00:00.000Z");
         const lines = Array.from({ length: 10_000 }, (_, index) => JSON.stringify({
             storageEncodingVersion: 2,
@@ -88,7 +86,7 @@ test("索引分页不读取 payload，且 10,000 事件重建有上限", async (
             eventType: "run_started",
             payload: { type: "run_started" },
         }));
-        await writeFile(join(goalDirectory, `${encodePathSegment(runId)}.jsonl`), lines.join("\n") + "\n", "utf8");
+        await writeFile(runTrajectorySegmentPath(directory, goalId, runId, 0), lines.join("\n") + "\n", "utf8");
 
         let reads = 0;
         const store = new JsonFileTrajectoryStore(directory, {

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import { createGoal, type Goal } from "../../../packages/runtime/src/index";
+import { goalSnapshotPath } from "../../../packages/storage/src/index";
 import { currentProtocols } from "../../../packages/runtime/test/current-fixtures";
 import { createCompositionRoot } from "../src/composition-root";
 import { writeDefaultProfile } from "./profile-fixture";
@@ -361,13 +362,13 @@ test("Composition Root carries Memory through task approval into Executing", { t
         assert.equal(revisedInteraction.proposal.objective, "Approved proposal");
         assertCurrentDefinition(revisedGoal.definition);
 
-        const files = (await readdir(root.goalsDirectory))
-            .filter((file) => file.endsWith(".json"));
-        if (files.length !== 1) {
+        const goals = (await readdir(root.goalsDirectory))
+            .filter((name) => !name.startsWith("."));
+        if (goals.length !== 1) {
             throw new Error("Expected exactly one persisted Goal Snapshot");
         }
         const snapshot = JSON.parse(await readFile(
-            join(root.goalsDirectory, files[0]!),
+            goalSnapshotPath(root.goalsDirectory, "goal-current"),
             "utf8",
         )) as {
             readonly metadata: { readonly schemaVersion: number };
@@ -477,7 +478,7 @@ test("Composition Root carries Memory through task approval into Executing", { t
         }
 
         const persistedRaw = JSON.parse(await readFile(
-            join(root.goalsDirectory, files[0]!),
+            goalSnapshotPath(root.goalsDirectory, persisted.id),
             "utf8",
         )) as Record<string, unknown>;
 

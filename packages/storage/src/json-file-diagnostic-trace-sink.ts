@@ -1,8 +1,8 @@
-import { encodePathSegment } from "./path-segment";
 import {
     mkdir,
 } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname } from "node:path";
+import { runTracePath } from "./goal-workspace-layout";
 
 import type {
     DiagnosticTraceSink,
@@ -16,20 +16,20 @@ import { KeyedSerialQueue } from "./keyed-serial-queue";
  *
  * @remarks
  * 每个 `(goalId, runId)` 使用独立的
- * `<directory>/<base64url(goalId)>/<base64url(runId)>.jsonl` 文件。Trace 不是
+ * `<directory>/<base64url(goalId)>/runs/<base64url(runId)>/trace.jsonl` 文件。Trace 不是
  * Runtime 恢复数据，也没有读取、重试、Outbox 或 exactly-once 语义；同一实例
  * 内只保证单文件追加顺序。
  *
  * @example
  * ```ts
- * const sink = new JsonFileDiagnosticTraceSink("~/.lazygoal/workspaces/<workspace-id>/traces");
+ * const sink = new JsonFileDiagnosticTraceSink("~/.lazygoal/workspaces/<workspace-id>/goals");
  * await sink.append(record);
  * ```
  */
 export class JsonFileDiagnosticTraceSink implements DiagnosticTraceSink {
     private readonly appendQueue = new KeyedSerialQueue();
 
-    /** @param directory - Trace JSONL 根目录；写入时按需创建。 */
+    /** @param directory - 工作区 Goal 存储根目录；写入时按需创建 Run 目录。 */
     constructor(private readonly directory: string) {}
 
     /**
@@ -43,7 +43,7 @@ export class JsonFileDiagnosticTraceSink implements DiagnosticTraceSink {
         const key = this.keyFor(record.goalId, record.runId);
         const filePath = this.filePath(record.goalId, record.runId);
         return this.appendQueue.run(key, async () => {
-            await mkdir(join(this.directory, this.encode(record.goalId)), {
+            await mkdir(dirname(filePath), {
                 recursive: true,
                 mode: 0o700,
             });
@@ -56,22 +56,13 @@ export class JsonFileDiagnosticTraceSink implements DiagnosticTraceSink {
     }
 
     private filePath(goalId: string, runId: string): string {
-        return join(
-            this.directory,
-            this.encode(goalId),
-            `${this.encode(runId)}.jsonl`,
-        );
+        return runTracePath(this.directory, goalId, runId);
     }
 
     private keyFor(goalId: string, runId: string): string {
         this.assertIdentifier(goalId, "goalId");
         this.assertIdentifier(runId, "runId");
         return `${goalId}\u0000${runId}`;
-    }
-
-    private encode(value: string): string {
-        this.assertIdentifier(value, "trace identifier");
-        return encodePathSegment(value);
     }
 
     private assertIdentifier(value: string, field: string): void {

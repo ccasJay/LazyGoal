@@ -16,6 +16,8 @@ import { test } from "node:test";
 import type { TrajectoryEventDraft } from "../../runtime/src/index";
 import {
     JsonFileTrajectoryStore,
+    runDirectory,
+    runTrajectorySegmentPath,
 } from "../src/index";
 import {
     TrajectoryProtocolError,
@@ -97,14 +99,16 @@ test("JsonFileTrajectoryStore appends ordered JSONL events across instances", as
         assert.deepEqual(goalFiles.length, 1);
         const goalDirectoryName = goalFiles[0];
         assert.ok(goalDirectoryName !== undefined);
-        const runFiles = (await readdir(join(directory, goalDirectoryName)))
-            .filter((name) => name.endsWith(".jsonl"));
-        assert.deepEqual(runFiles.length, 1);
-        const runFileName = runFiles[0];
-        assert.ok(runFileName !== undefined);
-        assert.match(runFileName, /\.jsonl$/);
+        const encodedRun = Buffer.from("run-1", "utf8").toString("base64url");
+        assert.deepEqual(await readdir(join(directory, goalDirectoryName)), ["runs"]);
+        assert.deepEqual(
+            await readdir(join(directory, goalDirectoryName, "runs")),
+            [encodedRun],
+        );
+        const trajectoryPath = runTrajectorySegmentPath(directory, "goal-1", "run-1", 0);
+        assert.ok(trajectoryPath.endsWith(join(goalDirectoryName, "runs", encodedRun, "trajectory.jsonl")));
         assert.equal(
-            (await readFile(join(directory, goalDirectoryName, runFileName), "utf8"))
+            (await readFile(trajectoryPath, "utf8"))
                 .trim()
                 .split("\n").length,
             3,
@@ -304,14 +308,7 @@ test("JsonFileTrajectoryStore continues sequence when the last line lacks a trai
         const second = await store.append(
             draft("run_waiting", { type: "run_waiting", reason: "等待输入" }),
         );
-        const goalDirectory = join(
-            directory,
-            Buffer.from("goal-1", "utf8").toString("base64url"),
-        );
-        const filePath = join(
-            goalDirectory,
-            `${Buffer.from("run-1", "utf8").toString("base64url")}.jsonl`,
-        );
+        const filePath = runTrajectorySegmentPath(directory, "goal-1", "run-1", 0);
         const content = await readFile(filePath, "utf8");
         await writeFile(filePath, content.endsWith("\n") ? content.slice(0, -1) : content, "utf8");
 
@@ -334,14 +331,7 @@ test("JsonFileTrajectoryStore rejects appends when the tail line identity mismat
         const first = await store.append(
             draft("run_started", { type: "run_started" }),
         );
-        const goalDirectory = join(
-            directory,
-            Buffer.from("goal-1", "utf8").toString("base64url"),
-        );
-        const filePath = join(
-            goalDirectory,
-            `${Buffer.from("run-1", "utf8").toString("base64url")}.jsonl`,
-        );
+        const filePath = runTrajectorySegmentPath(directory, "goal-1", "run-1", 0);
         await appendFile(
             filePath,
             `${JSON.stringify({ ...first, eventId: "event-2", sequence: 2, runId: "run-other" })}\n`,
@@ -427,16 +417,9 @@ test("JsonFileTrajectoryStore returns an empty result for a missing or empty fil
             [],
         );
 
-        const goalDirectory = join(
-            directory,
-            Buffer.from("goal-1", "utf8").toString("base64url"),
-        );
-        await mkdir(goalDirectory, { recursive: true });
+        await mkdir(runDirectory(directory, "goal-1", "run-1"), { recursive: true });
         await writeFile(
-            join(
-                goalDirectory,
-                `${Buffer.from("run-1", "utf8").toString("base64url")}.jsonl`,
-            ),
+            runTrajectorySegmentPath(directory, "goal-1", "run-1", 0),
             "\n",
             "utf8",
         );
@@ -464,15 +447,8 @@ test("JsonFileTrajectoryStore rejects unsafe queries and malformed or non-monoto
             (error: unknown) => error instanceof TrajectoryProtocolError,
         );
 
-        const goalDirectory = join(
-            directory,
-            Buffer.from("goal-1", "utf8").toString("base64url"),
-        );
-        const filePath = join(
-            goalDirectory,
-            `${Buffer.from("run-1", "utf8").toString("base64url")}.jsonl`,
-        );
-        await mkdir(goalDirectory, { recursive: true });
+        const filePath = runTrajectorySegmentPath(directory, "goal-1", "run-1", 0);
+        await mkdir(runDirectory(directory, "goal-1", "run-1"), { recursive: true });
         await writeFile(filePath, "not-json\n", "utf8");
 
         await assert.rejects(

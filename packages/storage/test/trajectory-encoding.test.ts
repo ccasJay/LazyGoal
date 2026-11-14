@@ -9,13 +9,15 @@ import {
     TrajectoryProtocolError,
     type TrajectoryEventDraft,
 } from "../../runtime/src/index";
-import { JsonFileTrajectoryStore } from "../src/index";
-import { encodePathSegment } from "../src/path-segment";
+import {
+    goalBlobsDirectory,
+    JsonFileTrajectoryStore,
+    runDirectory,
+    runTrajectorySegmentPath,
+} from "../src/index";
 
 const goalId = "goal-encoding";
 const runId = "run-encoding";
-const encodedGoal = encodePathSegment(goalId);
-const encodedRun = encodePathSegment(runId);
 
 function draft(intent = "small"): TrajectoryEventDraft {
     return {
@@ -27,8 +29,8 @@ function draft(intent = "small"): TrajectoryEventDraft {
     };
 }
 
-function runFile(directory: string, name = `${encodedRun}.jsonl`): string {
-    return join(directory, encodedGoal, name);
+function runFile(directory: string, name = "trajectory.jsonl"): string {
+    return join(runDirectory(directory, goalId, runId), name);
 }
 
 test("small payloads stay inline and read back as domain events", async () => {
@@ -60,7 +62,7 @@ test("large payloads are externalized and materialized from the content-addresse
 
         assert.equal(line.payload, undefined);
         assert.ok(line.payloadRef);
-        const blob = join(directory, encodedGoal, "blobs", `${line.payloadRef.sha256}.json`);
+        const blob = join(goalBlobsDirectory(directory, goalId), `${line.payloadRef.sha256}.json`);
         assert.equal(JSON.parse(await readFile(blob, "utf8")).intent, intent);
         assert.deepEqual(await store.read({ goalId, runId }), [event]);
         assert.equal((await store.readWithBoundary({ goalId, runId }, 1)).committed.length, 1);
@@ -82,7 +84,7 @@ test("identical externalized payloads reuse one blob", async () => {
         const lines = (await readFile(runFile(directory), "utf8")).trim().split("\n")
             .map((line) => JSON.parse(line) as { payloadRef: { sha256: string } });
         assert.equal(lines[0]?.payloadRef.sha256, lines[1]?.payloadRef.sha256);
-        const blobs = await readdir(join(directory, encodedGoal, "blobs"));
+        const blobs = await readdir(goalBlobsDirectory(directory, goalId));
         assert.equal(blobs.length, 1);
         assert.equal((await store.read({ goalId, runId })).length, 2);
     } finally {
@@ -96,10 +98,10 @@ test("segments roll after the configured threshold and read across boundaries", 
         const store = new JsonFileTrajectoryStore(directory, {}, { segmentThresholdBytes: 1 });
         for (const intent of ["one", "two", "three"]) await store.append(draft(intent));
 
-        const files = (await readdir(join(directory, encodedGoal)))
+        const files = (await readdir(runDirectory(directory, goalId, runId)))
             .filter((name) => name.endsWith(".jsonl"))
             .sort();
-        assert.deepEqual(files, [`${encodedRun}.jsonl`, `${encodedRun}.part2.jsonl`, `${encodedRun}.part3.jsonl`]);
+        assert.deepEqual(files, ["trajectory.jsonl", "trajectory.part2.jsonl", "trajectory.part3.jsonl"]);
 
         const events = await store.read({ goalId, runId });
         assert.deepEqual(events.map((event) => event.sequence), [1, 2, 3]);
@@ -115,9 +117,8 @@ test("segments roll after the configured threshold and read across boundaries", 
 test("unsupported or ambiguous storage encoding fails closed", async () => {
     const directory = await mkdtemp(join(tmpdir(), "trajectory-encoding-invalid-"));
     try {
-        const goalDirectory = join(directory, encodedGoal);
-        await mkdir(goalDirectory, { recursive: true });
-        const path = join(goalDirectory, `${encodedRun}.jsonl`);
+        await mkdir(runDirectory(directory, goalId, runId), { recursive: true });
+        const path = runTrajectorySegmentPath(directory, goalId, runId, 0);
         const event = allocateImmutableEvent(draft(), 1);
         const store = new JsonFileTrajectoryStore(directory);
 

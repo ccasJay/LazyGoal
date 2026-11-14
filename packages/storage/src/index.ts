@@ -116,6 +116,25 @@ export type {
     ContextRetrievalIndexSidecarCodec,
 } from "./context-retrieval-index-sidecar";
 
+export {
+    goalArchiveMarkerPath,
+    goalBlobPath,
+    goalBlobsDirectory,
+    goalCatalogSummaryPath,
+    goalContextIndexPath,
+    goalDirectory,
+    goalIndexesDirectory,
+    goalMetricsCoveragePath,
+    goalSnapshotPath,
+    retrievalIndexPath,
+    runDirectory,
+    runMetricsPath,
+    runModelInputsPath,
+    runTracePath,
+    runTrajectoryBasePath,
+    runTrajectoryIndexPath,
+    runTrajectorySegmentPath,
+} from "./goal-workspace-layout";
 export { JsonFileModelInputStore } from "./json-file-model-input-store";
 export type {
     ModelInputJsonValue,

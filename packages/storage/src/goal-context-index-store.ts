@@ -1,10 +1,9 @@
-import { encodePathSegment } from "./path-segment";
 import { deepFreeze } from "../../contracts/src/index";
 import {
     readFile,
     unlink,
 } from "node:fs/promises";
-import { join } from "node:path";
+import { goalContextIndexPath } from "./goal-workspace-layout";
 import type { GoalContextIndexSnapshot } from "../../context-retrieval/src/index";
 import { goalContextIndexFileBinding } from "./generated/goal-context-index-binding";
 import type { GoalContextIndexSnapshotFile } from "./goal-context-index-file";
@@ -144,29 +143,24 @@ function isMissingFile(error: unknown): boolean {
  * 基于本地 JSON 文件的 Goal 上下文索引存储实现。
  *
  * @remarks
- * 文件路径为 `<directory>/<base64url(goalId)>/goal-index.json`。
+ * 文件路径为 `<directory>/<base64url(goalId)>/indexes/goal-index.json`。
  * 保存使用同目录临时文件、fsync 和 rename，目录权限 `0700`、文件权限 `0600`。
  *
  * @example
  * ```ts
- * const store = new JsonFileGoalContextIndexStore("~/.lazygoal/workspaces/ws-1/context-sidecars");
+ * const store = new JsonFileGoalContextIndexStore("~/.lazygoal/workspaces/ws-1/goals");
  * await store.save(snapshot);
  * const restored = await store.restore("goal-1");
  * ```
  */
 export class JsonFileGoalContextIndexStore implements GoalContextIndexStore {
     /**
-     * @param directory - 索引 Sidecar 根目录。
+     * @param directory - 工作区 Goal 存储根目录。
      */
     constructor(private readonly directory: string) {}
 
-    private goalDirectory(goalId: string): string {
-        const encodedGoalId = encodePathSegment(goalId);
-        return join(this.directory, encodedGoalId);
-    }
-
     private filePath(goalId: string): string {
-        return join(this.goalDirectory(goalId), "goal-index.json");
+        return goalContextIndexPath(this.directory, goalId);
     }
 
     /** @inheritdoc */

@@ -467,19 +467,14 @@ async function collectArtifacts(
     const graceMs = options.artifactGraceMs ?? 30_000;
     const graceController = new AbortController();
     const deadline = setTimeout(() => graceController.abort(), graceMs);
-    const copied: Partial<Record<"goals" | "trajectories" | "traces", string>> = {};
-    const copy = async (kind: "goals" | "trajectories" | "traces") => {
-        try {
-            const path = await withinGrace(() => options.container.copyWorkerArtifact(options.metadata.instanceId, outputDirectory, kind, graceController.signal), graceController.signal);
-            await access(path);
-            copied[kind] = path;
-        } catch (error) {
-            record(errors, "artifact_copy", error);
-        }
-    };
-    await copy("goals");
-    await copy("trajectories");
-    await copy("traces");
+    let copiedGoals: string | undefined;
+    try {
+        const path = await withinGrace(() => options.container.copyWorkerArtifact(options.metadata.instanceId, outputDirectory, "goals", graceController.signal), graceController.signal);
+        await access(path);
+        copiedGoals = path;
+    } catch (error) {
+        record(errors, "artifact_copy", error);
+    }
     let patch: string | null = null;
     try {
         patch = await withinGrace(() => options.container.exportPatch(graceController.signal), graceController.signal);
@@ -488,19 +483,19 @@ async function collectArtifacts(
     }
     let recovered: Readonly<Record<string, unknown>> | undefined;
     try {
-        if (recover) recovered = await withinGrace(() => recoverSwebenchResult(copied, options.metadata,
+        if (recover) recovered = await withinGrace(() => recoverSwebenchResult(copiedGoals, options.metadata,
             (message) => record(errors, "artifact_copy", new Error(message)), graceController.signal), graceController.signal);
     } catch (error) { record(errors, "artifact_copy", error); }
     clearTimeout(deadline);
     const recoveredMeta = recovered === undefined ? {} : { meta: recovered };
-    if (copied.goals === undefined || !await validateGoalLocator(copied.goals, options.metadata.goalId, options.metadata.runId)) {
-        if (copied.goals !== undefined) record(errors, "artifact_copy", new Error("Copied Goal snapshot identity mismatch"));
+    if (copiedGoals === undefined || !await validateGoalLocator(copiedGoals, options.metadata.goalId, options.metadata.runId)) {
+        if (copiedGoals !== undefined) record(errors, "artifact_copy", new Error("Copied Goal snapshot identity mismatch"));
         return { persistence: null, patch, ...recoveredMeta };
     }
     const persistence: BenchmarkPersistenceLocator = {
-        goalSnapshot: relative(outputDirectory, copied.goals),
-        trajectory: copied.trajectories === undefined ? relative(outputDirectory, copied.goals) : relative(outputDirectory, copied.trajectories),
-        ...(copied.traces === undefined ? {} : { diagnosticTrace: relative(outputDirectory, copied.traces) }),
+        goalSnapshot: relative(outputDirectory, copiedGoals),
+        trajectory: relative(outputDirectory, copiedGoals),
+        diagnosticTrace: relative(outputDirectory, copiedGoals),
     };
     return { persistence, patch, ...recoveredMeta };
 }
@@ -539,7 +534,7 @@ async function settleWorker(
 }
 
 async function validateGoalLocator(path: string, goalId: string, runId: string): Promise<boolean> {
-    const file = `${path}/${Buffer.from(goalId, "utf8").toString("base64url")}.json`;
+    const file = `${path}/${Buffer.from(goalId, "utf8").toString("base64url")}/snapshot.json`;
     try {
         const content = await import("node:fs/promises").then((fs) => fs.readFile(file, "utf8"));
         const value = JSON.parse(content) as { id?: unknown; state?: { run?: { id?: unknown } } };

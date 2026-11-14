@@ -6,8 +6,7 @@ import { test } from "node:test";
 import { DatabaseSync } from "node:sqlite";
 
 import type { TrajectoryEventDraft } from "../../runtime/src/index";
-import { encodePathSegment } from "../src/path-segment";
-import { JsonFileTrajectoryStore } from "../src/index";
+import { JsonFileTrajectoryStore, runDirectory, runTrajectoryIndexPath, runTrajectorySegmentPath } from "../src/index";
 
 const goalId = "goal-1";
 const runId = "run-1";
@@ -23,7 +22,7 @@ function draft(): TrajectoryEventDraft {
 }
 
 function indexPath(directory: string): string {
-    return join(directory, encodePathSegment(goalId), `${encodePathSegment(runId)}.index.db`);
+    return runTrajectoryIndexPath(directory, goalId, runId);
 }
 
 async function withStore(

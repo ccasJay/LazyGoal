@@ -4,8 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { JsonFileTrajectoryStore } from "../src/index";
-import { encodePathSegment } from "../src/path-segment";
+import { JsonFileTrajectoryStore, runTrajectorySegmentPath } from "../src/index";
 import type { TrajectoryEventDraft } from "../../runtime/src/index";
 
 const goalId = "goal-increment-read";
@@ -75,11 +74,7 @@ test("readAfter 保留后缀协议校验并拒绝损坏事件", async () => {
         await store.append(observationDraft("first", 16));
         await store.append(observationDraft("second", 16));
 
-        const filePath = join(
-            directory,
-            encodePathSegment(goalId),
-            `${encodePathSegment(runId)}.jsonl`,
-        );
+        const filePath = runTrajectorySegmentPath(directory, goalId, runId, 0);
         await appendFile(filePath, "{not-json}\n", "utf8");
 
         await assert.rejects(

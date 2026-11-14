@@ -98,24 +98,21 @@ export class JsonFileBenchmarkPersistenceAdapter<TTask>
             encodeIdentifier(context.benchmarkId),
             encodeIdentifier(context.namespace),
         );
-        const goalDirectory = join(directory, "goals");
-        const trajectoryDirectory = join(directory, "trajectories");
-        const traceDirectory = join(directory, "traces");
-        const trajectoryStore = new JsonFileTrajectoryStore(trajectoryDirectory);
-        const modelInputDirectory = join(directory, "model-inputs");
+        const goalsDirectory = join(directory, "goals");
+        const trajectoryStore = new JsonFileTrajectoryStore(goalsDirectory);
         const bindings: BenchmarkPersistenceBindings = {
-            goalStore: new JsonFileGoalStore(goalDirectory),
+            goalStore: new JsonFileGoalStore(goalsDirectory),
             trajectoryStore,
-            modelInputStore: new JsonFileModelInputStore(modelInputDirectory),
-            contextLookupPort: new IndexedContextLookupService({ trajectoryStore, indexStore: new JsonFileContextRetrievalIndexStore(join(directory, "context-index")) }),
+            modelInputStore: new JsonFileModelInputStore(goalsDirectory),
+            contextLookupPort: new IndexedContextLookupService({ trajectoryStore, indexStore: new JsonFileContextRetrievalIndexStore(goalsDirectory) }),
             locator: {
-                goalSnapshot: goalDirectory,
-                trajectory: trajectoryDirectory,
-                modelInputs: modelInputDirectory,
-                ...(this.enableTrace ? { diagnosticTrace: traceDirectory } : {}),
+                goalSnapshot: goalsDirectory,
+                trajectory: goalsDirectory,
+                modelInputs: goalsDirectory,
+                ...(this.enableTrace ? { diagnosticTrace: goalsDirectory } : {}),
             },
             ...(this.enableTrace
-                ? { traceSink: new JsonFileDiagnosticTraceSink(traceDirectory) }
+                ? { traceSink: new JsonFileDiagnosticTraceSink(goalsDirectory) }
                 : {}),
         };
         return bindings;

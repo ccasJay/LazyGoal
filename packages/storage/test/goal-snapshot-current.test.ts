@@ -19,6 +19,7 @@ import { currentProtocols } from "../../runtime/test/current-fixtures";
 import {
     GoalSnapshotProtocolError,
     goalSnapshotCodec,
+    goalSnapshotPath,
     JsonFileGoalStore,
 } from "../src/index";
 
@@ -46,7 +47,7 @@ function assertProtocolError(error: unknown): boolean {
 }
 
 function snapshotPath(directory: string, goalId: string): string {
-    return join(directory, `${Buffer.from(goalId, "utf8").toString("base64url")}.json`);
+    return goalSnapshotPath(directory, goalId);
 }
 
 test("completion review input budget error survives the current Goal Snapshot codec", () => {
