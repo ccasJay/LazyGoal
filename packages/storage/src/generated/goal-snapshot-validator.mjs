@@ -7,6 +7,32 @@ var __commonJS = (cb, mod) => function __require() {
   }
 };
 
+// node_modules/ajv/dist/runtime/ucs2length.js
+var require_ucs2length = __commonJS({
+  "node_modules/ajv/dist/runtime/ucs2length.js"(exports) {
+    "use strict";
+    Object.defineProperty(exports, "__esModule", { value: true });
+    function ucs2length(str) {
+      const len = str.length;
+      let length = 0;
+      let pos = 0;
+      let value;
+      while (pos < len) {
+        length++;
+        value = str.charCodeAt(pos++);
+        if (value >= 55296 && value <= 56319 && pos < len) {
+          value = str.charCodeAt(pos);
+          if ((value & 64512) === 56320)
+            pos++;
+        }
+      }
+      return length;
+    }
+    exports.default = ucs2length;
+    ucs2length.code = 'require("ajv/dist/runtime/ucs2length").default';
+  }
+});
+
 // GoalSnapshotV1-validator.cjs
 var require_GoalSnapshotV1_validator = __commonJS({
   "GoalSnapshotV1-validator.cjs"(exports, module) {
@@ -2922,6 +2948,7 @@ var require_GoalSnapshotV1_validator = __commonJS({
     var schema26 = { "type": "object", "properties": { "id": { "type": "string" }, "mode": { "type": "string", "enum": ["normal", "plan"] }, "approvedTask": { "$ref": "#/definitions/GoalSnapshotTaskV1" }, "status": { "type": "string", "enum": ["created", "running", "waiting", "completed", "failed", "cancelled"] }, "stepCount": { "type": "number" }, "exposedToolIds": { "type": "array", "items": { "type": "string" }, "description": "\u5F53\u524D Run \u5DF2\u5411\u6A21\u578B\u66B4\u9732\u5B8C\u6574 Schema \u7684\u5DE5\u5177 ID\u3002" }, "committedThroughSequence": { "type": "number", "description": "Trajectory \u53EF\u89C1\u9AD8\u6C34\u4F4D\uFF1B\u5305\u542B\u5DF2\u63D0\u4EA4\u7684\u6A21\u578B\u4E0A\u4E0B\u6587 frame\u3002" }, "memoryRevision": { "$ref": "#/definitions/GoalSnapshotMemoryRevisionV1" }, "currentStage": { "$ref": "#/definitions/GoalSnapshotRunStageV1", "description": "Snapshot \u4E2D\u5F53\u524D\u6D3B\u52A8\u6216\u6700\u65B0\u5DF2\u63A5\u53D7\u7684 Run \u5185\u90E8\u9636\u6BB5\u3002" }, "planRoute": { "$ref": "#/definitions/GoalSnapshotPlanRouteV1", "description": "\u5DF2\u6279\u51C6 Plan Run \u7684\u5B8C\u6574\u8DEF\u7EBF\uFF1B\u666E\u901A Run \u548C\u5F85\u5BA1\u6279 Run \u7701\u7565\u3002" }, "lastStep": { "$ref": "#/definitions/GoalSnapshotStepRecordV1" }, "pendingAction": { "$ref": "#/definitions/GoalSnapshotPendingActionV1" }, "pendingActionBatch": { "$ref": "#/definitions/GoalSnapshotPendingActionBatchV1", "description": "\u591A\u8C03\u7528\u6279\u6B21\u4E2D\u5C1A\u672A\u6682\u5B58\u7684\u540E\u7EED\u51B3\u7B56\uFF1B\u4E0E `pendingAction` \u5171\u540C\u6784\u6210\u6062\u590D\u70B9\u3002" }, "pendingProgram": { "$ref": "#/definitions/GoalSnapshotPendingProgramV1" }, "pendingInteraction": { "$ref": "#/definitions/GoalSnapshotPendingInteractionV1" }, "pendingThink": { "$ref": "#/definitions/GoalSnapshotPendingThinkV1" }, "pendingModelRepair": { "$ref": "#/definitions/GoalSnapshotPendingModelRepairV1" }, "steerInputs": { "type": "array", "items": { "$ref": "#/definitions/GoalSnapshotSteerInputV1" } }, "interruption": { "$ref": "#/definitions/GoalSnapshotRunInterruptionV1" }, "stopReason": { "$ref": "#/definitions/GoalSnapshotStopReasonV1" }, "contextEpoch": { "$ref": "#/definitions/GoalSnapshotContextEpochV1" } }, "required": ["id", "mode", "status", "stepCount", "exposedToolIds", "committedThroughSequence", "contextEpoch"], "additionalProperties": false, "description": "Snapshot \u4E2D\u7684 Run \u72B6\u6001\u3002" };
     var schema59 = { "type": "object", "properties": { "goalId": { "type": "string" }, "runId": { "type": "string" }, "stepOrdinal": { "type": "number" }, "executionUnitId": { "type": "string" }, "stage": { "type": "string", "enum": ["decide", "think"] }, "inputBoundary": { "type": "string" }, "attemptsStarted": { "type": "number" }, "continuationsStarted": { "type": "number", "description": "\u4E0D\u63A8\u8FDB\u7C7B\u8C03\u7528\u6570\uFF1B\u4E0E `attemptsStarted` \u72EC\u7ACB\u8BA1\u6570\u3002" }, "latestFailureClass": { "type": "string", "enum": ["non_advancing", "protocol"], "description": "\u6700\u8FD1\u4E00\u6B21\u5931\u8D25\u7684\u7C7B\u522B\uFF1B\u51B3\u5B9A\u4E0B\u4E00\u6B21\u8C03\u7528\u8BA1\u5165\u54EA\u4E2A\u9884\u7B97\u3002" }, "latestAttemptEventId": { "type": "string" }, "latestFeedbackEventId": { "type": "string" }, "thinkRequestId": { "type": "string" } }, "required": ["goalId", "runId", "stepOrdinal", "executionUnitId", "stage", "inputBoundary", "attemptsStarted", "latestAttemptEventId"], "additionalProperties": false, "description": "Snapshot \u4E2D\u53EF\u6062\u590D\u7684\u6A21\u578B\u8F93\u51FA\u4FEE\u590D\u5C1D\u8BD5\u6307\u9488\u3002" };
     var schema62 = { "anyOf": [{ "type": "object", "properties": { "kind": { "type": "string", "const": "max_steps_exceeded" } }, "required": ["kind"], "additionalProperties": false }, { "type": "object", "properties": { "kind": { "type": "string", "const": "execution_error" }, "code": { "type": "string", "enum": ["TOOL_NOT_AUTHORIZED", "TOOL_NOT_FOUND", "INVALID_TOOL_INPUT", "INVALID_MEMORY_PATCH", "INVALID_AGENT_DECISION", "COMPLETION_REVIEW_INPUT_TOO_LARGE", "MODEL_REQUEST_FAILED", "TOOL_EXECUTION_ERROR"] }, "message": { "type": "string" } }, "required": ["kind", "code", "message"], "additionalProperties": false }], "description": "Snapshot \u4E2D\u975E Step \u81EA\u8EAB\u5BFC\u81F4\u7684 Run \u7EC8\u6B62\u539F\u56E0\u3002" };
+    var func9 = require_ucs2length().default;
     var schema29 = { "type": "object", "properties": { "expectToolId": { "type": "string" }, "expectOutcome": { "type": "string", "enum": ["success", "failure"] } }, "required": ["expectToolId", "expectOutcome"], "additionalProperties": false, "description": "Snapshot \u4E2D\u5355\u6761\u5B8C\u6210\u6761\u4EF6\u7684\u9A8C\u6536\u58F0\u660E\u3002" };
     function validate21(data, { instancePath = "", parentData, parentDataProperty, rootData = data } = {}) {
       let vErrors = null;
@@ -10342,7 +10369,7 @@ var require_GoalSnapshotV1_validator = __commonJS({
               errors++;
             }
             for (const key8 in data52) {
-              if (!(key8 === "version" || key8 === "number" || key8 === "conversationStartIndex" || key8 === "openedAtSequence")) {
+              if (!(key8 === "version" || key8 === "number" || key8 === "conversationStartIndex" || key8 === "openedAtSequence" || key8 === "compactionEventId" || key8 === "compactionSourceRunId")) {
                 const err101 = { instancePath: instancePath + "/contextEpoch", schemaPath: "#/definitions/GoalSnapshotContextEpochV1/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key8 }, message: "must NOT have additional properties" };
                 if (vErrors === null) {
                   vErrors = [err101];
@@ -10409,22 +10436,66 @@ var require_GoalSnapshotV1_validator = __commonJS({
                 errors++;
               }
             }
+            if (data52.compactionEventId !== void 0) {
+              let data57 = data52.compactionEventId;
+              if (typeof data57 === "string") {
+                if (func9(data57) < 1) {
+                  const err107 = { instancePath: instancePath + "/contextEpoch/compactionEventId", schemaPath: "#/definitions/GoalSnapshotContextEpochV1/properties/compactionEventId/minLength", keyword: "minLength", params: { limit: 1 }, message: "must NOT have fewer than 1 characters" };
+                  if (vErrors === null) {
+                    vErrors = [err107];
+                  } else {
+                    vErrors.push(err107);
+                  }
+                  errors++;
+                }
+              } else {
+                const err108 = { instancePath: instancePath + "/contextEpoch/compactionEventId", schemaPath: "#/definitions/GoalSnapshotContextEpochV1/properties/compactionEventId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                if (vErrors === null) {
+                  vErrors = [err108];
+                } else {
+                  vErrors.push(err108);
+                }
+                errors++;
+              }
+            }
+            if (data52.compactionSourceRunId !== void 0) {
+              let data58 = data52.compactionSourceRunId;
+              if (typeof data58 === "string") {
+                if (func9(data58) < 1) {
+                  const err109 = { instancePath: instancePath + "/contextEpoch/compactionSourceRunId", schemaPath: "#/definitions/GoalSnapshotContextEpochV1/properties/compactionSourceRunId/minLength", keyword: "minLength", params: { limit: 1 }, message: "must NOT have fewer than 1 characters" };
+                  if (vErrors === null) {
+                    vErrors = [err109];
+                  } else {
+                    vErrors.push(err109);
+                  }
+                  errors++;
+                }
+              } else {
+                const err110 = { instancePath: instancePath + "/contextEpoch/compactionSourceRunId", schemaPath: "#/definitions/GoalSnapshotContextEpochV1/properties/compactionSourceRunId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                if (vErrors === null) {
+                  vErrors = [err110];
+                } else {
+                  vErrors.push(err110);
+                }
+                errors++;
+              }
+            }
           } else {
-            const err107 = { instancePath: instancePath + "/contextEpoch", schemaPath: "#/definitions/GoalSnapshotContextEpochV1/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+            const err111 = { instancePath: instancePath + "/contextEpoch", schemaPath: "#/definitions/GoalSnapshotContextEpochV1/type", keyword: "type", params: { type: "object" }, message: "must be object" };
             if (vErrors === null) {
-              vErrors = [err107];
+              vErrors = [err111];
             } else {
-              vErrors.push(err107);
+              vErrors.push(err111);
             }
             errors++;
           }
         }
       } else {
-        const err108 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+        const err112 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
         if (vErrors === null) {
-          vErrors = [err108];
+          vErrors = [err112];
         } else {
-          vErrors.push(err108);
+          vErrors.push(err112);
         }
         errors++;
       }
