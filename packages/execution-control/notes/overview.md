@@ -4,4 +4,4 @@
 
 ## 取消与失败
 
-[ExecutionControl 与 ExecutionAbortedError](../src/execution-control.ts) 使调用方在开始新工作前检查取消。取消作为控制流传播，不写成失败 Step；[TransientModelRequestFailure](../src/model-request-failure.ts) 标示供应商限流、连接或超时等可分类的暂时性请求故障。[ModelRequestFailure](../src/model-request-failure.ts) 表示已确认、不可通过协议纠错解决的请求失败，只携带适配器生成的安全诊断，不授予重试资格。是否重试、恢复或提交事实由 Runtime 决定。
+[ExecutionControl 与 ExecutionAbortedError](../src/execution-control.ts) 使调用方在开始新工作前检查取消。取消作为控制流传播，不写成失败 Step；[TransientModelRequestFailure](../src/model-request-failure.ts) 标示供应商限流、连接或超时等可分类的暂时性请求故障；[ContextWindowRejectedError](../src/model-request-failure.ts) 标示供应商明确以超出上下文窗口拒绝的请求，Runtime 据此决定一次工作窗口整理与一次重试。[ModelRequestFailure](../src/model-request-failure.ts) 表示已确认、不可通过协议纠错解决的请求失败，只携带适配器生成的安全诊断，不授予重试资格。是否重试、恢复或提交事实由 Runtime 决定。

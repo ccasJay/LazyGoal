@@ -859,6 +859,8 @@ export type ExecutionErrorCode =
     | "INVALID_AGENT_DECISION"
     | "COMPLETION_REVIEW_INPUT_TOO_LARGE"
     | "MODEL_REQUEST_FAILED"
+    | "CONTEXT_WINDOW_EXCEEDED"
+    | "CONTEXT_WINDOW_RECOVERY_FAILED"
     | "TOOL_EXECUTION_ERROR";
 
 /** 非 Step 自身导致的 Run 终止原因。 */

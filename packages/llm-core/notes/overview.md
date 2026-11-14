@@ -10,6 +10,7 @@
 - [LLMConfig / LLMConfigurationError](../src/llm-config.ts) 提供无 I/O 的共享连接配置与唯一配置错误构造器。动态 OpenCode Go 配置可携带服务端目录解析的 `executionApi`、容量、推理、视觉和工具选择能力，不携带执行端点；环境、TOML/Profile 的读取、合并与校验仍在 [Config](../../config/notes/overview.md)，不会从客户端接收这些执行字段。解析、默认工厂与 pi-ai 引用同一错误类。
 - [NormalizedUsage / toSafeTokenCount / readNormalizedUsage](../src/usage.ts) 定义归一化 token 用量形态与数字守卫；供应商原始字段提取归各供应商适配包，缺失或非法计数整体缺省，不以 0 或估算值代替。
 - [classifyTransientModelFailure](../src/model-request-failure.ts) 只做结构化识别（限流、暂时性 5xx、连接与超时），结果身份来自 [execution-control](../../execution-control/notes/overview.md)；鉴权、配额、协议与未知错误原样返回。
+- [classifyContextWindowRejection](../src/model-request-failure.ts) 只从已知窗口拒绝代码或拒绝状态（400/413/422）加窗口文案识别，结果身份为 execution-control 的 `ContextWindowRejectedError`；其它 4xx 与传输故障不会被归入。
 
 ## 依赖方向与限制
 

@@ -85,11 +85,17 @@ test("context_epoch_advanced 接受带压缩正文的阈值切换", () => {
     assert.doesNotThrow(() => assertValidTrajectoryEventDraft(epochAdvanceDraft()));
 });
 
+test("context_epoch_advanced 接受超窗恢复与命令触发的压缩切换", () => {
+    for (const reason of ["context_window_recovery", "command_compaction"] as const) {
+        assert.doesNotThrow(() => assertValidTrajectoryEventDraft(epochAdvanceDraft({ reason })), reason);
+    }
+});
+
 test("context_epoch_advanced 拒绝压缩载荷与原因的错配", () => {
     assert.throws(
         () => assertValidTrajectoryEventDraft(epochAdvanceDraft({ reason: "task_approved" })),
         (error: unknown) => error instanceof TrajectoryProtocolError
-            && /compaction requires the threshold_compaction reason/.test(error.message),
+            && /compaction requires a compaction reason/.test(error.message),
     );
     assert.throws(
         () => assertValidTrajectoryEventDraft(epochAdvanceDraft({ reason: "threshold_compaction", compaction: undefined })),

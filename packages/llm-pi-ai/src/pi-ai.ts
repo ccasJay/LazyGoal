@@ -10,6 +10,7 @@ import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completio
 import {
     LLMConfigurationError,
     LLMRequestModeMismatchError,
+    classifyContextWindowRejection,
     classifyTransientModelFailure,
     toSafeTokenCount,
     type LLMAdapter,
@@ -287,6 +288,8 @@ export class PiAiAdapter implements LLMAdapter {
             throwIfAborted(control);
         } catch (error) {
             throwIfAborted(control);
+            const contextRejection = classifyContextWindowRejection(error);
+            if (contextRejection !== undefined) throw contextRejection;
             const transientFailure = classifyTransientModelFailure(error);
             if (transientFailure !== undefined) throw transientFailure;
             throw error;
@@ -424,6 +427,8 @@ export class PiAiAdapter implements LLMAdapter {
                     case "error":
                         if (event.reason === "aborted") throw new ExecutionAbortedError();
                         {
+                            const contextRejection = classifyContextWindowRejection(event.error);
+                            if (contextRejection !== undefined) throw contextRejection;
                             const transientFailure = classifyTransientModelFailure(event.error);
                             if (transientFailure !== undefined) throw transientFailure;
                             throw new PiAiProviderError(
@@ -489,6 +494,8 @@ export class PiAiAdapter implements LLMAdapter {
     ): LLMResponse {
         const hasTools = request.tools !== undefined && request.tools.length > 0;
         if (response.stopReason === "error") {
+            const contextRejection = classifyContextWindowRejection(response);
+            if (contextRejection !== undefined) throw contextRejection;
             const transientFailure = classifyTransientModelFailure(response);
             if (transientFailure !== undefined) throw transientFailure;
         }

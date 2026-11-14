@@ -509,6 +509,8 @@ export type GoalSnapshotStopReasonV1 =
             | "INVALID_AGENT_DECISION"
             | "COMPLETION_REVIEW_INPUT_TOO_LARGE"
             | "MODEL_REQUEST_FAILED"
+            | "CONTEXT_WINDOW_EXCEEDED"
+            | "CONTEXT_WINDOW_RECOVERY_FAILED"
             | "TOOL_EXECUTION_ERROR";
         readonly message: string;
     };

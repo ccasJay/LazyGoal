@@ -13,3 +13,4 @@
 | LLMExecutionApi | 供应商无关配置中的协议族标识；当前用于服务端目录确认可执行的 OpenCode Go 在线文本模型。 | [LLM 核心契约](../README.md) | [配置契约](../src/llm-config.ts) |
 | NormalizedUsage / readNormalizedUsage | 归一化用量形态与安全读取；缺失不补零。 | [LLM 核心契约](../README.md) | [用量契约](../src/usage.ts) |
 | 暂时故障分类 | 把结构化识别的限流、5xx、连接与超时映射为 execution-control 身份。 | [LLM 核心契约](../README.md) | [故障分类](../src/model-request-failure.ts) |
+| 窗口拒绝分类 | 把供应商明确以超窗拒绝的请求映射为 `ContextWindowRejectedError`；不匹配的 4xx 不归入。 | [LLM 核心契约](../README.md) | [故障分类](../src/model-request-failure.ts) |

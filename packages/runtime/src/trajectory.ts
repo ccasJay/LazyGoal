@@ -273,9 +273,9 @@ export type TrajectoryEventPayload =
         readonly type: "context_epoch_advanced";
         readonly closedEpoch: EpochRange;
         readonly openedEpoch: ModelContextEpochState;
-        readonly reason: "conversation_pruned" | "input_threshold" | "task_approved" | "threshold_compaction";
+        readonly reason: "conversation_pruned" | "input_threshold" | "task_approved" | "threshold_compaction" | "context_window_recovery" | "command_compaction";
         readonly memoryRevisionEventId?: string;
-        /** 阈值触发的一轮提炼产物；省略表示本次切换不是由 Compact 产生。 */
+        /** 一轮提炼产物；省略表示本次切换不是由 Compact 产生。 */
         readonly compaction?: ContextEpochCompaction;
     }
     | {
@@ -1585,7 +1585,9 @@ function assertPayload(payload: unknown, eventType: unknown): void {
             || (payload.reason !== "conversation_pruned"
                 && payload.reason !== "input_threshold"
                 && payload.reason !== "task_approved"
-                && payload.reason !== "threshold_compaction")) {
+                && payload.reason !== "threshold_compaction"
+                && payload.reason !== "context_window_recovery"
+                && payload.reason !== "command_compaction")) {
             throw new TrajectoryProtocolError("context_epoch_advanced payload is invalid");
         }
         assertEpochRange(payload.closedEpoch);
@@ -1595,12 +1597,17 @@ function assertPayload(payload: unknown, eventType: unknown): void {
         }
         if (payload.compaction !== undefined) {
             assertEpochCompaction(payload.compaction);
-            if (payload.reason !== "threshold_compaction") {
-                throw new TrajectoryProtocolError("context_epoch_advanced compaction requires the threshold_compaction reason");
+            if (payload.reason !== "threshold_compaction"
+                && payload.reason !== "context_window_recovery"
+                && payload.reason !== "command_compaction") {
+                throw new TrajectoryProtocolError("context_epoch_advanced compaction requires a compaction reason");
             }
         }
-        if (payload.reason === "threshold_compaction" && payload.compaction === undefined) {
-            throw new TrajectoryProtocolError("context_epoch_advanced threshold_compaction requires a compaction payload");
+        if ((payload.reason === "threshold_compaction"
+            || payload.reason === "context_window_recovery"
+            || payload.reason === "command_compaction")
+            && payload.compaction === undefined) {
+            throw new TrajectoryProtocolError("context_epoch_advanced compaction reason requires a compaction payload");
         }
     }
     if (eventType === "context_epoch_closed") {

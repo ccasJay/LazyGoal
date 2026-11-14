@@ -124,6 +124,7 @@ export type SandboxPlanResolver = (query: {
     readonly effectiveScope?: EffectiveSandboxScope | undefined;
 }) => Promise<SandboxExecutionPlan | undefined> | SandboxExecutionPlan | undefined;
 import {
+    ContextWindowRejectedError,
     ExecutionAbortedError,
     isExecutionAbortedError,
     throwIfAborted,
@@ -323,11 +324,18 @@ export type InterruptRunResult =
     | { readonly ok: false; readonly error: "RUN_NOT_FOUND" | "RUN_NOT_RUNNING" | "INTERRUPT_CONFLICT" };
 
 class StageExecutionFailure extends Error {
-    constructor(readonly original: unknown) {
+    constructor(
+        readonly original: unknown,
+        /** 包装前已被采纳的已提交 Goal，用于失败收尾保留阶段中途提交的事实。 */
+        readonly committedGoal?: Goal,
+    ) {
         super(original instanceof Error ? original.message : String(original));
         this.name = "StageExecutionFailure";
     }
 }
+
+/** 触发一轮上下文提炼的来源。 */
+type ContextCompactionTrigger = "threshold" | "context_window" | "command";
 
 class StageCheckpointFailure extends Error {
     constructor(readonly original: unknown) {
@@ -1903,6 +1911,23 @@ class RunExecutor {
      * 提交点唯一：把压缩正文与来源范围写入 Epoch 切换事件，并在同一提交中保存新 Epoch。
      */
     private async maybeCompactContext(goal: Goal, control?: ExecutionControl): Promise<Goal> {
+        return this.compactContext(goal, "threshold", control);
+    }
+
+    /**
+     * 在工作窗口边界执行一轮提炼并提交新 Epoch。
+     *
+     * @remarks
+     * `threshold` 只在占用严格超过阈值时触发；`context_window` 与 `command` 忽略占用阈值，
+     * 但沿用同一套候选选择、有效性与提交规则。超窗恢复由供应商拒绝产生且尚未产生任何模型
+     * 输出，因此允许在待修复的模型阶段内切换窗口；其它触发仍要求没有待处理执行事实。
+     * 提交点唯一：把压缩正文与来源范围写入 Epoch 切换事件，并在同一提交中保存新 Epoch。
+     */
+    private async compactContext(
+        goal: Goal,
+        trigger: ContextCompactionTrigger,
+        control?: ExecutionControl,
+    ): Promise<Goal> {
         const scheduler = this.contextCompaction;
         if (scheduler === undefined) return goal;
         if (goal.state.run.status !== "running") return goal;
@@ -1910,13 +1935,15 @@ class RunExecutor {
             || goal.state.run.pendingActionBatch !== undefined
             || goal.state.run.pendingInteraction !== undefined
             || goal.state.run.pendingThink !== undefined
-            || goal.state.run.pendingModelRepair !== undefined
-            || goal.state.run.pendingProgram !== undefined) {
+            || goal.state.run.pendingProgram !== undefined
+            || (goal.state.run.pendingModelRepair !== undefined && trigger !== "context_window")) {
             return goal;
         }
-        const occupancy = await scheduler.readOccupancy(goal);
-        if (occupancy === null) return goal;
-        if (occupancy.occupiedTokens * 100 <= occupancy.thresholdPercent * occupancy.capacityTokens) return goal;
+        if (trigger === "threshold") {
+            const occupancy = await scheduler.readOccupancy(goal);
+            if (occupancy === null) return goal;
+            if (occupancy.occupiedTokens * 100 <= occupancy.thresholdPercent * occupancy.capacityTokens) return goal;
+        }
 
         const epoch = goal.state.run.contextEpoch;
         const window = selectCompactionWindow(goal.state.messages, epoch.conversationStartIndex);
@@ -1963,6 +1990,11 @@ class RunExecutor {
             ...goal.state.run,
             contextEpoch: nextEpoch,
         });
+        const reason = trigger === "threshold"
+            ? "threshold_compaction" as const
+            : trigger === "context_window"
+                ? "context_window_recovery" as const
+                : "command_compaction" as const;
         return this.commitDecision(nextGoal, [{
             goalId: goal.id,
             runId: goal.state.run.id,
@@ -1972,7 +2004,7 @@ class RunExecutor {
                 type: "context_epoch_advanced",
                 closedEpoch,
                 openedEpoch: nextEpoch,
-                reason: "threshold_compaction",
+                reason,
                 compaction: {
                     body: result.body,
                     sourceRunId: goal.state.run.id,
@@ -1982,6 +2014,29 @@ class RunExecutor {
                 },
             },
         }], undefined, control);
+    }
+
+    /**
+     * 在供应商明确以超窗拒绝后执行一次工作窗口整理。
+     *
+     * @remarks
+     * 只在 Epoch 确实推进时返回新 Goal；提炼端口缺失、候选不足、正文无效或提交未推进时
+     * 返回 `undefined`，由调用方按恢复失败结束本次 Run。
+     */
+    private async recoverContextWindow(goal: Goal, control?: ExecutionControl): Promise<Goal | undefined> {
+        const before = goal.state.run.contextEpoch;
+        const next = await this.compactContext(goal, "context_window", control);
+        return next.state.run.contextEpoch.number > before.number ? next : undefined;
+    }
+
+    /** 构造一次已用尽超窗恢复机会的稳定执行错误。 */
+    private contextWindowExceeded(goal: Goal): RunnerExecutionError {
+        return new RunnerExecutionError(
+            "CONTEXT_WINDOW_EXCEEDED",
+            "Provider rejected the retried request because it still exceeds the model context window",
+            undefined,
+            goal,
+        );
     }
 
     /**
@@ -3402,6 +3457,8 @@ class RunExecutor {
             throw new RunnerExecutionError("INVALID_AGENT_DECISION", "Pending model repair stage does not match the requested stage");
         }
         let feedback = await this.readRepairFeedback(currentGoal, pending, control);
+        // 同一阶段的连续模型调用最多消耗一次超窗整理，避免反复压缩退化为无界重试。
+        let contextRecoveryUsed = false;
         while (true) {
             throwIfAborted(control);
             const started = await this.appendRepairAttempt(
@@ -3416,7 +3473,33 @@ class RunExecutor {
             pending = started.pending;
             try {
                 const value = await this.executeModelStage(
-                    () => operation(currentGoal, feedback),
+                    async () => {
+                        try {
+                            return await operation(currentGoal, feedback);
+                        } catch (error) {
+                            if (!(error instanceof ContextWindowRejectedError)) throw error;
+                            if (contextRecoveryUsed) throw this.contextWindowExceeded(currentGoal);
+                            contextRecoveryUsed = true;
+                            const recovered = await this.recoverContextWindow(currentGoal, control);
+                            if (recovered === undefined) {
+                                throw new RunnerExecutionError(
+                                    "CONTEXT_WINDOW_RECOVERY_FAILED",
+                                    "Provider rejected the request because it exceeds the context window, and the working window could not be compacted",
+                                    undefined,
+                                    currentGoal,
+                                );
+                            }
+                            currentGoal = recovered;
+                            try {
+                                return await operation(currentGoal, feedback);
+                            } catch (retryError) {
+                                if (retryError instanceof ContextWindowRejectedError) {
+                                    throw this.contextWindowExceeded(currentGoal);
+                                }
+                                throw retryError;
+                            }
+                        }
+                    },
                     control,
                     async (attempt, error) => {
                         currentGoal = await this.recordModelRequestFailure(currentGoal, input, stage, attempt, error, control);
@@ -3437,7 +3520,12 @@ class RunExecutor {
                 if (isExecutionAbortedError(error)) throw error;
                 if (error instanceof StageCheckpointFailure) throw error;
                 if (error instanceof StaleStageRequestError) throw error;
-                if (!(error instanceof ModelStageFeedbackError)) throw new StageExecutionFailure(error);
+                if (!(error instanceof ModelStageFeedbackError)) {
+                    throw new StageExecutionFailure(
+                        error,
+                        error instanceof RunnerExecutionError && error.committedGoal !== undefined ? error.committedGoal : undefined,
+                    );
+                }
                 if (error.feedback.stage !== stage
                     || error.feedback.goalId !== currentGoal.id
                     || error.feedback.runId !== currentGoal.state.run.id
@@ -5061,6 +5149,9 @@ class RunExecutor {
                     if (error instanceof StageExecutionFailure) {
                         if (error.original instanceof TrajectoryCommitMarkerError) {
                             throw error.original;
+                        }
+                        if (error.committedGoal !== undefined) {
+                            goal = error.committedGoal;
                         }
                         const stageError = toStableExecutionError(error.original);
                         if (stageError !== undefined) {

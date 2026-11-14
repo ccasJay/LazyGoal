@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 
 import {
     LLMRequestModeMismatchError,
+    classifyContextWindowRejection,
     classifyTransientModelFailure,
     type LLMAdapter,
     type LLMContentBlock,
@@ -378,6 +379,8 @@ export class OpenAICompatible implements LLMAdapter {
     private classifyFailure(error: unknown, control: ExecutionControl | undefined): unknown {
         if (isExecutionAbortedError(error)) return error;
         if (control?.signal?.aborted) return new ExecutionAbortedError();
+        const contextRejection = classifyContextWindowRejection(error);
+        if (contextRejection !== undefined) return contextRejection;
         const transientFailure = classifyTransientModelFailure(error);
         return transientFailure ?? error;
     }
