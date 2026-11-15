@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { readModelMessageText } from "../../llm-core/src/index";
 
 import type { NativeConversationIdentity } from "../../model-contracts/src/index";
 import { createGoal } from "../../runtime/src/domain";
@@ -119,11 +120,10 @@ test("无 Adapter 与 Binding 即可获得 Decide 请求、绑定契约与 frame
         assembler(),
     );
 
-    assert.equal(plan.request.messages[0]?.content, "GLOBAL\n\nPROFILE request system\n\nDECIDE");
-    assert.equal(
-        plan.request.messages.find((message) => message.content.startsWith("[Dynamic section: run_mode"))?.content,
-        "[Dynamic section: run_mode; source: RunState.mode]\nMODE plan",
-    );
+    assert.equal(readModelMessageText(plan.request.messages[0]!), "GLOBAL\n\nPROFILE request system\n\nDECIDE");
+    const runModeMessage = plan.request.messages.find(message => readModelMessageText(message).startsWith("[Dynamic section: run_mode"));
+    assert.equal(runModeMessage === undefined ? undefined : readModelMessageText(runModeMessage),
+        "[Dynamic section: run_mode; source: RunState.mode]\nMODE plan");
     assert.equal(plan.bundle.name, "plan_mode_approved_executing_agent_decision");
     assert.deepEqual(
         plan.toolDeclarations.map((declaration) => declaration.id).sort(),
@@ -155,10 +155,10 @@ test("Think 阶段无工具与结构化输出，只携带 Think 目标", async (
         { thinkGoal: "确认请求顺序" },
     );
 
-    assert.equal(plan.request.messages[0]?.content, "GLOBAL\n\nPROFILE request system\n\nTHINK");
+    assert.equal(readModelMessageText(plan.request.messages[0]!), "GLOBAL\n\nPROFILE request system\n\nTHINK");
     assert.equal(plan.request.tools, undefined);
     assert.equal(plan.request.structuredOutput, undefined);
-    assert.ok(plan.request.messages.some((message) => message.content.includes("确认请求顺序")));
+    assert.ok(plan.request.messages.some(message => readModelMessageText(message).includes("确认请求顺序")));
     assert.deepEqual(plan.toolDeclarations, []);
     assert.equal(plan.modelContextFrame.stage, "think");
 });
@@ -177,7 +177,7 @@ test("prompt_only Decide 在请求内携带响应形状指导", async () => {
         "prompt_only",
         "decide",
     );
-    const last = JSON.parse(plan.request.messages.at(-1)?.content ?? "{}") as {
+    const last = JSON.parse(plan.request.messages.at(-1) === undefined ? "{}" : readModelMessageText(plan.request.messages.at(-1)!)) as {
         readonly responseShapeGuide?: string;
     };
 
@@ -254,6 +254,6 @@ test("createStageMessages 生成带来源标记的临时阶段消息且不修改
     });
 
     assert.deepEqual(messages.map((message) => message.role), ["user", "assistant", "user"]);
-    assert.match(messages[0]!.content, /"source":"runtime_think_request"/);
-    assert.match(messages[2]!.content, /"source":"runtime_feedback"/);
+    assert.match(readModelMessageText(messages[0]!), /"source":"runtime_think_request"/);
+    assert.match(readModelMessageText(messages[2]!), /"source":"runtime_feedback"/);
 });

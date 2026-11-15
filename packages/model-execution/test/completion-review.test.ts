@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { readModelMessageText } from "../../llm-core/src/index";
 import {
     createBoundCompletionReviewDeclaration, createBoundModelOutputContractBundle,
     modelOutputBindings, type CompletionReviewResult,
@@ -110,7 +111,7 @@ for (const mode of ["strict", "prompt_only"] as const) {
             assert.deepEqual(request.tools?.map(tool => tool.id), ["system_review_completion"]);
             assert.equal(request.toolChoice, "required");
             assert.equal(request.structuredOutput, undefined);
-            const content = JSON.parse(request.messages[1]!.content);
+            const content = JSON.parse(readModelMessageText(request.messages[1]!));
             assert.deepEqual(content.candidate, reviewInput.candidate);
             assert.deepEqual(content.committedEvidence, []);
             assert.deepEqual(content.conversation, reviewInput.goal.state.messages);
@@ -186,12 +187,12 @@ test("review retains cited source observations once when many files are read", a
     let calls = 0;
     const adapter: LLMAdapter = { structuredOutputMode: "strict", async generate(request) {
         calls++;
-        const content = JSON.parse(request.messages[1]!.content);
+        const content = JSON.parse(readModelMessageText(request.messages[1]!));
         assert.deepEqual(content.candidate.evidenceSequences, sequences);
         assert.equal(content.committedEvidence.length, 40);
         assert.equal(content.committedEvidence.filter((event: TrajectoryEvent) => event.eventType === "tool_finished").length, 0);
         assert.equal(content.committedEvidence.filter((event: TrajectoryEvent) => event.eventType === "observation_recorded").length, 20);
-        assert.ok(request.messages[1]!.content.includes("docs/source-19.md:source"));
+        assert.ok(readModelMessageText(request.messages[1]!).includes("docs/source-19.md:source"));
         return reviewAcceptResponse("review-result");
     } };
     const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: new DropOldestContextCompactor() });
@@ -245,7 +246,7 @@ test("review receives the actual source request and scoped lookup without an opt
     const goal = { ...fixture.goal, state: { ...fixture.goal.state, messages: [testUserMessage(request)] } };
     const candidate = { kind: "complete" as const, summary: "A generic example is to split a monolith into microservices.", evidenceSequences: [] };
     const adapter: LLMAdapter = { structuredOutputMode: "strict", async generate(modelRequest) {
-        const content = JSON.parse(modelRequest.messages[1]!.content);
+        const content = JSON.parse(readModelMessageText(modelRequest.messages[1]!));
         assert.equal(content.conversation[0].content, request);
         assert.deepEqual(content.candidate, candidate);
         assert.equal(content.historicalLookup.sourceScope, "goal_history");
@@ -291,7 +292,7 @@ test("deduplicates paired tool output text while preserving action identity and 
 
     let recordedContent: any = null;
     const adapter: LLMAdapter = { structuredOutputMode: "strict", async generate(modelRequest) {
-        recordedContent = JSON.parse(modelRequest.messages[1]!.content);
+        recordedContent = JSON.parse(readModelMessageText(modelRequest.messages[1]!));
         return reviewAcceptResponse("c1");
     } };
     const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: new DropOldestContextCompactor() });
@@ -330,7 +331,7 @@ test("review request includes current stage and supports run_stage_complete cand
 
     let recordedContent: any = null;
     const adapter: LLMAdapter = { structuredOutputMode: "strict", async generate(modelRequest) {
-        recordedContent = JSON.parse(modelRequest.messages[1]!.content);
+        recordedContent = JSON.parse(readModelMessageText(modelRequest.messages[1]!));
         return reviewAcceptResponse("c1");
     } };
     const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: new DropOldestContextCompactor() });
@@ -357,7 +358,7 @@ test("review request includes historical accepted stage evidence for overall ver
 
     let recordedContent: any = null;
     const adapter: LLMAdapter = { structuredOutputMode: "strict", async generate(modelRequest) {
-        recordedContent = JSON.parse(modelRequest.messages[1]!.content);
+        recordedContent = JSON.parse(readModelMessageText(modelRequest.messages[1]!));
         return reviewAcceptResponse("c1");
     } };
     const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: new DropOldestContextCompactor() });
@@ -381,7 +382,7 @@ test("review omits unrelated assistant history while retaining original user con
     let called = false;
     const adapter: LLMAdapter = { structuredOutputMode: "strict", async generate(request) {
         called = true;
-        const content = JSON.parse(request.messages[1]!.content);
+        const content = JSON.parse(readModelMessageText(request.messages[1]!));
         assert.deepEqual(content.conversation, [messages[0], messages[2], messages[3]]);
         assert.deepEqual(content.conversationSources.map((source: { messageIndex: number }) => source.messageIndex), [0, 2, 3]);
         assert.equal(content.originalIntent, fixture.goal.definition.intent);
@@ -402,8 +403,8 @@ for (const mode of ["strict", "prompt_only"] as const) {
         test(`${mode} review reports ${code} without parsing text decisions`, async () => {
             const adapter: LLMAdapter = { structuredOutputMode: mode, async generate(request) {
                 assert.equal(request.structuredOutput, undefined);
-                assert.doesNotMatch(request.messages[0]!.content, /Respond with a JSON object/);
-                assert.match(request.messages[0]!.content, /Call system_review_completion exactly once/);
+                assert.doesNotMatch(readModelMessageText(request.messages[0]!), /Respond with a JSON object/);
+                assert.match(readModelMessageText(request.messages[0]!), /Call system_review_completion exactly once/);
                 return response;
             } };
             const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: new DropOldestContextCompactor() });

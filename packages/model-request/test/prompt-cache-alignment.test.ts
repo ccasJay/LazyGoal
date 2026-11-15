@@ -17,6 +17,7 @@ import {
     DropOldestContextCompactor,
 } from "../../context-budget/src/index";
 import { testAssistantMessage, testUserMessage } from "../../runtime/test/current-fixtures";
+import { readModelMessageText, type LLMRequest } from "../../llm-core/src/index";
 
 const policy = createModelContextBudgetPolicy({ modelInputBudget: 100_000 });
 const contextCompactor = new DropOldestContextCompactor();
@@ -24,10 +25,10 @@ function sha256(content: string): string {
     return createHash("sha256").update(content).digest("hex");
 }
 
-function dynamicSectionText(request: { readonly messages: readonly { readonly content: string }[] }): string {
+function dynamicSectionText(request: LLMRequest): string {
     return request.messages
-        .filter((message) => message.content.startsWith("[Dynamic section:"))
-        .map((message) => message.content)
+        .filter(message => readModelMessageText(message).startsWith("[Dynamic section:"))
+        .map(readModelMessageText)
         .join("\n");
 }
 
@@ -132,7 +133,7 @@ test("同一 Goal 在 Executing 阶段连续执行 10 步，Goal-stable 根前�
         assert.match(dynamicText, /- \[0\] 根前缀完全固定/);
         assert.match(dynamicText, /- \[1\] 尾部增量最小化/);
 
-        hashes.push(sha256(systemMessage.content));
+        hashes.push(sha256(readModelMessageText(systemMessage)));
     }
 
     assert.equal(hashes.length, 10);
@@ -229,7 +230,7 @@ test("工具调用指令仅进入尾部动态消息，Goal-stable 与 Epoch-stab
         );
 
         // 1. Goal-stable 根前缀 (system 消息)
-        goalHashes.push(sha256(request.messages[0]!.content));
+        goalHashes.push(sha256(readModelMessageText(request.messages[0]!)));
 
         // 2. Epoch-stable 会话前缀
         const conversationMessages = request.messages.slice(1, 1 + goal.state.messages.length);
@@ -238,7 +239,7 @@ test("工具调用指令仅进入尾部动态消息，Goal-stable 与 Epoch-stab
         // 3. 尾部动态控制消息
         const lastMessage = request.messages.at(-1)!;
         assert.equal(lastMessage.role, "user");
-        const payload = JSON.parse(lastMessage.content);
+        const payload = JSON.parse(readModelMessageText(lastMessage));
         assert.equal(typeof payload.responseShapeGuide, "string");
         assert.match(payload.responseShapeGuide, /Call exactly one declared tool/);
         assert.doesNotMatch(payload.responseShapeGuide, /Respond with a JSON object|"result"/);
@@ -331,7 +332,7 @@ test("任务批准前与任务批准后，前缀按需更新并在批准后恢�
         currentWorkingMemory,
         assembler,
     );
-    assert.match(unapprovedPlan.request.messages[0]!.content, /Active Decide Instructions:/);
+    assert.match(readModelMessageText(unapprovedPlan.request.messages[0]!), /Active Decide Instructions:/);
     assert.doesNotMatch(dynamicSectionText(unapprovedPlan.request), /Approved Goal Task Contract:/);
 
     // 2. 进入任务已批准执行阶段后，注入 Task 契约
@@ -345,7 +346,7 @@ test("任务批准前与任务批准后，前缀按需更新并在批准后恢�
         currentWorkingMemory,
         assembler,
     );
-    assert.match(executingPlan1.request.messages[0]!.content, /Active Decide Instructions:/);
+    assert.match(readModelMessageText(executingPlan1.request.messages[0]!), /Active Decide Instructions:/);
     assert.match(dynamicSectionText(executingPlan1.request), /Approved Goal Task Contract:/);
 
     // 3. 任务已批准执行阶段的后续步，哈希保持一致
@@ -360,7 +361,7 @@ test("任务批准前与任务批准后，前缀按需更新并在批准后恢�
         assembler,
     );
     assert.equal(
-        sha256(executingPlan1.request.messages[0]!.content),
-        sha256(executingPlan2.request.messages[0]!.content),
+        sha256(readModelMessageText(executingPlan1.request.messages[0]!)),
+        sha256(readModelMessageText(executingPlan2.request.messages[0]!)),
     );
 });

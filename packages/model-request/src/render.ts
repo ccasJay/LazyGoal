@@ -1,4 +1,4 @@
-import type { LLMMessage, LLMRequest } from "../../llm-core/src/index";
+import { readModelMessageText, type LLMMessage, type LLMRequest } from "../../llm-core/src/index";
 import type {
     ModelInferenceView,
     ModelTrajectoryContext,
@@ -141,7 +141,9 @@ export function renderRequest(
         while (cursor < exchanges.length && exchanges[cursor]!.conversationPosition <= message.sourceMessageIndex) {
             history.push(...exchanges[cursor++]!.messages);
         }
-        history.push({ role: message.role, content: message.content });
+        history.push(message.role === "user"
+            ? { role: "user", content: message.content }
+            : { role: "assistant", content: message.content });
     }
     for (; cursor < exchanges.length; cursor++) history.push(...exchanges[cursor]!.messages);
     const thinkOutputs = new Set(exchanges.flatMap(exchange => exchange.messages.flatMap(message => {
@@ -149,9 +151,10 @@ export function renderRequest(
         return [(JSON.parse(message.content) as { output: string }).output];
     })));
     const filteredStageMessages = stageMessages.filter((message, index) => {
-        if (message.role === "assistant" && thinkOutputs.has(message.content)) return false;
+        if (message.role === "assistant" && thinkOutputs.has(readModelMessageText(message))) return false;
         const next = stageMessages[index + 1];
-        return !(message.role === "user" && message.content.includes('"source":"runtime_think_request"') && next?.role === "assistant" && thinkOutputs.has(next.content));
+        return !(message.role === "user" && readModelMessageText(message).includes('"source":"runtime_think_request"')
+            && next?.role === "assistant" && thinkOutputs.has(readModelMessageText(next)));
     });
     return {
         messages: [
@@ -160,13 +163,13 @@ export function renderRequest(
                 content: renderer.render(view.prompt),
             },
             ...history,
-            ...filteredStageMessages.filter(message => !message.content.startsWith('{"source":"runtime_feedback",')),
+            ...filteredStageMessages.filter(message => !readModelMessageText(message).startsWith('{"source":"runtime_feedback",')),
             ...(dynamicSections ?? renderer.renderDynamicSections(view)).map((section) => ({
                 role: section.role,
                 content: section.content,
             })),
             renderViewWorkingContextMessage(view, responseShapeGuide),
-            ...filteredStageMessages.filter(message => message.content.startsWith('{"source":"runtime_feedback",')),
+            ...filteredStageMessages.filter(message => readModelMessageText(message).startsWith('{"source":"runtime_feedback",')),
         ],
     };
 }

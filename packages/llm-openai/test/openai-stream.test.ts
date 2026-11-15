@@ -209,11 +209,7 @@ test("OpenAI-compatible 只在完整 stop/tool_calls 终态交付响应并保留
         assert.deepEqual(completed.response.blocks.filter(block => block.type === "reasoning").map(block => block.type === "reasoning" ? block.source : undefined), [
             "reasoning_content", "thought",
         ]);
-        assert.deepEqual(completed.response.continuation, {
-            identity: completed.response.continuation?.identity,
-            reasoningContent: "summary",
-            thought: "extension",
-        });
+        assert.deepEqual(completed.response.continuation, { identity: completed.response.continuation?.identity });
         assert.equal((completed.response.providerMetadata as Record<string, unknown>).finishReason, "stop");
     });
     assert.equal(requests.length, 1);

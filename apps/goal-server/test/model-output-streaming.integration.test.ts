@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { OpenAICompatible } from "../../../packages/llm-openai/src/index";
-import { readToolCalls } from "../../../packages/llm-core/src/index";
+import { readModelAssistantReasoning, readModelAssistantText, readModelToolCalls, readToolCalls } from "../../../packages/llm-core/src/index";
 import { toolCallResponse } from "../../../packages/llm-core/test/response-fixtures";
 import { createToolRegistration, InMemoryToolRegistry, type Tool } from "../../../packages/tool-core/src/index";
 import type { JsonValue } from "../../../packages/contracts/src/index";
@@ -165,7 +165,7 @@ test("经正式无界面装配的真实 Chat Completions 流：屏障前无工�
     const baseURL = `http://127.0.0.1:${address.port}/v1`;
 
     const adapter = new OpenAICompatible({
-        apiKey: "fixture-key", baseURL, model: "stream-model", structuredOutputMode: "strict",
+        apiKey: "fixture-key", baseURL, model: "stream-model",
     });
     const runtime = await createRuntimeComposition({
         cwd: fixture.workspace,
@@ -202,9 +202,9 @@ test("经正式无界面装配的真实 Chat Completions 流：屏障前无工�
 
     // 流式请求仍是 Chat Completions：一次真实流式调用，工具与非流式模式一致。
     assert.equal(requests[0]?.body.stream, true);
-    assert.deepEqual(requests[0]?.body.stream_options, { include_usage: true });
-    assert.equal(requests[0]?.body.tool_choice, "required");
-    assert.equal(requests[0]?.body.parallel_tool_calls, false);
+    assert.equal(requests[0]?.body.stream_options, undefined);
+    assert.equal(requests[0]?.body.tool_choice, "auto");
+    assert.equal(requests[0]?.body.parallel_tool_calls, undefined);
     assert.equal(requests[0]?.path, "/v1/chat/completions");
     // 后续请求的来源可核验：提交历史包含助手工具调用与工具结果配对。
     const followUp = requests.find(entry => JSON.stringify(entry.body.messages).includes("call-bash-1"));
@@ -218,7 +218,7 @@ test("经正式无界面装配的真实 Chat Completions 流：屏障前无工�
         cwd: fixture.workspace,
         env: { LAZYGOAL_HOME: fixture.home } as NodeJS.ProcessEnv,
         dataDirectory: fixture.dataDirectory,
-        adapter: new OpenAICompatible({ apiKey: "fixture-key", baseURL, model: "stream-model", structuredOutputMode: "strict" }),
+        adapter: new OpenAICompatible({ apiKey: "fixture-key", baseURL, model: "stream-model" }),
         profile,
         toolRegistry: new InMemoryToolRegistry([createTestToolRegistration(bashTool(command => { executed.push(`unexpected:${String(command)}`); }))]),
     });
@@ -240,6 +240,166 @@ test("经正式无界面装配的真实 Chat Completions 流：屏障前无工�
         assert.deepEqual([...executed], ["ls -la"]);
     } finally {
         await reopened.resources.closeAll();
+        await fixture.cleanup();
+    }
+});
+
+test("OpenAI-compatible Goal 重启后按共享块续接已结算工具交换", { timeout: 120_000 }, async () => {
+    const fixture = await setupFixture();
+    const executed: string[] = [];
+    const requests: { readonly body: Record<string, any> }[] = [];
+    const environment = {
+        LAZYGOAL_HOME: fixture.home,
+        LLM_PROVIDER: "openai-compatible",
+        LLM_MODEL: "stream-model",
+        LLM_API_KEY: "fixture-key",
+        LLM_BASE_URL: "http://127.0.0.1:0/v1",
+        LLM_CONTEXT_WINDOW_TOKENS: "16000",
+        LLM_MAX_OUTPUT_TOKENS: "4096",
+        LLM_TOKENIZER_ENCODING: "cl100k_base",
+    } as NodeJS.ProcessEnv;
+    let baseURL = "";
+    let first: Awaited<ReturnType<typeof createRuntimeComposition>> | undefined;
+    let reopened: Awaited<ReturnType<typeof createRuntimeComposition>> | undefined;
+
+    const server = createServer((request: IncomingMessage, response: ServerResponse) => {
+        void (async () => {
+            let data = "";
+            request.setEncoding("utf8");
+            for await (const piece of request) data += piece;
+            const body = JSON.parse(data) as Record<string, any>;
+            const index = requests.push({ body });
+            const tools = body.tools as readonly { readonly function?: { readonly name?: string } }[] | undefined;
+            const offered = new Set(tools?.map(tool => tool.function?.name) ?? []);
+            response.writeHead(200, { "Content-Type": "text/event-stream" });
+
+            if (offered.has("system_review_completion")) {
+                response.end(frames([
+                    chatChunk({ tool_calls: [{ index: 0, id: `review-${index}`, type: "function", function: { name: "system_review_completion", arguments: JSON.stringify({ result: { kind: "accept" } }) } }] }),
+                    chatChunk({}, "tool_calls"),
+                ]) + DONE);
+                return;
+            }
+            if (index === 1) {
+                response.end(frames([
+                    chatChunk({ tool_calls: [{ index: 0, id: "call-discover-restart", type: "function", function: { name: "system_find_tools", arguments: JSON.stringify({ query: "bash" }) } }] }),
+                    chatChunk({}, "tool_calls"),
+                ]) + DONE);
+                return;
+            }
+            if (index === 2) {
+                response.end(frames([
+                    chatChunk({ tool_calls: [{ index: 0, id: "call-stage-restart", type: "function", function: { name: "system_start_run_stage", arguments: JSON.stringify({ target: "取证并完成", acceptanceCriteria: ["事实已提交"] }) } }] }),
+                    chatChunk({}, "tool_calls"),
+                ]) + DONE);
+                return;
+            }
+            if (index === 3) {
+                response.end(frames([
+                    chatChunk({ role: "assistant", content: "Evidence captured.", reasoning_content: "Replay this reasoning_content verbatim.", thought: "Keep this extension only in the generation record." }),
+                    chatChunk({ tool_calls: [{ index: 0, id: "call-bash-restart", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "ls -la" }) } }] }),
+                    // Chat Completions gateways may finish a complete tool call with stop.
+                    chatChunk({}, "stop"),
+                ]) + DONE);
+                return;
+            }
+            if (index === 4) {
+                response.end(frames([
+                    chatChunk({ tool_calls: [{ index: 0, id: "call-wait-restart", type: "function", function: { name: "system_wait_for_input", arguments: JSON.stringify({ reason: "Pause before recovery" }) } }] }),
+                    chatChunk({}, "tool_calls"),
+                ]) + DONE);
+                return;
+            }
+
+            const evidence = (body.messages as readonly { readonly role?: string; readonly content?: string }[] | undefined)
+                ?.flatMap(message => {
+                    if (typeof message.content !== "string") return [];
+                    try {
+                        const parsed = JSON.parse(message.content) as {
+                            readonly sourceSequence?: number;
+                            readonly observation?: { readonly output?: { readonly sourceSequence?: number } };
+                        };
+                        const sequence = parsed.sourceSequence ?? parsed.observation?.output?.sourceSequence;
+                        return sequence === undefined ? [] : [sequence];
+                    } catch { return []; }
+                }).at(-1);
+            assert.ok(typeof evidence === "number", "重启后的模型请求应包含已提交观察序号");
+            response.end(frames([
+                chatChunk({ tool_calls: [{
+                    index: 0, id: `call-complete-${index}`, type: "function",
+                    function: { name: "system_complete_task", arguments: JSON.stringify({ summary: "Recovered from the committed tool result.", evidenceSequences: [evidence], memoryPatch: null }) },
+                }] }),
+                chatChunk({}, "tool_calls"),
+            ]) + DONE);
+        })().catch(() => { response.destroy(); });
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    assert.ok(address !== null && typeof address !== "string");
+    baseURL = `http://127.0.0.1:${address.port}/v1`;
+    environment.LLM_BASE_URL = baseURL;
+
+    const runtimeOptions = () => ({
+        cwd: fixture.workspace,
+        env: environment,
+        dataDirectory: fixture.dataDirectory,
+        profile,
+        toolRegistry: new InMemoryToolRegistry([createTestToolRegistration(bashTool(command => { executed.push(command); }))]),
+    });
+    const goalId = "goal-openai-shared-block-restart";
+    try {
+        first = await createRuntimeComposition(runtimeOptions());
+        const launched = await first.commands.launch({ goalId, intent: "Use the tool once, then wait for recovery", profileId: profile.id, mode: "normal" });
+        if (!launched.ok) assert.fail(`${launched.error.code}: ${launched.error.message}`);
+        assert.equal(launched.kind, "waiting");
+        assert.equal(launched.goal.state.run.status, "waiting");
+        assert.deepEqual(executed, ["ls -la"]);
+        assert.equal(requests.length, 4);
+
+        const initialTrajectory = await first.readWorkspaceTrajectory({ goalId, runId: launched.goal.state.run.id });
+        const nativeCallEvent = initialTrajectory.committed.find(event => event.eventType === "model_response_received"
+            && event.payload.stage === "decide"
+            && "blocks" in event.payload.message
+            && readModelToolCalls(event.payload.message).some(call => call.callId === "call-bash-restart"));
+        assert.ok(nativeCallEvent?.eventType === "model_response_received");
+        assert.ok("blocks" in nativeCallEvent.payload.message);
+        assert.equal(nativeCallEvent.payload.message.content, undefined);
+        assert.equal(readModelAssistantText(nativeCallEvent.payload.message), "Evidence captured.");
+        assert.equal(readModelAssistantReasoning(nativeCallEvent.payload.message, "reasoning_content"), "Replay this reasoning_content verbatim.");
+        assert.equal(readModelAssistantReasoning(nativeCallEvent.payload.message, "thought"), "Keep this extension only in the generation record.");
+
+        await first.resources.closeAll();
+        first = undefined;
+
+        reopened = await createRuntimeComposition(runtimeOptions());
+        const resumed = await reopened.commands.resume({
+            ref: { goalId, runId: launched.goal.state.run.id },
+            action: { kind: "message", content: "Continue after restart" },
+        });
+        if (!resumed.ok) assert.fail(`${resumed.error.code}: ${resumed.error.message}`);
+        assert.equal(resumed.kind, "terminal");
+        assert.equal(resumed.goal.state.run.status, "completed", JSON.stringify(resumed.goal.state.run.stopReason));
+        assert.deepEqual(executed, ["ls -la"], "已结算工具在 Runner 重启后不能再次执行");
+
+        const resumedRequest = requests.find(entry => (entry.body.messages as readonly { readonly role?: string; readonly content?: string }[])
+            .some(message => message.role === "user" && message.content === "Continue after restart"));
+        assert.ok(resumedRequest, "恢复后的请求应包含新的会话输入");
+        const assistant = (resumedRequest.body.messages as readonly Record<string, any>[])
+            .find(message => message.role === "assistant" && message.tool_calls?.some((call: any) => call.id === "call-bash-restart"));
+        assert.ok(assistant, "原生 assistant 工具调用应在恢复请求中原样出现");
+        assert.equal(assistant.reasoning_content, "Replay this reasoning_content verbatim.");
+        assert.equal(assistant.thought, undefined, "thought 扩展只记录，不原生回放");
+        assert.deepEqual(assistant.tool_calls.find((call: any) => call.id === "call-bash-restart"), {
+            id: "call-bash-restart", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "ls -la" }) },
+        });
+        assert.ok((resumedRequest.body.messages as readonly Record<string, any>[])
+            .some(message => message.role === "tool" && message.tool_call_id === "call-bash-restart"));
+    } finally {
+        await first?.resources.closeAll();
+        await reopened?.resources.closeAll();
+        server.closeAllConnections();
+        await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
         await fixture.cleanup();
     }
 });

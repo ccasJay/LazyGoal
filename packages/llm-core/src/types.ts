@@ -2,7 +2,11 @@ import type { JsonSchema202012, JsonValue } from "../../contracts/src/index";
 
 import type {
     ModelConversationMessage,
+    ModelContentBlock,
+    ModelReasoningBlock,
+    ModelTextBlock,
     ModelToolCall,
+    ModelToolCallBlock,
     ModelContinuation,
 } from "../../model-contracts/src/index";
 
@@ -132,7 +136,7 @@ export class LLMRequestModeMismatchError extends Error {
  * const format: LLMTextBlockFormat = request.structuredOutput === undefined ? "plain" : "json";
  * ```
  */
-export type LLMTextBlockFormat = "plain" | "json";
+export type LLMTextBlockFormat = ModelTextBlock["format"];
 
 /**
  * 完整响应中的正文块。
@@ -145,15 +149,7 @@ export type LLMTextBlockFormat = "plain" | "json";
  * const block: LLMTextBlock = { index: 0, type: "text", format: "plain", text: "检查完成" };
  * ```
  */
-export interface LLMTextBlock {
-    /** 本次响应内稳定且唯一的块索引。 */
-    readonly index: number;
-    readonly type: "text";
-    /** 正文来源格式；结构化输出为 `json`。 */
-    readonly format: LLMTextBlockFormat;
-    /** 该块的完整正文。 */
-    readonly text: string;
-}
+export type LLMTextBlock = ModelTextBlock;
 
 /**
  * 完整响应中的公开 reasoning 块。
@@ -166,15 +162,7 @@ export interface LLMTextBlock {
  * const block: LLMReasoningBlock = { index: 1, type: "reasoning", text: "先核对文件差异" };
  * ```
  */
-export interface LLMReasoningBlock {
-    /** 本次响应内稳定且唯一的块索引。 */
-    readonly index: number;
-    readonly type: "reasoning";
-    /** 供应商区分公开 reasoning 扩展字段时保留其来源。 */
-    readonly source?: "reasoning_content" | "thought";
-    /** 该块的完整 reasoning 文本。 */
-    readonly text: string;
-}
+export type LLMReasoningBlock = ModelReasoningBlock;
 
 /**
  * 完整响应中的工具调用块。
@@ -190,20 +178,10 @@ export interface LLMReasoningBlock {
  * };
  * ```
  */
-export interface LLMToolCallBlock {
-    /** 本次响应内稳定且唯一的块索引。 */
-    readonly index: number;
-    readonly type: "tool_call";
-    /** 供应商工具调用 ID；缺失时由协议规则分配一次本地身份。 */
-    readonly callId: string;
-    /** 模型选择的工具名。 */
-    readonly toolId: string;
-    /** 工具参数 JSON 文本。 */
-    readonly argumentsJson: string;
-}
+export type LLMToolCallBlock = ModelToolCallBlock;
 
 /** 一次模型响应的有序内容块。 */
-export type LLMContentBlock = LLMTextBlock | LLMReasoningBlock | LLMToolCallBlock;
+export type LLMContentBlock = ModelContentBlock;
 
 /**
  * 供应商无关的完整模型响应。

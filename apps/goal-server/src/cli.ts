@@ -316,7 +316,9 @@ export async function runServerSession(
                     provider: target.config.provider,
                     ...(target.profileId === undefined ? {} : { profileId: target.profileId }),
                     modelId: selectedModel.id,
-                    structuredOutputMode: configuredSelection.structuredOutputMode,
+                    ...(target.config.provider === "openai-compatible"
+                        ? {}
+                        : { structuredOutputMode: configuredSelection.structuredOutputMode }),
                     ...(selectedModel.contextWindowTokens === undefined ? {} : { contextWindowTokens: selectedModel.contextWindowTokens }),
                     ...(selectedModel.maxOutputTokens === undefined ? {} : { maxOutputTokens: selectedModel.maxOutputTokens }),
                     ...(selectedModel.executionApi === undefined ? {} : { executionApi: selectedModel.executionApi }),
@@ -355,7 +357,9 @@ export async function runServerSession(
                 provider: config.provider,
                 ...(targetProfileId === undefined ? {} : { profileId: targetProfileId }),
                 modelId: model.id,
-                structuredOutputMode: current.structuredOutputMode,
+                ...(config.provider === "openai-compatible"
+                    ? {}
+                    : { structuredOutputMode: current.structuredOutputMode }),
                 ...(model.contextWindowTokens === undefined ? {} : { contextWindowTokens: model.contextWindowTokens }),
                 ...(model.maxOutputTokens === undefined ? {} : { maxOutputTokens: model.maxOutputTokens }),
                 ...(model.executionApi === undefined ? {} : { executionApi: model.executionApi }),

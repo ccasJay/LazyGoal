@@ -1,4 +1,10 @@
-import { sameNativeIdentity, type NativeConversationIdentity } from "../../model-contracts/src/index";
+import {
+    readModelAssistantReasoning,
+    readModelAssistantText,
+    readModelToolCalls,
+    sameNativeIdentity,
+    type NativeConversationIdentity,
+} from "../../model-contracts/src/index";
 import OpenAI from "openai";
 import { randomUUID } from "node:crypto";
 
@@ -147,8 +153,8 @@ export class OpenAICompatible implements LLMAdapter {
                 }),
                 continuation: {
                     identity: this.nativeConversationIdentity,
-                    ...(reasoningContent === undefined ? {} : { reasoningContent }),
-                    ...(thought === undefined ? {} : { thought }),
+                    ...(this.nativeConversationIdentity.provider === "openai" && reasoningContent !== undefined ? { reasoningContent } : {}),
+                    ...(this.nativeConversationIdentity.provider === "openai" && thought !== undefined ? { thought } : {}),
                 },
                 providerMetadata: {
                     requestId: response.id,
@@ -337,8 +343,12 @@ export class OpenAICompatible implements LLMAdapter {
                     blocks: orderedBlocks,
                     continuation: {
                         identity: this.nativeConversationIdentity,
-                        ...(reasoningContent === undefined ? {} : { reasoningContent: reasoningContent.text }),
-                        ...(thought === undefined ? {} : { thought: thought.text }),
+                        ...(this.nativeConversationIdentity.provider === "openai" && reasoningContent !== undefined
+                            ? { reasoningContent: reasoningContent.text }
+                            : {}),
+                        ...(this.nativeConversationIdentity.provider === "openai" && thought !== undefined
+                            ? { thought: thought.text }
+                            : {}),
                     },
                     providerMetadata: {
                         ...(requestId === undefined ? {} : { requestId }),
@@ -544,13 +554,15 @@ function toOpenAIMessages(
         if (message.continuation !== undefined && !sameNativeIdentity(message.continuation.identity, identity)) {
             throw new LLMRequestModeMismatchError("Native history belongs to another provider, endpoint, model or protocol");
         }
+        const reasoningContent = readModelAssistantReasoning(message, "reasoning_content");
+        const toolCalls = readModelToolCalls(message);
         return {
-            role: "assistant", content: message.content,
-            ...(message.toolCalls === undefined ? {} : { tool_calls: message.toolCalls.map(call => ({
+            role: "assistant", content: readModelAssistantText(message),
+            ...(toolCalls.length === 0 ? {} : { tool_calls: toolCalls.map(call => ({
                 id: call.callId, type: "function" as const, function: { name: call.toolId, arguments: call.argumentsJson },
             })) }),
-            ...(message.continuation?.reasoningContent === undefined ? {} : {
-                reasoning_content: message.continuation.reasoningContent,
+            ...(reasoningContent === undefined ? {} : {
+                reasoning_content: reasoningContent,
             }),
         };
     });

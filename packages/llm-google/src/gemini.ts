@@ -1,6 +1,7 @@
 import { isRecord } from "../../contracts/src/index";
 import {
     isModelAssistantMessage,
+    readModelAssistantText,
     sameNativeIdentity,
     type NativeConversationIdentity,
     type GeminiContinuationPart,
@@ -595,7 +596,7 @@ function toGeminiInput(
                     role: "model",
                     parts: msg.continuation?.parts !== undefined
                         ? structuredClone(msg.continuation.parts) as NonNullable<Content["parts"]>
-                        : [{ text: msg.content }],
+                        : [{ text: readModelAssistantText(msg) }],
                 });
                 break;
             case "tool": {

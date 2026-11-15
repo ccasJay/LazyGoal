@@ -1,5 +1,5 @@
 import type { NativeConversationIdentity } from "../../model-contracts/src/index";
-import type { LLMMessage, LLMRequest } from "../../llm-core/src/index";
+import { readModelMessageText, type LLMMessage, type LLMRequest } from "../../llm-core/src/index";
 import type { StructuredOutputMode } from "../../llm-core/src/index";
 import type { Goal } from "../../runtime/src/domain";
 import type { WorkingMemory } from "../../working-memory/src/index";
@@ -243,7 +243,7 @@ async function assembleTrajectoryContext(
                     role: message.role,
                     content: message.content,
                 })),
-                ...stageMessages.filter(message => !message.content.startsWith('{"source":"runtime_feedback",')),
+                ...stageMessages.filter(message => !readModelMessageText(message).startsWith('{"source":"runtime_feedback",')),
                 ...sectionPlan.requestMessages.map((message) => ({
                     role: message.role,
                     content: message.content,
@@ -255,7 +255,7 @@ async function assembleTrajectoryContext(
                     view.contextEpoch,
                     undefined,
                 ),
-                ...stageMessages.filter(message => message.content.startsWith('{"source":"runtime_feedback",')),
+                ...stageMessages.filter(message => readModelMessageText(message).startsWith('{"source":"runtime_feedback",')),
             ],
         };
     });
@@ -442,6 +442,9 @@ function renderFinalRequest<Result = AgentDecision>(
         );
         return {
             ...request,
+            ...(nativeIdentity?.provider === "openai-compatible"
+                ? { acceptedFinishReasons: ["stop", "tool_calls"] as const }
+                : {}),
             ...(requiresToolCall
                 ? {
                     tools: currentToolDeclarations.map((declaration) => ({

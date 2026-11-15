@@ -5,7 +5,7 @@ import { test } from "node:test";
 
 import type { LLMAdapter } from "../../llm-core/src/index";
 import type { LLMRequest, LLMResponse, LLMStreamEvent } from "../../llm-core/src/index";
-import { readAssistantText } from "../../llm-core/src/index";
+import { readAssistantText, readModelMessageText, readModelToolCalls } from "../../llm-core/src/index";
 import { readToolCalls } from "../../llm-core/src/index";
 import { blockResponse, textResponse } from "../../llm-core/test/response-fixtures";
 import {
@@ -288,12 +288,13 @@ test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 AgentDecisio
     );
     assert.equal(adapter.requests[0]?.messages[0]?.role, "system");
     assert.equal(adapter.requests[0]?.messages.at(-1)?.role, "user");
-    const systemContent = adapter.requests[0]?.messages[0]?.content ?? "";
+    const systemMessage = adapter.requests[0]?.messages[0];
+    const systemContent = systemMessage === undefined ? "" : readModelMessageText(systemMessage);
     assert.match(systemContent, /Global Overview:/);
     assert.match(systemContent, /Profile System Prompt:\n你是一个执行代理。/);
     assert.match(systemContent, /Profile Instructions:\n1\. 检查当前上下文/);
     assert.match(systemContent, /call exactly one declared Tool/);
-    const dynamicContent = adapter.requests[0]?.messages.slice(3, -1).map(({ content }) => content).join("\n") ?? "";
+    const dynamicContent = adapter.requests[0]?.messages.slice(3, -1).map(readModelMessageText).join("\n") ?? "";
     assert.match(
         dynamicContent,
         /Authorized business Tool definitions \(only these business Tool IDs may be requested; system tools are declared separately for this request\):\n\[\]/,
@@ -301,7 +302,7 @@ test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 AgentDecisio
     assert.match(dynamicContent, /Approved Goal Task Contract:/);
     assert.match(dynamicContent, /Objective: 完成单步执行/);
     const workingContext = JSON.parse(
-        adapter.requests[0]?.messages.at(-1)?.content ?? "",
+        readModelMessageText(adapter.requests[0]!.messages.at(-1)!),
     ) as Record<string, unknown>;
     assert.deepEqual(workingContext.phase, "executing");
     assert.equal("intent" in workingContext, false);
@@ -501,10 +502,9 @@ test("LLMStepExecutor 使用传入的授权 ToolDefinition 生成 Tool Action", 
         },
     );
     assert.equal(adapter.requests.length, 1);
-    assert.match(
-        adapter.requests[0]?.messages.find((message) => message.content.includes("Dynamic section: authorized_tools"))?.content ?? "",
-        /read_file/,
-    );
+    const authorizedToolsMessage = adapter.requests[0]?.messages.find(message =>
+        readModelMessageText(message).includes("Dynamic section: authorized_tools"));
+    assert.match(authorizedToolsMessage === undefined ? "" : readModelMessageText(authorizedToolsMessage), /read_file/);
 });
 
 test("Adapter 原始异常会原样传播且不会重试", async () => {
@@ -986,10 +986,10 @@ test("Runner 在读取请求纠错后继续取证，反馈和无效调用不进�
             if (requests.length === 1) return call("bash", { command: "ls -la" });
             if (requests.length === 2) return call("read_file", { command: "" });
             if (requests.length === 3) {
-                const feedback = request.messages.find(message => message.content.includes('"source":"runtime_feedback"'));
+                const feedback = request.messages.find(message => readModelMessageText(message).includes('"source":"runtime_feedback"'));
                 assert.ok(feedback);
-                assert.match(feedback.content, /missing_field/);
-                assert.match(feedback.content, /continue the original task/);
+                assert.match(readModelMessageText(feedback), /missing_field/);
+                assert.match(readModelMessageText(feedback), /continue the original task/);
                 assert.deepEqual(executed, ["bash"]);
                 return call("read_file", { path: "AGENTS.md" });
             }
@@ -1031,7 +1031,7 @@ test("Runner 在读取请求纠错后继续取证，反馈和无效调用不进�
     assert.equal(requests.length, 5);
     assert.deepEqual(executed, ["bash", "read_file"]);
     const messages = (await store.restore(goalId))!.state.messages;
-    assert.equal(messages.some(message => /runtime_feedback|invalid-read|__lazygoal_null__/.test(message.content)), false);
+    assert.equal(messages.some(message => /runtime_feedback|invalid-read|__lazygoal_null__/.test(readModelMessageText(message))), false);
     const events = await trajectoryStore.read({ goalId, runId: "run-repair-read" });
     assert.equal(events.filter(event => event.payload.type === "model_repair_feedback_recorded").length, 1);
     assert.equal(events.filter(event => event.payload.type === "tool_started").length, 2);
@@ -1151,7 +1151,7 @@ test("Runner 把零调用正文本提交为 Assistant 消息，不推进 Step �
     assert.deepEqual(executed, [], "零调用正文不得触发工具执行");
     assert.equal(result.state.stepCount, 0, "零调用正文不得推进 Step");
     const messages = (await store.restore(goalId))!.state.messages;
-    const committed = messages.filter(message => message.role === "assistant" && message.content.startsWith("我先说明判断"));
+    const committed = messages.filter(message => message.role === "assistant" && readModelMessageText(message).startsWith("我先说明判断"));
     assert.equal(committed.length, 3, "三次尝试的正文都应已提交");
     const events = await trajectoryStore.read({ goalId, runId: "run-assistant-text" });
     const feedback = events.filter(event => event.payload.type === "model_repair_feedback_recorded");
@@ -1390,12 +1390,12 @@ test("OpenAI-compatible Decide rejects a multi-call response before execution an
     assert.equal(requests[2]?.toolChoice, "auto");
     assert.equal(requests[3]?.toolChoice, "auto");
     const firstReplyMessages = requests[1]?.messages.filter(message => message.role === "assistant"
-        && message.content.includes("I will read a.md and b.md.")) ?? [];
-    assert.deepEqual(firstReplyMessages.map(message => ({ role: message.role, content: message.content.slice(-800) })), []);
+        && readModelMessageText(message).includes("I will read a.md and b.md.")) ?? [];
+    assert.deepEqual(firstReplyMessages.map(message => ({ role: message.role, content: readModelMessageText(message).slice(-800) })), []);
     assert.equal(requests[2]?.messages.some(message => message.role === "assistant"
-        && message.toolCalls?.some(call => call.callId === "call-a" || call.callId === "call-b")), false);
+        && readModelToolCalls(message).some(call => call.callId === "call-a" || call.callId === "call-b")), false);
     assert.equal(requests[3]?.messages.some(message => message.role === "assistant"
-        && message.toolCalls?.some(call => call.callId === "call-invalid")), false);
+        && readModelToolCalls(message).some(call => call.callId === "call-invalid")), false);
     const parseFeedback = (request: LLMRequest | undefined, code: string) => request?.messages
         .filter((message): message is Extract<typeof message, { readonly role: "user" }> => message.role === "user")
         .map(message => {

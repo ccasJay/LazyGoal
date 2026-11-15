@@ -1,6 +1,6 @@
 import { encodePathSegment } from "./path-segment";
 import { goalBlobsDirectory, runModelInputsPath } from "./goal-workspace-layout";
-import { isModelConversationMessage } from "../../model-contracts/src/index";
+import { isModelLegacyConversationMessage } from "../../model-contracts/src/index";
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
@@ -180,7 +180,7 @@ export class JsonFileModelInputStore implements ModelInputStore {
                 }
                 const { ref: _, source, ...fields } = message;
                 const restored = { ...fields, content: body };
-                if (!isModelConversationMessage(restored)) throw new Error("Invalid model input message");
+                if (!isModelLegacyConversationMessage(restored)) throw new Error("Invalid model input message");
                 messages.push({ ...restored, source });
             }
             result.push({

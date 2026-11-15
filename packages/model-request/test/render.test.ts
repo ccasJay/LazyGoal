@@ -1,6 +1,7 @@
 import { CONTEXT_LOOKUP_SOURCE_SCOPE } from "../../model-context/src/index";
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { readModelMessageText } from "../../llm-core/src/index";
 
 import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
 import type {
@@ -112,18 +113,18 @@ test("renderRequest 按固定 system → Conversation → 动态 section → 本
 
     assert.equal(request.messages.length, 7);
     assert.equal(request.messages[0]?.role, "system");
-    assert.equal(request.messages[0]?.content, renderer.render(view.prompt));
+    assert.equal(readModelMessageText(request.messages[0]!), renderer.render(view.prompt));
     assert.deepEqual(
         request.messages.slice(1, 3),
         conversation.map(({ role, content }) => ({ role, content })),
     );
     assert.ok(request.messages.slice(3, 6).every((message) => message.role === "user"));
-    assert.match(request.messages[3]?.content ?? "", /section: run_mode/);
-    assert.match(request.messages[4]?.content ?? "", /section: authorized_tools/);
-    assert.match(request.messages[5]?.content ?? "", /section: working_memory/);
+    assert.match(readModelMessageText(request.messages[3]!), /section: run_mode/);
+    assert.match(readModelMessageText(request.messages[4]!), /section: authorized_tools/);
+    assert.match(readModelMessageText(request.messages[5]!), /section: working_memory/);
     assert.equal(request.messages.at(-1)?.role, "user");
     assert.deepEqual(
-        JSON.parse(request.messages.at(-1)?.content ?? ""),
+        JSON.parse(readModelMessageText(request.messages.at(-1)!)),
         {
             phase: "executing",
             execution: { stepCount: 0 },
@@ -145,8 +146,8 @@ test("executing 请求使用授权 ToolDefinition 渲染且不授予未授权能
         authorizedTools: [readFileTool],
     });
     const request = renderRequest(view, renderer);
-    const systemContent = request.messages[0]?.content ?? "";
-    const dynamicText = request.messages.slice(1, -1).map((message) => message.content).join("\n");
+    const systemContent = readModelMessageText(request.messages[0]!);
+    const dynamicText = request.messages.slice(1, -1).map(readModelMessageText).join("\n");
 
     assert.match(systemContent, /Active Decide Instructions:/);
     assert.doesNotMatch(systemContent, /Plan Phase|probe/i);
@@ -156,7 +157,7 @@ test("executing 请求使用授权 ToolDefinition 渲染且不授予未授权能
     assert.match(dynamicText, /读取工作区内文本文件/);
     assert.match(dynamicText, /Objective: 实现三阶段上下文/);
 
-    const control = JSON.parse(request.messages.at(-1)?.content ?? "");
+    const control = JSON.parse(readModelMessageText(request.messages.at(-1)!));
     assert.equal("preparationInputEvidence" in control, false);
     assert.equal("visibleConversationMessageMap" in control, false);
 });
@@ -175,9 +176,9 @@ test("Conversation 与 Working Context 保持原始内容，不执行 Nunjucks �
     );
     const request = renderRequest(view, renderer);
 
-    assert.equal(request.messages[1]?.content, "{{ profile.systemPrompt }}");
+    assert.equal(readModelMessageText(request.messages[1]!), "{{ profile.systemPrompt }}");
     assert.deepEqual(
-        JSON.parse(request.messages.at(-1)?.content ?? ""),
+        JSON.parse(readModelMessageText(request.messages.at(-1)!)),
         {
             phase: "executing",
             execution: { stepCount: 0 },
@@ -220,7 +221,7 @@ test("Working Memory 在独立动态 section 中注入，不重复进入本轮�
     const request = renderRequest(target, renderer);
     const messages = renderer.renderDynamicSections(target);
     assert.equal(messages.find((message) => message.sectionId === "working_memory")?.role, "user");
-    assert.equal("workingMemory" in JSON.parse(request.messages.at(-1)?.content ?? ""), false);
+    assert.equal("workingMemory" in JSON.parse(readModelMessageText(request.messages.at(-1)!)), false);
 });
 
 test("当前请求在控制消息中携带带时效边界的历史 Lookup Result", () => {

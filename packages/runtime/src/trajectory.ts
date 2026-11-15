@@ -1,5 +1,6 @@
 import {
     isModelAssistantMessage,
+    readModelToolCalls,
     type ModelAssistantMessage,
     type NativeConversationIdentity,
 } from "../../model-contracts/src/index";
@@ -1346,11 +1347,12 @@ function assertPayload(payload: unknown, eventType: unknown): void {
             || !isModelAssistantMessage(payload.message) || payload.message.continuation === undefined) {
             throw new TrajectoryProtocolError("model_response_received contains invalid native response data");
         }
-        if (payload.stage === "decide" && payload.message.toolCalls?.length !== 1
-            || payload.stage === "think" && (payload.message.toolCalls?.length ?? 0) !== 0) {
+        const toolCalls = readModelToolCalls(payload.message);
+        if (payload.stage === "decide" && toolCalls.length !== 1
+            || payload.stage === "think" && toolCalls.length !== 0) {
             throw new TrajectoryProtocolError("model_response_received tool calls disagree with stage");
         }
-        for (const call of payload.message.toolCalls ?? []) {
+        for (const call of toolCalls) {
             let argumentsValue: unknown;
             try { argumentsValue = JSON.parse(call.argumentsJson); }
             catch { throw new TrajectoryProtocolError("model_response_received contains invalid tool argument JSON"); }
@@ -1361,7 +1363,7 @@ function assertPayload(payload: unknown, eventType: unknown): void {
     }
     if (eventType === "model_context_frame") {
         if (payload.nativeIdentity !== undefined && payload.nativeIdentity !== null
-            && !isModelAssistantMessage({ role: "assistant", content: "", continuation: {
+            && !isModelAssistantMessage({ role: "assistant", blocks: [], continuation: {
                 identity: payload.nativeIdentity,
                 ...(isRecord(payload.nativeIdentity) && payload.nativeIdentity.protocol === "gemini-content" ? { parts: [] } : {}),
             } })) throw new TrajectoryProtocolError("model_context_frame.nativeIdentity is invalid");

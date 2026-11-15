@@ -7,6 +7,7 @@ import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
 import { opencodeGoProvider } from "@earendil-works/pi-ai/providers/opencode-go";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
+import { readModelAssistantText } from "../../model-contracts/src/index";
 import {
     LLMConfigurationError,
     LLMRequestModeMismatchError,
@@ -568,8 +569,9 @@ export class PiAiAdapter implements LLMAdapter {
             } else if (message.role === "user") {
                 messages.push({ role: "user", content: message.content, timestamp: 0 });
             } else {
+                const content = message.role === "assistant" ? readModelAssistantText(message) : message.content;
                 messages.push({
-                    role: "assistant", content: [{ type: "text", text: message.content }],
+                    role: "assistant", content: [{ type: "text", text: content }],
                     api: this.model.api, provider: this.model.provider, model: this.model.id,
                     timestamp: 0, stopReason: "stop",
                     usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
