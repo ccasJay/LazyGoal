@@ -135,7 +135,10 @@ test("真实 SDK 流映射分片文本、两个工具索引、晚到身份与用
             inputTokens: 11, outputTokens: 7, cachedInputTokens: 3,
         });
         assert.deepEqual((response.providerMetadata as Record<string, unknown>).finishReason, "tool_calls");
-        assert.deepEqual(response.continuation?.reasoningContent, "先看实现");
+        assert.deepEqual(response.blocks.find(block => block.type === "reasoning" && block.source === "reasoning_content"), {
+            index: 1, type: "reasoning", source: "reasoning_content", text: "先看实现",
+        });
+        assert.equal("reasoningContent" in (response.continuation ?? {}), false);
         // 已结束的工具块只在整个响应正常结束后才出现，且与最终响应逐项一致。
         const completedKinds = events.filter(event => event.kind === "content_block_completed").map(event => event.kind === "content_block_completed" ? event.block.index : -1);
         assert.deepEqual(completedKinds, [0, 1, 2, 3]);
