@@ -2,6 +2,8 @@
 
 LazyGoal 是 Goal 驱动、可恢复的 Agent Runtime。使用 `node bin/lazygoal.cjs web` 启动本机服务；评测命令从 `node bin/lazygoal.cjs eval` 进入。依赖与常用脚本见 [package.json](./package.json)。
 
+Web 服务和 Worker 共用启动时解析的代理配置。显式 HTTP(S) 代理变量优先；macOS 上没有显式配置时，读取系统的 HTTP 或 HTTPS 代理。使用代理需要支持 `--use-env-proxy` 的 Node.js，代理故障会使对应请求失败。详见 [Goal Server 出站代理](./apps/goal-server/notes/overview.md#出站代理)。
+
 确定性回归由 `npm test` 按 `packages/<pkg>/test/`、`apps/*/test/`、`benchmarks/**/test/` 与 `scripts/*.test.mjs` 发现测试；各单元以源码相对路径互相消费，不依赖项目构建产物，产物目录（`dist`/`lib`/`build`）不参与模块解析与依赖检查。
 
 当前实现的领域状态与恢复见 [Runtime](./packages/runtime/notes/overview.md)，服务装配见 [Goal Server](./apps/goal-server/notes/overview.md)。各单元的说明和语义表由自身维护：

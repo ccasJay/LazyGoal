@@ -24,7 +24,7 @@ Activity 助手消息必须携带 `process`、`answer` 或 `notice` 用途；用
 
 轨迹查询 DTO 把可见边界显式放到 wire 上：`BrowserTrajectoryPage` 携带服务端确定的 `committedThroughSequence` 与不透明游标，`BrowserExecutionUnitPage` 只包含显式归属该执行单元的事件，`BrowserTrajectoryTimeline` 提供固定水位的事件计数、时间范围与分桶类型分布。游标是字符串，不由前端解析或拼接；列表、详情、单元与时间线必须在同一水位下读取。详情额外携带 `BrowserTrajectoryCorrelation`、关联序号组与 `BrowserTrajectoryPayloadReference`，大型载荷按引用单独读取。全文搜索不在 wire 上提供。
 
-会话指标 DTO 的 `tokensPerSecond` 表示应用观察到的端到端 Provider 请求输出速率；其分子使用 Provider 确认的输出 token，时间语义和测量覆盖由 [指标投影模块](../../session-metrics/notes/overview.md)定义。
+会话指标 DTO 的 `tokensPerSecond` 表示应用观察到的端到端 Provider 请求输出速率；其分子使用 Provider 确认的输出 token，时间语义和测量覆盖由 [指标投影模块](../../session-metrics/notes/overview.md)定义。`contextCapacity` 独立携带模型窗口或用户配置的容量；`contextUsage` 仅在当前 Run 的最近一次模型调用成功结算且属于当前模型时提供，未结算时仍可以只提供容量。
 
 `BrowserSessionStep.sourceEventId` 指向已提交 Trajectory 事件，并可携带 Action 身份和已验证的相邻边界；`BrowserGoalActivityEvent.sourceEventId/sourceCursor` 属于独立的 ExecutionStream 来源。不同来源即使字符串相同也不得互相去重；`actionId` 是前端将同一调用的实时状态和历史步骤协调起来的稳定身份。实时 DTO 只含有界、白名单的输入/结果摘要和公开边界类型，不含隐藏推理、任意工具载荷或输出正文。该身份形状服务于可重建 UI，不作为持久化 ActivityGroup Schema。
 

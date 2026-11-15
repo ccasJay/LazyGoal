@@ -8884,6 +8884,7 @@
      "SessionMetricsSnapshot",
      "MetricsCoverage",
      "RunSessionMetrics",
+     "SessionMetricsContextCapacity",
      "SessionMetricsContextUsage"
     ],
     "outputDirectory": "packages/web-contracts/src/generated",

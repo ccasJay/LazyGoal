@@ -4,5 +4,6 @@
 
 | 概念 | 简明含义 | 归属模块 | 权威说明 |
 | --- | --- | --- | --- |
-| SessionMetricsSnapshot | 查询时计算的指标快照；端到端输出速率是 Provider 确认输出 token 总量除以请求耗时总秒数。 | [会话指标](../README.md) | [模块说明](./overview.md) |
+| SessionMetricsSnapshot | 查询时计算的指标快照；Context 容量独立于调用状态，只有当前 Run 最近一次模型调用成功结算且属于当前模型时才提供用量。 | [会话指标](../README.md) | [模块说明](./overview.md) |
+| Context 工作窗口容量 | 模型窗口或用户配置的容量，不依赖调用用量是否已结算。 | [会话指标](../README.md) | [模块说明](./overview.md) |
 | MetricsCoverage | 用量事实覆盖状态。 | [会话指标](../README.md) | [模块说明](./overview.md) |

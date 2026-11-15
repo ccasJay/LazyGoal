@@ -613,9 +613,23 @@ async function assembleRuntimeComposition(
     const modelCapabilities = readModelCapabilities(env, configuredEstimator);
     const modelInputEstimator = modelCapabilities?.tokenEstimator ?? configuredEstimator;
     const contextConfig = options.contextConfig ?? await loadContextConfig({ homePaths });
+    // 选择快照可能来自在线目录且不含容量；此时以该 Goal 所属 Provider 配置声明的窗口为准。
+    const configuredContextWindowTokens = (selection: GoalModelSelection): number | undefined => {
+        if (selection.profileId !== undefined) {
+            try {
+                const profileConfig = resolveProviderProfileConfig(selection.profileId, selection.modelId);
+                if ("contextWindowTokens" in profileConfig) return profileConfig.contextWindowTokens;
+            } catch {
+                // 档案不可用时不阻断容量解析，由启动配置或能力来源继续判断。
+            }
+        }
+        return llmConfig !== undefined && "contextWindowTokens" in llmConfig
+            ? llmConfig.contextWindowTokens
+            : modelCapabilities?.contextWindowTokens;
+    };
     const resolveGoalEpochCapacity = (goal: Goal): EpochCapacity => resolveEpochCapacity({
         modelContextWindowTokens: goal.state.modelSelection.contextWindowTokens
-            ?? modelCapabilities?.contextWindowTokens,
+            ?? configuredContextWindowTokens(goal.state.modelSelection),
         configuredLimitTokens: contextConfig?.epochLimitTokens,
         thresholdPercent: contextConfig?.compactThresholdPercent,
     });
@@ -829,6 +843,9 @@ async function assembleRuntimeComposition(
         ...(defaultExecutionMetadata !== undefined ? {
             contextWindowTokens: defaultExecutionMetadata.contextWindowTokens,
             maxOutputTokens: defaultExecutionMetadata.maxOutputTokens,
+        } : llmConfig !== undefined && "contextWindowTokens" in llmConfig ? {
+            contextWindowTokens: llmConfig.contextWindowTokens,
+            maxOutputTokens: llmConfig.maxOutputTokens,
         } : modelCapabilities === undefined ? {
             contextWindowTokens: DEFAULT_GOAL_MODEL_SELECTION.contextWindowTokens!,
             maxOutputTokens: DEFAULT_GOAL_MODEL_SELECTION.maxOutputTokens!,

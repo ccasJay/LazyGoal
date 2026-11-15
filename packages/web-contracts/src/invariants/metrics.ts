@@ -31,21 +31,31 @@ export function isMetricValues(values: MetricsValues): boolean {
 }
 
 /**
- * 会话指标快照的 Context 占用不变量。
+ * 会话指标快照的 Context 容量与占用不变量。
  *
  * @param snapshot - 已通过结构解析的指标快照。
- * @returns 可选占用未出现时为 `true`；出现时比例、容量与来源均合法才为 `true`。
+ * @returns 容量字段合法，且占用存在时与容量基数一致才为 `true`。
  * @example
  * ```ts
  * if (hasValidContextUsage(snapshot)) console.log(snapshot.goalId);
  * ```
  */
 export function hasValidContextUsage(snapshot: SessionMetricsSnapshot): boolean {
+    const capacity = snapshot.contextCapacity;
+    if (capacity !== null
+        && (!Number.isSafeInteger(capacity.capacityTokens)
+            || capacity.capacityTokens <= 0
+            || (capacity.source !== "model" && capacity.source !== "configured"))) {
+        return false;
+    }
     const usage = snapshot.contextUsage;
     if (usage === undefined || usage === null) return true;
-    return usage.usedPercent >= 0
+    return capacity !== null
+        && usage.usedPercent >= 0
         && usage.usedPercent <= 1
         && Number.isSafeInteger(usage.capacityTokens)
         && usage.capacityTokens > 0
-        && (usage.source === "model" || usage.source === "configured");
+        && (usage.source === "model" || usage.source === "configured")
+        && usage.capacityTokens === capacity.capacityTokens
+        && usage.source === capacity.source;
 }

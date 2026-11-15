@@ -5,7 +5,7 @@ import {
   boardLoadingScenario,
   boardPopulatedScenario,
 } from "./board-scenarios";
-import { sessionWaitingScenario } from "./session-scenarios";
+import { sessionContextMetricsScenario, sessionContextUnavailableScenario, sessionWaitingScenario } from "./session-scenarios";
 import { sessionCommandScenario } from "./session-command-scenario";
 import { trajectoryScenario } from "./trajectory-scenarios";
 import { settingsScenario } from "./settings-scenarios";
@@ -23,6 +23,8 @@ export const allScenarios: Record<string, FixtureScenario> = {
   "board-loading": boardLoadingScenario,
   "board-error": boardErrorScenario,
   "session-waiting": sessionWaitingScenario,
+  "session-context-metrics": sessionContextMetricsScenario,
+  "session-context-unavailable": sessionContextUnavailableScenario,
   "session-command": sessionCommandScenario,
   "trajectory-default": trajectoryScenario,
   "settings-default": settingsScenario,

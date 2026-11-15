@@ -20,20 +20,29 @@ import {
   AlertCircle,
   ArrowDown,
   Check,
+  ChevronRight,
   CircleHelp,
   X,
 } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collapsible";
 import type { BrowserGoalListItem, BrowserPermissionExemptionSummary } from "../../../../packages/web-contracts/src/index";
 import { GoalDetails, WaitingInteraction } from "../panels";
 import type { AcceptedDecisionSummary } from "../interaction-panel";
 import brandMark from "../assets/lazygoal/mark-on-light.svg?no-inline";
 import { Trajectory } from "../trajectory";
-import { selectUnverifiedWorkbenchActions, selectWorkbenchActions, workbenchReasonText } from "../workbench-actions";
+import {
+  hasBlockingStopIntent,
+  hasUnknownStopIntent,
+  selectUnverifiedWorkbenchActions,
+  selectWorkbenchActions,
+  workbenchReasonText,
+} from "../workbench-actions";
 import { selectConnectionPresentation } from "../connection-presentation";
 import { useGoalSessionContext } from "../context/GoalSessionContext";
 import { useRunControlContext } from "../context/RunControlContext";
 import { MessageComposer, CurrentModelControl } from "./MessageComposer";
 import { SessionMetricsBar } from "./SessionMetricsBar";
+import { ContextWindowIndicator } from "./ContextWindowIndicator";
 import { SessionBoundary } from "./error-boundary";
 import { projectSessionTimeline } from "../session-timeline";
 import { SessionTimeline } from "./SessionTimeline";
@@ -154,6 +163,12 @@ export function GoalSession({
   };
 
   const timeline = useRef<HTMLDivElement>(null);
+  const blockingStopIntent = session !== null && hasBlockingStopIntent(
+    control.state.intents, session.goalId, session.currentRunId,
+  );
+  const stopOutcomeUnknown = session !== null && hasUnknownStopIntent(
+    control.state.intents, session.goalId, session.currentRunId,
+  );
   const workbench = selectWorkbenchActions({
     session,
     busy: commandBusy,
@@ -161,9 +176,13 @@ export function GoalSession({
     stale: stateStale,
     sessionUnreadable: sessionError !== null,
     canSendText: session?.continuation?.available === true,
-    stopping: session !== null && stoppingRunId === session.currentRunId,
+    stopping: session !== null && (stoppingRunId === session.currentRunId
+      || (blockingStopIntent && !stopOutcomeUnknown)),
+    stopOutcomeUnknown,
   });
-  const unverifiedActions = selectUnverifiedWorkbenchActions(control.state.intents);
+  const unverifiedActions = session === null
+    ? []
+    : selectUnverifiedWorkbenchActions(control.state.intents, session.goalId);
   const connection = selectConnectionPresentation({
     connected: streamConnected,
     synced: streamSynced,
@@ -596,7 +615,28 @@ export function GoalSession({
               )}
               {unverifiedActions.length > 0 && (
                 <div className="unverified-submissions" aria-label="Unconfirmed submissions">
-                  {unverifiedActions.map((item) => (
+                  {unverifiedActions.length > 1 ? (
+                    <Collapsible className="unverified-submissions-group">
+                      <CollapsibleTrigger asChild>
+                        <Button variant="ghost" size="sm" type="button" className="unverified-submissions-trigger">
+                          <ChevronRight aria-hidden="true" className="unverified-submissions-chevron" />
+                          {unverifiedActions.length} command results need review
+                        </Button>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="unverified-submissions-list">
+                        {unverifiedActions.map((item) => (
+                          <div className="unverified-submission" key={item.intentId} data-intent-id={item.intentId}>
+                            <span>{item.label} result is unknown. Verify it before retrying.</span>
+                            <Button variant="ghost" size="sm" type="button" disabled={commandBusy}
+                              onClick={() => void onVerifyIntent(item.intentId)}>Verify</Button>
+                            <Button variant="ghost" size="sm" type="button" disabled={commandBusy}
+                              onClick={() => void onRetryIntent(item.intentId)}>Retry same identity</Button>
+                            <Button variant="ghost" size="sm" type="button" onClick={() => onDiscardIntent(item.intentId)}>Discard</Button>
+                          </div>
+                        ))}
+                      </CollapsibleContent>
+                    </Collapsible>
+                  ) : unverifiedActions.map((item) => (
                     <div className="unverified-submission" key={item.intentId} data-intent-id={item.intentId}>
                       <span>{item.label} result is unknown. Verify it before retrying.</span>
                       <Button variant="ghost" size="sm" type="button" disabled={commandBusy}
@@ -611,6 +651,7 @@ export function GoalSession({
               {session.runStatus === "waiting" && (session.interaction !== undefined || session.pendingAction !== undefined) && (
                 <>
                   <div className="composer-extra-controls">
+                    <ContextWindowIndicator state={metricsByGoal[session.goalId]} />
                     <CurrentModelControl
                       label={currentModelName}
                       enabled={canSwitchCurrentModel && !commandBusy && sessionError === null}
@@ -621,7 +662,9 @@ export function GoalSession({
                     session={session}
                     busy={commandBusy || !connection.allowsNewDecisions || (!draftSessionOpen && sessionError !== null)}
                     stopping={stoppingRunId === session.currentRunId ||
-                      (session.interruption !== undefined && session.interruption.status !== "finished")}
+                      (session.interruption !== undefined && session.interruption.status !== "finished") ||
+                      (blockingStopIntent && !stopOutcomeUnknown)}
+                    stopOutcomeUnknown={stopOutcomeUnknown}
                     control={control}
                     onInterrupt={onInterrupt}
                     onRefreshSession={refreshSelectedSession}
@@ -640,6 +683,7 @@ export function GoalSession({
               {session.runStatus === "running" && (
                 <>
                   <div className="composer-extra-controls">
+                    <ContextWindowIndicator state={metricsByGoal[session.goalId]} />
                     <CurrentModelControl label={currentModelName} enabled={false} onClick={() => undefined} />
                   </div>
                   {session.execution?.state === "recoverable" ? (
@@ -668,6 +712,7 @@ export function GoalSession({
               {session.runStatus === "created" && (session.execution?.state === "recoverable" ? (
                 <div className="composer-recover-row">
                   <div className="composer-extra-controls">
+                    <ContextWindowIndicator state={metricsByGoal[session.goalId]} />
                     <CurrentModelControl label={currentModelName} enabled={false} onClick={() => undefined} />
                   </div>
                   <div className="composer-recover-actions">
@@ -698,11 +743,14 @@ export function GoalSession({
                   onDraftChange={setContinuationText}
                   submitLabels={{ idle: "Send message", busy: "Sending message", empty: "Type a message to send" }}
                   footerControls={
-                    <CurrentModelControl
-                      label={currentModelName}
-                      enabled={canSwitchCurrentModel && !commandBusy && sessionError === null && connection.allowsNewDecisions}
-                      onClick={() => setModelPickerTarget({ kind: "goal", goalId: session.goalId, runId: session.currentRunId })}
-                    />
+                    <>
+                      <ContextWindowIndicator state={metricsByGoal[session.goalId]} />
+                      <CurrentModelControl
+                        label={currentModelName}
+                        enabled={canSwitchCurrentModel && !commandBusy && sessionError === null && connection.allowsNewDecisions}
+                        onClick={() => setModelPickerTarget({ kind: "goal", goalId: session.goalId, runId: session.currentRunId })}
+                      />
+                    </>
                   }
                   onSubmit={submitSessionMessage}
                 />

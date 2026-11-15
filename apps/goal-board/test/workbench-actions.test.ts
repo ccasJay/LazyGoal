@@ -4,6 +4,8 @@ import { test } from "node:test";
 import type { BrowserGoalSessionState } from "../../../packages/web-contracts/src/index";
 import type { ControlIntentState } from "../src/control/types";
 import {
+  hasBlockingStopIntent,
+  hasUnknownStopIntent,
   selectUnverifiedWorkbenchActions,
   selectWorkbenchActions,
   workbenchReasonText,
@@ -36,6 +38,7 @@ function context(overrides: Partial<WorkbenchActionContext> = {}): WorkbenchActi
     sessionUnreadable: false,
     canSendText: true,
     stopping: false,
+    stopOutcomeUnknown: false,
     ...overrides,
   };
 }
@@ -110,6 +113,31 @@ test("停止已受理时不再提供重复停止", () => {
   assert.equal(actions.stop.available === false ? actions.stop.reason : undefined, "stop-in-progress");
 });
 
+test("当前 Run 的暂停结果不明时阻止新暂停并显示明确原因", () => {
+  const actions = selectWorkbenchActions(context({ connected: false, stopOutcomeUnknown: true }));
+  assert.equal(actions.stop.available === false ? actions.stop.reason : undefined, "stop-outcome-unknown");
+  assert.match(workbenchReasonText("stop-outcome-unknown"), /Verify or discard/);
+});
+
+test("未结算暂停命令按 Goal 和 Run 精确阻止重复提交", () => {
+  const intents: readonly ControlIntentState[] = [
+    { intent: { kind: "session_input", intentId: "i-stop", goalId: "goal-1",
+      input: { kind: "interrupt", inputId: "i-stop", runId: "run-1" } }, phase: "unknown" },
+    { intent: { kind: "session_input", intentId: "i-old", goalId: "goal-1",
+      input: { kind: "interrupt", inputId: "i-old", runId: "run-0" } }, phase: "unknown" },
+    { intent: { kind: "session_input", intentId: "i-other", goalId: "goal-2",
+      input: { kind: "interrupt", inputId: "i-other", runId: "run-1" } }, phase: "unknown" },
+    { intent: { kind: "session_input", intentId: "i-applied", goalId: "goal-1",
+      input: { kind: "interrupt", inputId: "i-applied", runId: "run-1" } }, phase: "applied" },
+  ];
+  assert.equal(hasBlockingStopIntent(intents, "goal-1", "run-1"), true);
+  assert.equal(hasUnknownStopIntent(intents, "goal-1", "run-1"), true);
+  assert.equal(hasBlockingStopIntent(intents, "goal-1", "run-0"), true);
+  assert.equal(hasUnknownStopIntent(intents, "goal-2", "run-1"), true);
+  assert.equal(hasBlockingStopIntent(intents, "goal-3", "run-1"), false);
+  assert.equal(hasBlockingStopIntent(intents, "goal-1", "run-2"), false);
+});
+
 test("可用性随上下文变化重新派生且不保留上一次结论", () => {
   const before = selectWorkbenchActions(context());
   assert.equal(before.send_message.available, true);
@@ -126,8 +154,9 @@ test("结果不明的动作按原意图身份投影，其他命令不混入", ()
     { intent: { kind: "session_input", intentId: "i-4", goalId: "goal-1", input: { kind: "respond", inputId: "i-4", requestId: "req-1", response: { kind: "skip_question" } } }, phase: "unknown" },
     { intent: { kind: "session_input", intentId: "i-5", goalId: "goal-1", input: { kind: "steer", inputId: "i-5", runId: "run-1", content: "focus" } }, phase: "pending" },
     { intent: { kind: "plan_mode", intentId: "i-6", goalId: "goal-1", runId: "run-1" }, phase: "unknown" },
+    { intent: { kind: "session_input", intentId: "i-7", goalId: "goal-2", input: { kind: "interrupt", inputId: "i-7", runId: "run-1" } }, phase: "unknown" },
   ];
-  const unresolved = selectUnverifiedWorkbenchActions(intents);
+  const unresolved = selectUnverifiedWorkbenchActions(intents, "goal-1");
   assert.deepEqual(unresolved.map((entry) => [entry.intentId, entry.actionId]), [
     ["i-1", "send_message"],
     ["i-2", "stop"],
@@ -146,6 +175,7 @@ test("每个不可用原因都有非空且互不相同的说明", () => {
     "run-not-running",
     "interaction-pending",
     "stop-in-progress",
+    "stop-outcome-unknown",
     "recovery-unavailable",
   ] as const;
   const texts = reasons.map(workbenchReasonText);

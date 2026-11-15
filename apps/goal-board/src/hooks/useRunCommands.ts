@@ -13,6 +13,7 @@ import {
 import { BrowserApiError } from "../api";
 import type { ControlIntents } from "./useControlIntents";
 import { pendingIntentOfKind } from "../control/reducer";
+import { hasBlockingStopIntent } from "../workbench-actions";
 
 /**
  * 首次 Goal 提交、Run 控制与结果不明核验的命令入口。
@@ -187,7 +188,9 @@ export function useRunCommands({
         return false;
       }
       if (receipt.status === "unknown") {
-        setCommandError("The message result is still unknown. Verify it again before retrying.");
+        setCommandError(entry.intent.input.kind === "interrupt"
+          ? null
+          : "The request result is still unknown. Verify it again before retrying.");
         return false;
       }
       setCommandError(null);
@@ -203,7 +206,8 @@ export function useRunCommands({
   }, [control.discard]);
 
   const interruptCurrentRun = useCallback(async (): Promise<void> => {
-    if (!session || !["running", "waiting"].includes(session.runStatus) || stoppingRunId !== null) return;
+    if (!session || !["running", "waiting"].includes(session.runStatus)
+      || hasBlockingStopIntent(control.currentState().intents, session.goalId, session.currentRunId)) return;
     setCommandError(null);
     const receipt = await submitInput(session.goalId, {
       kind: "interrupt",
@@ -216,11 +220,10 @@ export function useRunCommands({
       return;
     }
     if (receipt.status === "unknown") {
-      setCommandError("The stop result is unknown. Reload before trying again.");
       return;
     }
     await onRefreshSession();
-  }, [session, stoppingRunId, submitInput, onRefreshSession, setCommandError]);
+  }, [session, control.currentState, submitInput, onRefreshSession, setCommandError]);
 
   const submitResume = useCallback(async (acknowledgeUnknownEffects = false) => {
     if (!session || commandBusy) return;

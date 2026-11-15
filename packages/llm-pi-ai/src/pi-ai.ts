@@ -34,9 +34,14 @@ export class PiAiProviderError extends ModelRequestFailure {
 }
 
 function providerFailureMessage(provider: string, stopReason: string, errorMessage?: string): string {
-    if (provider === "opencode-go" && stopReason === "error"
-        && errorMessage?.toLowerCase().includes("active opencode go subscription is required")) {
-        return "OpenCode Go requires an active subscription for this request. Check your subscription or choose another provider in Settings.";
+    if (provider === "opencode-go" && stopReason === "error") {
+        const message = errorMessage?.toLowerCase();
+        if (message?.includes("active opencode go subscription is required")) {
+            return "OpenCode Go requires an active subscription for this request. Check your subscription or choose another provider in Settings.";
+        }
+        if (message?.includes("this model is not available in your country")) {
+            return "OpenCode Go denied access to this model in your region (HTTP 403). Choose a model available in your region.";
+        }
     }
     const status = errorMessage?.match(/(?:^\s*|\bHTTP\s+|\bstatus(?:\s+code)?[\s:=]+)([45]\d{2})\b/i)?.[1];
     if (status !== undefined) {

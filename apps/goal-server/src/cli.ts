@@ -207,6 +207,7 @@ export async function runServerSession(
             cwd: root.workspaceRoot,
             dataDirectory: root.dataDirectory,
             env: process.env,
+            notifyGoalSaved: (goalId) => root.sessionMetricsService.notifyGoalSaved(goalId),
             readPermissionProfile: () => root.permissionProfileStore.get(root.workspaceId),
             commitContinuation: ({ goalId, runId, inputId, content }) =>
                 root.commands.commitContinuation({ goalId, runId }, content, inputId),

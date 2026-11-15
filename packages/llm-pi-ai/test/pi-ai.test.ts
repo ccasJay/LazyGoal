@@ -222,6 +222,29 @@ test("OpenCode Go subscription errors use safe guidance for complete and streame
     }
 });
 
+test("OpenCode Go country restrictions survive SDK error formatting without exposing the provider body", async () => {
+    const fetch = globalThis.fetch;
+    globalThis.fetch = async () => Response.json({
+        type: "error",
+        error: { type: "RegionError", message: "This model is not available in your country", detail: "private provider body" },
+    }, { status: 403 });
+
+    try {
+        const instance = adapter("opencode-go", "beam-free");
+        for (const run of [
+            () => instance.generate(request),
+            async () => { for await (const _event of instance.stream(request)) {} },
+        ]) {
+            await assert.rejects(run, {
+                name: "PiAiProviderError",
+                message: "OpenCode Go denied access to this model in your region (HTTP 403). Choose a model available in your region.",
+            });
+        }
+    } finally {
+        globalThis.fetch = fetch;
+    }
+});
+
 test("incomplete, erroneous and tool responses never return partial JSON", async () => {
     for (const stopReason of ["pending", "length", "toolUse", "error", "deferred"] as const) {
         const instance = adapter();

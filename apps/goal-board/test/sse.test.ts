@@ -76,6 +76,7 @@ const snapshot = {
   throughputMeasuredCalls: 1,
   throughputExcludedCalls: 0,
   tokensPerSecond: 25,
+  contextCapacity: { capacityTokens: 200, source: "model" },
   contextUsage: { usedPercent: 0.4, capacityTokens: 200, source: "model", estimated: false },
   runs: [],
 } as const;

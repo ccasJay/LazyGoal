@@ -325,6 +325,16 @@ test("真实 Web 入口使用 Trigger 并行启动 Worker、观察状态、拒�
         assert.equal(unchangedAfterUnsupportedMessage.body.goal.messages.some((message: { content: string }) =>
             message.content === "Continue the Goal with another message."), false);
 
+        const metricsStream = await fetch(`${origin}/goals/goal-alpha/metrics/stream`, {
+            headers: { authorization: `Bearer ${token}`, origin },
+            signal: AbortSignal.timeout(12_000),
+        });
+        assert.equal(metricsStream.status, 200);
+        const metricsReader = metricsStream.body?.getReader();
+        assert.ok(metricsReader);
+        const firstMetrics = await withTimeout(metricsReader.read(), "Goal metrics did not synchronize");
+        assert.match(new TextDecoder().decode(firstMetrics.value), /"missingCalls":1/);
+
         const stopAlpha = await request("/api/goals/goal-alpha/inputs", "POST", {
             kind: "interrupt",
             inputId: "cancel-alpha",
@@ -373,6 +383,13 @@ test("真实 Web 入口使用 Trigger 并行启动 Worker、观察状态、拒�
         assert.equal(runs.status, 200);
         const metrics = await request("/goals/goal-alpha/metrics", "GET");
         assert.equal(metrics.status, 200);
+        try {
+            const update = await withTimeout(metricsReader.read(), "Metrics stream did not update after Worker saved the cancellation");
+            assert.equal(update.done, false);
+            assert.match(new TextDecoder().decode(update.value), /event: snapshot/);
+        } finally {
+            await metricsReader.cancel().catch(() => undefined);
+        }
 
         await root.checkpointStore.save(fixtureGoal("archive-target", root, "completed"));
         const archive = await request("/api/goals/archive-target/archive", "POST", { archived: true });

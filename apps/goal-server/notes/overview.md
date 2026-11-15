@@ -2,6 +2,16 @@
 
 本机 Web Composition Root，连接 Browser、HTTP、Supervisor、Trigger 持久化与独立 Worker。本文描述当前实现、使用边界与限制；[公开入口](../src/index.ts)。
 
+## 出站代理
+
+[`lazygoal web` 启动入口](../../../bin/lazygoal.cjs) 在 Node.js 子进程启动前解析代理，Web 服务再把同一环境传给新建 Worker。显式 `HTTP_PROXY`、`HTTPS_PROXY` 优先，缺少其中一种时复用另一种。也接受 HTTP(S) URL 形式的 `ALL_PROXY`。macOS 上没有显式代理变量时，从系统设置读取静态 HTTP 和 HTTPS 代理，翻译可用的主机名例外。本机回环地址直接访问，显式 `NO_PROXY` 可指定额外例外。系统代理变更在下次启动时生效。
+
+已配置代理时，Node.js 必须支持 `--use-env-proxy`。启用 PAC、自动发现或只配置 SOCKS 时，通过 `HTTPS_PROXY` 提供显式 HTTP(S) 代理。使用代理的请求在连接失败时返回错误，直连仅适用于无代理设置或命中绕过规则的目标。代理自身的出口路由由代理软件决定。
+
+## Web 服务
+
+Supervisor 保存 Worker 快照后会通知 Web 指标订阅重新读取用量。订阅读取同一 Run 的持久化调用记录，因此 Activity 与 Context 指标可以在页面保持打开时一起更新。
+
 默认 `lazygoal web` 入口把 Goal Board 的创建与控制命令交给 [Trigger Browser Session Port](../src/browser-session-port.ts)。浏览器 Bearer 能力映射为认证 `externalId`；Supervisor 在持久化前校验 Trigger.source 与连接 Actor。所有 Worker-target 消息先经 Supervisor；当前支持的取消、交互与权限决定由 WorkerScheduler 按 Goal 路由，Worker 之间没有直接连接。取消 Trigger 在持久接收前匹配当前 Run，并在路由时复核；过期 Run 保持未路由。`collaboration.requested/result` 仅保留动作标签；payload 与处理行为未定义，Supervisor 不解释额外内容。Supervisor 独占 Goal Store 写入权，并用 SQLite 直接保存不可变 Trigger、独立路由状态和 FIFO 派发队列；重复 Trigger ID 冲突，不回放旧准入结果。Goal Snapshot 发布后，队列插入与 Trigger 路由完成在同一 SQLite 事务提交。启动时清理已排队 Goal 的残留创建意图，并从存储的未路由 work Trigger 继续准入，不等待来源重交；已有冻结 Goal 创建意图优先于当前配置。未冻结的工作在恢复时重新执行模型准入，因为持久化 Actor 不能区分 Browser user 与 external。Worker 重新接管后，Supervisor 还会尝试原样路由当前状态允许的取消、交互、权限决定和 checkpoint resume；交互回答须匹配 Goal、replyTo 与当前等待，并在 Runtime 应用且 Snapshot 保存后标记路由。checkpoint resume 以 replyTo 关联已记录的 lifecycle.exited，并要求显式确认未知副作用。不适用的事件保留未路由，协作 payload 仍不解释。独立 Worker 进程推进获派 Goal，检查点、进度、交互、取消和生命周期报告经 Trigger 与 Supervisor 协调。列表、会话状态及实时流都按 Goal 查询，不把单个活动 Goal 当作全局状态。
 
 Web 创建 work Trigger 前，服务端按该命令已解析的 `GoalModelSelection` 构造一次性摘要 Adapter，不修改进程级模型绑定；随后 Supervisor 请求一次纯文本名称摘要。摘要请求使用创建命令的 `goalId` 作为稳定 `sessionId`，OpenCode Go Adapter 据此发送 `x-opencode-session`；不携带结构化输出与工具，输出预算最多 256 token，模型选择包含最大输出容量时取较小值。该名称只用于识别，不替代 `{ kind: "text", text }` material。摘要是 best-effort：空正文、仅 reasoning、Markdown 围栏、超长输出、调用异常或超过默认 5 秒等待上限都回退到由原始意图派生的本地名称（去围栏与引号、折叠空白、截断到 120 字符，全空时为 `New goal`），创建继续并持久化 Trigger。控制事件使用由程序确定的名称；Trigger 只记录创建时的 `sentAt`，不另存接收或完成时间。

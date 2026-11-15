@@ -2194,13 +2194,47 @@ export interface RunSessionMetrics extends SessionMetricsValues {
     readonly runId: string;
 }
 
-/** 整个 Goal 会话的模型指标聚合快照。 */
+/**
+ * 当前工作窗口的容量。
+ *
+ * @remarks
+ * 容量来自当前模型标称窗口或用户配置，与模型调用是否进行中或失败无关。
+ *
+ * @example
+ * ```ts
+ * const capacity: SessionMetricsContextCapacity = {
+ *     capacityTokens: 1_000_000,
+ *     source: "model",
+ * };
+ * ```
+ */
+export interface SessionMetricsContextCapacity {
+    /** 容量基数（Token）；必须为正的安全整数。
+     * @asType integer
+     * @maximum 9007199254740991
+     * @minimum 1 */
+    readonly capacityTokens: number;
+    /** 容量基数来源：模型标称窗口或用户配置。 */
+    readonly source: "model" | "configured";
+}
+
 /**
  * 当前工作窗口的占用结算。
  *
  * @remarks
- * 只描述最近一次已结算调用在当前模型上的占用，不累加历史调用。`usedPercent`
- * 以 `capacityTokens` 为基数；`source` 说明基数来自模型标称窗口还是用户配置。
+ * 仅当当前 Run 最近一次模型调用已成功结算且使用当前模型时提供占用，不回退到
+ * 更早调用，也不累加历史调用。`usedPercent` 以 `capacityTokens` 为基数；`source`
+ * 说明基数来自模型标称窗口还是用户配置。无适用结算时，快照仍可单独提供窗口容量。
+ *
+ * @example
+ * ```ts
+ * const usage: SessionMetricsContextUsage = {
+ *     usedPercent: 0.4,
+ *     capacityTokens: 1_000_000,
+ *     source: "model",
+ *     estimated: false,
+ * };
+ * ```
  */
 export interface SessionMetricsContextUsage {
     /** 已用比例（0–1）；超过容量时截断为 1。 */
@@ -2213,13 +2247,29 @@ export interface SessionMetricsContextUsage {
     readonly estimated: boolean;
 }
 
+/**
+ * 整个 Goal 会话的模型指标聚合快照。
+ *
+ * @remarks
+ * `contextCapacity` 独立于模型调用状态；`contextUsage` 仅在当前 Run 最近一次
+ * 模型调用成功结算且使用当前模型时提供，调用进行中或失败时为 `null`，不回退到
+ * 更早用量。缺少用量时仍保留已知容量。
+ *
+ * @example
+ * ```ts
+ * const capacity = snapshot.contextCapacity;
+ * const usage = snapshot.contextUsage;
+ * ```
+ */
 export interface SessionMetricsSnapshot extends SessionMetricsValues {
     /** @pattern \S */
     readonly goalId: string;
     /** @asType integer
      * @maximum 9007199254740991 */
     readonly roundCount: number;
-    /** 当前工作窗口占用；容量或占用不可用时省略为 `null`。 */
+    /** 当前工作窗口容量；模型配置或用户设置无法解析时为 `null`。 */
+    readonly contextCapacity: SessionMetricsContextCapacity | null;
+    /** 当前工作窗口占用；没有当前模型的已结算成功调用时为 `null`。 */
     readonly contextUsage?: SessionMetricsContextUsage | null;
     readonly runs: readonly RunSessionMetrics[];
 }

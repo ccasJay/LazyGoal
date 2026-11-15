@@ -267,17 +267,24 @@ export const sessionContextMetricsScenario: FixtureScenario = {
   },
 };
 
-/** Context 占用不可用时的 Session 指标场景。 */
+/** 已知窗口容量但尚无已结算用量的 Session 指标场景。 */
 export const sessionContextUnavailableScenario: FixtureScenario = {
   ...sessionWaitingScenario,
   id: "session-context-unavailable",
-  description: "Session metrics bar without a usable context work window",
+  description: "Session metrics with a known window capacity and no settled usage",
   metrics: {
-    [WAITING_GOAL_ID]: { data: metricsSnapshot(null) },
+    [WAITING_GOAL_ID]: {
+      data: metricsSnapshot(null, { capacityTokens: 1_000_000, source: "model" }),
+    },
   },
 };
 
-function metricsSnapshot(contextUsage: SessionMetricsSnapshot["contextUsage"]): SessionMetricsSnapshot {
+function metricsSnapshot(
+  contextUsage: SessionMetricsSnapshot["contextUsage"],
+  contextCapacity: SessionMetricsSnapshot["contextCapacity"] = contextUsage === null || contextUsage === undefined
+    ? null
+    : { capacityTokens: contextUsage.capacityTokens, source: contextUsage.source },
+): SessionMetricsSnapshot {
   return {
     goalId: WAITING_GOAL_ID,
     roundCount: 1,
@@ -293,6 +300,7 @@ function metricsSnapshot(contextUsage: SessionMetricsSnapshot["contextUsage"]): 
     throughputMeasuredCalls: 0,
     throughputExcludedCalls: 2,
     tokensPerSecond: null,
+    contextCapacity,
     contextUsage,
     runs: [],
   };

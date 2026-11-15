@@ -5,6 +5,8 @@
 | 概念 | 简明含义 | 归属模块 | 权威说明 |
 | --- | --- | --- | --- |
 | Composition Root | 服务依赖装配边界；可为已解析模型选择构造不发布进程级绑定的一次性 Decide Adapter。 | [Goal Server](../README.md) | [模块说明](./overview.md)、[运行时装配](../src/runtime/composition.ts) |
+| 出站代理 | Web 入口在启动时解析显式代理或 macOS 系统代理，新建 Worker 继承。代理连接失败会终止对应请求。 | [Goal Server](../README.md) | [模块说明](./overview.md#出站代理)、[启动解析](../../../bin/web-proxy.cjs) |
+| Worker 指标更新 | Supervisor 成功保存 Worker 快照后通知指标订阅重新读取持久化调用记录。 | [Goal Server](../README.md) | [CLI 装配](../src/cli.ts)、[Worker 调度](../src/runtime/worker-scheduler.ts) |
 | Trigger Browser Session Port | Web 创建与控制命令接入 Supervisor 的准入、Trigger 路由和 Worker 调度；按持久创建来源与当前 Run / 队列结算状态投影普通消息续接可用性；work 名称由本次已解析模型选择的一次性纯文本 Adapter 摘要，输出预算受已知模型容量约束，OpenCode Go 请求以 Goal ID 作为 `sessionId`；空正文、异常、超时都回退到本地派生名称且不阻塞创建。Worker 执行通道不可用返回 `execution_unavailable`，准入、存储与 Worker 明确拒绝构造返回 `create_failed`。控制名称确定，`sentAt` 仅记创建时间。重复 Trigger ID 返回冲突，不回放旧结果。 | [Goal Server](../README.md) | [Trigger 浏览器端口](../src/browser-session-port.ts)、[名称摘要](../src/runtime/trigger-name.ts) |
 | Web service | 同源浏览器接口的显式启停入口；控制快照从一次 Goal Snapshot 读取投影，支持的控制经 Trigger 路径接收。 | [Goal Server](../README.md) | [CLI 装配](../src/cli.ts) |
 | Trigger 本地传输 | loopback 凭据映射到可信 Worker generation、externalId 或 Supervisor Actor；Supervisor 严格校验来源与 Goal 目标，Worker-target 控制消息经 WorkerScheduler 路由，Worker 间没有直接连接。 | [Goal Server](../README.md) | [传输组件](../src/runtime/trigger-wire-server.ts)、[认证与接收](../../../packages/storage/src/trigger-ingress.ts) |

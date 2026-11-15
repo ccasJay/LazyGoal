@@ -541,6 +541,7 @@ test("isMetricsSnapshot validates metrics", () => {
         throughputMeasuredCalls: 1,
         throughputExcludedCalls: 0,
         tokensPerSecond: 25,
+        contextCapacity: null,
         runs: [],
     };
     assert.equal(isMetricsSnapshot(validMetrics), true);
@@ -1128,13 +1129,18 @@ test("Trajectory、Model Input 与 Metrics 合同保留开放 JSON 与数值边�
 
     const runMetrics = { ...metrics, runId: "run-1" };
     const contextUsage = { usedPercent: 0.5, capacityTokens: 200, source: "model", estimated: false };
-    const snapshot = { goalId: "goal-1", roundCount: 1, ...metrics, contextUsage, runs: [runMetrics] };
+    const contextCapacity = { capacityTokens: 200, source: "model" };
+    const snapshot = { goalId: "goal-1", roundCount: 1, ...metrics, contextCapacity, contextUsage, runs: [runMetrics] };
     assert.equal(isMetricsSnapshot(snapshot), true);
     assert.equal(isMetricsSnapshot({ ...snapshot, contextUsage: { ...contextUsage, usedPercent: 1.1 } }), false);
     assert.equal(isMetricsSnapshot({ ...snapshot, contextUsage: { ...contextUsage, usedPercent: -0.1 } }), false);
     assert.equal(isMetricsSnapshot({ ...snapshot, contextUsage: { ...contextUsage, capacityTokens: 0 } }), false);
     assert.equal(isMetricsSnapshot({ ...snapshot, contextUsage: { ...contextUsage, source: "user" } }), false);
     assert.equal(isMetricsSnapshot({ ...snapshot, contextUsage: null }), true);
+    assert.equal(isMetricsSnapshot({ ...snapshot, contextCapacity: null }), false);
+    assert.equal(isMetricsSnapshot({ ...snapshot, contextCapacity: { ...contextCapacity, capacityTokens: 0 } }), false);
+    assert.equal(isMetricsSnapshot({ ...snapshot, contextCapacity: { ...contextCapacity, source: "user" } }), false);
+    assert.equal(isMetricsSnapshot({ ...snapshot, contextCapacity: { ...contextCapacity, capacityTokens: 300 } }), false);
     assert.equal(isMetricsSnapshot({ ...snapshot, runs: [{ ...runMetrics, runId: "" }] }), false);
     assert.equal(isMetricsSnapshot({ ...snapshot, runs: [runMetrics] }), true);
 });

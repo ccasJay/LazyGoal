@@ -150,11 +150,25 @@ export function actionReviewErrorText(error: string): string {
   }
 }
 
-/** 新交互区域共用的只读展示上下文。 */
+/**
+ * 新交互区域共用的只读展示上下文。
+ *
+ * @remarks
+ * `stopOutcomeUnknown` 表示当前 Run 已有结果不明的暂停命令；停止按钮保持禁用，直到
+ * 用户核验、沿用原身份重试或放弃该命令。
+ *
+ * @example
+ * ```ts
+ * const chrome: InteractionRegionChrome = {
+ *   label: "question", busy: false, stopping: false, stopOutcomeUnknown: true,
+ * };
+ * ```
+ */
 export interface InteractionRegionChrome {
   readonly label: string;
   readonly stopping: boolean;
   readonly busy: boolean;
+  readonly stopOutcomeUnknown: boolean;
 }
 
 /** 按目标交互种类读取完整审阅内容；引用变化时重新读取。 */
@@ -336,9 +350,15 @@ function SubmissionStatus({
 }
 
 /** 停止 Run 的独立入口；只受停止状态限制，不受回答提交在途限制。 */
-function StopRunButton({ stopping, onStop }: { stopping: boolean; onStop: () => void }) {
+function StopRunButton({ stopping, stopOutcomeUnknown, onStop }: {
+  stopping: boolean;
+  stopOutcomeUnknown: boolean;
+  onStop: () => void;
+}) {
   return (
-    <Button variant="ghost" size="sm" type="button" className="interaction-stop" disabled={stopping} onClick={onStop}>
+    <Button variant="ghost" size="sm" type="button" className="interaction-stop"
+      aria-label={stopOutcomeUnknown ? "Stop run unavailable until the previous request is verified" : undefined}
+      disabled={stopping || stopOutcomeUnknown} onClick={onStop}>
       {stopping ? "Stopping…" : "Stop run"}
     </Button>
   );
@@ -390,7 +410,7 @@ export function QuestionInteractionView({
       <div className="approval-heading">
         <CircleHelp size={15} aria-hidden="true" />
         <strong id={headingId}>Your answer is needed</strong>
-        <StopRunButton stopping={chrome.stopping} onStop={() => onEvent({ kind: "stop" })} />
+        <StopRunButton stopping={chrome.stopping} stopOutcomeUnknown={chrome.stopOutcomeUnknown} onStop={() => onEvent({ kind: "stop" })} />
       </div>
       <p className="interaction-note" id={hintId}>
         {detail.mode === "plan"
@@ -673,7 +693,7 @@ export function TaskApprovalInteractionView({
       <div className="approval-heading">
         <CircleHelp size={15} aria-hidden="true" />
         <strong id={headingId}>Review the proposed task</strong>
-        <StopRunButton stopping={chrome.stopping} onStop={() => onEvent({ kind: "stop" })} />
+        <StopRunButton stopping={chrome.stopping} stopOutcomeUnknown={chrome.stopOutcomeUnknown} onStop={() => onEvent({ kind: "stop" })} />
       </div>
       <p>{detail.approvalRequest}</p>
       <h4>{detail.objective}</h4>
@@ -781,7 +801,7 @@ export function ActionInteractionView({
         <CircleHelp size={15} aria-hidden="true" />
         <strong id={headingId}>{recovery ? "Action result needs review" : "Your approval is needed"}</strong>
         <span className="action-summary"><Zap size={13} aria-hidden="true" />{detail.toolId}</span>
-        <StopRunButton stopping={chrome.stopping} onStop={() => onEvent({ kind: "stop" })} />
+        <StopRunButton stopping={chrome.stopping} stopOutcomeUnknown={chrome.stopOutcomeUnknown} onStop={() => onEvent({ kind: "stop" })} />
       </div>
       <p className="interaction-kind-note">
         <Shield size={13} aria-hidden="true" />
@@ -1084,6 +1104,7 @@ export function QuestionInteractionRegion({
       <InteractionDetailFailure
         message={detail.message}
         stopping={chrome.stopping}
+        stopOutcomeUnknown={chrome.stopOutcomeUnknown}
         onRetry={reload}
         onStop={() => void onInterrupt()}
       />
@@ -1163,6 +1184,7 @@ export function TaskApprovalRegion({
       <InteractionDetailFailure
         message={detail.message}
         stopping={chrome.stopping}
+        stopOutcomeUnknown={chrome.stopOutcomeUnknown}
         onRetry={reload}
         onStop={() => void onInterrupt()}
       />
@@ -1366,6 +1388,7 @@ export function ActionInteractionRegion({
       <InteractionDetailFailure
         message={detail.message}
         stopping={chrome.stopping}
+        stopOutcomeUnknown={chrome.stopOutcomeUnknown}
         onRetry={reload}
         onStop={() => void onInterrupt()}
       />
@@ -1422,11 +1445,13 @@ function InteractionLoading() {
 function InteractionDetailFailure({
   message,
   stopping,
+  stopOutcomeUnknown,
   onRetry,
   onStop,
 }: {
   message: string;
   stopping: boolean;
+  stopOutcomeUnknown: boolean;
   onRetry: () => void;
   onStop: () => void;
 }) {
@@ -1440,7 +1465,7 @@ function InteractionDetailFailure({
       <Button variant="ghost" size="sm" type="button" onClick={onRetry}>
         <Loader size={13} aria-hidden="true" /> Retry loading
       </Button>
-      <StopRunButton stopping={stopping} onStop={onStop} />
+      <StopRunButton stopping={stopping} stopOutcomeUnknown={stopOutcomeUnknown} onStop={onStop} />
     </section>
   );
 }

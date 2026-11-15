@@ -145,6 +145,8 @@ export class WorkerScheduler {
         readonly cwd: string;
         readonly dataDirectory: string;
         readonly env?: NodeJS.ProcessEnv;
+        /** Worker 快照保存后通知宿主刷新只读指标。回调失败不影响快照提交。 */
+        readonly notifyGoalSaved?: (goalId: string) => void;
         /**
          * 读取当前工作区权限档位。
          *
@@ -828,7 +830,14 @@ export class WorkerScheduler {
             owner: this.options.owner,
             triggers: this.options.triggers,
             goals: this.options.goals,
-            onSnapshotSaved: (goal: Goal) => this.reportPersistedRunningProgress(registration.workerId, registration.generation, goal),
+            onSnapshotSaved: (goal: Goal) => {
+                try {
+                    this.options.notifyGoalSaved?.(goal.id);
+                } catch {
+                    // 指标通知失败不改变已保存快照的提交结果。
+                }
+                return this.reportPersistedRunningProgress(registration.workerId, registration.generation, goal);
+            },
         };
     }
 

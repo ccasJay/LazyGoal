@@ -240,6 +240,7 @@ export function createDefaultSessionMetricsSnapshot(goalId: string): SessionMetr
     throughputExcludedCalls: 0,
     tokensPerSecond: 35.5,
     roundCount: 1,
+    contextCapacity: null,
     runs: [],
   };
 }

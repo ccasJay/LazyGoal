@@ -12,12 +12,14 @@ import type {
 import type {
     MetricsCoverage,
     RunSessionMetrics,
+    SessionMetricsContextCapacity,
     SessionMetricsSnapshot,
 } from "../../web-contracts/src/index";
 
 export type {
     MetricsCoverage,
     RunSessionMetrics,
+    SessionMetricsContextCapacity,
     SessionMetricsSnapshot,
 };
 
@@ -52,7 +54,8 @@ interface RunProjection {
  *
  * @remarks
  * 由 Composition Root 提供，以便指标投影与发送前校验共用同一套容量判定；
- * 无法确定容量时返回 `undefined`，投影据此报告 Context 不可用。
+ * 容量解析不依赖模型调用是否已结算。无法确定容量时返回 `undefined`，投影将
+ * `contextCapacity` 设为 `null`；已知容量仍会显示，即使当前用量不可用。
  *
  * @example
  * ```ts
@@ -236,8 +239,9 @@ export class SessionMetricsService implements ModelCallMetricsRecorder {
         const latestContextUsage = projections.at(-1)?.latestContextUsage;
         const usageOnCurrentModel = latestContextUsage !== null && latestContextUsage !== undefined
             && latestContextUsage.modelId === goal.state.modelSelection.modelId;
-        const capacity = usageOnCurrentModel ? this.resolveCapacity?.(goal) : undefined;
-        const contextUsage = capacity === undefined || latestContextUsage === null || latestContextUsage === undefined
+        const capacity = this.resolveCapacity?.(goal);
+        const contextUsage = capacity === undefined || !usageOnCurrentModel
+            || latestContextUsage === null || latestContextUsage === undefined
             ? null
             : Object.freeze({
                 usedPercent: Math.min(1, sumSafe(
@@ -247,6 +251,12 @@ export class SessionMetricsService implements ModelCallMetricsRecorder {
                 capacityTokens: capacity.capacityTokens,
                 source: capacity.source,
                 estimated: latestContextUsage.estimated,
+            });
+        const contextCapacity: SessionMetricsContextCapacity | null = capacity === undefined
+            ? null
+            : Object.freeze({
+                capacityTokens: capacity.capacityTokens,
+                source: capacity.source,
             });
 
         return Object.freeze({
@@ -264,6 +274,7 @@ export class SessionMetricsService implements ModelCallMetricsRecorder {
             throughputMeasuredCalls,
             throughputExcludedCalls,
             tokensPerSecond,
+            contextCapacity,
             contextUsage,
             runs: Object.freeze(runMetrics),
         });
