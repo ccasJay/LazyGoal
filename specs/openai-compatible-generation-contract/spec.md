@@ -67,7 +67,7 @@ superseded_by: null
 
 ## 执行记录
 
-- 状态：未执行
-- 验证：-
-- 结果：-
-- 未决：无
+- 状态：passed
+- 验证：HEAD · 2026-11-15T19:38:51+08:00
+- 结果：R1.1-R4.2 均已验证。npm test：生成、类型、文档、依赖、GEPA、3062 个 TypeScript 测试和 101 个 scripts 测试全部通过。Focused OpenAI-compatible Composition 重启与原生历史测试 25/25 通过。真实 Mistral Profile 在 --use-env-proxy 下完成两进程工具调用与已配对工具结果续接，端点返回 tool_calls。文档检查 47 模块/173 说明通过。
+- 未决：全量回归中的 GEPA 暂时故障 fixture 按退避共耗时约 305 秒，最终通过。工作区保留用户已有的其他未提交改动。
