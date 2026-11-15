@@ -73,7 +73,8 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
     "tool-core": ["contracts", "contract-binding", "execution-control", "sandbox"],
     "working-memory": ["contracts", "model-contracts"],
     "llm-core": ["contracts", "model-contracts", "execution-control"],
-    "llm-openai": ["llm-core", "model-contracts", "execution-control"],
+    "wire-chat-completions": ["llm-core", "execution-control"],
+    "llm-openai": ["llm-core", "model-contracts", "execution-control", "wire-chat-completions"],
     "llm-google": ["llm-core", "contracts", "model-contracts", "execution-control"],
     "llm-pi-ai": ["llm-core", "execution-control"],
     "model-catalog": ["llm-core"],
@@ -124,7 +125,7 @@ const BENCHMARKS = ["alfworld", "swebench", "gaia", "tua-bench", "context"];
 const VENDOR_SDK_MODULES = ["openai", "@google/genai", "@earendil-works/pi-ai"];
 
 /** 跨包消费必须经 `src/index.ts` 的能力包。 */
-const CAPABILITY_PACKAGES = ["llm-core", "llm-openai", "llm-google", "llm-pi-ai", "model-catalog"];
+const CAPABILITY_PACKAGES = ["llm-core", "wire-chat-completions", "llm-google", "llm-pi-ai", "model-catalog"];
 
 /** 禁止存在的旧 LLM 实现路径；源码不得引用。 */
 const REMOVED_LLM_PATHS = [

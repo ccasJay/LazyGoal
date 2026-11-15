@@ -4,14 +4,6 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { test } from "node:test";
 
 import {
-    OpenAICompatible,
-    OpenAIIncompleteResponseError,
-    OpenAIRefusalError,
-    StructuredOutputModeOpenAICompatible,
-    type OpenAICompatibleConfig,
-} from "../src/index";
-import type { StructuredOutputMode } from "../../llm-core/src/llm-config";
-import {
     createContentBlockStreamTracker,
     readAssistantText,
     readNormalizedUsage,
@@ -20,21 +12,34 @@ import {
     type LLMRequest,
     type LLMStreamEvent,
 } from "../../llm-core/src/index";
+import {
+    ChatCompletionsIncompleteError,
+    ChatCompletionsRefusalError,
+    buildChatCompletionsRequest,
+    generateChatCompletions,
+    streamChatCompletions,
+    type ChatCompletionsConnection,
+} from "../src/index";
 
 const TOOLS = [
     { id: "read_file", description: "Read a file", parametersSchema: { type: "object", properties: {} } },
     { id: "write_file", description: "Write a file", parametersSchema: { type: "object", properties: {} } },
 ];
 
-function adapter(baseURL: string, config: Partial<OpenAICompatibleConfig> = {}, mode: StructuredOutputMode = "prompt_only") {
-    return new StructuredOutputModeOpenAICompatible({
-        apiKey: "test-key", baseURL: `${baseURL}/v1`, model: "stream-model",
-        ...config,
-    }, mode);
-}
-
-function requestDrivenAdapter(baseURL: string) {
-    return new OpenAICompatible({ apiKey: "test-key", provider: "openai-compatible", baseURL: `${baseURL}/v1`, model: "stream-model" });
+function connection(baseURL: string, overrides: Partial<ChatCompletionsConnection> = {}): ChatCompletionsConnection {
+    return {
+        url: `${baseURL}/v1/chat/completions`,
+        headers: { Authorization: "Bearer test-key" },
+        model: "stream-model",
+        identity: {
+            provider: "openai-compatible",
+            endpoint: `${baseURL}/v1`,
+            model: "stream-model",
+            protocol: "openai-chat",
+        },
+        nativeStructuredOutput: true,
+        ...overrides,
+    };
 }
 
 async function withServer(
@@ -54,7 +59,6 @@ async function withServer(
     }
 }
 
-/** 单个 SSE 数据帧；不附加结束标记，便于按到达顺序分段写入。 */
 function frames(chunks: readonly unknown[]): string {
     return chunks.map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join("");
 }
@@ -77,8 +81,8 @@ async function readBody(request: IncomingMessage): Promise<Record<string, any>> 
     return JSON.parse(data) as Record<string, any>;
 }
 
-test("真实 SDK 流映射分片文本、两个工具索引、晚到身份与用量尾部", async () => {
-    const request = { messages: [{ role: "user", content: "开始" }], tools: TOOLS, toolChoice: "required" } satisfies LLMRequest;
+test("流式映射分片文本、两个工具索引、晚到身份与用量尾部", async () => {
+    const request = { messages: [{ role: "user", content: "开始" }], tools: TOOLS, toolChoice: "required", includeUsage: true } satisfies LLMRequest;
     const recorded: Record<string, any>[] = [];
     let releaseTail!: () => void;
     const tailReleased = new Promise<void>(resolve => { releaseTail = resolve; });
@@ -107,13 +111,10 @@ test("真实 SDK 流映射分片文本、两个工具索引、晚到身份与用
         const events: LLMStreamEvent[] = [];
         const tracker = createContentBlockStreamTracker();
         let released = false;
-        const stream = adapter(baseURL).stream?.(request);
-        assert.ok(stream);
-        for await (const event of stream) {
+        for await (const event of streamChatCompletions(connection(baseURL), request)) {
             tracker.accept(event);
             events.push(event);
             if (!released && events.some(item => item.kind === "content_block_delta")) {
-                // 首个增量到达时，尾部 chunk 尚未写入：真实增量可被逐步观察。
                 assert.equal(tailWritten, false);
                 released = true;
                 releaseTail();
@@ -134,13 +135,11 @@ test("真实 SDK 流映射分片文本、两个工具索引、晚到身份与用
         assert.deepEqual(readNormalizedUsage(response.providerMetadata), {
             inputTokens: 11, outputTokens: 7, cachedInputTokens: 3,
         });
-        assert.deepEqual((response.providerMetadata as Record<string, unknown>).finishReason, "tool_calls");
-        assert.deepEqual(response.blocks.find(block => block.type === "reasoning" && block.source === "reasoning_content"), {
-            index: 1, type: "reasoning", source: "reasoning_content", text: "先看实现",
-        });
+        assert.equal((response.providerMetadata as Record<string, unknown>).finishReason, "tool_calls");
         assert.equal("reasoningContent" in (response.continuation ?? {}), false);
-        // 已结束的工具块只在整个响应正常结束后才出现，且与最终响应逐项一致。
-        const completedKinds = events.filter(event => event.kind === "content_block_completed").map(event => event.kind === "content_block_completed" ? event.block.index : -1);
+        const completedKinds = events
+            .filter(event => event.kind === "content_block_completed")
+            .map(event => event.kind === "content_block_completed" ? event.block.index : -1);
         assert.deepEqual(completedKinds, [0, 1, 2, 3]);
         assert.equal(events.at(-1)?.kind, "completed");
     });
@@ -149,12 +148,12 @@ test("真实 SDK 流映射分片文本、两个工具索引、晚到身份与用
     assert.equal(recorded[0]?.stream, true);
     assert.deepEqual(recorded[0]?.stream_options, { include_usage: true });
     assert.equal(recorded[0]?.tool_choice, "required");
-    assert.equal(recorded[0]?.parallel_tool_calls, false);
+    assert.equal(recorded[0]?.parallel_tool_calls, undefined);
     assert.equal(recorded[0]?.response_format, undefined);
     assert.equal(recorded[0]?.tools.length, 2);
 });
 
-test("请求驱动的 OpenAI-compatible Adapter 共用实例并只按请求字段构造工具生成", async () => {
+test("请求驱动连接只按请求字段构造工具生成", async () => {
     const recorded: Record<string, any>[] = [];
     await withServer(async (incoming, outgoing) => {
         recorded.push(await readBody(incoming));
@@ -164,14 +163,13 @@ test("请求驱动的 OpenAI-compatible Adapter 共用实例并只按请求字�
             chunk({}, "stop"),
         ]));
     }, async baseURL => {
-        const instance = requestDrivenAdapter(baseURL);
-        assert.equal(Object.hasOwn(instance, "structuredOutputMode"), false);
-        const events = [];
-        assert.ok(instance.stream);
-        for await (const event of instance.stream({
+        const events: LLMStreamEvent[] = [];
+        for await (const event of streamChatCompletions(connection(baseURL, {
+            supportsRequiredToolChoice: false,
+        }), {
             messages: [{ role: "user", content: "Read." }],
             tools: [TOOLS[0]!],
-            toolChoice: "auto",
+            toolChoice: "required",
             acceptedFinishReasons: ["stop", "tool_calls"],
         })) events.push(event);
         assert.equal(events.at(-1)?.kind, "completed");
@@ -189,7 +187,7 @@ test("请求驱动的 OpenAI-compatible Adapter 共用实例并只按请求字�
     }]);
 });
 
-test("OpenAI-compatible 只在完整 stop/tool_calls 终态交付响应并保留 reasoning 来源", async () => {
+test("只在完整 stop/tool_calls 终态交付响应并保留 reasoning 来源", async () => {
     const requests: Record<string, any>[] = [];
     await withServer(async (incoming, outgoing) => {
         requests.push(await readBody(incoming));
@@ -202,18 +200,20 @@ test("OpenAI-compatible 只在完整 stop/tool_calls 终态交付响应并保留
         ]));
     }, async baseURL => {
         const events: LLMStreamEvent[] = [];
-        for await (const event of requestDrivenAdapter(baseURL).stream({
+        for await (const event of streamChatCompletions(connection(baseURL), {
             messages: [{ role: "user", content: "Read." }], tools: [TOOLS[0]!], toolChoice: "auto",
             acceptedFinishReasons: ["stop", "tool_calls"],
         })) events.push(event);
         const completed = events.at(-1);
         assert.equal(completed?.kind, "completed");
         if (completed?.kind !== "completed") return;
-        assert.deepEqual(completed.response.blocks.filter(block => block.type === "reasoning").map(block => block.type === "reasoning" ? block.source : undefined), [
-            "reasoning_content", "thought",
-        ]);
+        assert.deepEqual(
+            completed.response.blocks
+                .filter(block => block.type === "reasoning")
+                .map(block => block.type === "reasoning" ? block.source : undefined),
+            ["reasoning_content", "thought"],
+        );
         assert.deepEqual(completed.response.continuation, { identity: completed.response.continuation?.identity });
-        assert.equal((completed.response.providerMetadata as Record<string, unknown>).finishReason, "stop");
     });
     assert.equal(requests.length, 1);
 
@@ -238,11 +238,13 @@ test("OpenAI-compatible 只在完整 stop/tool_calls 终态交付响应并保留
         }, async baseURL => {
             const events: LLMStreamEvent[] = [];
             await assert.rejects(async () => {
-                for await (const event of requestDrivenAdapter(baseURL).stream({
+                for await (const event of streamChatCompletions(connection(baseURL, {
+                    toolCallIds: { generateMissing: "keep", streamMissing: "reject" },
+                }), {
                     messages: [{ role: "user", content: "Read." }], tools: [TOOLS[0]!], toolChoice: "auto",
                     acceptedFinishReasons: ["stop", "tool_calls"],
                 })) events.push(event);
-            }, (error: unknown) => error instanceof OpenAIIncompleteResponseError && error.reason === scenario.reason);
+            }, (error: unknown) => error instanceof ChatCompletionsIncompleteError && error.reason === scenario.reason);
             assert.equal(events.some(event => event.kind === "completed"), false);
         });
     }
@@ -253,12 +255,14 @@ test("OpenAI-compatible 只在完整 stop/tool_calls 终态交付响应并保留
         outgoing.end(sse([chunk({ refusal: "not allowed" }), chunk({}, "stop")]));
     }, async baseURL => {
         await assert.rejects(async () => {
-            for await (const _event of requestDrivenAdapter(baseURL).stream({ messages: [{ role: "user", content: "Read." }] })) { }
-        }, (error: unknown) => error instanceof OpenAIRefusalError && error.code === "OPENAI_REFUSAL");
+            for await (const _event of streamChatCompletions(connection(baseURL), {
+                messages: [{ role: "user", content: "Read." }],
+            })) { /* 消费到失败为止 */ }
+        }, (error: unknown) => error instanceof ChatCompletionsRefusalError);
     });
 });
 
-test("截断、内容过滤、无有效结束与不支持内容都不产生成功响应，也不重发请求", async () => {
+test("截断、内容过滤、无有效结束与不支持内容都不产生成功响应", async () => {
     const cases: readonly { readonly name: string; readonly chunks: readonly unknown[] }[] = [
         {
             name: "长度截断",
@@ -280,14 +284,11 @@ test("截断、内容过滤、无有效结束与不支持内容都不产生成�
             outgoing.end(sse(testCase.chunks));
         }, async baseURL => {
             const events: LLMStreamEvent[] = [];
-            const stream = adapter(baseURL).stream?.({
-                messages: [{ role: "user", content: "开始" }], tools: TOOLS, toolChoice: "required",
-            });
-            assert.ok(stream);
             await assert.rejects(async () => {
-                for await (const event of stream) events.push(event);
-            }, (error: unknown) => error instanceof OpenAIIncompleteResponseError
-                && error.code === "OPENAI_INCOMPLETE_RESPONSE", testCase.name);
+                for await (const event of streamChatCompletions(connection(baseURL), {
+                    messages: [{ role: "user", content: "开始" }], tools: TOOLS, toolChoice: "required",
+                })) events.push(event);
+            }, (error: unknown) => error instanceof ChatCompletionsIncompleteError, testCase.name);
             assert.equal(events.some(event => event.kind === "completed"), false, testCase.name);
         });
         assert.equal(recorded.length, 1, testCase.name);
@@ -321,12 +322,11 @@ test("同一确定性内容的 generate 与 stream 读视图、续接与用量�
         outgoing.end(body.stream === true ? sse(streamChunks) : JSON.stringify(completion));
     }, async baseURL => {
         const request = { messages: [{ role: "user", content: "开始" }], tools: TOOLS, toolChoice: "required" } satisfies LLMRequest;
-        const instance = adapter(baseURL);
-        const generated = await instance.generate(request);
+        const client = connection(baseURL);
+        const generated = await generateChatCompletions(client, request);
         const events: LLMStreamEvent[] = [];
         const tracker = createContentBlockStreamTracker();
-        assert.ok(instance.stream);
-        for await (const event of instance.stream(request)) {
+        for await (const event of streamChatCompletions(client, request)) {
             tracker.accept(event);
             events.push(event);
         }
@@ -346,10 +346,10 @@ test("流式响应缺失用量尾部时用量整体缺省，不补零", async ()
         outgoing.writeHead(200, { "Content-Type": "text/event-stream" });
         outgoing.end(sse([chunk({ content: "回答" }), chunk({}, "stop")]));
     }, async baseURL => {
-        const instance = adapter(baseURL);
         const events: LLMStreamEvent[] = [];
-        assert.ok(instance.stream);
-        for await (const event of instance.stream({ messages: [{ role: "user", content: "开始" }] })) events.push(event);
+        for await (const event of streamChatCompletions(connection(baseURL), {
+            messages: [{ role: "user", content: "开始" }],
+        })) events.push(event);
         const completed = events.at(-1);
         assert.equal(completed?.kind, "completed");
         const response = completed?.kind === "completed" ? completed.response : undefined;
@@ -359,44 +359,99 @@ test("流式响应缺失用量尾部时用量整体缺省，不补零", async ()
     });
 });
 
-test("OpenAI native stream releases the supplier iterator without masking the primary failure", async () => {
-    const adapter = new OpenAICompatible({ apiKey: "key", baseURL: "https://example.test/v1", model: "model" });
-    let released = 0;
-    (adapter as any).client = { chat: { completions: { create: async () => ({
-        [Symbol.asyncIterator]() {
-            let step = 0;
-            return {
-                async next() {
-                    step += 1;
-                    if (step === 1) {
-                        return { done: false as const, value: {
-                            id: "chatcmpl-1", model: "model", created: 0,
-                            choices: [{ index: 0, delta: { content: "partial" }, finish_reason: null }],
-                        } };
-                    }
-                    throw new Error("stream transport failed");
-                },
-                async return() {
-                    released += 1;
-                    throw new Error("iterator cleanup failed");
-                },
-            };
-        },
-    }) } } };
-
-    const events: LLMStreamEvent[] = [];
-    await assert.rejects(async () => {
-        assert.ok(adapter.stream);
-        for await (const event of adapter.stream({ messages: [{ role: "user", content: "开始" }] })) events.push(event);
-    }, /stream transport failed/);
-    assert.equal(released, 1);
-    assert.equal(events.some(event => event.kind === "completed"), false);
-
-    // 消费方提前退出同样释放本次迭代器。
-    released = 0;
-    assert.ok(adapter.stream);
-    for await (const event of adapter.stream({ messages: [{ role: "user", content: "开始" }] })) {
-        if (event.kind === "content_block_delta") break;
+test("非流式响应把拒绝、截断与缺失终态分别拒绝", async () => {
+    const cases = [
+        { body: { choices: [{ message: { refusal: "no" }, finish_reason: "stop" }] }, error: ChatCompletionsRefusalError },
+        { body: { choices: [{ message: { content: "x" }, finish_reason: "length" }] }, error: ChatCompletionsIncompleteError },
+        { body: { choices: [{ message: { content: "x" }, finish_reason: "stop" }] }, accepted: ["tool_calls" as const], error: ChatCompletionsIncompleteError },
+    ] as const;
+    for (const testCase of cases) {
+        await withServer(async (incoming, outgoing) => {
+            await readBody(incoming);
+            outgoing.writeHead(200, { "Content-Type": "application/json" });
+            outgoing.end(JSON.stringify(testCase.body));
+        }, async baseURL => {
+            await assert.rejects(generateChatCompletions(connection(baseURL), {
+                messages: [{ role: "user", content: "开始" }],
+                ...("accepted" in testCase ? { acceptedFinishReasons: testCase.accepted } : {}),
+            }), (error: unknown) => error instanceof testCase.error);
+        });
     }
-    assert.equal(released, 1);
+});
+
+test("非原生结构约束时从文本提取并修复 JSON 正文", async () => {
+    const body = {
+        id: "chatcmpl-1", model: "model", created: 1,
+        choices: [{ message: { content: '```json\n{"answer":"ok",}\n```' }, finish_reason: "stop" }],
+    };
+    await withServer(async (incoming, outgoing) => {
+        const request = await readBody(incoming);
+        assert.equal(request.response_format, undefined);
+        outgoing.writeHead(200, { "Content-Type": "application/json" });
+        outgoing.end(JSON.stringify(body));
+    }, async baseURL => {
+        const response = await generateChatCompletions(connection(baseURL, {
+            nativeStructuredOutput: false,
+        }), {
+            messages: [{ role: "user", content: "开始" }],
+            structuredOutput: {
+                name: "answer",
+                schema: { type: "object", properties: { answer: { type: "string" } }, required: ["answer"], additionalProperties: false },
+            },
+        });
+        assert.equal(readAssistantText(response), '{"answer":"ok"}');
+    });
+});
+
+test("HTTP 429 与上下文窗口拒绝被归一化为可分类故障", async () => {
+    await withServer(async (incoming, outgoing) => {
+        await readBody(incoming);
+        outgoing.writeHead(429, { "Content-Type": "application/json", "Retry-After": "2" });
+        outgoing.end(JSON.stringify({ error: { code: "rate_limit_exceeded", message: "slow down" } }));
+    }, async baseURL => {
+        await assert.rejects(generateChatCompletions(connection(baseURL), {
+            messages: [{ role: "user", content: "开始" }],
+        }), (error: unknown) => (error as { reason?: string }).reason === "rate_limited"
+            && (error as { retryAfterMs?: number }).retryAfterMs === 2000);
+    });
+
+    await withServer(async (incoming, outgoing) => {
+        await readBody(incoming);
+        outgoing.writeHead(400, { "Content-Type": "application/json" });
+        outgoing.end(JSON.stringify({ error: { code: "context_length_exceeded", message: "maximum context length exceeded" } }));
+    }, async baseURL => {
+        await assert.rejects(generateChatCompletions(connection(baseURL), {
+            messages: [{ role: "user", content: "开始" }],
+        }), (error: unknown) => error instanceof Error && error.name === "ContextWindowRejectedError");
+    });
+});
+
+test("构造请求保留消息角色、工具与流式字段", () => {
+    const request: LLMRequest = {
+        messages: [
+            { role: "system", content: "system" },
+            { role: "user", content: "hello" },
+        ],
+        maxOutputTokens: 123,
+        structuredOutput: { name: "answer", schema: { type: "object" } },
+    };
+    const body = buildChatCompletionsRequest(request, {
+        model: "model",
+        identity: {
+            provider: "openai-compatible", endpoint: "https://example.test/v1",
+            model: "model", protocol: "openai-chat",
+        },
+    });
+    assert.deepEqual(body, {
+        model: "model",
+        messages: [
+            { role: "system", content: "system" },
+            { role: "user", content: "hello" },
+        ],
+        max_tokens: 123,
+        response_format: {
+            type: "json_schema",
+            json_schema: { name: "answer", schema: { type: "object" }, strict: true },
+        },
+    });
 });

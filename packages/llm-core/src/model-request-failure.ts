@@ -93,6 +93,8 @@ function readString(value: unknown): string | undefined {
 }
 
 function retryAfterMs(value: Record<string, unknown>): number | undefined {
+    const normalized = value.retryAfterMs;
+    if (typeof normalized === "number" && Number.isFinite(normalized)) return Math.max(0, normalized);
     const rawHeaders = value.headers ?? asRecord(value.response)?.headers;
     if (typeof rawHeaders === "object" && rawHeaders !== null && "get" in rawHeaders
         && typeof (rawHeaders as { get?: unknown }).get === "function") {

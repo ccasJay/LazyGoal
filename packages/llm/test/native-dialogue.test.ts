@@ -19,14 +19,22 @@ function nextRequest(first: LLMResponse): LLMRequest {
 test("OpenAI two-turn dialogue preserves call IDs and supported reasoning extension without top-level JSON constraints", async () => {
     const adapter = new StructuredOutputModeOpenAICompatible({ apiKey: "test-key", model: "test", baseURL: "https://gateway.test/v1/" }, "strict");
     const requests: any[] = [];
-    (adapter as any).client = { chat: { completions: { create: async (request: unknown) => {
-        requests.push(request);
-        return { choices: [{ message: { content: "Checking", reasoning_content: "Summary", tool_calls: [{ id: "native-id", type: "function", function: { name: "read_file", arguments: "{}" } }] } }] };
-    } } } };
-    const first = await adapter.generate(firstRequest);
-    assert.equal(readAssistantText(first), "Checking");
-    assert.equal(readReasoningText(first), "Summary");
-    await adapter.generate(nextRequest(first));
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+        requests.push(JSON.parse(String(init?.body)));
+        return new Response(JSON.stringify({
+            choices: [{ message: { content: "Checking", reasoning_content: "Summary", tool_calls: [{ id: "native-id", type: "function", function: { name: "read_file", arguments: "{}" } }] } }],
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }) as typeof fetch;
+    let first: LLMResponse;
+    try {
+        first = await adapter.generate(firstRequest);
+        assert.equal(readAssistantText(first), "Checking");
+        assert.equal(readReasoningText(first), "Summary");
+        await adapter.generate(nextRequest(first));
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
     assert.equal(requests[0].parallel_tool_calls, false);
     assert.equal(requests[0].response_format, undefined);
     assert.equal(requests[1].messages[1].tool_calls[0].id, "native-id");

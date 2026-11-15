@@ -1,5 +1,12 @@
 export type { LLMAdapter } from "./adapter";
 
+export type { ProviderId, ProtocolId } from "./ids";
+export type {
+    LlmModelDescriptor,
+    ModelAvailabilitySource,
+    ModelMetadataSource,
+} from "./model-descriptor";
+
 export {
     LLMRequestModeMismatchError,
 } from "./types";
@@ -53,3 +60,14 @@ export {
 export type { NormalizedUsage } from "./usage";
 
 export { classifyContextWindowRejection, classifyTransientModelFailure } from "./model-request-failure";
+
+export { ServerSentEventDecoder, readServerSentEvents } from "./sse";
+export type { ServerSentEvent } from "./sse";
+
+export { extractJsonText, parseJsonText, repairJsonText } from "./json-text";
+export type { JsonTextFailure } from "./json-text";
+
+export { ModelHttpRequestError, parseRetryAfterMs } from "./http-error";
+
+export type { NativeConversationIdentity, ModelContinuation } from "../../model-contracts/src/index";
+export { sameNativeIdentity } from "../../model-contracts/src/index";

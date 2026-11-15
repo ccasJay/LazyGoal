@@ -6,6 +6,23 @@ import { PiAiAdapter } from "../../llm-pi-ai/src/index";
 import type { LLMRequest, LLMToolDefinition } from "../../llm-core/src/index";
 import { readAssistantText, readReasoningText, readToolCalls } from "../../llm-core/src/index";
 
+async function withFetch<T>(
+    stub: (url: string, init: RequestInit | undefined) => Promise<Response>,
+    run: () => Promise<T>,
+): Promise<T> {
+    const original = globalThis.fetch;
+    globalThis.fetch = stub as typeof fetch;
+    try {
+        return await run();
+    } finally {
+        globalThis.fetch = original;
+    }
+}
+
+function jsonResponse(body: unknown): Response {
+    return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+}
+
 const mockToolDefinition: LLMToolDefinition = {
     id: "system_complete_task",
     description: "宣布任务完成",
@@ -28,55 +45,43 @@ test("OpenAICompatible 原生 Function Calling 挂载 tools、strict: true 与 t
     }, "strict");
 
     let capturedRequest: any = undefined;
-    (adapter as any).client = {
-        chat: {
-            completions: {
-                create: async (req: any) => {
-                    capturedRequest = req;
-                    return {
-                        id: "chatcmpl-123",
-                        model: "gpt-4o",
-                        created: 1700000000,
-                        choices: [
-                            {
-                                message: {
-                                    role: "assistant",
-                                    content: "我分析了任务，决定调用系统完成函数。",
-                                    tool_calls: [
-                                        {
-                                            id: "call_abc123",
-                                            type: "function",
-                                            function: {
-                                                name: "system_complete_task",
-                                                arguments: JSON.stringify({
-                                                    summary: "任务已成功实现",
-                                                    completionEvidence: ["evidence-1"],
-                                                }),
-                                            },
-                                        },
-                                    ],
-                                },
-                                finish_reason: "tool_calls",
-                            },
-                        ],
-                        usage: {
-                            prompt_tokens: 100,
-                            completion_tokens: 50,
-                            total_tokens: 150,
-                        },
-                    };
-                },
-            },
-        },
-    };
-
     const request: LLMRequest = {
         messages: [{ role: "user", content: "请完成任务" }],
         tools: [mockToolDefinition],
         toolChoice: "required",
     };
 
-    const response = await adapter.generate(request);
+    const response = await withFetch(async (_url, init) => {
+        capturedRequest = JSON.parse(String(init?.body));
+        return jsonResponse({
+            id: "chatcmpl-123",
+            model: "gpt-4o",
+            created: 1700000000,
+            choices: [
+                {
+                    message: {
+                        role: "assistant",
+                        content: "我分析了任务，决定调用系统完成函数。",
+                        tool_calls: [
+                            {
+                                id: "call_abc123",
+                                type: "function",
+                                function: {
+                                    name: "system_complete_task",
+                                    arguments: JSON.stringify({
+                                        summary: "任务已成功实现",
+                                        completionEvidence: ["evidence-1"],
+                                    }),
+                                },
+                            },
+                        ],
+                    },
+                    finish_reason: "tool_calls",
+                },
+            ],
+            usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+        });
+    }, () => adapter.generate(request));
 
     // 1. 验证请求入参
     assert.ok(capturedRequest);
@@ -103,42 +108,34 @@ test("OpenAICompatible 无损捕获原生思考模型 reasoning_content 与工�
         model: "deepseek-r1",
     }, "strict");
 
-    (adapter as any).client = {
-        chat: {
-            completions: {
-                create: async () => ({
-                    id: "chatcmpl-r1",
-                    model: "deepseek-r1",
-                    created: 1700000000,
-                    choices: [
+    const response = await withFetch(async () => jsonResponse({
+        id: "chatcmpl-r1",
+        model: "deepseek-r1",
+        created: 1700000000,
+        choices: [
+            {
+                message: {
+                    role: "assistant",
+                    content: "",
+                    reasoning_content: "逐步逻辑推演：首先确认测试用例均已通过，然后调用完成工具。",
+                    tool_calls: [
                         {
-                            message: {
-                                role: "assistant",
-                                content: "",
-                                reasoning_content: "逐步逻辑推演：首先确认测试用例均已通过，然后调用完成工具。",
-                                tool_calls: [
-                                    {
-                                        id: "call_r1_1",
-                                        type: "function",
-                                        function: {
-                                            name: "system_complete_task",
-                                            arguments: '{"summary":"验证完成","completionEvidence":[]}',
-                                        },
-                                    },
-                                ],
+                            id: "call_r1_1",
+                            type: "function",
+                            function: {
+                                name: "system_complete_task",
+                                arguments: '{"summary":"验证完成","completionEvidence":[]}',
                             },
-                            finish_reason: "tool_calls",
                         },
                     ],
-                }),
+                },
+                finish_reason: "tool_calls",
             },
-        },
-    };
-
-    const response = await adapter.generate({
+        ],
+    }), () => adapter.generate({
         messages: [{ role: "user", content: "推进" }],
         tools: [mockToolDefinition],
-    });
+    }));
 
     assert.equal(readAssistantText(response), "");
     assert.equal(readReasoningText(response), "逐步逻辑推演：首先确认测试用例均已通过，然后调用完成工具。");
