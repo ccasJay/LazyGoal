@@ -91,6 +91,8 @@ export interface LLMRequest {
     readonly parallelToolCalls?: boolean;
     /** 请求供应商在流尾发送用量；省略时不改变供应商默认用量行为。 */
     readonly includeUsage?: boolean;
+    /** 本次响应必须以指定的 Chat Completions 结束原因闭合。 */
+    readonly acceptedFinishReasons?: readonly ("stop" | "tool_calls")[];
     /**
      * 稳定会话身份（如 Goal 的 id）。供应商会话感知能力据此获得跨调用一致的会话标识；
      * 省略时适配器保持既有请求形态，不发送任何会话头。
@@ -168,6 +170,8 @@ export interface LLMReasoningBlock {
     /** 本次响应内稳定且唯一的块索引。 */
     readonly index: number;
     readonly type: "reasoning";
+    /** 供应商区分公开 reasoning 扩展字段时保留其来源。 */
+    readonly source?: "reasoning_content" | "thought";
     /** 该块的完整 reasoning 文本。 */
     readonly text: string;
 }

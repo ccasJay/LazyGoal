@@ -47,7 +47,7 @@ export interface GeminiContinuationPart {
 
 /**
  * 可持久化的供应商续接字段，与诊断 metadata 分离。
- * @remarks 仅保留协议所需字段；reasoningContent 只用于 OpenAI 兼容协议明确返回的 reasoning_content。
+ * @remarks 仅保留协议所需字段；OpenAI Chat Completions 的 `thought` 会记录但不在原生请求中回放。
  * @example
  * ```ts
  * const continuation: ModelContinuation = { identity, parts: [{ functionCall: { name: "read_file", args: {} }, thoughtSignature: "opaque" }] };
@@ -57,6 +57,7 @@ export interface ModelContinuation {
     readonly identity: NativeConversationIdentity;
     readonly parts?: readonly GeminiContinuationPart[];
     readonly reasoningContent?: string;
+    readonly thought?: string;
 }
 
 /**
@@ -120,7 +121,7 @@ export function isModelAssistantMessage(value: unknown): value is ModelAssistant
             && nonempty(call.callId) && nonempty(call.toolId) && typeof call.argumentsJson === "string"))) return false;
     if (value.continuation === undefined) return true;
     const continuation = value.continuation;
-    if (!isRecord(continuation) || !keys(continuation, ["identity", "parts", "reasoningContent"]) || !isRecord(continuation.identity)) return false;
+    if (!isRecord(continuation) || !keys(continuation, ["identity", "parts", "reasoningContent", "thought"]) || !isRecord(continuation.identity)) return false;
     const identity = continuation.identity;
     if (!keys(identity, ["provider", "endpoint", "model", "protocol"]) || !nonempty(identity.model) || !nonempty(identity.endpoint)
         || !["openai", "openai-compatible", "google"].includes(String(identity.provider))) return false;
@@ -130,10 +131,11 @@ export function isModelAssistantMessage(value: unknown): value is ModelAssistant
     } catch { return false; }
     if (identity.protocol === "openai-chat") {
         return identity.provider !== "google" && continuation.parts === undefined
-            && (continuation.reasoningContent === undefined || typeof continuation.reasoningContent === "string");
+            && (continuation.reasoningContent === undefined || typeof continuation.reasoningContent === "string")
+            && (continuation.thought === undefined || typeof continuation.thought === "string");
     }
     if (identity.protocol !== "gemini-content" || identity.provider !== "google" || continuation.reasoningContent !== undefined
-        || !Array.isArray(continuation.parts)) return false;
+        || continuation.thought !== undefined || !Array.isArray(continuation.parts)) return false;
     const calls: Record<string, unknown>[] = [];
     for (const part of continuation.parts) {
         if (!isRecord(part) || !keys(part, ["text", "thought", "thoughtSignature", "functionCall"])

@@ -112,30 +112,43 @@ export class OpenAICompatible implements LLMAdapter {
             throwIfAborted(control);
             const choice = response.choices[0];
             const message = choice?.message;
-            const extended = message as typeof message & { reasoning_content?: string; thought?: string } | undefined;
+            const extended = message as typeof message & { reasoning_content?: string; thought?: string; refusal?: string | null } | undefined;
+            if (typeof extended?.refusal === "string" && extended.refusal.length > 0) throw new OpenAIRefusalError();
             const reasoningContent = extended?.reasoning_content;
-            const reasoning = reasoningContent ?? extended?.thought;
+            const thought = extended?.thought;
             const finishReason = choice?.finish_reason ?? null;
-            assertAcceptedFinishReason(finishReason);
+            const toolCalls = (message?.tool_calls ?? []).map(tc => {
+                const func = "function" in tc ? tc.function : (tc as any).function;
+                return {
+                    callId: this.nativeConversationIdentity.provider === "openai-compatible" && tc.id.length === 0
+                        ? ""
+                        : tc.id.length > 0 ? tc.id : `call_${randomUUID()}`,
+                    toolId: func?.name ?? "",
+                    argumentsJson: func?.arguments ?? "{}",
+                };
+            });
+            if (_request.acceptedFinishReasons !== undefined && toolCalls.some(call => call.callId.length === 0)) {
+                throw new OpenAIIncompleteResponseError("Chat Completions tool call ended without a provider call ID", "missing_tool_call_id");
+            }
+            assertAcceptedFinishReason(finishReason, _request.acceptedFinishReasons, toolCalls.length);
             const usage = extractOpenAIUsage(response.usage);
 
             return {
                 blocks: toCompletionBlocks({
                     text: readProviderText(message?.content, "message content"),
-                    ...(reasoning === undefined ? {} : { reasoning }),
-                    toolCalls: (message?.tool_calls ?? []).map(tc => {
-                        const func = "function" in tc ? tc.function : (tc as any).function;
-                        return {
-                            callId: tc.id.length > 0 ? tc.id : `call_${randomUUID()}`,
-                            toolId: func?.name ?? "",
-                            argumentsJson: func?.arguments ?? "{}",
-                        };
+                    ...(reasoningContent === undefined && thought === undefined ? {} : {
+                        reasoning: [
+                            ...(reasoningContent === undefined ? [] : [{ source: "reasoning_content" as const, text: reasoningContent }]),
+                            ...(thought === undefined ? [] : [{ source: "thought" as const, text: thought }]),
+                        ],
                     }),
+                    toolCalls,
                     textFormat: this.textFormat(_request),
                 }),
                 continuation: {
                     identity: this.nativeConversationIdentity,
                     ...(reasoningContent === undefined ? {} : { reasoningContent }),
+                    ...(thought === undefined ? {} : { thought }),
                 },
                 providerMetadata: {
                     requestId: response.id,
@@ -189,7 +202,8 @@ export class OpenAICompatible implements LLMAdapter {
 
             let nextIndex = 0;
             let text: { readonly index: number; text: string } | undefined;
-            let reasoning: { readonly index: number; text: string } | undefined;
+            let reasoningContent: { readonly index: number; text: string } | undefined;
+            let thought: { readonly index: number; text: string } | undefined;
             const toolBlocks = new Map<number, { readonly index: number; callId: string; toolId: string; argumentsJson: string }>();
             let finishReason: string | null = null;
             let sawChunk = false;
@@ -207,13 +221,21 @@ export class OpenAICompatible implements LLMAdapter {
                     throwIfAborted(control);
                     const chunk = next.value;
                     sawChunk = true;
+                    if (request.acceptedFinishReasons !== undefined && finishReason !== null && chunk.choices.length > 0) {
+                        throw new OpenAIIncompleteResponseError("Chat Completions stream emitted content after its finish reason", "duplicate_finish_reason");
+                    }
                     requestId ??= chunk.id;
                     model ??= chunk.model;
                     created ??= chunk.created;
                     usage = extractOpenAIUsage(chunk.usage) ?? usage;
                     const choice = chunk.choices[0];
                     const delta = choice?.delta;
-                    if (choice?.finish_reason !== undefined && choice.finish_reason !== null) finishReason = choice.finish_reason;
+                    if (choice?.finish_reason !== undefined && choice.finish_reason !== null) {
+                        if (finishReason !== null && request.acceptedFinishReasons !== undefined) {
+                            throw new OpenAIIncompleteResponseError("Chat Completions stream contained multiple finish reasons", "duplicate_finish_reason");
+                        }
+                        finishReason = choice.finish_reason;
+                    }
 
                     const deltaText = readProviderText(delta?.content, "stream content delta");
                     if (deltaText.length > 0) {
@@ -225,15 +247,25 @@ export class OpenAICompatible implements LLMAdapter {
                         yield { kind: "content_block_delta", index: text.index, deltaKind: "text", delta: deltaText };
                     }
 
-                    const extended = delta as typeof delta & { reasoning_content?: unknown; thought?: unknown } | undefined;
-                    const reasoningDelta = readProviderText(extended?.reasoning_content ?? extended?.thought, "stream reasoning delta");
+                    const extended = delta as typeof delta & { reasoning_content?: unknown; thought?: unknown; refusal?: unknown } | undefined;
+                    if (typeof extended?.refusal === "string" && extended.refusal.length > 0) throw new OpenAIRefusalError();
+                    const reasoningDelta = readProviderText(extended?.reasoning_content, "stream reasoning delta");
                     if (reasoningDelta.length > 0) {
-                        if (reasoning === undefined) {
-                            reasoning = { index: nextIndex++, text: "" };
-                            yield { kind: "content_block_started", index: reasoning.index, blockType: "reasoning", delivery: "incremental" };
+                        if (reasoningContent === undefined) {
+                            reasoningContent = { index: nextIndex++, text: "" };
+                            yield { kind: "content_block_started", index: reasoningContent.index, blockType: "reasoning", delivery: "incremental" };
                         }
-                        reasoning.text += reasoningDelta;
-                        yield { kind: "content_block_delta", index: reasoning.index, deltaKind: "reasoning", delta: reasoningDelta };
+                        reasoningContent.text += reasoningDelta;
+                        yield { kind: "content_block_delta", index: reasoningContent.index, deltaKind: "reasoning", delta: reasoningDelta };
+                    }
+                    const thoughtDelta = readProviderText(extended?.thought, "stream thought delta");
+                    if (thoughtDelta.length > 0) {
+                        if (thought === undefined) {
+                            thought = { index: nextIndex++, text: "" };
+                            yield { kind: "content_block_started", index: thought.index, blockType: "reasoning", delivery: "incremental" };
+                        }
+                        thought.text += thoughtDelta;
+                        yield { kind: "content_block_delta", index: thought.index, deltaKind: "reasoning", delta: thoughtDelta };
                     }
 
                     for (const call of delta?.tool_calls ?? []) {
@@ -263,20 +295,30 @@ export class OpenAICompatible implements LLMAdapter {
             if (primaryError !== undefined) throw primaryError;
 
             throwIfAborted(control);
-            if (!sawChunk) throw new OpenAIIncompleteResponseError("Chat Completions stream produced no chunks");
+            if (!sawChunk) throw new OpenAIIncompleteResponseError("Chat Completions stream produced no chunks", "empty_stream");
             if (finishReason === null) {
-                throw new OpenAIIncompleteResponseError("Chat Completions stream ended without a valid finish reason");
+                throw new OpenAIIncompleteResponseError("Chat Completions stream ended without a valid finish reason", "missing_finish_reason");
             }
-            assertAcceptedFinishReason(finishReason);
+            assertAcceptedFinishReason(finishReason, request.acceptedFinishReasons, toolBlocks.size);
+            if (request.acceptedFinishReasons !== undefined
+                && [...toolBlocks.values()].some(block => block.callId.length === 0)) {
+                throw new OpenAIIncompleteResponseError("Chat Completions tool call ended without a provider call ID", "missing_tool_call_id");
+            }
 
             const orderedBlocks: LLMContentBlock[] = [];
             if (text !== undefined && text.text.length > 0) {
                 orderedBlocks.push({ index: text.index, type: "text", format: textFormat, text: text.text });
             }
-            if (reasoning !== undefined && reasoning.text.length > 0) {
-                orderedBlocks.push({ index: reasoning.index, type: "reasoning", text: reasoning.text });
+            if (reasoningContent !== undefined && reasoningContent.text.length > 0) {
+                orderedBlocks.push({ index: reasoningContent.index, type: "reasoning", source: "reasoning_content", text: reasoningContent.text });
+            }
+            if (thought !== undefined && thought.text.length > 0) {
+                orderedBlocks.push({ index: thought.index, type: "reasoning", source: "thought", text: thought.text });
             }
             for (const block of toolBlocks.values()) {
+                if (this.nativeConversationIdentity.provider === "openai-compatible" && block.callId.length === 0) {
+                    throw new OpenAIIncompleteResponseError("Chat Completions tool call ended without a provider call ID", "missing_tool_call_id");
+                }
                 orderedBlocks.push({
                     index: block.index, type: "tool_call",
                     callId: block.callId.length > 0 ? block.callId : `call_${randomUUID()}`,
@@ -295,7 +337,8 @@ export class OpenAICompatible implements LLMAdapter {
                     blocks: orderedBlocks,
                     continuation: {
                         identity: this.nativeConversationIdentity,
-                        ...(reasoning === undefined ? {} : { reasoningContent: reasoning.text }),
+                        ...(reasoningContent === undefined ? {} : { reasoningContent: reasoningContent.text }),
+                        ...(thought === undefined ? {} : { thought: thought.text }),
                     },
                     providerMetadata: {
                         ...(requestId === undefined ? {} : { requestId }),
@@ -381,20 +424,75 @@ export class OpenAICompatible implements LLMAdapter {
  * throw new OpenAIIncompleteResponseError("Chat Completions response was truncated (length)");
  * ```
  */
+export type OpenAIIncompleteResponseReason =
+    | "length"
+    | "content_filter"
+    | "provider_error"
+    | "empty_stream"
+    | "missing_finish_reason"
+    | "duplicate_finish_reason"
+    | "unsupported_finish_reason"
+    | "tool_calls_without_call"
+    | "missing_tool_call_id"
+    | "unsupported_content";
+
+/**
+ * Chat Completions 响应未以目标协议可接受的状态完成。
+ *
+ * @example
+ * ```ts
+ * if (error instanceof OpenAIIncompleteResponseError) console.log(error.reason);
+ * ```
+ */
 export class OpenAIIncompleteResponseError extends Error {
     readonly code = "OPENAI_INCOMPLETE_RESPONSE";
 
-    constructor(message: string) {
+    /** 导致响应无法提交的稳定分类。 */
+    readonly reason: OpenAIIncompleteResponseReason;
+
+    /**
+     * @param message - 不包含响应正文的诊断信息。
+     * @param reason - 终态或响应协议失败类别。
+     */
+    constructor(message: string, reason: OpenAIIncompleteResponseReason = "unsupported_content") {
         super(message);
         this.name = "OpenAIIncompleteResponseError";
+        this.reason = reason;
     }
 }
 
-/** 拒绝供应商明确报告的截断、安全过滤与错误结束；其余结束原因由调用方判定。 */
-function assertAcceptedFinishReason(finishReason: string | null): void {
-    if (finishReason !== "length" && finishReason !== "content_filter" && finishReason !== "error") return;
+/** 模型明确拒绝当前请求；拒绝正文不进入可执行响应。 */
+export class OpenAIRefusalError extends Error {
+    /** 稳定的 refusal 分类码。 */
+    readonly code = "OPENAI_REFUSAL";
+
+    constructor() {
+        super("Chat Completions model refused the request");
+        this.name = "OpenAIRefusalError";
+    }
+}
+
+/** 归一化终态；兼容端点只接受已约定的 `stop` 和 `tool_calls` 完成原因。 */
+function assertAcceptedFinishReason(
+    finishReason: string | null,
+    acceptedFinishReasons: LLMRequest["acceptedFinishReasons"],
+    toolCallCount: number,
+): void {
+    if (finishReason === "length" || finishReason === "content_filter" || finishReason === "error") {
+        throw new OpenAIIncompleteResponseError(
+            `Chat Completions response did not complete normally (${finishReason})`,
+            finishReason === "length" ? "length" : finishReason === "content_filter" ? "content_filter" : "provider_error",
+        );
+    }
+    if (acceptedFinishReasons === undefined) return;
+    if (finishReason === "tool_calls" && acceptedFinishReasons.includes("tool_calls")) {
+        if (toolCallCount > 0) return;
+        throw new OpenAIIncompleteResponseError("Chat Completions ended with tool_calls but returned no tool call", "tool_calls_without_call");
+    }
+    if (acceptedFinishReasons.includes(finishReason as "stop" | "tool_calls")) return;
     throw new OpenAIIncompleteResponseError(
-        `Chat Completions response did not complete normally (${finishReason})`,
+        `Chat Completions returned an unsupported finish reason (${finishReason ?? "missing"})`,
+        "unsupported_finish_reason",
     );
 }
 
@@ -418,13 +516,17 @@ function readProviderText(value: unknown, label: string): string {
 /** 按正文、公开 reasoning、工具数组的固定顺序映射非流式完整响应块。 */
 function toCompletionBlocks(input: {
     readonly text: string;
-    readonly reasoning?: string;
+    readonly reasoning?: readonly { readonly source: "reasoning_content" | "thought"; readonly text: string }[];
     readonly toolCalls: readonly LLMToolCall[];
     readonly textFormat: LLMTextBlockFormat;
 }): LLMContentBlock[] {
     const blocks: LLMContentBlock[] = [];
     if (input.text.length > 0) blocks.push({ index: blocks.length, type: "text", format: input.textFormat, text: input.text });
-    if (input.reasoning !== undefined && input.reasoning.length > 0) blocks.push({ index: blocks.length, type: "reasoning", text: input.reasoning });
+    for (const reasoning of input.reasoning ?? []) {
+        if (reasoning.text.length > 0) {
+            blocks.push({ index: blocks.length, type: "reasoning", source: reasoning.source, text: reasoning.text });
+        }
+    }
     for (const call of input.toolCalls) blocks.push({ index: blocks.length, type: "tool_call", ...call });
     return blocks;
 }

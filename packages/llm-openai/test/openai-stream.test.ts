@@ -6,6 +6,7 @@ import { test } from "node:test";
 import {
     OpenAICompatible,
     OpenAIIncompleteResponseError,
+    OpenAIRefusalError,
     StructuredOutputModeOpenAICompatible,
     type OpenAICompatibleConfig,
 } from "../src/index";
@@ -30,6 +31,10 @@ function adapter(baseURL: string, config: Partial<OpenAICompatibleConfig> = {}, 
         apiKey: "test-key", baseURL: `${baseURL}/v1`, model: "stream-model",
         ...config,
     }, mode);
+}
+
+function requestDrivenAdapter(baseURL: string) {
+    return new OpenAICompatible({ apiKey: "test-key", provider: "openai-compatible", baseURL: `${baseURL}/v1`, model: "stream-model" });
 }
 
 async function withServer(
@@ -156,7 +161,7 @@ test("请求驱动的 OpenAI-compatible Adapter 共用实例并只按请求字�
             chunk({}, "stop"),
         ]));
     }, async baseURL => {
-        const instance = new OpenAICompatible({ apiKey: "test-key", baseURL: `${baseURL}/v1`, model: "stream-model" });
+        const instance = requestDrivenAdapter(baseURL);
         assert.equal(Object.hasOwn(instance, "structuredOutputMode"), false);
         const events = [];
         assert.ok(instance.stream);
@@ -164,6 +169,7 @@ test("请求驱动的 OpenAI-compatible Adapter 共用实例并只按请求字�
             messages: [{ role: "user", content: "Read." }],
             tools: [TOOLS[0]!],
             toolChoice: "auto",
+            acceptedFinishReasons: ["stop", "tool_calls"],
         })) events.push(event);
         assert.equal(events.at(-1)?.kind, "completed");
     });
@@ -178,6 +184,79 @@ test("请求驱动的 OpenAI-compatible Adapter 共用实例并只按请求字�
         type: "function",
         function: { name: "read_file", description: "Read a file", parameters: TOOLS[0]!.parametersSchema },
     }]);
+});
+
+test("OpenAI-compatible 只在完整 stop/tool_calls 终态交付响应并保留 reasoning 来源", async () => {
+    const requests: Record<string, any>[] = [];
+    await withServer(async (incoming, outgoing) => {
+        requests.push(await readBody(incoming));
+        outgoing.writeHead(200, { "Content-Type": "text/event-stream" });
+        outgoing.end(sse([
+            chunk({ reasoning_content: "summary" }),
+            chunk({ thought: "extension" }),
+            chunk({ tool_calls: [{ index: 0, id: "call-id", type: "function", function: { name: "read_file", arguments: "{}" } }] }),
+            chunk({}, "stop"),
+        ]));
+    }, async baseURL => {
+        const events: LLMStreamEvent[] = [];
+        for await (const event of requestDrivenAdapter(baseURL).stream({
+            messages: [{ role: "user", content: "Read." }], tools: [TOOLS[0]!], toolChoice: "auto",
+            acceptedFinishReasons: ["stop", "tool_calls"],
+        })) events.push(event);
+        const completed = events.at(-1);
+        assert.equal(completed?.kind, "completed");
+        if (completed?.kind !== "completed") return;
+        assert.deepEqual(completed.response.blocks.filter(block => block.type === "reasoning").map(block => block.type === "reasoning" ? block.source : undefined), [
+            "reasoning_content", "thought",
+        ]);
+        assert.deepEqual(completed.response.continuation, {
+            identity: completed.response.continuation?.identity,
+            reasoningContent: "summary",
+            thought: "extension",
+        });
+        assert.equal((completed.response.providerMetadata as Record<string, unknown>).finishReason, "stop");
+    });
+    assert.equal(requests.length, 1);
+
+    for (const scenario of [
+        { reason: "length", finish: "length", deltas: [{ tool_calls: [{ index: 0, id: "call-id", type: "function", function: { name: "read_file", arguments: "{}" } }] }] },
+        { reason: "content_filter", finish: "content_filter", deltas: [{ content: "partial" }] },
+        { reason: "missing_finish_reason", finish: null, deltas: [{ content: "partial" }] },
+        { reason: "tool_calls_without_call", finish: "tool_calls", deltas: [] },
+        { reason: "duplicate_finish_reason", finish: "stop", deltas: [{ content: "partial" }, { _duplicateTerminal: true }] },
+        { reason: "unsupported_finish_reason", finish: "unknown", deltas: [{ content: "partial" }] },
+        { reason: "missing_tool_call_id", finish: "tool_calls", deltas: [{ tool_calls: [{ index: 0, type: "function", function: { name: "read_file", arguments: "{}" } }] }] },
+    ] as const) {
+        await withServer(async (incoming, outgoing) => {
+            await readBody(incoming);
+            outgoing.writeHead(200, { "Content-Type": "text/event-stream" });
+            outgoing.end(sse([
+                ...scenario.deltas.flatMap(delta => "_duplicateTerminal" in delta
+                    ? [chunk({}, "stop")]
+                    : [chunk(delta)]),
+                ...(scenario.finish === null ? [] : [chunk({}, scenario.finish)]),
+            ]));
+        }, async baseURL => {
+            const events: LLMStreamEvent[] = [];
+            await assert.rejects(async () => {
+                for await (const event of requestDrivenAdapter(baseURL).stream({
+                    messages: [{ role: "user", content: "Read." }], tools: [TOOLS[0]!], toolChoice: "auto",
+                    acceptedFinishReasons: ["stop", "tool_calls"],
+                })) events.push(event);
+            }, (error: unknown) => error instanceof OpenAIIncompleteResponseError && error.reason === scenario.reason);
+            assert.equal(events.some(event => event.kind === "completed"), false);
+        });
+    }
+
+    await withServer(async (incoming, outgoing) => {
+        await readBody(incoming);
+        outgoing.writeHead(200, { "Content-Type": "text/event-stream" });
+        outgoing.end(sse([chunk({ refusal: "not allowed" }), chunk({}, "stop")]));
+    }, async baseURL => {
+        await assert.rejects(async () => {
+            for await (const _event of requestDrivenAdapter(baseURL).stream({ messages: [{ role: "user", content: "Read." }] })) { }
+        }, (error: unknown) => error instanceof OpenAIRefusalError && error.code === "OPENAI_REFUSAL");
+    });
 });
 
 test("截断、内容过滤、无有效结束与不支持内容都不产生成功响应，也不重发请求", async () => {
