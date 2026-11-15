@@ -80,7 +80,7 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
     "llm-google": ["llm-core", "contracts", "model-contracts", "execution-control"],
     "llm-pi-ai": ["llm-core", "execution-control"],
     "model-catalog": ["llm-core"],
-    "llm-adapters": ["llm-core", "model-catalog"],
+    "llm-adapters": ["llm-core", "model-catalog", "wire-chat-completions", "execution-control"],
     config: ["llm-core"],
     runtime: ["contracts", "model-contracts", "execution-stream", "sandbox", "permission", "context-retrieval", "execution-control", "tool-core", "working-memory"],
     llm: ["llm-core", "llm-openai", "llm-google", "llm-pi-ai"],

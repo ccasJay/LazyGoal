@@ -62,6 +62,8 @@ export interface ChatCompletionsConnection {
     readonly supportsRequiredToolChoice?: boolean;
     /** 是否在续接载荷中回放 reasoning 扩展；缺省为 `false`。 */
     readonly replayReasoningExtensions?: boolean;
+    /** 会话身份头名称；请求提供 `sessionId` 时写入该头。 */
+    readonly sessionHeader?: string;
     /** 缺失供应商调用身份的处理策略；缺省为官方 OpenAI 的分配策略。 */
     readonly toolCallIds?: ChatCompletionsToolCallIdPolicy;
 }
@@ -97,7 +99,7 @@ export async function generateChatCompletions(
     try {
         const response = await fetch(connection.url, {
             method: "POST",
-            headers: requestHeaders(connection),
+            headers: requestHeaders(connection, request),
             body: JSON.stringify(buildChatCompletionsRequest(request, connection)),
             ...(control?.signal === undefined ? {} : { signal: control.signal }),
         });
@@ -142,7 +144,7 @@ export async function* streamChatCompletions(
     try {
         const response = await fetch(connection.url, {
             method: "POST",
-            headers: { ...requestHeaders(connection), Accept: "text/event-stream" },
+            headers: { ...requestHeaders(connection, request), Accept: "text/event-stream" },
             body: JSON.stringify(buildChatCompletionsStreamRequest(request, connection)),
             ...(control?.signal === undefined ? {} : { signal: control.signal }),
         });
@@ -173,9 +175,12 @@ export async function* streamChatCompletions(
     }
 }
 
-function requestHeaders(connection: ChatCompletionsConnection): Record<string, string> {
+function requestHeaders(connection: ChatCompletionsConnection, request: LLMRequest): Record<string, string> {
     return {
         ...connection.headers,
+        ...(connection.sessionHeader === undefined || request.sessionId === undefined
+            ? {}
+            : { [connection.sessionHeader]: request.sessionId }),
         "Content-Type": "application/json",
         Accept: "application/json",
     };

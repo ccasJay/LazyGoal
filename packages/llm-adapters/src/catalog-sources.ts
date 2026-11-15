@@ -1,26 +1,16 @@
-import { createModels } from "@earendil-works/pi-ai";
-import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
-import { googleProvider } from "@earendil-works/pi-ai/providers/google";
-import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
-import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
-import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
-import { opencodeGoProvider } from "@earendil-works/pi-ai/providers/opencode-go";
-
 import type { LLMConfig, LLMExecutionApi } from "../../llm-core/src/index";
-import type { CatalogModel, CatalogSource } from "../../model-catalog/src/index";
+import type { CatalogSource } from "../../model-catalog/src/index";
 import { DefaultProviderModelFetcher } from "./catalog-fetchers";
-
-/** Chat Completions 线格式的协议标识。 */
-export const CHAT_COMPLETIONS_PROTOCOL = "chat-completions";
-
-const STATIC_FACTORIES = {
-    openai: openaiProvider,
-    google: googleProvider,
-    anthropic: anthropicProvider,
-    openrouter: openrouterProvider,
-    deepseek: deepseekProvider,
-    "opencode-go": opencodeGoProvider,
-} as const;
+import { createDeepSeekCatalogSource } from "./deepseek";
+import { createOpenAICatalogSource } from "./openai";
+import { createOpenCodeGoCatalogSource } from "./opencode-go";
+import { createOpenRouterCatalogSource } from "./openrouter";
+import {
+    ANTHROPIC_MESSAGES_PROTOCOL,
+    CHAT_COMPLETIONS_PROTOCOL,
+    GOOGLE_GENERATE_CONTENT_PROTOCOL,
+} from "./protocols";
+import { readStaticCatalogModels } from "./static-catalog";
 
 /**
  * OpenCode Go 已知模型的执行元数据。
@@ -87,35 +77,6 @@ export function resolveOpenCodeGoExecutionMetadata(modelId: string): OpenCodeGoE
     return OPENCODE_GO_EXECUTION_METADATA[modelId];
 }
 
-function getStaticModels() {
-    const models = createModels({
-        authContext: { env: async () => undefined, fileExists: async () => false },
-    });
-    for (const factory of Object.values(STATIC_FACTORIES)) {
-        models.setProvider(factory());
-    }
-    return models;
-}
-
-function toCatalogModels(models: readonly {
-    readonly id: string;
-    readonly name?: string;
-    readonly contextWindow: number;
-    readonly maxTokens: number;
-    readonly reasoning: boolean;
-    readonly input: readonly string[];
-}[]): CatalogModel[] {
-    return models.map(model => ({
-        id: model.id,
-        displayName: model.name === undefined || model.name.length === 0 ? model.id : model.name,
-        contextWindowTokens: model.contextWindow,
-        maxOutputTokens: model.contextWindow > 1 ? Math.min(model.maxTokens, model.contextWindow - 1) : model.maxTokens,
-        reasoning: model.reasoning,
-        vision: model.input.includes("image"),
-        isTextGeneration: model.input.includes("text"),
-    }));
-}
-
 /**
  * 构建内置供应商的目录来源。
  *
@@ -134,46 +95,24 @@ function toCatalogModels(models: readonly {
  * ```
  */
 export function createBuiltinCatalogSources(): readonly CatalogSource[] {
-    const models = getStaticModels();
     const fetcher = new DefaultProviderModelFetcher();
     const discover = (config: LLMConfig, options?: { readonly signal?: AbortSignal | undefined; readonly fetch?: typeof fetch | undefined }) =>
         fetcher.fetchModels(config, options);
     return [
-        {
-            provider: "openai",
-            protocol: CHAT_COMPLETIONS_PROTOCOL,
-            staticModels: toCatalogModels(models.getModels("openai")),
-            discover,
-        },
-        {
-            provider: "deepseek",
-            protocol: CHAT_COMPLETIONS_PROTOCOL,
-            staticModels: toCatalogModels(models.getModels("deepseek")),
-            discover,
-        },
-        {
-            provider: "openrouter",
-            protocol: CHAT_COMPLETIONS_PROTOCOL,
-            staticModels: toCatalogModels(models.getModels("openrouter")),
-            discover,
-        },
-        {
-            provider: "opencode-go",
-            protocol: CHAT_COMPLETIONS_PROTOCOL,
-            staticModels: toCatalogModels(models.getModels("opencode-go")),
-            requireLiveCapacity: true,
-            discover,
-        },
+        createOpenAICatalogSource(),
+        createDeepSeekCatalogSource(),
+        createOpenRouterCatalogSource(),
+        createOpenCodeGoCatalogSource(),
         {
             provider: "anthropic",
-            protocol: "anthropic-messages",
-            staticModels: toCatalogModels(models.getModels("anthropic")),
+            protocol: ANTHROPIC_MESSAGES_PROTOCOL,
+            staticModels: readStaticCatalogModels("anthropic"),
             discover,
         },
         {
             provider: "google",
-            protocol: "google-generate-content",
-            staticModels: toCatalogModels(models.getModels("google")),
+            protocol: GOOGLE_GENERATE_CONTENT_PROTOCOL,
+            staticModels: readStaticCatalogModels("google"),
             discover,
         },
         {
