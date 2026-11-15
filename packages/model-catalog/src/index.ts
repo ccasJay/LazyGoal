@@ -1,24 +1,27 @@
 export {
     ModelCatalogError,
-} from "./contracts.js";
+} from "./contracts";
 export type {
+    CatalogDiscoverOptions,
+    CatalogModel,
+    CatalogSource,
     ModelCatalogErrorKind,
     RawFetchedModel,
-    ProviderModelFetcher,
-} from "./contracts.js";
+} from "./contracts";
 
 export {
     DefaultLlmModelCatalog,
     createLlmModelCatalog,
     determineSelectability,
     sortModelDescriptors,
-    resolveOpenCodeGoExecutionMetadata,
-} from "./model-catalog.js";
+} from "./model-catalog";
+export type {
+    LlmModelCatalog,
+    LlmModelCatalogOptions,
+} from "./model-catalog";
+
 export type {
     LlmModelDescriptor,
-    LlmModelCatalog,
-    OpenCodeGoExecutionMetadata,
-} from "./model-catalog.js";
-
-export { DefaultProviderModelFetcher } from "./provider-fetchers.js";
-export type { ProviderModelConnection } from "./provider-fetchers.js";
+    ModelAvailabilitySource,
+    ModelMetadataSource,
+} from "../../llm-core/src/index";

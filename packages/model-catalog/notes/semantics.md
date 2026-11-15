@@ -4,10 +4,11 @@
 
 | 概念 | 简明含义 | 归属模块 | 权威说明 |
 | --- | --- | --- | --- |
-| LlmModelCatalog | 目录查询契约：在线发现、静态补全、排序与过滤。 | [模型目录](../README.md) | [模块说明](./overview.md) |
-| LlmModelDescriptor | 结构化模型描述：容量、能力和来源标识。 | [模型目录](../README.md) | [实现](../src/model-catalog.ts) |
+| LlmModelCatalog | 目录查询契约：消费注入来源，执行合并、排序、可选性与降级判定。 | [模型目录](../README.md) | [模块说明](./overview.md) |
+| CatalogSource | 适配器声明的供应商目录来源：协议、静态模型事实与可选在线发现。 | [模型目录](../README.md) | [契约与错误](../src/contracts.ts) |
+| CatalogModel | 适配器静态登记的目录元数据；不含端点与凭据。 | [模型目录](../README.md) | [契约与错误](../src/contracts.ts) |
+| RawFetchedModel | 在线发现的原始模型元数据；由适配器解析并脱敏。 | [模型目录](../README.md) | [契约与错误](../src/contracts.ts) |
+| LlmModelDescriptor | 模型描述：供应商、协议、容量、能力与来源标识；类型归 `llm-core`。 | [LLM 核心契约](../../llm-core/README.md) | [模型描述](../../llm-core/src/model-descriptor.ts) |
 | ModelCatalogError | 脱敏目录错误与分类；鉴权/权限/协议/取消不兜底。 | [模型目录](../README.md) | [契约与错误](../src/contracts.ts) |
-| ProviderModelFetcher | 在线拉取契约；不执行降级或排序。 | [模型目录](../README.md) | [实现](../src/provider-fetchers.ts) |
-| 可选择性判断 | 字符/Token 预算、strict 分支，以及 OpenCode Go 在线文本、工具调用和容量能力的校验。 | [模型目录](../README.md) | [实现](../src/model-catalog.ts) |
-| OpenCode Go 在线元数据 | 提供文本、工具、模态、容量、推理和工具选择能力；在线可见不代表上游账户允许请求。 | [模型目录](../README.md) | [Fetcher](../src/provider-fetchers.ts) |
-| OpenCode Go 执行登记 | 仅为已知启动配置缺少在线目录上下文时提供协议与能力回退。 | [模型目录](../README.md) | [执行登记](../src/model-catalog.ts) |
+| 可选择性判断 | 协议实现、文本生成、工具调用、容量与 Token 预算条件。 | [模型目录](../README.md) | [实现](../src/model-catalog.ts) |
+| 目录降级 | 超时、不可用、不支持发现时回退静态目录或配置模型。 | [模型目录](../README.md) | [实现](../src/model-catalog.ts) |

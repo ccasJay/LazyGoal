@@ -31,10 +31,12 @@ import { parse } from "@babel/parser";
  * tool-core 提供通用工具抽象，仅依赖 contracts、execution-control、sandbox。
  * config 是应用配置与 Home 路径包，单向依赖 llm-core 的共享模型契约；
  * llm-core 承载供应商无关调用契约与共享模型配置，仅依赖 contracts、model-contracts 与 execution-control；
- * llm-openai 承载 OpenAI/OpenAI-compatible 原生适配，只依赖 llm-core、model-contracts、execution-control 与 openai SDK；
+ * wire-chat-completions 承载 Chat Completions 请求、SSE 事件映射与协议错误，只依赖 llm-core 与 execution-control；
+ * llm-openai 是 OpenAI/OpenAI-compatible 的线格式入口，只依赖 llm-core、model-contracts、execution-control 与 wire-chat-completions；
  * llm-google 承载 Gemini 原生适配与 strict Schema 投影，只依赖 llm-core、contracts、model-contracts、execution-control 与 @google/genai SDK；
  * llm-pi-ai 承载 pi-ai 多供应商 prompt_only 适配与增量流转换，只依赖 llm-core、execution-control 与锁定版本 pi-ai SDK；
- * model-catalog 承载目录查询、在线发现与可选择性判断，只依赖 llm-core 与锁定版本 pi-ai 静态目录 SDK；
+ * model-catalog 只承载注入式目录合并、排序、可选性与降级判定，依赖 llm-core；
+ * llm-adapters 承载供应商端点、认证、目录来源与协议事实，依赖 llm-core 与 model-catalog；
  * runtime 依赖 contracts、model-contracts、execution-stream、sandbox、permission、context-retrieval、execution-control 和 tool-core；
  * llm 只依赖 llm-core、llm-openai、llm-google 与 llm-pi-ai 提供三个默认工厂，不直接依赖 config、model-catalog 或生成 SDK；
  * storage 依赖 runtime、contracts、model-contracts、permission、context-retrieval 与生成绑定基础包 contract-binding；
@@ -78,6 +80,7 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
     "llm-google": ["llm-core", "contracts", "model-contracts", "execution-control"],
     "llm-pi-ai": ["llm-core", "execution-control"],
     "model-catalog": ["llm-core"],
+    "llm-adapters": ["llm-core", "model-catalog"],
     config: ["llm-core"],
     runtime: ["contracts", "model-contracts", "execution-stream", "sandbox", "permission", "context-retrieval", "execution-control", "tool-core", "working-memory"],
     llm: ["llm-core", "llm-openai", "llm-google", "llm-pi-ai"],
@@ -111,7 +114,7 @@ const AGENT_ENTRY_EXPORT_SOURCES = ["./create-agent-executor"];
 /** 每个 app 允许的出站目标 package。 */
 const ALLOWED_APP_DEPENDENCIES = {
     "goal-board": ["web-contracts", "slash-command"],
-    "goal-server": ["runtime", "storage", "agent", "llm", "llm-core", "model-contracts", "model-catalog", "config", "tools", "contracts", "slash-command", "execution-stream", "session-metrics", "http", "browser", "permission", "sandbox", "context-retrieval", "web-contracts", "tool-core", "working-memory", "process-runtime", "context-budget", "model-view", "model-context", "prompt-renderer", "prompt-bundle", "model-request", "model-response", "model-call", "model-execution"],
+    "goal-server": ["runtime", "storage", "agent", "llm", "llm-core", "llm-adapters", "model-contracts", "model-catalog", "config", "tools", "contracts", "slash-command", "execution-stream", "session-metrics", "http", "browser", "permission", "sandbox", "context-retrieval", "web-contracts", "tool-core", "working-memory", "process-runtime", "context-budget", "model-view", "model-context", "prompt-renderer", "prompt-bundle", "model-request", "model-response", "model-call", "model-execution"],
 };
 
 const APPS = Object.keys(ALLOWED_APP_DEPENDENCIES);
@@ -125,7 +128,7 @@ const BENCHMARKS = ["alfworld", "swebench", "gaia", "tua-bench", "context"];
 const VENDOR_SDK_MODULES = ["openai", "@google/genai", "@earendil-works/pi-ai"];
 
 /** 跨包消费必须经 `src/index.ts` 的能力包。 */
-const CAPABILITY_PACKAGES = ["llm-core", "wire-chat-completions", "llm-google", "llm-pi-ai", "model-catalog"];
+const CAPABILITY_PACKAGES = ["llm-core", "wire-chat-completions", "llm-google", "llm-pi-ai", "model-catalog", "llm-adapters"];
 
 /** 禁止存在的旧 LLM 实现路径；源码不得引用。 */
 const REMOVED_LLM_PATHS = [

@@ -1,424 +1,167 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { LLMConfig } from "../../llm-core/src/index.js";
+import type { LLMConfig } from "../../llm-core/src/index";
 import {
     createLlmModelCatalog,
-    DefaultLlmModelCatalog,
     determineSelectability,
     ModelCatalogError,
     sortModelDescriptors,
+    type CatalogSource,
     type LlmModelDescriptor,
-    type ProviderModelFetcher,
-    type RawFetchedModel,
-} from "../src/index.js";
+} from "../src/index";
 
-const baseOpenAIConfig: LLMConfig = {
+const OPENAI_CONFIG: LLMConfig = {
     provider: "openai",
     model: "gpt-4o",
-    apiKey: "sk-secret-key-12345",
-    structuredOutputMode: "strict",
-};
-
-test("ModelCatalog: 在线 ID 决定可用集合，并用 pi-ai Catalog 补全元数据与来源标记", async () => {
-    // 注入 fake fetcher，返回 2 个在线模型，其中一个只有 ID
-    const fakeFetcher: ProviderModelFetcher = {
-        async fetchModels() {
-            return [
-                {
-                    id: "gpt-4o",
-                    displayName: "GPT-4o (Live)",
-                    contextWindowTokens: 128000,
-                    maxOutputTokens: 16384,
-                    reasoning: false,
-                    vision: true,
-                },
-                {
-                    // 仅有 ID，其余元数据依赖 pi-ai Catalog 补全
-                    id: "gpt-4.1-mini",
-                },
-            ];
-        },
-    };
-
-    const catalog = createLlmModelCatalog(fakeFetcher);
-    const result = await catalog.list(baseOpenAIConfig);
-
-    // 只有在线返回的 2 个 ID，不混入静态目录中的其它数十个模型
-    assert.equal(result.length, 2);
-    assert.deepEqual(
-        result.map((m) => m.id),
-        ["gpt-4o", "gpt-4.1-mini"],
-    );
-
-    const gpt4o = result.find((m) => m.id === "gpt-4o")!;
-    assert.equal(gpt4o.availabilitySource, "live");
-    assert.equal(gpt4o.metadataSource, "live");
-    assert.equal(gpt4o.displayName, "GPT-4o (Live)");
-    assert.equal(gpt4o.selectable, true);
-
-    const mini = result.find((m) => m.id === "gpt-4.1-mini")!;
-    assert.equal(mini.availabilitySource, "live");
-    assert.equal(mini.metadataSource, "catalog");
-    // Catalog 补全的 contextWindow 应大于 0
-    assert(mini.contextWindowTokens !== undefined && mini.contextWindowTokens > 0);
-    assert.equal(mini.selectable, true);
-});
-
-test("ModelCatalog: 重复 ID 在线结果去重", async () => {
-    const fakeFetcher: ProviderModelFetcher = {
-        async fetchModels() {
-            return [
-                { id: "gpt-4o", displayName: "First" },
-                { id: "gpt-4o", displayName: "Duplicate Second" },
-            ];
-        },
-    };
-
-    const catalog = createLlmModelCatalog(fakeFetcher);
-    const result = await catalog.list(baseOpenAIConfig);
-
-    assert.equal(result.length, 1);
-    assert.equal(result[0]?.displayName, "First");
-});
-
-test("ModelCatalog: 稳定排序（当前项优先、可选项优先、displayName 升序、id 升序）", () => {
-    const descriptors: LlmModelDescriptor[] = [
-        {
-            provider: "openai",
-            id: "z-model",
-            displayName: "Zebra Model",
-            contextWindowTokens: 8000,
-            availabilitySource: "live",
-            metadataSource: "live",
-            selectable: true,
-        },
-        {
-            provider: "openai",
-            id: "a-unselectable",
-            displayName: "Alpha Unselectable",
-            availabilitySource: "live",
-            metadataSource: "live",
-            selectable: false,
-            unavailableReason: "No context window",
-        },
-        {
-            provider: "openai",
-            id: "b-model",
-            displayName: "Beta Model",
-            contextWindowTokens: 8000,
-            availabilitySource: "live",
-            metadataSource: "live",
-            selectable: true,
-        },
-        {
-            provider: "openai",
-            id: "current-model",
-            displayName: "Middle Current Model",
-            contextWindowTokens: 8000,
-            availabilitySource: "live",
-            metadataSource: "live",
-            selectable: true,
-        },
-    ];
-
-    const sorted = sortModelDescriptors(descriptors, "current-model");
-    assert.deepEqual(
-        sorted.map((m) => m.id),
-        [
-            "current-model", // 当前模型第一位
-            "b-model",       // 可选择项中 Beta 排在 Zebra 前
-            "z-model",
-            "a-unselectable", // 不可选项排在最后
-        ],
-    );
-});
-
-test("ModelCatalog: 不可选条件判定（非文本、模式不兼容、Token 预算缺少容量）", () => {
-    // 1. 非文本模型
-    const nonText = determineSelectability(
-        "openai",
-        "text-embedding-3-small",
-        8192,
-        undefined,
-        { isTextGeneration: false },
-        baseOpenAIConfig,
-    );
-    assert.equal(nonText.selectable, false);
-    assert.match(nonText.unavailableReason ?? "", /text generation/);
-
-    // 2. Google 缺少 generateContent
-    const googleNoGen = determineSelectability(
-        "google",
-        "models/custom-google-model",
-        8192,
-        undefined,
-        { supportedGenerationMethods: ["embedContent"] },
-        { ...baseOpenAIConfig, provider: "google" },
-    );
-    assert.equal(googleNoGen.selectable, false);
-    assert.match(googleNoGen.unavailableReason ?? "", /generateContent/);
-
-    // 3. strict 模式不支持
-    const strictMismatch = determineSelectability(
-        "anthropic",
-        "claude-sonnet-4-5",
-        200000,
-        8192,
-        {},
-        {
-            provider: "anthropic",
-            model: "claude-sonnet-4-5",
-            apiKey: "key",
-            structuredOutputMode: "strict",
-        },
-    );
-    assert.equal(strictMismatch.selectable, false);
-    assert.match(strictMismatch.unavailableReason ?? "", /strict/);
-
-    // 字符预算允许缺少容量；Token 预算需要完整容量。
-    const missingContext = determineSelectability(
-        "openai",
-        "custom-model",
-        undefined,
-        undefined,
-        {},
-        baseOpenAIConfig,
-    );
-    assert.equal(missingContext.selectable, true);
-
-    const tokenMissingContext = determineSelectability(
-        "openai", "custom-model", undefined, undefined, {}, baseOpenAIConfig, true,
-    );
-    assert.equal(tokenMissingContext.selectable, false);
-    assert.match(tokenMissingContext.unavailableReason ?? "", /context window/);
-
-    const tokenMissingOutput = determineSelectability(
-        "openai", "custom-model", 128000, undefined, {}, baseOpenAIConfig, true,
-    );
-    assert.equal(tokenMissingOutput.selectable, false);
-    assert.match(tokenMissingOutput.unavailableReason ?? "", /max output/);
-
-    const invalidCapacityPair = determineSelectability(
-        "openai", "custom-model", 8192, 8192, {}, baseOpenAIConfig,
-    );
-    assert.equal(invalidCapacityPair.selectable, false);
-    assert.match(invalidCapacityPair.unavailableReason ?? "", /less than context window/);
-});
-
-test("ModelCatalog: 网关模型缺少容量时按预算模式判定可选性", async () => {
-    const catalog = createLlmModelCatalog({
-        async fetchModels() {
-            return [{ id: "gemini-3.8-flash-high", displayName: "Gemini 3.8 Flash", supportedGenerationMethods: ["generateContent"] }];
-        },
-    });
-    const config: LLMConfig = { ...baseOpenAIConfig, provider: "google" };
-
-    const characterModels = await catalog.list(config);
-    assert.equal(characterModels[0]?.selectable, true);
-    assert.equal(characterModels[0]?.contextWindowTokens, undefined);
-    assert.equal(characterModels[0]?.maxOutputTokens, undefined);
-
-    const tokenModels = await catalog.list(config, { requireTokenCapacity: true });
-    assert.equal(tokenModels[0]?.selectable, false);
-    assert.match(tokenModels[0]?.unavailableReason ?? "", /context window/);
-});
-
-test("ModelCatalog: 允许降级故障（timeout, unavailable, unsupported）触发静态目录或配置兜底", async () => {
-    // 1. OpenAI 遇到 timeout 降级到静态 pi-ai Catalog
-    const timeoutFetcher: ProviderModelFetcher = {
-        async fetchModels() {
-            throw new ModelCatalogError("timeout", "Network timed out after 5000ms");
-        },
-    };
-    const catalog1 = createLlmModelCatalog(timeoutFetcher);
-    const result1 = await catalog1.list(baseOpenAIConfig);
-    assert(result1.length > 0);
-    assert(result1.every((m) => m.availabilitySource === "catalog"));
-
-    // 2. openai-compatible 遇到 unavailable 只能兜底回退到当前配置模型
-    const compatConfig: LLMConfig = {
-        provider: "openai-compatible",
-        model: "custom-local-llm",
-        apiKey: "test-key",
-        baseURL: "http://localhost:8000/v1",
-        structuredOutputMode: "prompt_only",
-        contextWindowTokens: 4096,
-        maxOutputTokens: 1024,
-    };
-    const unavailableFetcher: ProviderModelFetcher = {
-        async fetchModels() {
-            throw new ModelCatalogError("unavailable", "Endpoint unreachable 503");
-        },
-    };
-    const catalog2 = createLlmModelCatalog(unavailableFetcher);
-    const result2 = await catalog2.list(compatConfig);
-    assert.equal(result2.length, 1);
-    assert.equal(result2[0]?.id, "custom-local-llm");
-    assert.equal(result2[0]?.availabilitySource, "configured");
-    assert.equal(result2[0]?.metadataSource, "configured");
-    assert.equal(result2[0]?.contextWindowTokens, 4096);
-});
-
-test("ModelCatalog: 不允许降级故障（authentication, permission, protocol, cancelled）抛出错误阻止切换且不泄露凭据", async () => {
-    const errorKinds = ["authentication", "permission", "protocol", "cancelled"] as const;
-
-    for (const kind of errorKinds) {
-        const rejectingFetcher: ProviderModelFetcher = {
-            async fetchModels() {
-                throw new ModelCatalogError(kind, `Failed due to ${kind}`);
-            },
-        };
-
-        const catalog = createLlmModelCatalog(rejectingFetcher);
-        await assert.rejects(
-            async () => {
-                await catalog.list(baseOpenAIConfig);
-            },
-            (err: unknown) => {
-                assert(err instanceof ModelCatalogError);
-                assert.equal(err.kind, kind);
-                // 确保错误信息中不含敏感 API Key
-                assert.doesNotMatch(err.message, /sk-secret-key/);
-                return true;
-            },
-        );
-    }
-});
-
-const opencodeGoConfig: LLMConfig = {
-    provider: "opencode-go",
-    model: "kimi-k3",
-    apiKey: "oc-secret-key-12345",
+    apiKey: "test-key",
     structuredOutputMode: "prompt_only",
 };
 
-test("ModelCatalog: opencode-go 在线结果用静态目录补全元数据", async () => {
-    const fakeFetcher: ProviderModelFetcher = {
-        async fetchModels() {
-            return [
-                { id: "kimi-k3" },
-                { id: "glm-5.3", displayName: "GLM-5.3 (Live)" },
-            ];
-        },
+function source(overrides: Partial<CatalogSource> = {}): CatalogSource {
+    return {
+        provider: "openai",
+        protocol: "chat-completions",
+        staticModels: [{
+            id: "gpt-4o",
+            displayName: "GPT-4o",
+            contextWindowTokens: 128_000,
+            maxOutputTokens: 16_384,
+        }],
+        ...overrides,
     };
+}
 
-    const catalog = createLlmModelCatalog(fakeFetcher);
-    const result = await catalog.list(opencodeGoConfig);
-
-    assert.deepEqual(result.map((m) => m.id), ["kimi-k3", "glm-5.3"]);
-    const kimi = result.find((m) => m.id === "kimi-k3")!;
-    assert.equal(kimi.availabilitySource, "live");
-    assert.equal(kimi.metadataSource, "catalog");
-    assert.ok(kimi.contextWindowTokens !== undefined && kimi.contextWindowTokens > 0);
-    assert.equal(kimi.selectable, true);
-
-    const glm = result.find((m) => m.id === "glm-5.3")!;
-    assert.equal(glm.displayName, "GLM-5.3 (Live)");
-    assert.equal(glm.metadataSource, "mixed");
+test("在线 ID 决定可用集合，静态元数据补全缺失字段", async () => {
+    const catalog = createLlmModelCatalog({
+        sources: [source({
+            discover: async () => [
+                { id: "gpt-4o" },
+                { id: "gpt-4.1", displayName: "GPT-4.1", contextWindowTokens: 1_000_000, maxOutputTokens: 32_000 },
+            ],
+        })],
+        isProtocolImplemented: () => true,
+    });
+    const models = await catalog.list(OPENAI_CONFIG);
+    assert.deepEqual(models.map(model => model.id), ["gpt-4o", "gpt-4.1"]);
+    const merged = models.find(model => model.id === "gpt-4o");
+    assert.equal(merged?.displayName, "GPT-4o");
+    assert.equal(merged?.contextWindowTokens, 128_000);
+    assert.equal(merged?.availabilitySource, "live");
+    assert.equal(merged?.metadataSource, "catalog");
+    assert.equal(merged?.protocol, "chat-completions");
 });
 
-test("ModelCatalog: OpenCode Go Beam Free 使用登记的执行元数据", async () => {
+test("在线重复 ID 去重且当前模型排在首位", async () => {
     const catalog = createLlmModelCatalog({
-        async fetchModels() {
-            return [
-                { id: "beam-free" },
-                {
-                    id: "crouton-alpha-free",
-                    displayName: "Crouton Alpha Free",
-                    contextWindowTokens: 1_048_576,
-                    maxOutputTokens: 270_000,
-                    reasoning: true,
-                    vision: false,
-                    supportsTools: true,
-                    isTextGeneration: true,
-                },
-            ];
-        },
+        sources: [source({
+            staticModels: [],
+            discover: async () => [{ id: "b" }, { id: "a" }, { id: "b" }],
+        })],
+        isProtocolImplemented: () => true,
     });
-    for (const requireTokenCapacity of [false, true]) {
-        const models = await catalog.list(opencodeGoConfig, { requireTokenCapacity });
-        const beam = models.find(model => model.id === "beam-free")!;
-        assert.equal(beam.availabilitySource, "live");
-        assert.equal(beam.metadataSource, "execution");
-        assert.equal(beam.executionApi, "openai-completions");
-        assert.equal(beam.contextWindowTokens, 1_048_576);
-        assert.equal(beam.maxOutputTokens, 131_072);
-        assert.equal(beam.reasoning, true);
-        assert.equal(beam.selectable, true);
-        const crouton = models.find(model => model.id === "crouton-alpha-free")!;
-        assert.equal(crouton.metadataSource, "live");
-        assert.equal(crouton.executionApi, "openai-completions");
-        assert.equal(crouton.contextWindowTokens, 1_048_576);
-        assert.equal(crouton.maxOutputTokens, 270_000);
-        assert.equal(crouton.selectable, true);
+    const models = await catalog.list({ ...OPENAI_CONFIG, model: "b" });
+    assert.deepEqual(models.map(model => model.id), ["b", "a"]);
+});
+
+test("允许降级的故障回退到静态目录，鉴权与协议错误直接抛出", async () => {
+    for (const kind of ["timeout", "unavailable", "unsupported"] as const) {
+        const catalog = createLlmModelCatalog({
+            sources: [source({ discover: async () => { throw new ModelCatalogError(kind, "degradable"); } })],
+            isProtocolImplemented: () => true,
+        });
+        const models = await catalog.list(OPENAI_CONFIG);
+        assert.equal(models[0]?.availabilitySource, "catalog", kind);
+    }
+    for (const kind of ["authentication", "permission", "protocol", "cancelled"] as const) {
+        const catalog = createLlmModelCatalog({
+            sources: [source({ discover: async () => { throw new ModelCatalogError(kind, "fatal"); } })],
+            isProtocolImplemented: () => true,
+        });
+        await assert.rejects(catalog.list(OPENAI_CONFIG), (error: unknown) => error instanceof ModelCatalogError && error.kind === kind);
     }
 });
 
-test("ModelCatalog: 未登记的 OpenCode Go 在线文本模型使用实时能力元数据", async () => {
+test("未提供发现函数或静态目录为空时使用配置回退", async () => {
     const catalog = createLlmModelCatalog({
-        async fetchModels() {
-            return [{
-                id: "new-live-coding-model",
-                displayName: "New Live Coding Model",
-                contextWindowTokens: 262_144,
-                maxOutputTokens: 262_144,
-                reasoning: false,
-                vision: true,
-                supportsTools: true,
-                supportsRequiredToolChoice: false,
-                isTextGeneration: true,
-            }];
-        },
+        sources: [source({ provider: "openai-compatible", staticModels: [] })],
+        isProtocolImplemented: () => true,
     });
-
-    const models = await catalog.list(opencodeGoConfig, { requireTokenCapacity: true });
-    const target = models.find(model => model.id === "new-live-coding-model");
-
-    assert.ok(target);
-    assert.equal(target.availabilitySource, "live");
-    assert.equal(target.metadataSource, "live");
-    assert.equal(target.executionApi, "openai-completions");
-    assert.equal(target.contextWindowTokens, 262_144);
-    assert.equal(target.maxOutputTokens, 262_143);
-    assert.equal(target.reasoning, false);
-    assert.equal(target.supportsRequiredToolChoice, false);
-    assert.equal(target.selectable, true);
+    const models = await catalog.list({
+        provider: "openai-compatible",
+        model: "gateway-model",
+        apiKey: "test-key",
+        structuredOutputMode: "prompt_only",
+        baseURL: "https://gateway.example.test/v1",
+        contextWindowTokens: 64_000,
+        maxOutputTokens: 8_192,
+    });
+    assert.equal(models.length, 1);
+    assert.equal(models[0]?.id, "gateway-model");
+    assert.equal(models[0]?.availabilitySource, "configured");
+    assert.equal(models[0]?.selectable, true);
 });
 
-test("ModelCatalog: 执行元数据不会将离线 OpenCode Go 模型加入在线结果", async () => {
+test("协议未实现时所有模型不可选", async () => {
     const catalog = createLlmModelCatalog({
-        async fetchModels() {
-            return [{ id: "kimi-k3" }];
-        },
+        sources: [source()],
+        isProtocolImplemented: () => false,
     });
-
-    const models = await catalog.list(opencodeGoConfig);
-
-    assert.equal(models.some(model => model.id === "minimax-m3.1-flash-free"), false);
-    assert.equal(models.some(model => model.id === "beam-free"), false);
+    const models = await catalog.list(OPENAI_CONFIG);
+    assert.equal(models[0]?.selectable, false);
+    assert.match(models[0]?.unavailableReason ?? "", /protocol/i);
 });
 
-test("ModelCatalog: opencode-go 无在线拉取时回退静态目录", async () => {
-    const catalog = new DefaultLlmModelCatalog();
-    const result = await catalog.list(opencodeGoConfig);
-
-    assert.ok(result.length > 0);
-    assert.ok(result.some((m) => m.id === "kimi-k3"));
-    assert.equal(result.every((m) => m.availabilitySource === "catalog"), true);
-    assert.equal(result.every((m) => m.metadataSource === "catalog"), true);
+test("没有登记目录来源的供应商明确失败", async () => {
+    const catalog = createLlmModelCatalog({ sources: [], isProtocolImplemented: () => true });
+    await assert.rejects(catalog.list(OPENAI_CONFIG), (error: unknown) =>
+        error instanceof ModelCatalogError && error.kind === "unsupported");
 });
 
-test("ModelCatalog: opencode-go 鉴权失败禁止降级到静态目录", async () => {
-    const rejectingFetcher: ProviderModelFetcher = {
-        async fetchModels() {
-            throw new ModelCatalogError("authentication", "Provider \"opencode-go\" authentication failed.", 401);
-        },
-    };
+test("可选性判定覆盖非文本、工具缺失、容量与预算条件", () => {
+    assert.deepEqual(determineSelectability({ id: "gpt-4o", protocolImplemented: true, requireTokenCapacity: false }), {
+        selectable: true,
+    });
+    assert.equal(determineSelectability({
+        id: "text-embedding-3", protocolImplemented: true, requireTokenCapacity: false,
+    }).selectable, false);
+    assert.equal(determineSelectability({
+        id: "gpt-4o", protocolImplemented: true, supportsTools: false, requireTokenCapacity: false,
+    }).selectable, false);
+    assert.equal(determineSelectability({
+        id: "gpt-4o", protocolImplemented: true, requireTokenCapacity: true,
+    }).selectable, false);
+    assert.equal(determineSelectability({
+        id: "gpt-4o", protocolImplemented: true, contextWindowTokens: 128, maxOutputTokens: 128,
+        requireTokenCapacity: false,
+    }).selectable, false);
+    assert.equal(determineSelectability({
+        id: "gpt-4o", protocolImplemented: true, contextWindowTokens: 128, maxOutputTokens: 64,
+        requireTokenCapacity: true,
+    }).selectable, true);
+});
 
-    const catalog = createLlmModelCatalog(rejectingFetcher);
-    await assert.rejects(
-        async () => { await catalog.list(opencodeGoConfig); },
-        (err: unknown) => err instanceof ModelCatalogError && err.kind === "authentication",
-    );
+test("排序保持当前项、可选性与名称顺序", () => {
+    const descriptor = (id: string, selectable: boolean, displayName = id): LlmModelDescriptor => ({
+        provider: "openai", id, displayName, protocol: "chat-completions",
+        availabilitySource: "catalog", metadataSource: "catalog", selectable,
+    });
+    const sorted = sortModelDescriptors([
+        descriptor("z", true), descriptor("b", false), descriptor("a", true), descriptor("current", false),
+    ], "current");
+    assert.deepEqual(sorted.map(model => model.id), ["current", "a", "z", "b"]);
+});
+
+test("OpenCode Go 要求在线模型具备容量元数据", async () => {
+    const catalog = createLlmModelCatalog({
+        sources: [source({
+            provider: "opencode-go",
+            staticModels: [],
+            requireLiveCapacity: true,
+            discover: async () => [{ id: "dynamic-model", isTextGeneration: true, supportsTools: true }],
+        })],
+        isProtocolImplemented: () => true,
+    });
+    const models = await catalog.list({ ...OPENAI_CONFIG, provider: "opencode-go", model: "dynamic-model" });
+    assert.equal(models[0]?.selectable, false);
 });

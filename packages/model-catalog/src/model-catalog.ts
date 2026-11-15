@@ -1,93 +1,29 @@
-import { createModels } from "@earendil-works/pi-ai";
-import { openaiProvider } from "@earendil-works/pi-ai/providers/openai";
-import { googleProvider } from "@earendil-works/pi-ai/providers/google";
-import { anthropicProvider } from "@earendil-works/pi-ai/providers/anthropic";
-import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
-import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
-import { opencodeGoProvider } from "@earendil-works/pi-ai/providers/opencode-go";
-
-import type { LLMConfig, LLMExecutionApi, LLMProvider } from "../../llm-core/src/index.js";
+import type { LLMConfig, LlmModelDescriptor, ProtocolId } from "../../llm-core/src/index";
 import {
     ModelCatalogError,
-    type ProviderModelFetcher,
+    type CatalogModel,
+    type CatalogSource,
     type RawFetchedModel,
-} from "./contracts.js";
-import { DefaultProviderModelFetcher } from "./provider-fetchers.js";
-
-/**
- * 结构化模型描述契约。
- *
- * @remarks
- * 包含模型标识、展示名、Token 容量上限、推理与视觉多模态能力，以及可用性与元数据来源标识。
- *
- * @example
- * ```ts
- * const descriptor: LlmModelDescriptor = {
- *   provider: "opencode-go",
- *   id: "minimax-m3.1-flash-free",
- *   displayName: "MiniMax M3.1 Flash Free",
- *   contextWindowTokens: 1_000_000,
- *   maxOutputTokens: 524_288,
- *   executionApi: "openai-completions",
- *   supportsRequiredToolChoice: true,
- *   availabilitySource: "live",
- *   metadataSource: "live",
- *   selectable: true,
- * };
- * ```
- */
-export interface LlmModelDescriptor {
-    /** 归属的语言模型供应商。 */
-    readonly provider: LLMProvider;
-    /** 稳定唯一的模型 ID（如 gpt-4o、claude-sonnet-4-5）。 */
-    readonly id: string;
-    /** 面向用户的模型可读名称。 */
-    readonly displayName: string;
-    /** 上下文窗口容量 Token 数；Token 预算模式必需，字符预算模式可缺省。 */
-    readonly contextWindowTokens?: number | undefined;
-    /** 单次补全最大输出 Token 上限；Token 预算模式必需，字符预算模式可缺省。 */
-    readonly maxOutputTokens?: number | undefined;
-    /** 由可信目录登记的执行 API；不会作为浏览器模型目录字段返回。 */
-    readonly executionApi?: LLMExecutionApi | undefined;
-    /** 模型是否具备原生推理思维链能力。 */
-    readonly reasoning?: boolean | undefined;
-    /** 模型是否支持图像等视觉输入。 */
-    readonly vision?: boolean | undefined;
-    /** OpenAI Chat Completions 路径是否支持强制工具选择；未知时省略。 */
-    readonly supportsRequiredToolChoice?: boolean | undefined;
-    /** 可用性验证来源：在线列表查询、内置静态目录或当前启动配置。 */
-    readonly availabilitySource: "live" | "catalog" | "configured";
-    /** 元数据字段来源：在线、静态目录、执行登记、当前配置或多来源补全。 */
-    readonly metadataSource: "live" | "catalog" | "execution" | "configured" | "mixed";
-    /** 当前运行链路和结构化模式下是否允许被用户选择。 */
-    readonly selectable: boolean;
-    /** 当 selectable 为 false 时说明不可选的具体原因。 */
-    readonly unavailableReason?: string | undefined;
-}
+} from "./contracts";
 
 /**
  * 语言模型目录查询契约。
  *
  * @remarks
- * 获取当前 Provider 可用模型列表，支持在线查询、pi-ai Catalog 补全、排序与不可选过滤。
- * OpenCode Go 在线文本模型按实时工具与容量元数据判定可用性，并通过其 OpenAI Chat Completions 兼容路径执行。
+ * 目录只消费组合根注入的协议可用性与适配器目录来源，执行合并、排序、可选性与降级判定。
  *
  * @example
  * ```ts
- * const catalog = createLlmModelCatalog();
- * const models = await catalog.list(config, {
- *   requireTokenCapacity: selection.inputEstimator.kind === "token-encoding",
- * });
+ * const catalog = createLlmModelCatalog({ sources, isProtocolImplemented });
+ * const models = await catalog.list(config);
  * ```
  */
 export interface LlmModelCatalog {
     /**
-     * 查询并列出当前配置 Provider 的模型列表。
-     *
      * @param config - 当前 LLM 配置。
-     * @param options - 包含取消信号、注入 fetch 和是否需要 Token 容量的可选参数；Token 预算模式必须声明后者。
-     * @returns 排序并补全后的模型描述符列表。
-     * @throws ModelCatalogError 鉴权失败、权限被拒、协议格式错误或已取消时抛出。
+     * @param options - 取消信号、注入 fetch 与是否要求 Token 容量。
+     * @returns 排序并补全后的模型描述符。
+     * @throws ModelCatalogError 鉴权、权限、协议错误或已取消时抛出。
      */
     list(
         config: LLMConfig,
@@ -99,88 +35,12 @@ export interface LlmModelCatalog {
     ): Promise<readonly LlmModelDescriptor[]>;
 }
 
-const STATIC_FACTORIES = {
-    openai: openaiProvider,
-    google: googleProvider,
-    anthropic: anthropicProvider,
-    openrouter: openrouterProvider,
-    deepseek: deepseekProvider,
-    "opencode-go": opencodeGoProvider,
-};
-
-/**
- * 用于启动配置回退的 OpenCode Go 模型执行元数据。
- *
- * @remarks
- * 仅用于显式启动配置没有在线目录上下文时的已知模型回退。在线模型可用性和能力始终以当前 OpenCode Go 模型目录为准；执行端点固定由 LazyGoal 适配器所有。
- *
- * @example
- * ```ts
- * const metadata = resolveOpenCodeGoExecutionMetadata("beam-free");
- * if (metadata !== undefined) console.log(metadata.executionApi);
- * ```
- */
-export interface OpenCodeGoExecutionMetadata {
-    /** 与 OpenCode Go 在线清单匹配的模型 ID。 */
-    readonly modelId: string;
-    /** 请求使用的 API 家族。 */
-    readonly executionApi: LLMExecutionApi;
-    /** 经模型资料登记的上下文窗口 Token 容量。 */
-    readonly contextWindowTokens: number;
-    /** 经模型资料登记的最大输出 Token 容量。 */
-    readonly maxOutputTokens: number;
-    /** 是否支持模型原生推理内容。 */
-    readonly reasoning: boolean;
-    /** 是否支持视觉输入。 */
-    readonly vision: boolean;
-    /** OpenAI Chat Completions 路径是否支持强制工具选择。 */
-    readonly supportsRequiredToolChoice: boolean;
-}
-
-const OPENCODE_GO_EXECUTION_METADATA: Readonly<Record<string, OpenCodeGoExecutionMetadata>> = {
-    "beam-free": {
-        modelId: "beam-free",
-        executionApi: "openai-completions",
-        contextWindowTokens: 1_048_576,
-        maxOutputTokens: 131_072,
-        reasoning: true,
-        vision: false,
-        supportsRequiredToolChoice: true,
-    },
-    "minimax-m3.1-flash-free": {
-        modelId: "minimax-m3.1-flash-free",
-        executionApi: "openai-completions",
-        contextWindowTokens: 1_000_000,
-        maxOutputTokens: 524_288,
-        reasoning: true,
-        vision: false,
-        supportsRequiredToolChoice: false,
-    },
-};
-
-/**
- * 按模型 ID 解析可信的 OpenCode Go 动态执行元数据。
- *
- * @param modelId - 在线目录返回或服务端显式配置的模型 ID。
- * @returns 已登记的执行协议与容量；未登记模型返回 `undefined`。
- *
- * @example
- * ```ts
- * const metadata = resolveOpenCodeGoExecutionMetadata("beam-free");
- * ```
- */
-export function resolveOpenCodeGoExecutionMetadata(modelId: string): OpenCodeGoExecutionMetadata | undefined {
-    return OPENCODE_GO_EXECUTION_METADATA[modelId];
-}
-
-function getStaticPiAiModels() {
-    const models = createModels({
-        authContext: { env: async () => undefined, fileExists: async () => false },
-    });
-    for (const factory of Object.values(STATIC_FACTORIES)) {
-        models.setProvider(factory());
-    }
-    return models;
+/** 目录构造所需的注入事实。 */
+export interface LlmModelCatalogOptions {
+    /** 各供应商的目录来源；同一供应商只应登记一个来源。 */
+    readonly sources: readonly CatalogSource[];
+    /** 组合根判定的协议实现可用性。 */
+    readonly isProtocolImplemented: (protocol: ProtocolId) => boolean;
 }
 
 /** 已知明显的非文本生成模型关键字匹配。 */
@@ -201,85 +61,44 @@ function isKnownNonTextModel(id: string): boolean {
 }
 
 /**
- * 判定模型在当前配置与预算模式下是否可选及原因。
+ * 判定模型在当前协议与预算条件下是否可选。
  *
- * @param requireTokenCapacity - Token 预算模式要求上下文容量与输出上限；字符预算模式允许两者缺省。
+ * @param input - 模型事实、协议可用性与 Token 预算要求。
+ * @returns 可选性与不可选原因。
+ *
+ * @example
+ * ```ts
+ * const { selectable } = determineSelectability({ id: "gpt-4o", protocolImplemented: true, requireTokenCapacity: false });
+ * ```
  */
-export function determineSelectability(
-    provider: LLMProvider,
-    id: string,
-    contextWindowTokens: number | undefined,
-    maxOutputTokens: number | undefined,
-    rawDetails: {
-        readonly supportedGenerationMethods?: readonly string[] | undefined;
-        readonly isTextGeneration?: boolean | undefined;
-        readonly supportsTools?: boolean | undefined;
-        readonly supportsStrictOutput?: boolean | undefined;
-    },
-    config: LLMConfig,
-    requireTokenCapacity = false,
-): { readonly selectable: boolean; readonly unavailableReason?: string | undefined } {
-    // 1. 明确声明不支持文本生成，或命中明显非文本正则
-    if (rawDetails.isTextGeneration === false || isKnownNonTextModel(id)) {
+export function determineSelectability(input: {
+    readonly id: string;
+    readonly protocolImplemented: boolean;
+    readonly isTextGeneration?: boolean | undefined;
+    readonly supportsTools?: boolean | undefined;
+    readonly contextWindowTokens?: number | undefined;
+    readonly maxOutputTokens?: number | undefined;
+    readonly requireTokenCapacity: boolean;
+}): { readonly selectable: boolean; readonly unavailableReason?: string | undefined } {
+    if (!input.protocolImplemented) {
+        return { selectable: false, unavailableReason: "Model protocol is not implemented." };
+    }
+    if (input.isTextGeneration === false || isKnownNonTextModel(input.id)) {
         return { selectable: false, unavailableReason: "Model does not support text generation." };
     }
-    if (rawDetails.supportsTools === false) {
+    if (input.supportsTools === false) {
         return { selectable: false, unavailableReason: "Model does not support tool calls." };
     }
-
-    // Google 特性：若返回了 supportedGenerationMethods，必须包含 generateContent
-    if (
-        rawDetails.supportedGenerationMethods !== undefined &&
-        rawDetails.supportedGenerationMethods.length > 0 &&
-        !rawDetails.supportedGenerationMethods.includes("generateContent")
-    ) {
-        return { selectable: false, unavailableReason: "Model does not support generateContent method." };
+    if (input.requireTokenCapacity && (input.contextWindowTokens === undefined || input.contextWindowTokens <= 0)) {
+        return { selectable: false, unavailableReason: "Token budgeting requires context window capacity metadata." };
     }
-
-    // 2. 结构化输出模式兼容性校验
-    if (config.structuredOutputMode === "strict" && provider !== "openai-compatible") {
-        if (!["openai", "google", "openai-compatible"].includes(provider)) {
-            return {
-                selectable: false,
-                unavailableReason: `Provider "${provider}" does not support strict structured output mode.`,
-            };
-        }
-        if (rawDetails.supportsStrictOutput === false) {
-            return {
-                selectable: false,
-                unavailableReason: "Model does not support strict structured output mode.",
-            };
-        }
-        // 针对 OpenAI 的老旧模型
-        if (provider === "openai" && (id.includes("instruct") || id.startsWith("davinci") || id.startsWith("babbage"))) {
-            return {
-                selectable: false,
-                unavailableReason: "Legacy model does not support strict structured output mode.",
-            };
-        }
+    if (input.requireTokenCapacity && (input.maxOutputTokens === undefined || input.maxOutputTokens <= 0)) {
+        return { selectable: false, unavailableReason: "Token budgeting requires max output token metadata." };
     }
-
-    if (requireTokenCapacity && (contextWindowTokens === undefined || contextWindowTokens <= 0)) {
-        return {
-            selectable: false,
-            unavailableReason: "Token budgeting requires context window capacity metadata.",
-        };
+    if (input.contextWindowTokens !== undefined && input.maxOutputTokens !== undefined
+        && input.maxOutputTokens >= input.contextWindowTokens) {
+        return { selectable: false, unavailableReason: "Max output tokens must be strictly less than context window." };
     }
-
-    if (requireTokenCapacity && (maxOutputTokens === undefined || maxOutputTokens <= 0)) {
-        return {
-            selectable: false,
-            unavailableReason: "Token budgeting requires max output token metadata.",
-        };
-    }
-
-    if (contextWindowTokens !== undefined && maxOutputTokens !== undefined && maxOutputTokens >= contextWindowTokens) {
-        return {
-            selectable: false,
-            unavailableReason: "Max output tokens must be strictly less than context window.",
-        };
-    }
-
     return { selectable: true };
 }
 
@@ -289,6 +108,15 @@ export function determineSelectability(
  * 2. 可选择项优先；
  * 3. displayName 升序；
  * 4. id 升序。
+ *
+ * @param models - 待排序描述符。
+ * @param currentModelId - 当前选择的模型标识。
+ * @returns 新排序数组，不修改输入。
+ *
+ * @example
+ * ```ts
+ * const sorted = sortModelDescriptors(models, config.model);
+ * ```
  */
 export function sortModelDescriptors(
     models: readonly LlmModelDescriptor[],
@@ -311,16 +139,21 @@ export function sortModelDescriptors(
 }
 
 /**
- * 默认模型目录实现类。
+ * 默认模型目录实现。
+ *
+ * @remarks
+ * 在线列表成功时以其模型集合为准，并用同供应商静态元数据补全缺失字段；
+ * 超时、不可用与不支持发现时降级到静态目录；鉴权、权限、协议错误与取消不降级。
  */
 export class DefaultLlmModelCatalog implements LlmModelCatalog {
-    private readonly piAiModels = getStaticPiAiModels();
+    private readonly sources: ReadonlyMap<string, CatalogSource>;
 
-    constructor(
-        private readonly fetcher?: ProviderModelFetcher | undefined,
-    ) {}
+    /** @param options - 供应商来源与协议可用性注入。 */
+    constructor(private readonly options: LlmModelCatalogOptions) {
+        this.sources = new Map(options.sources.map(source => [source.provider, source]));
+    }
 
-    public async list(
+    async list(
         config: LLMConfig,
         options?: {
             readonly signal?: AbortSignal | undefined;
@@ -331,137 +164,84 @@ export class DefaultLlmModelCatalog implements LlmModelCatalog {
         if (options?.signal?.aborted) {
             throw new ModelCatalogError("cancelled", "Model catalog request was cancelled.");
         }
+        const source = this.sources.get(config.provider);
+        if (source === undefined) {
+            throw new ModelCatalogError("unsupported", `No model catalog source is registered for provider "${config.provider}".`);
+        }
+        const requireTokenCapacity = options?.requireTokenCapacity ?? false;
 
-        // 尝试在线获取
-        if (this.fetcher !== undefined) {
+        if (source.discover !== undefined) {
             try {
-                const rawList = await this.fetcher.fetchModels(config, options);
-                return this.processLiveModels(rawList, config, options?.requireTokenCapacity ?? false);
+                const rawList = await source.discover(config, options);
+                return this.processLiveModels(rawList, config, source, requireTokenCapacity);
             } catch (error) {
                 if (error instanceof ModelCatalogError) {
-                    // 鉴权、权限、协议错误及已取消绝对禁止降级
-                    if (
-                        error.kind === "authentication" ||
-                        error.kind === "permission" ||
-                        error.kind === "protocol" ||
-                        error.kind === "cancelled"
-                    ) {
+                    if (error.kind === "authentication" || error.kind === "permission"
+                        || error.kind === "protocol" || error.kind === "cancelled") {
                         throw error;
                     }
-                    // 超时、不可用或端点不支持时允许降级
-                    return this.fallback(config, options?.requireTokenCapacity ?? false);
+                    return this.fallback(config, source, requireTokenCapacity);
                 }
                 throw error;
             }
         }
-
-        // 若未提供 fetcher，直接降级到静态目录/配置
-        return this.fallback(config, options?.requireTokenCapacity ?? false);
+        return this.fallback(config, source, requireTokenCapacity);
     }
 
     private processLiveModels(
         rawList: readonly RawFetchedModel[],
         config: LLMConfig,
+        source: CatalogSource,
         requireTokenCapacity: boolean,
     ): readonly LlmModelDescriptor[] {
         const seenIds = new Set<string>();
         const results: LlmModelDescriptor[] = [];
-
         for (const raw of rawList) {
-            if (seenIds.has(raw.id)) {
-                continue;
-            }
+            if (seenIds.has(raw.id)) continue;
             seenIds.add(raw.id);
-
-            // 用 pi-ai 静态目录补全
-            const executionMetadata = config.provider === "opencode-go"
-                ? resolveOpenCodeGoExecutionMetadata(raw.id)
-                : undefined;
-            const staticModel = config.provider === "openai-compatible"
-                ? undefined
-                : this.piAiModels.getModel(config.provider, raw.id);
-
-            const hasLiveDisplayName = raw.displayName !== undefined;
-            const hasLiveContext = raw.contextWindowTokens !== undefined;
-            const hasLiveMaxTokens = raw.maxOutputTokens !== undefined;
-            const hasLiveReasoning = raw.reasoning !== undefined;
-            const hasLiveVision = raw.vision !== undefined;
-
-            const displayName = raw.displayName ?? staticModel?.name ?? raw.id;
-            const contextWindowTokens = raw.contextWindowTokens ?? executionMetadata?.contextWindowTokens ?? staticModel?.contextWindow;
-            const rawMaxOutputTokens = raw.maxOutputTokens ?? executionMetadata?.maxOutputTokens ?? staticModel?.maxTokens;
+            const staticModel = source.staticModels.find(model => model.id === raw.id);
+            const displayName = raw.displayName ?? staticModel?.displayName ?? raw.id;
+            const contextWindowTokens = raw.contextWindowTokens ?? staticModel?.contextWindowTokens;
+            const rawMaxOutputTokens = raw.maxOutputTokens ?? staticModel?.maxOutputTokens;
             const maxOutputTokens = contextWindowTokens !== undefined && rawMaxOutputTokens !== undefined
                 ? Math.min(rawMaxOutputTokens, Math.max(0, contextWindowTokens - 1))
                 : rawMaxOutputTokens;
-            const reasoning = raw.reasoning ?? executionMetadata?.reasoning ?? staticModel?.reasoning ?? false;
-            const vision = raw.vision ?? executionMetadata?.vision ?? (staticModel?.input.includes("image") ?? false);
-            const supportsRequiredToolChoice = raw.supportsRequiredToolChoice
-                ?? executionMetadata?.supportsRequiredToolChoice;
+            const reasoning = raw.reasoning ?? staticModel?.reasoning ?? false;
+            const vision = raw.vision ?? staticModel?.vision ?? false;
+            const supportsRequiredToolChoice = raw.supportsRequiredToolChoice ?? staticModel?.supportsRequiredToolChoice;
+            const isTextGeneration = raw.isTextGeneration ?? staticModel?.isTextGeneration;
 
-            let metadataSource: "live" | "catalog" | "execution" | "configured" | "mixed";
-            const liveFieldCount =
-                (hasLiveDisplayName ? 1 : 0) +
-                (hasLiveContext ? 1 : 0) +
-                (hasLiveMaxTokens ? 1 : 0) +
-                (hasLiveReasoning ? 1 : 0) +
-                (hasLiveVision ? 1 : 0) +
-                (raw.supportsTools !== undefined ? 1 : 0) +
-                (raw.supportsRequiredToolChoice !== undefined ? 1 : 0);
+            let metadataSource: LlmModelDescriptor["metadataSource"];
+            const liveFieldCount = (raw.displayName === undefined ? 0 : 1)
+                + (raw.contextWindowTokens === undefined ? 0 : 1)
+                + (raw.maxOutputTokens === undefined ? 0 : 1)
+                + (raw.reasoning === undefined ? 0 : 1)
+                + (raw.vision === undefined ? 0 : 1)
+                + (raw.supportsTools === undefined ? 0 : 1)
+                + (raw.supportsRequiredToolChoice === undefined ? 0 : 1);
+            const hasCompleteCapacity = raw.displayName !== undefined
+                && raw.contextWindowTokens !== undefined && raw.maxOutputTokens !== undefined;
+            metadataSource = liveFieldCount >= 5 || hasCompleteCapacity
+                ? "live"
+                : liveFieldCount === 0 ? (staticModel === undefined ? "live" : "catalog") : "mixed";
 
-            if (liveFieldCount >= 5 || (hasLiveDisplayName && hasLiveContext && hasLiveMaxTokens)) {
-                metadataSource = "live";
-            } else if (executionMetadata !== undefined) {
-                metadataSource = liveFieldCount === 0 ? "execution" : "mixed";
-            } else if (liveFieldCount === 0) {
-                metadataSource = "catalog";
-            } else {
-                metadataSource = "mixed";
-            }
-
-            const isOpenCodeGoLiveTextModel = config.provider === "opencode-go" && raw.isTextGeneration === true;
-            const needsDynamicOpenCodeGoMetadata = config.provider === "opencode-go"
-                && staticModel === undefined
-                && executionMetadata === undefined;
-            const hasRequiredOpenCodeGoMetadata = !needsDynamicOpenCodeGoMetadata
-                || (raw.isTextGeneration === true
-                    && raw.supportsTools === true
-                    && contextWindowTokens !== undefined
-                    && maxOutputTokens !== undefined);
-            const { selectable, unavailableReason } = !hasRequiredOpenCodeGoMetadata
-                ? {
-                    selectable: false,
-                    unavailableReason: raw.isTextGeneration === false
-                        ? "Model does not support text generation."
-                        : raw.isTextGeneration !== true
-                            ? "Model is missing text-generation capability metadata required by the adapter."
-                            : raw.supportsTools !== true
-                                ? "Model does not provide the tool-call capability required by LazyGoal."
-                                : "Model is missing context or output capacity metadata required by the adapter.",
-                }
-                : determineSelectability(
-                config.provider,
-                raw.id,
-                contextWindowTokens,
-                maxOutputTokens,
-                {
-                    supportedGenerationMethods: raw.supportedGenerationMethods,
-                    isTextGeneration: raw.isTextGeneration,
-                    supportsTools: raw.supportsTools,
-                    supportsStrictOutput: raw.supportsStrictOutput,
-                },
-                config,
-                requireTokenCapacity || isOpenCodeGoLiveTextModel,
-            );
+            const { selectable, unavailableReason } = determineSelectability({
+                id: raw.id,
+                protocolImplemented: this.options.isProtocolImplemented(source.protocol),
+                ...(isTextGeneration === undefined ? {} : { isTextGeneration }),
+                ...(raw.supportsTools === undefined ? {} : { supportsTools: raw.supportsTools }),
+                ...(contextWindowTokens === undefined ? {} : { contextWindowTokens }),
+                ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
+                requireTokenCapacity: requireTokenCapacity || source.requireLiveCapacity === true,
+            });
 
             results.push({
                 provider: config.provider,
                 id: raw.id,
                 displayName,
-                contextWindowTokens,
-                maxOutputTokens,
-                ...(isOpenCodeGoLiveTextModel
-                    ? { executionApi: "openai-completions" as const }
-                    : executionMetadata === undefined ? {} : { executionApi: executionMetadata.executionApi }),
+                protocol: source.protocol,
+                ...(contextWindowTokens === undefined ? {} : { contextWindowTokens }),
+                ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
                 reasoning,
                 vision,
                 ...(supportsRequiredToolChoice === undefined ? {} : { supportsRequiredToolChoice }),
@@ -471,80 +251,106 @@ export class DefaultLlmModelCatalog implements LlmModelCatalog {
                 ...(unavailableReason === undefined ? {} : { unavailableReason }),
             });
         }
-
         return sortModelDescriptors(results, config.model);
     }
 
-    private fallback(config: LLMConfig, requireTokenCapacity: boolean): readonly LlmModelDescriptor[] {
-        if (config.provider === "openai-compatible") {
-            const descriptor: LlmModelDescriptor = {
-                provider: config.provider,
-                id: config.model,
-                displayName: config.model,
-                contextWindowTokens: config.contextWindowTokens,
-                maxOutputTokens: config.maxOutputTokens,
-                reasoning: false,
-                vision: false,
-                availabilitySource: "configured",
-                metadataSource: "configured",
-                selectable: true,
-            };
+    private fallback(
+        config: LLMConfig,
+        source: CatalogSource,
+        requireTokenCapacity: boolean,
+    ): readonly LlmModelDescriptor[] {
+        if (source.staticModels.length === 0) {
+            const descriptor = this.configuredDescriptor(config, source, requireTokenCapacity);
             return [descriptor];
         }
-
-        const staticList = this.piAiModels.getModels(config.provider);
-        const seenIds = new Set<string>();
         const results: LlmModelDescriptor[] = [];
-
-        for (const sm of staticList) {
-            if (seenIds.has(sm.id)) continue;
-            seenIds.add(sm.id);
-
-            const { selectable, unavailableReason } = determineSelectability(
-                config.provider,
-                sm.id,
-                sm.contextWindow,
-                sm.contextWindow > 1 ? Math.min(sm.maxTokens, sm.contextWindow - 1) : sm.maxTokens,
-                {
-                    isTextGeneration: sm.input.includes("text"),
-                },
-                config,
-                requireTokenCapacity,
-            );
-
-            results.push({
-                provider: config.provider,
-                id: sm.id,
-                displayName: sm.name || sm.id,
-                contextWindowTokens: sm.contextWindow,
-                maxOutputTokens: sm.maxTokens,
-                reasoning: sm.reasoning,
-                vision: sm.input.includes("image"),
-                availabilitySource: "catalog",
-                metadataSource: "catalog",
-                selectable,
-                ...(unavailableReason === undefined ? {} : { unavailableReason }),
-            });
+        for (const staticModel of source.staticModels) {
+            results.push(this.staticDescriptor(config, source, staticModel, requireTokenCapacity));
         }
-
         return sortModelDescriptors(results, config.model);
     }
+
+    private configuredDescriptor(
+        config: LLMConfig,
+        source: CatalogSource,
+        requireTokenCapacity: boolean,
+    ): LlmModelDescriptor {
+        const contextWindowTokens = "contextWindowTokens" in config ? readPositive(config.contextWindowTokens) : undefined;
+        const maxOutputTokens = readPositive(config.maxOutputTokens);
+        const { selectable, unavailableReason } = determineSelectability({
+            id: config.model,
+            protocolImplemented: this.options.isProtocolImplemented(source.protocol),
+            ...(contextWindowTokens === undefined ? {} : { contextWindowTokens }),
+            ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
+            requireTokenCapacity,
+        });
+        return {
+            provider: config.provider,
+            id: config.model,
+            displayName: config.model,
+            protocol: source.protocol,
+            ...(contextWindowTokens === undefined ? {} : { contextWindowTokens }),
+            ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
+            availabilitySource: "configured",
+            metadataSource: "configured",
+            selectable,
+            ...(unavailableReason === undefined ? {} : { unavailableReason }),
+        };
+    }
+
+    private staticDescriptor(
+        config: LLMConfig,
+        source: CatalogSource,
+        model: CatalogModel,
+        requireTokenCapacity: boolean,
+    ): LlmModelDescriptor {
+        const contextWindowTokens = readPositive(model.contextWindowTokens);
+        const maxOutputTokens = contextWindowTokens !== undefined && model.maxOutputTokens !== undefined
+            ? Math.min(model.maxOutputTokens, Math.max(0, contextWindowTokens - 1))
+            : readPositive(model.maxOutputTokens);
+        const { selectable, unavailableReason } = determineSelectability({
+            id: model.id,
+            protocolImplemented: this.options.isProtocolImplemented(source.protocol),
+            ...(model.isTextGeneration === undefined ? {} : { isTextGeneration: model.isTextGeneration }),
+            ...(contextWindowTokens === undefined ? {} : { contextWindowTokens }),
+            ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
+            requireTokenCapacity,
+        });
+        return {
+            provider: config.provider,
+            id: model.id,
+            displayName: model.displayName ?? model.id,
+            protocol: source.protocol,
+            ...(contextWindowTokens === undefined ? {} : { contextWindowTokens }),
+            ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
+            reasoning: model.reasoning ?? false,
+            vision: model.vision ?? false,
+            ...(model.supportsRequiredToolChoice === undefined
+                ? {}
+                : { supportsRequiredToolChoice: model.supportsRequiredToolChoice }),
+            availabilitySource: "catalog",
+            metadataSource: "catalog",
+            selectable,
+            ...(unavailableReason === undefined ? {} : { unavailableReason }),
+        };
+    }
+}
+
+function readPositive(value: number | undefined): number | undefined {
+    return value !== undefined && Number.isSafeInteger(value) && value > 0 ? value : undefined;
 }
 
 /**
- * 创建全新的模型目录查询服务实例。
+ * 创建模型目录查询实例。
  *
- * @param fetcher - 可选注入的 Provider 在线列表拉取器。
- * @returns 模型目录查询实例。
+ * @param options - 供应商来源与协议可用性注入。
+ * @returns 目录实例。
  *
  * @example
  * ```ts
- * const catalog = createLlmModelCatalog();
- * const models = await catalog.list(config);
+ * const catalog = createLlmModelCatalog({ sources, isProtocolImplemented: () => true });
  * ```
  */
-export function createLlmModelCatalog(fetcher?: ProviderModelFetcher | undefined): LlmModelCatalog {
-    return new DefaultLlmModelCatalog(fetcher ?? new DefaultProviderModelFetcher());
+export function createLlmModelCatalog(options: LlmModelCatalogOptions): LlmModelCatalog {
+    return new DefaultLlmModelCatalog(options);
 }
-
-export { DefaultProviderModelFetcher } from "./provider-fetchers.js";

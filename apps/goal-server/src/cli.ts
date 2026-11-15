@@ -21,7 +21,7 @@ import {
     type BrowserPermissionExemptionSummary,
     type BrowserSessionAccess,
 } from "../../../packages/browser/src/index";
-import { DefaultProviderModelFetcher } from "../../../packages/model-catalog/src/index";
+import { DefaultProviderModelFetcher } from "../../../packages/llm-adapters/src/index";
 import { ModelCatalogError } from "../../../packages/model-catalog/src/index";
 import type { LlmModelDescriptor } from "../../../packages/model-catalog/src/index";
 import {
@@ -322,7 +322,7 @@ export async function runServerSession(
                         : { structuredOutputMode: configuredSelection.structuredOutputMode }),
                     ...(selectedModel.contextWindowTokens === undefined ? {} : { contextWindowTokens: selectedModel.contextWindowTokens }),
                     ...(selectedModel.maxOutputTokens === undefined ? {} : { maxOutputTokens: selectedModel.maxOutputTokens }),
-                    ...(selectedModel.executionApi === undefined ? {} : { executionApi: selectedModel.executionApi }),
+                    ...(selectedModel.protocol === "chat-completions" ? { executionApi: "openai-completions" as const } : {}),
                     ...(selectedModel.reasoning === undefined ? {} : { reasoning: selectedModel.reasoning }),
                     ...(selectedModel.vision === undefined ? {} : { vision: selectedModel.vision }),
                     ...(selectedModel.supportsRequiredToolChoice === undefined
@@ -363,7 +363,7 @@ export async function runServerSession(
                     : { structuredOutputMode: current.structuredOutputMode }),
                 ...(model.contextWindowTokens === undefined ? {} : { contextWindowTokens: model.contextWindowTokens }),
                 ...(model.maxOutputTokens === undefined ? {} : { maxOutputTokens: model.maxOutputTokens }),
-                ...(model.executionApi === undefined ? {} : { executionApi: model.executionApi }),
+                ...(model.protocol === "chat-completions" ? { executionApi: "openai-completions" as const } : {}),
                 ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
                 ...(model.vision === undefined ? {} : { vision: model.vision }),
                 ...(model.supportsRequiredToolChoice === undefined

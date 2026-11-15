@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { LLMConfig } from "../../llm-core/src/index.js";
-import { createLlmModelCatalog, DefaultProviderModelFetcher, ModelCatalogError } from "../src/index.js";
+import { createLlmModelCatalog, ModelCatalogError } from "../../model-catalog/src/index";
+import { DefaultProviderModelFetcher } from "../src/index";
 
 const CANARY_API_KEY = "canary-secret-token-xyz987";
 
@@ -584,7 +585,16 @@ test("ProviderModelFetcher: createLlmModelCatalog() 默认集成 DefaultProvider
         );
     };
 
-    const catalog = createLlmModelCatalog();
+    const fetcher = new DefaultProviderModelFetcher();
+    const catalog = createLlmModelCatalog({
+        sources: [{
+            provider: "openai",
+            protocol: "chat-completions",
+            staticModels: [],
+            discover: (config, options) => fetcher.fetchModels(config, options),
+        }],
+        isProtocolImplemented: () => true,
+    });
     const config: LLMConfig = {
         provider: "openai",
         model: "gpt-4o",

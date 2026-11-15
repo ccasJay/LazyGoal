@@ -1,4 +1,4 @@
-import type { LLMConfig } from "../../llm-core/src/index.js";
+import type { LLMConfig, ProtocolId, ProviderId } from "../../llm-core/src/index";
 
 /**
  * 模型目录请求失败分类。
@@ -48,7 +48,7 @@ export class ModelCatalogError extends Error {
  * 在线原始拉取的模型元数据契约。
  *
  * @remarks
- * 由各 Provider Wire Fetcher 从 HTTP 响应提取，待与静态 Catalog 合并。
+ * 由供应商适配器的发现函数提取，待与静态目录合并。
  *
  * @example
  * ```ts
@@ -64,27 +64,63 @@ export interface RawFetchedModel {
     readonly vision?: boolean | undefined;
     /** 模型是否支持 LazyGoal 执行所需的工具调用。 */
     readonly supportsTools?: boolean | undefined;
-    /** OpenAI Chat Completions 路径是否支持 `tool_choice: required`。 */
+    /** 协议是否支持强制工具选择。 */
     readonly supportsRequiredToolChoice?: boolean | undefined;
-    readonly supportedGenerationMethods?: readonly string[] | undefined;
     readonly isTextGeneration?: boolean | undefined;
-    readonly supportsStrictOutput?: boolean | undefined;
 }
 
 /**
- * Provider 在线模型拉取器契约。
+ * 适配器静态登记的模型元数据。
  *
  * @remarks
- * 仅负责发起 HTTP 请求并反序列化模型列表，不执行业务降级或排序。
+ * 只描述目录所需事实；供应商端点、认证与分页由同一适配器的 `discover` 负责。
  *
  * @example
  * ```ts
- * const models = await fetcher.fetchModels(config, { signal });
+ * const model: CatalogModel = { id: "gpt-4o", displayName: "GPT-4o", contextWindowTokens: 128_000 };
  * ```
  */
-export interface ProviderModelFetcher {
-    fetchModels(
+export interface CatalogModel {
+    readonly id: string;
+    readonly displayName?: string | undefined;
+    readonly contextWindowTokens?: number | undefined;
+    readonly maxOutputTokens?: number | undefined;
+    readonly reasoning?: boolean | undefined;
+    readonly vision?: boolean | undefined;
+    readonly supportsRequiredToolChoice?: boolean | undefined;
+    readonly isTextGeneration?: boolean | undefined;
+}
+
+/** 目录发现调用的可选控制与注入参数。 */
+export interface CatalogDiscoverOptions {
+    readonly signal?: AbortSignal | undefined;
+    readonly fetch?: typeof fetch | undefined;
+}
+
+/**
+ * 一个供应商的目录来源。
+ *
+ * @remarks
+ * 由适配器声明，`model-catalog` 只负责合并、排序、可选性与降级判定。
+ * `protocol` 是执行该供应商模型所需的线格式协议；是否已实现由组合根注入。
+ * `requireLiveCapacity` 表示在线模型即使未被 Token 预算要求，也必须具备容量元数据。
+ *
+ * @example
+ * ```ts
+ * const source: CatalogSource = {
+ *     provider: "openai", protocol: "chat-completions",
+ *     staticModels: [{ id: "gpt-4o" }],
+ *     discover: async () => [],
+ * };
+ * ```
+ */
+export interface CatalogSource {
+    readonly provider: ProviderId;
+    readonly protocol: ProtocolId;
+    readonly staticModels: readonly CatalogModel[];
+    readonly requireLiveCapacity?: boolean | undefined;
+    discover?(
         config: LLMConfig,
-        options?: { readonly signal?: AbortSignal | undefined; readonly fetch?: typeof fetch | undefined },
+        options?: CatalogDiscoverOptions,
     ): Promise<readonly RawFetchedModel[]>;
 }

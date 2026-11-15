@@ -114,9 +114,12 @@ import { createLlmStageAdapters, type LlmStageAdapters } from "../../../../packa
 import type { LLMAdapter } from "../../../../packages/llm-core/src/index";
 import {
     createLlmModelCatalog,
-    resolveOpenCodeGoExecutionMetadata,
     type LlmModelCatalog,
 } from "../../../../packages/model-catalog/src/index";
+import {
+    createBuiltinCatalogSources,
+    resolveOpenCodeGoExecutionMetadata,
+} from "../../../../packages/llm-adapters/src/index";
 import {
     DEFAULT_TOOL_IDS,
     createDefaultToolRegistrations,
@@ -920,7 +923,12 @@ async function assembleRuntimeComposition(
         }
         return Object.freeze({ thinkAdapter: adapter, decideAdapter: adapter });
     };
-    const modelCatalog = options.modelCatalog ?? createLlmModelCatalog();
+    const modelCatalog = options.modelCatalog ?? createLlmModelCatalog({
+        sources: createBuiltinCatalogSources(),
+        isProtocolImplemented: protocol => protocol === "chat-completions"
+            || protocol === "anthropic-messages"
+            || protocol === "google-generate-content",
+    });
     const modelBinding = options.modelBinding ?? new MutableModelBinding(
         createModelExecutionBinding({
             generation: 1,

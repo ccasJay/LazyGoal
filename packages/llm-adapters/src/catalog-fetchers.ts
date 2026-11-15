@@ -1,9 +1,8 @@
-import type { LLMProvider } from "../../llm-core/src/index.js";
+import type { LLMProvider } from "../../llm-core/src/index";
 import {
     ModelCatalogError,
-    type ProviderModelFetcher,
     type RawFetchedModel,
-} from "./contracts.js";
+} from "../../model-catalog/src/index";
 
 /**
  * 仅用于在线列表查询的连接参数，不要求模型标识或 Token 容量。
@@ -33,7 +32,7 @@ export interface ProviderModelConnection {
  * const models = await fetcher.fetchModels(config);
  * ```
  */
-export class DefaultProviderModelFetcher implements ProviderModelFetcher {
+export class DefaultProviderModelFetcher {
     /**
      * @param defaultTimeoutMs - 单次查询总操作超时（毫秒），多页分页共享此超时预算。
      */
