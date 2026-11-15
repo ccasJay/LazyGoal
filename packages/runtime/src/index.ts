@@ -31,6 +31,7 @@ export {
     createRunPlanRoute,
     reviseRunPlanRoute,
     reviseRunPlanExecution,
+    reopenRunPlanStage,
     updateRunPlanStage,
     RunPlanTransitionError,
 } from "./run-plan";
@@ -221,6 +222,17 @@ export {
     selectEpochConversationStart,
     selectLatestConversationStart,
 } from "./context-epoch";
+export {
+    evaluateCompactionBody,
+    renderCompactionTranscript,
+    selectCompactionWindow,
+} from "./context-compaction";
+export type {
+    ContextCompactionInput,
+    ContextCompactionPort,
+    ContextCompactionResult,
+    ContextCompactionSkipReason,
+} from "./context-compaction";
 export type {
     GoalCatalog,
     GoalCatalogEntry,
@@ -484,8 +496,12 @@ export type {
     SessionOpenResult,
     SessionQueryResult,
 } from "./session-manager";
-export { Runner, type InterruptRunResult, type SteerInputResult } from "./runner";
-export { RunRecoveryReader, type RunRecoveryReaderDependencies } from "./run-recovery-reader";
+export { Runner, type ContextCompactionCommandOutcome, type InterruptRunResult, type SteerInputResult } from "./runner";
+export {
+    RunNavigationRecoveryError,
+    RunRecoveryReader,
+    type RunRecoveryReaderDependencies,
+} from "./run-recovery-reader";
 export type { RunnerDependencies, RunnerResult, SandboxPlanResolver } from "./runner";
 export { InlineScheduler } from "./inline-scheduler";
 export type {
@@ -503,32 +519,24 @@ export type {
 } from "./tool";
 export {
     computeInputDigest,
-    DefaultPermissionGrantService,
+    DefaultPermissionExemptionService,
     createSandboxGrantMatcher,
-    createToolGrantMatcher,
     evaluateSandboxAuthorization,
-    evaluateToolAuthorization,
     matchesSandboxGrant,
     matchesSandboxGrantMatcher,
-    toolGrantMatchersEqual,
 } from "./tool-grant";
 export type {
-    PermissionGrantService,
-    PermissionMode,
+    PermissionExemptionService,
+    PermissionExemptionSummary,
+    PermissionProfile,
     PermissionScope,
+    ProjectPermissionProfile,
+    ProjectPermissionProfileStore,
     SandboxGrant,
     SandboxGrantLookup,
     SandboxGrantMatcher,
     SandboxGrantScope,
     SandboxGrantStore,
-    ToolAuthorizationContext,
-    ToolAuthorizationDecision,
-    ToolGrant,
-    ToolGrantLookup,
-    ToolGrantMatcher,
-    ToolGrantScope,
-    ToolGrantStore,
-    UnifiedGrantSummary,
 } from "./tool-grant";
 export { launch, createGoalCheckpoint } from "./launcher";
 export type {

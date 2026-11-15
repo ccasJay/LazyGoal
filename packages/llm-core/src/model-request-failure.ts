@@ -1,4 +1,4 @@
-import { TransientModelRequestFailure } from "../../execution-control/src/index";
+import { ContextWindowRejectedError, TransientModelRequestFailure } from "../../execution-control/src/index";
 
 const CONNECTION_CODES = new Set([
     "ECONNRESET", "ETIMEDOUT", "ECONNREFUSED", "EAI_AGAIN", "ENETUNREACH",
@@ -111,4 +111,76 @@ function parseRetryAfter(header: string | undefined): number | undefined {
     if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
     const date = Date.parse(header);
     return Number.isNaN(date) ? undefined : Math.max(0, date - Date.now());
+}
+
+/** 供应商用于表达“请求超出模型上下文窗口”的稳定错误代码。 */
+const CONTEXT_WINDOW_CODES = new Set([
+    "context_length_exceeded",
+    "context_window_exceeded",
+    "contextlength_exceeded",
+    "prompt_too_long",
+    "prompt_is_too_long",
+    "string_above_max_length",
+    "request_too_large",
+    "tokens_exceeded",
+    "too_many_tokens",
+]);
+
+/** 供应商窗口拒绝文案；仅在拒绝状态同时成立时才作为判定依据。 */
+const CONTEXT_WINDOW_MESSAGE_PATTERNS = [
+    /maximum context length/i,
+    /prompt is too long/i,
+    /input token count[^.]{0,80}exceed/i,
+    /too many (?:input )?tokens/i,
+    /context (?:length|window)[^.]{0,80}(?:exceed|too (?:long|large)|maximum)/i,
+    /(?:exceed|over)[^.]{0,60}context (?:length|window)/i,
+    /reduce (?:the )?(?:length|size) of (?:your )?(?:prompt|messages?)/i,
+];
+
+/**
+ * 识别供应商明确以超出上下文窗口拒绝的请求失败。
+ *
+ * @remarks
+ * 只接受两种结构化信号：已知窗口拒绝错误代码，或拒绝状态（400/413/422）与窗口拒绝文案同时出现。
+ * 其它 4xx、鉴权、限流与传输故障不会被归入本类型，避免误触发压缩与重试。
+ *
+ * @param error - 供应商 SDK 或传输层抛出的原始异常。
+ * @returns 可交给 Runtime 处理的窗口拒绝故障；无法结构化识别时返回 `undefined`。
+ *
+ * @example
+ * ```ts
+ * const rejection = classifyContextWindowRejection(providerError);
+ * if (rejection !== undefined) throw rejection;
+ * ```
+ */
+export function classifyContextWindowRejection(error: unknown): ContextWindowRejectedError | undefined {
+    const value = asRecord(error);
+    if (value === undefined) return undefined;
+
+    const status = readStatus(value.status)
+        ?? readStatus(asRecord(value.response)?.status)
+        ?? readStatus(asRecord(value.lastResponse)?.status);
+    const providerCode = (
+        readString(value.code)
+        ?? readString(asRecord(value.error)?.code)
+        ?? readString(asRecord(value.error)?.type)
+        ?? ""
+    ).toLowerCase();
+    const message = readString(value.message)
+        ?? readString(value.errorMessage)
+        ?? readString(asRecord(value.error)?.message)
+        ?? "";
+
+    const codeMatches = CONTEXT_WINDOW_CODES.has(providerCode)
+        || CONTEXT_WINDOW_CODES.has(providerCode.replace(/-/g, "_"));
+    const messageMatches = CONTEXT_WINDOW_MESSAGE_PATTERNS.some((pattern) => pattern.test(message));
+    if (!codeMatches && !messageMatches) return undefined;
+    if (status !== undefined && status !== 400 && status !== 413 && status !== 422) return undefined;
+    // 文案命中必须伴随拒绝状态；只有供应商错误代码足够明确。
+    if (!codeMatches && status === undefined) return undefined;
+
+    return new ContextWindowRejectedError({
+        ...(status === undefined ? {} : { status }),
+        ...(providerCode.length === 0 ? {} : { providerCode }),
+    });
 }

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { decisionScenarios, scoreDecision } from "./decision-guidance-fixtures";
 import { blockResponse } from "../../llm-core/test/response-fixtures";
+import { readModelMessageText } from "../../llm-core/src/index";
 import { evaluationRenderers, evaluationRequest, evaluateResponse } from "./decision-guidance-eval";
 
 const renderers = await evaluationRenderers();
@@ -21,7 +22,7 @@ test("对照请求仅改变模板与系统工具描述，不改变状态、授�
             assert.deepEqual(current.request, evaluationRequest(scenario, renderers.new, mode).request);
             if (scenario.checkpoint) {
                 assert.deepEqual(current.request.tools.map(t => t.id), ["system_context_checkpoint"]);
-                assert.equal(JSON.parse(current.request.messages.at(-1)!.content).checkpointRequired, true);
+                assert.equal(JSON.parse(readModelMessageText(current.request.messages.at(-1)!)).checkpointRequired, true);
             } else if (!scenario.approved) assert.ok(!current.request.tools.some(t => t.id === "apply_change"));
         }
     }
@@ -83,7 +84,7 @@ test("仓库取证与寒暄场景使用现有评估入口，拒绝目录列表�
     assert.equal(evaluateResponse(greeting, evaluationRequest(greeting, renderers.new, "strict"), response("system_complete_task", {
         summary: "Hello! How can I help?", evidenceSequences: [], memoryPatch: null,
     })).passed, true);
-    const system = plan.request.messages[0]!.content;
+    const system = readModelMessageText(plan.request.messages[0]!);
     assert.match(system, /directory listings prove only file existence/);
     assert.match(system, /correct the fields identified by Runtime feedback/);
     assert.match(system, /JSON `null`, never a string sentinel/);
@@ -93,10 +94,10 @@ test("source selection and Memory repair use scoped production inputs and reject
     for (const id of ["repository-history-no-match", "memory-feedback-source"]) {
         const scenario = decisionScenarios.find(s => s.id === id)!;
         const plan = evaluationRequest(scenario, renderers.new, "strict");
-        const context = plan.request.messages.map(m => { try { return JSON.parse(m.content); } catch { return undefined; } }).find(m => m?.contextLookupResult);
+        const context = plan.request.messages.map(m => { try { return JSON.parse(readModelMessageText(m)); } catch { return undefined; } }).find(m => m?.contextLookupResult);
         assert.equal(context.contextLookupResult.sourceScope, "goal_history");
         if (scenario.runtimeFeedback) {
-            const message = plan.request.messages.map(m => { try { return JSON.parse(m.content); } catch { return undefined; } }).find(m => m?.source === "runtime_feedback");
+            const message = plan.request.messages.map(m => { try { return JSON.parse(readModelMessageText(m)); } catch { return undefined; } }).find(m => m?.source === "runtime_feedback");
             assert.equal(message.origin, "memory_patch");
             assert.deepEqual(message.issues[0].path, scenario.runtimeFeedback.issues[0]!.path);
         }
@@ -117,7 +118,7 @@ test("evaluation Run mode and native declarations agree with proposal and comple
     assert.ok(!proposal.request.tools.some(t => t.id === "system_complete_task"));
     const inspect = evaluationRequest(decisionScenarios[1]!, renderers.new, "strict");
     assert.ok(!inspect.request.tools.some(t => t.id === "system_propose_task_plan"));
-    assert.match(inspect.request.messages.map(m => m.content).join("\n"), /Normal Run: act directly/);
+    assert.match(inspect.request.messages.map(readModelMessageText).join("\n"), /Normal Run: act directly/);
     const approved = evaluationRequest(decisionScenarios[10]!, renderers.new, "strict");
     const declaration = approved.request.tools.find(t => t.id === "system_complete_task")!;
     assert.ok(JSON.stringify(declaration.parametersSchema).includes("completionEvidence"));

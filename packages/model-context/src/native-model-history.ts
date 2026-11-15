@@ -1,5 +1,10 @@
 import { ModelContextSourceError } from "./trajectory-execution-unit-adapter";
-import { sameNativeIdentity, type NativeConversationIdentity, type ModelAssistantMessage } from "../../model-contracts/src/index";
+import {
+    readModelToolCalls,
+    sameNativeIdentity,
+    type NativeConversationIdentity,
+    type ModelAssistantMessage,
+} from "../../model-contracts/src/index";
 import type { TrajectoryEvent } from "../../runtime/src/trajectory";
 import type { NativeModelExchange } from "../../model-view/src/index";
 import { TrajectoryEventProjector } from "./trajectory-event-projector";
@@ -33,7 +38,7 @@ export function collectNativeModelExchanges(
         const unitId = response.executionUnitId;
         if (unitId === undefined) throw new ModelContextSourceError("Native response has no execution unit identity");
         const message = response.payload.message;
-        const call = message.toolCalls?.[0];
+        const call = readModelToolCalls(message)[0];
         if (call === undefined) throw new ModelContextSourceError("Committed Decide response has no native tool call");
         const unitEvents = events.filter(event => event.executionUnitId === unitId);
         const settlement = settle(message, response.sequence, unitEvents, projector, events);
@@ -69,7 +74,7 @@ function settle(
     projector: TrajectoryEventProjector,
     allEvents: readonly TrajectoryEvent[],
 ): { sequence: number; result: unknown } | undefined {
-    const call = message.toolCalls![0]!;
+    const call = readModelToolCalls(message)[0]!;
     if (call.toolId === "system_request_think") {
         const request = events.filter(event => event.eventType === "think_requested" && event.sequence < responseSequence).at(-1);
         if (request?.eventType !== "think_requested") throw new ModelContextSourceError("Native Think call is missing its committed request");

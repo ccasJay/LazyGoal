@@ -4,51 +4,12 @@ import test from "node:test";
 import {
     computeInputDigest,
     createSandboxGrantMatcher,
-    DefaultPermissionGrantService,
     matchesSandboxGrant,
     matchesSandboxGrantMatcher,
-    matchesToolGrant,
-    matchesToolGrantMatcher,
     type SandboxGrant,
     type SandboxGrantMatcher,
     type SandboxGrantStore,
-    type ToolGrant,
-    type ToolGrantMatcher,
-    type ToolGrantStore,
 } from "../src/index";
-
-test("matchesToolGrantMatcher: 严格比对 exact_input 与 target_path", () => {
-    const input1: ToolGrantMatcher = {
-        kind: "exact_input",
-        toolId: "bash",
-        version: 1,
-        digest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-    };
-    const input2: ToolGrantMatcher = {
-        kind: "exact_input",
-        toolId: "bash",
-        version: 1,
-        digest: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-    };
-    assert.equal(matchesToolGrantMatcher(input1, input1), true);
-    assert.equal(matchesToolGrantMatcher(input1, input2), false);
-
-    const path1: ToolGrantMatcher = {
-        kind: "target_path",
-        toolId: "write_file",
-        version: 1,
-        path: "/workspace/project/src/index.ts",
-    };
-    const path2: ToolGrantMatcher = {
-        kind: "target_path",
-        toolId: "write_file",
-        version: 1,
-        path: "/workspace/project/src/other.ts",
-    };
-    assert.equal(matchesToolGrantMatcher(path1, path1), true);
-    assert.equal(matchesToolGrantMatcher(path1, path2), false);
-    assert.equal(matchesToolGrantMatcher(path1, input1 as any), false);
-});
 
 test("matchesSandboxGrantMatcher: 命令一致且能力在已核准范围内时放行，超出维度拒绝", () => {
     const approved: SandboxGrantMatcher = createSandboxGrantMatcher("bash", { command: "curl https://example.com" }, {
@@ -138,91 +99,6 @@ test("matchesSandboxGrant: 作用域与撤销状态边界", () => {
         scope: "workspace",
     };
     assert.equal(matchesSandboxGrant({ workspaceId: "ws-1", goalId: "goal-2", matcher }, wsGrant), true);
-});
-
-test("DefaultPermissionGrantService: 聚合列表与分别撤销", async () => {
-    const fakeToolStore: ToolGrantStore = {
-        findActiveMatching: async () => undefined,
-        stage: async (g) => ({ ...g, id: "tool-1", status: "pending" }),
-        activate: async (id, source) => ({
-            id,
-            scope: "goal",
-            workspaceId: "ws-1",
-            goalId: "goal-1",
-            source,
-            matcher: { kind: "exact_input", toolId: "bash", version: 1, digest: "sha256:abc" as any },
-            status: "active",
-        }),
-        list: async () => [
-            {
-                id: "tool-1",
-                scope: "goal",
-                workspaceId: "ws-1",
-                goalId: "goal-1",
-                source: { goalId: "goal-1", runId: "run-1", actionId: "act-1", approvalInputId: "input-1" },
-                matcher: { kind: "exact_input", toolId: "bash", version: 1, digest: "sha256:abc" as any },
-                status: "active",
-            },
-        ],
-        revoke: async ({ grantId }) => ({
-            id: grantId,
-            scope: "goal",
-            workspaceId: "ws-1",
-            goalId: "goal-1",
-            source: { goalId: "goal-1", runId: "run-1", actionId: "act-1", approvalInputId: "input-1" },
-            matcher: { kind: "exact_input", toolId: "bash", version: 1, digest: "sha256:abc" as any },
-            status: "revoked",
-        }),
-    };
-
-    let sandboxRevoked = false;
-    const fakeSandboxStore: SandboxGrantStore = {
-        findActiveMatching: async () => undefined,
-        stage: async (g) => ({ ...g, id: "sb-1", status: "pending" }),
-        activate: async (id, source) => ({
-            id,
-            scope: "workspace",
-            workspaceId: "ws-1",
-            source,
-            matcher: createSandboxGrantMatcher("bash", { command: "python test.py" }, { extraFiles: [], network: "none" }),
-            status: "active",
-        }),
-        list: async () => [
-            {
-                id: "sb-1",
-                scope: "workspace",
-                workspaceId: "ws-1",
-                source: { goalId: "goal-1", runId: "run-1", actionId: "act-2", approvalInputId: "input-1" },
-                matcher: createSandboxGrantMatcher("bash", { command: "python test.py" }, { extraFiles: [], network: "none" }),
-                status: "active",
-            },
-        ],
-        revoke: async ({ grantId }) => {
-            if (grantId === "sb-1") sandboxRevoked = true;
-            return {
-                id: grantId,
-                scope: "workspace",
-                workspaceId: "ws-1",
-                source: { goalId: "goal-1", runId: "run-1", actionId: "act-2", approvalInputId: "input-1" },
-                matcher: createSandboxGrantMatcher("bash", { command: "python test.py" }, { extraFiles: [], network: "none" }),
-                status: "revoked",
-            };
-        },
-    };
-
-    const service = new DefaultPermissionGrantService(fakeToolStore, fakeSandboxStore);
-
-    const list = await service.list({ workspaceId: "ws-1", goalId: "goal-1" });
-    assert.equal(list.length, 2);
-    assert.ok(list[0]);
-    assert.ok(list[1]);
-    assert.equal(list[0].id, "sb-1");
-    assert.equal(list[0].kind, "sandbox");
-    assert.equal(list[1].id, "tool-1");
-    assert.equal(list[1].kind, "tool");
-
-    await service.revoke({ kind: "sandbox", grantId: "sb-1", workspaceId: "ws-1" });
-    assert.equal(sandboxRevoked, true);
 });
 
 test("computeInputDigest 固定 Tool 输入的字面量摘要", () => {

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { link, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
@@ -10,6 +10,7 @@ import { DatabaseSync } from "node:sqlite";
 import { createGoal } from "../../runtime/src/domain";
 import { currentProtocols } from "../../runtime/test/current-fixtures";
 import { SupervisorOwnership } from "../src/supervisor-ownership";
+import { goalDirectory, goalSnapshotPath } from "../src/index";
 import { JsonFileGoalStore } from "../src/goal-store";
 import { TriggerStore } from "../src/trigger-store";
 import { workTrigger } from "../../runtime/test/trigger-fixtures";
@@ -61,7 +62,8 @@ test("an occupied unreadable Goal ID is rejected without changing its file", asy
         triggers.receive(trigger);
         triggers.reserveGoal(trigger.id, "goal-1");
         triggers.freezeGoal(trigger.id, goal("goal-1"));
-        const path = join(dir, `${Buffer.from("goal-1").toString("base64url")}.json`);
+        const path = goalSnapshotPath(dir, "goal-1");
+        await mkdir(goalDirectory(dir, "goal-1"), { recursive: true });
         await writeFile(path, "unreadable snapshot");
         const result = await publishTriggerGoal(owner, triggers, new JsonFileGoalStore(dir), trigger.id);
         assert.deepEqual(result, { kind: "rejected", reason: "goal-id-conflict", goalId: "goal-1" });

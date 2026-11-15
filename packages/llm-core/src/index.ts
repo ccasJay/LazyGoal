@@ -28,6 +28,7 @@ export {
     readReasoningText,
     readToolCalls,
 } from "./content-blocks";
+export { readModelAssistantReasoning, readModelAssistantText, readModelMessageText, readModelToolCalls } from "../../model-contracts/src/index";
 
 export {
     LLMStreamProtocolError,
@@ -51,4 +52,4 @@ export {
 } from "./usage";
 export type { NormalizedUsage } from "./usage";
 
-export { classifyTransientModelFailure } from "./model-request-failure";
+export { classifyContextWindowRejection, classifyTransientModelFailure } from "./model-request-failure";

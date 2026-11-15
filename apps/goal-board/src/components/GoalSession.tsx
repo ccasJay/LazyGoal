@@ -1,4 +1,5 @@
 import { Button } from "./ui/button";
+import { dispatchBrowserInput } from "../types";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,20 +20,29 @@ import {
   AlertCircle,
   ArrowDown,
   Check,
+  ChevronRight,
   CircleHelp,
   X,
 } from "lucide-react";
-import type { BrowserGoalListItem, BrowserToolGrantSummary } from "../../../../packages/web-contracts/src/index";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collapsible";
+import type { BrowserGoalListItem, BrowserPermissionExemptionSummary } from "../../../../packages/web-contracts/src/index";
 import { GoalDetails, WaitingInteraction } from "../panels";
 import type { AcceptedDecisionSummary } from "../interaction-panel";
 import brandMark from "../assets/lazygoal/mark-on-light.svg?no-inline";
 import { Trajectory } from "../trajectory";
-import { selectUnverifiedWorkbenchActions, selectWorkbenchActions, workbenchReasonText } from "../workbench-actions";
+import {
+  hasBlockingStopIntent,
+  hasUnknownStopIntent,
+  selectUnverifiedWorkbenchActions,
+  selectWorkbenchActions,
+  workbenchReasonText,
+} from "../workbench-actions";
 import { selectConnectionPresentation } from "../connection-presentation";
 import { useGoalSessionContext } from "../context/GoalSessionContext";
 import { useRunControlContext } from "../context/RunControlContext";
 import { MessageComposer, CurrentModelControl } from "./MessageComposer";
 import { SessionMetricsBar } from "./SessionMetricsBar";
+import { ContextWindowIndicator } from "./ContextWindowIndicator";
 import { SessionBoundary } from "./error-boundary";
 import { projectSessionTimeline } from "../session-timeline";
 import { SessionTimeline } from "./SessionTimeline";
@@ -54,7 +64,7 @@ export function GoalSession({
   onViewGoals,
   boardContent,
   renderPermissionControl,
-  onRevokeToolGrant,
+  onRevokeExemption,
   onDeleteGoal,
   manageBusyId,
 }: {
@@ -66,7 +76,7 @@ export function GoalSession({
   onViewGoals: () => void;
   boardContent: ReactNode;
   renderPermissionControl: (hasGoal: boolean) => ReactNode;
-  onRevokeToolGrant: (grant: BrowserToolGrantSummary) => Promise<void>;
+  onRevokeExemption: (exemption: BrowserPermissionExemptionSummary) => Promise<void>;
   onDeleteGoal?: (goal: BrowserGoalListItem) => Promise<void>;
   manageBusyId: string | null;
 }) {
@@ -93,10 +103,10 @@ export function GoalSession({
     setFollow,
     goalInfoOpen,
     setGoalInfoOpen,
-    toolGrants,
-    toolGrantsLoading,
-    toolGrantsError,
-    revokingGrantId,
+    exemptions,
+    exemptionsLoading,
+    exemptionsError,
+    revokingExemptionId,
     livePreviews,
     liveActivity,
     progressEntries,
@@ -129,6 +139,8 @@ export function GoalSession({
     setCommandError,
     stoppingRunId,
     onSubmitDraftMessage,
+    onSubmitContinuation,
+    compactSession,
     onInterrupt,
     onSubmitResume,
     onVerifyIntent,
@@ -136,17 +148,41 @@ export function GoalSession({
     onDiscardIntent,
   } = useRunControlContext();
 
+  /** 在会话输入框内先识别 Slash 命令，再决定是否作为普通消息提交。 */
+  const submitSessionMessage = async (content: string): Promise<boolean> => {
+    const dispatched = await dispatchBrowserInput(content);
+    if (dispatched.kind === "error") {
+      setCommandError(dispatched.message);
+      return false;
+    }
+    if (dispatched.kind === "compact") {
+      setContinuationText("");
+      return compactSession();
+    }
+    return onSubmitContinuation(content);
+  };
+
   const timeline = useRef<HTMLDivElement>(null);
+  const blockingStopIntent = session !== null && hasBlockingStopIntent(
+    control.state.intents, session.goalId, session.currentRunId,
+  );
+  const stopOutcomeUnknown = session !== null && hasUnknownStopIntent(
+    control.state.intents, session.goalId, session.currentRunId,
+  );
   const workbench = selectWorkbenchActions({
     session,
     busy: commandBusy,
     connected: streamConnected,
     stale: stateStale,
     sessionUnreadable: sessionError !== null,
-    canSendText: false,
-    stopping: session !== null && stoppingRunId === session.currentRunId,
+    canSendText: session?.continuation?.available === true,
+    stopping: session !== null && (stoppingRunId === session.currentRunId
+      || (blockingStopIntent && !stopOutcomeUnknown)),
+    stopOutcomeUnknown,
   });
-  const unverifiedActions = selectUnverifiedWorkbenchActions(control.state.intents);
+  const unverifiedActions = session === null
+    ? []
+    : selectUnverifiedWorkbenchActions(control.state.intents, session.goalId);
   const connection = selectConnectionPresentation({
     connected: streamConnected,
     synced: streamSynced,
@@ -154,11 +190,13 @@ export function GoalSession({
   });
   const readingAnchor = useRef<ActivityAnchor | undefined>(undefined);
   const programmaticTop = useRef<number | undefined>(undefined);
+  const previousScrollTop = useRef(0);
   const followFrame = useRef<number | null>(null);
   const currentRun = activityPage?.runs.find((run) => run.current);
   const [draftNoticeDismissed, setDraftNoticeDismissed] = useState(false);
   const [decisionSummaries, setDecisionSummaries] = useState<readonly AcceptedDecisionSummary[]>([]);
   const [confirmUnknownEffects, setConfirmUnknownEffects] = useState(false);
+  const [continuationText, setContinuationText] = useState("");
 
   const projectionGoalKey = session?.goalId ?? null;
   useEffect(() => {
@@ -169,15 +207,17 @@ export function GoalSession({
   useEffect(() => {
     setDecisionSummaries([]);
     setConfirmUnknownEffects(false);
+    setContinuationText("");
   }, [projectionGoalKey]);
 
   useEffect(() => () => {
     if (followFrame.current !== null) window.cancelAnimationFrame(followFrame.current);
   }, []);
 
+  const sessionGoalId = session?.goalId;
   useEffect(() => {
-    if (session !== null && (sessionTab === "Plan" || sessionTab === "Trajectory" || goalInfoOpen)) void loadFullSession();
-  }, [session, sessionTab, goalInfoOpen, loadFullSession]);
+    if (sessionGoalId !== undefined && (sessionTab === "Plan" || sessionTab === "Trajectory" || goalInfoOpen)) void loadFullSession();
+  }, [sessionGoalId, sessionTab, goalInfoOpen, loadFullSession]);
 
   const isWaitingApprovalOrInput =
     session !== null &&
@@ -209,6 +249,7 @@ export function GoalSession({
         if (Math.abs(element.scrollTop - top) < 1) return;
         element.scrollTop = top;
         programmaticTop.current = element.scrollTop;
+        previousScrollTop.current = element.scrollTop;
       };
       if (follow) move(element.scrollHeight);
       else {
@@ -230,6 +271,8 @@ export function GoalSession({
         followFrame.current = null;
         if (follow && timeline.current) {
           timeline.current.scrollTop = timeline.current.scrollHeight;
+          previousScrollTop.current = timeline.current.scrollTop;
+          programmaticTop.current = timeline.current.scrollTop;
         }
       });
     }
@@ -259,11 +302,11 @@ export function GoalSession({
               <GoalDetails
                 session={fullSession}
                 tab="Details"
-                grants={toolGrants}
-                grantsLoading={toolGrantsLoading}
-                grantsError={toolGrantsError}
-                revokingGrantId={revokingGrantId}
-                onRevokeGrant={(grant) => void onRevokeToolGrant(grant)}
+                exemptions={exemptions}
+                exemptionsLoading={exemptionsLoading}
+                exemptionsError={exemptionsError}
+                revokingExemptionId={revokingExemptionId}
+                onRevokeExemption={(exemption) => void onRevokeExemption(exemption)}
                 onDelete={activeGoal ? () => void onDeleteGoal?.(activeGoal) : undefined}
                 deleteBusy={manageBusyId === fullSession.goalId}
               />
@@ -382,7 +425,8 @@ export function GoalSession({
           {session.nextRunMode === "plan" && <div className="session-intro">Next Run: Plan Mode</div>}
           {connection.isOutdated && (
             <div className="state-stale" role="alert">
-              The live connection dropped. The last confirmed content is shown, but it may be outdated. New Steer
+              {streamConnected ? "The saved state is being refreshed." : "The live connection dropped."}{" "}
+              The last confirmed content is shown, but it may be outdated. New Steer
               and Resume actions stay unavailable until the state is re-read.
               <Button variant="ghost" size="sm" type="button" onClick={() => void refreshSelectedSession()}>Re-read state</Button>
             </div>
@@ -414,11 +458,11 @@ export function GoalSession({
               <GoalDetails
                 session={fullSession}
                 tab="Plan"
-                grants={toolGrants}
-                grantsLoading={toolGrantsLoading}
-                grantsError={toolGrantsError}
-                revokingGrantId={revokingGrantId}
-                onRevokeGrant={(grant) => void onRevokeToolGrant(grant)}
+                exemptions={exemptions}
+                exemptionsLoading={exemptionsLoading}
+                exemptionsError={exemptionsError}
+                revokingExemptionId={revokingExemptionId}
+                onRevokeExemption={(exemption) => void onRevokeExemption(exemption)}
               />
             )
           ) : (
@@ -452,14 +496,25 @@ export function GoalSession({
                   <div
                     className="timeline"
                     ref={timeline}
+                    onWheel={(event) => {
+                      if (event.deltaY >= 0) return;
+                      if (followFrame.current !== null) {
+                        window.cancelAnimationFrame(followFrame.current);
+                        followFrame.current = null;
+                      }
+                      readingAnchor.current = captureAnchor({ offsets: timelineOffsets(event.currentTarget), scrollTop: event.currentTarget.scrollTop });
+                      setFollow(false);
+                    }}
                     onScroll={(event) => {
                       const element = event.currentTarget;
+                      const movedUp = element.scrollTop < previousScrollTop.current - 1;
+                      previousScrollTop.current = element.scrollTop;
                       if (programmaticTop.current !== undefined && Math.abs(element.scrollTop - programmaticTop.current) < 1) {
                         programmaticTop.current = undefined;
                         return;
                       }
                       programmaticTop.current = undefined;
-                      const following = element.scrollHeight - element.scrollTop - element.clientHeight < FOLLOW_THRESHOLD_PX;
+                      const following = !movedUp && element.scrollHeight - element.scrollTop - element.clientHeight < FOLLOW_THRESHOLD_PX;
                       setFollow(following);
                       if (!following) {
                         readingAnchor.current = captureAnchor({ offsets: timelineOffsets(element), scrollTop: element.scrollTop });
@@ -560,7 +615,28 @@ export function GoalSession({
               )}
               {unverifiedActions.length > 0 && (
                 <div className="unverified-submissions" aria-label="Unconfirmed submissions">
-                  {unverifiedActions.map((item) => (
+                  {unverifiedActions.length > 1 ? (
+                    <Collapsible className="unverified-submissions-group">
+                      <CollapsibleTrigger asChild>
+                        <Button variant="ghost" size="sm" type="button" className="unverified-submissions-trigger">
+                          <ChevronRight aria-hidden="true" className="unverified-submissions-chevron" />
+                          {unverifiedActions.length} command results need review
+                        </Button>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="unverified-submissions-list">
+                        {unverifiedActions.map((item) => (
+                          <div className="unverified-submission" key={item.intentId} data-intent-id={item.intentId}>
+                            <span>{item.label} result is unknown. Verify it before retrying.</span>
+                            <Button variant="ghost" size="sm" type="button" disabled={commandBusy}
+                              onClick={() => void onVerifyIntent(item.intentId)}>Verify</Button>
+                            <Button variant="ghost" size="sm" type="button" disabled={commandBusy}
+                              onClick={() => void onRetryIntent(item.intentId)}>Retry same identity</Button>
+                            <Button variant="ghost" size="sm" type="button" onClick={() => onDiscardIntent(item.intentId)}>Discard</Button>
+                          </div>
+                        ))}
+                      </CollapsibleContent>
+                    </Collapsible>
+                  ) : unverifiedActions.map((item) => (
                     <div className="unverified-submission" key={item.intentId} data-intent-id={item.intentId}>
                       <span>{item.label} result is unknown. Verify it before retrying.</span>
                       <Button variant="ghost" size="sm" type="button" disabled={commandBusy}
@@ -575,6 +651,7 @@ export function GoalSession({
               {session.runStatus === "waiting" && (session.interaction !== undefined || session.pendingAction !== undefined) && (
                 <>
                   <div className="composer-extra-controls">
+                    <ContextWindowIndicator state={metricsByGoal[session.goalId]} />
                     <CurrentModelControl
                       label={currentModelName}
                       enabled={canSwitchCurrentModel && !commandBusy && sessionError === null}
@@ -585,7 +662,9 @@ export function GoalSession({
                     session={session}
                     busy={commandBusy || !connection.allowsNewDecisions || (!draftSessionOpen && sessionError !== null)}
                     stopping={stoppingRunId === session.currentRunId ||
-                      (session.interruption !== undefined && session.interruption.status !== "finished")}
+                      (session.interruption !== undefined && session.interruption.status !== "finished") ||
+                      (blockingStopIntent && !stopOutcomeUnknown)}
+                    stopOutcomeUnknown={stopOutcomeUnknown}
                     control={control}
                     onInterrupt={onInterrupt}
                     onRefreshSession={refreshSelectedSession}
@@ -604,6 +683,7 @@ export function GoalSession({
               {session.runStatus === "running" && (
                 <>
                   <div className="composer-extra-controls">
+                    <ContextWindowIndicator state={metricsByGoal[session.goalId]} />
                     <CurrentModelControl label={currentModelName} enabled={false} onClick={() => undefined} />
                   </div>
                   {session.execution?.state === "recoverable" ? (
@@ -632,6 +712,7 @@ export function GoalSession({
               {session.runStatus === "created" && (session.execution?.state === "recoverable" ? (
                 <div className="composer-recover-row">
                   <div className="composer-extra-controls">
+                    <ContextWindowIndicator state={metricsByGoal[session.goalId]} />
                     <CurrentModelControl label={currentModelName} enabled={false} onClick={() => undefined} />
                   </div>
                   <div className="composer-recover-actions">
@@ -651,6 +732,29 @@ export function GoalSession({
                 && session.pendingAction?.status === "approved" && (
                   <div className="composer-note">The approved action is being recorded.</div>
                 )}
+              {session.continuation?.available === true && (
+                <MessageComposer
+                  key={`continuation-${session.currentRunId}`}
+                  busy={commandBusy || !workbench.send_message.available}
+                  placeholder="Continue this Goal with another message…"
+                  textareaLabel="Continue this Goal"
+                  showHint={false}
+                  draftValue={continuationText}
+                  onDraftChange={setContinuationText}
+                  submitLabels={{ idle: "Send message", busy: "Sending message", empty: "Type a message to send" }}
+                  footerControls={
+                    <>
+                      <ContextWindowIndicator state={metricsByGoal[session.goalId]} />
+                      <CurrentModelControl
+                        label={currentModelName}
+                        enabled={canSwitchCurrentModel && !commandBusy && sessionError === null && connection.allowsNewDecisions}
+                        onClick={() => setModelPickerTarget({ kind: "goal", goalId: session.goalId, runId: session.currentRunId })}
+                      />
+                    </>
+                  }
+                  onSubmit={submitSessionMessage}
+                />
+              )}
               <SessionMetricsBar state={metricsByGoal[session.goalId]} runStatus={session.runStatus} />
               <AlertDialog open={confirmUnknownEffects} onOpenChange={setConfirmUnknownEffects}>
                 <AlertDialogContent>

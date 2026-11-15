@@ -1,6 +1,7 @@
 import { isRecord } from "../../contracts/src/index";
 import {
     isModelAssistantMessage,
+    readModelAssistantText,
     sameNativeIdentity,
     type NativeConversationIdentity,
     type GeminiContinuationPart,
@@ -15,6 +16,7 @@ import {
 import type { JsonSchema202012 } from "../../contracts/src/index";
 import {
     LLMRequestModeMismatchError,
+    classifyContextWindowRejection,
     classifyTransientModelFailure,
     type LLMAdapter,
     type LLMContentBlock,
@@ -490,6 +492,8 @@ export class Gemini implements LLMAdapter {
     private classifyFailure(error: unknown, control: ExecutionControl | undefined): unknown {
         if (isExecutionAbortedError(error)) return error;
         if (control?.signal?.aborted) return new ExecutionAbortedError();
+        const contextRejection = classifyContextWindowRejection(error);
+        if (contextRejection !== undefined) return contextRejection;
         const transientFailure = classifyTransientModelFailure(error);
         return transientFailure ?? error;
     }
@@ -592,7 +596,7 @@ function toGeminiInput(
                     role: "model",
                     parts: msg.continuation?.parts !== undefined
                         ? structuredClone(msg.continuation.parts) as NonNullable<Content["parts"]>
-                        : [{ text: msg.content }],
+                        : [{ text: readModelAssistantText(msg) }],
                 });
                 break;
             case "tool": {

@@ -13,7 +13,7 @@ var require_BrowserSessionInputReceipt_validator = __commonJS({
     module.exports = validate10;
     module.exports.default = validate10;
     var schema12 = { "type": "object", "properties": { "goalId": { "type": "string", "pattern": "\\S" }, "inputId": { "type": "string", "pattern": "\\S" }, "kind": { "$ref": "#/definitions/BrowserSessionInputKind" }, "sequence": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "status": { "$ref": "#/definitions/BrowserSessionInputStatus" }, "admittedAtRevision": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "targetRunId": { "type": "string", "pattern": "\\S" }, "appliedRunId": { "type": "string", "pattern": "\\S" }, "messageIndex": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 } }, "required": ["goalId", "inputId", "kind", "sequence", "status", "admittedAtRevision"], "additionalProperties": false, "description": "\u4E00\u6761\u5DF2\u6301\u4E45\u5316\u8F93\u5165\u7684\u53D7\u7406\u6536\u636E\u6295\u5F71\u3002" };
-    var schema13 = { "type": "string", "enum": ["message", "steer", "interrupt", "respond", "resume", "queue_control"], "description": "\u4F1A\u8BDD\u8F93\u5165\u79CD\u7C7B\u3002" };
+    var schema13 = { "type": "string", "enum": ["message", "steer", "interrupt", "respond", "resume", "queue_control", "compact"], "description": "\u4F1A\u8BDD\u8F93\u5165\u79CD\u7C7B\u3002" };
     var schema14 = { "type": "string", "enum": ["pending", "applied", "cleared"], "description": "\u8F93\u5165\u8D26\u672C\u4E2D\u7684\u53D7\u7406\u72B6\u6001\u3002" };
     var func2 = Object.prototype.hasOwnProperty;
     var pattern0 = new RegExp("\\S", "u");
@@ -141,7 +141,7 @@ var require_BrowserSessionInputReceipt_validator = __commonJS({
             }
             errors++;
           }
-          if (!(data2 === "message" || data2 === "steer" || data2 === "interrupt" || data2 === "respond" || data2 === "resume" || data2 === "queue_control")) {
+          if (!(data2 === "message" || data2 === "steer" || data2 === "interrupt" || data2 === "respond" || data2 === "resume" || data2 === "queue_control" || data2 === "compact")) {
             const err12 = { instancePath: instancePath + "/kind", schemaPath: "#/definitions/BrowserSessionInputKind/enum", keyword: "enum", params: { allowedValues: schema13.enum }, message: "must be equal to one of the allowed values" };
             if (vErrors === null) {
               vErrors = [err12];

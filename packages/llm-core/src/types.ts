@@ -2,7 +2,11 @@ import type { JsonSchema202012, JsonValue } from "../../contracts/src/index";
 
 import type {
     ModelConversationMessage,
+    ModelContentBlock,
+    ModelReasoningBlock,
+    ModelTextBlock,
     ModelToolCall,
+    ModelToolCallBlock,
     ModelContinuation,
 } from "../../model-contracts/src/index";
 
@@ -74,10 +78,7 @@ export interface LLMRequest {
     readonly messages: readonly LLMMessage[];
     /** 供应商生成阶段允许的最大输出 Token；配置模型能力时由 Executor 传递。 */
     readonly maxOutputTokens?: number;
-    /**
-     * 无工具的 strict 请求必须传递原生结构化输出配置；工具请求由参数 Schema 约束，省略此字段。
-     * prompt_only 请求必须完全省略。
-     */
+    /** 本次生成需要供应商原生约束的 JSON 输出；缺省时不发送顶层 JSON Schema。 */
     readonly structuredOutput?: LLMStructuredOutput;
     /** 原生 Function Calling 挂载的工具定义集合。 */
     readonly tools?: readonly LLMToolDefinition[];
@@ -88,6 +89,14 @@ export interface LLMRequest {
      * - `none`: 禁止模型调用工具。
      */
     readonly toolChoice?: "auto" | "required" | "none";
+    /** 要求供应商按工具参数 Schema 约束生成；省略时由供应商采用默认生成策略。 */
+    readonly toolArgumentConstraint?: "strict";
+    /** 显式设置供应商是否允许一轮产生多个工具调用；省略时采用供应商默认值。 */
+    readonly parallelToolCalls?: boolean;
+    /** 请求供应商在流尾发送用量；省略时不改变供应商默认用量行为。 */
+    readonly includeUsage?: boolean;
+    /** 本次响应必须以指定的 Chat Completions 结束原因闭合。 */
+    readonly acceptedFinishReasons?: readonly ("stop" | "tool_calls")[];
     /**
      * 稳定会话身份（如 Goal 的 id）。供应商会话感知能力据此获得跨调用一致的会话标识；
      * 省略时适配器保持既有请求形态，不发送任何会话头。
@@ -127,7 +136,7 @@ export class LLMRequestModeMismatchError extends Error {
  * const format: LLMTextBlockFormat = request.structuredOutput === undefined ? "plain" : "json";
  * ```
  */
-export type LLMTextBlockFormat = "plain" | "json";
+export type LLMTextBlockFormat = ModelTextBlock["format"];
 
 /**
  * 完整响应中的正文块。
@@ -140,15 +149,7 @@ export type LLMTextBlockFormat = "plain" | "json";
  * const block: LLMTextBlock = { index: 0, type: "text", format: "plain", text: "检查完成" };
  * ```
  */
-export interface LLMTextBlock {
-    /** 本次响应内稳定且唯一的块索引。 */
-    readonly index: number;
-    readonly type: "text";
-    /** 正文来源格式；结构化输出为 `json`。 */
-    readonly format: LLMTextBlockFormat;
-    /** 该块的完整正文。 */
-    readonly text: string;
-}
+export type LLMTextBlock = ModelTextBlock;
 
 /**
  * 完整响应中的公开 reasoning 块。
@@ -161,13 +162,7 @@ export interface LLMTextBlock {
  * const block: LLMReasoningBlock = { index: 1, type: "reasoning", text: "先核对文件差异" };
  * ```
  */
-export interface LLMReasoningBlock {
-    /** 本次响应内稳定且唯一的块索引。 */
-    readonly index: number;
-    readonly type: "reasoning";
-    /** 该块的完整 reasoning 文本。 */
-    readonly text: string;
-}
+export type LLMReasoningBlock = ModelReasoningBlock;
 
 /**
  * 完整响应中的工具调用块。
@@ -183,20 +178,10 @@ export interface LLMReasoningBlock {
  * };
  * ```
  */
-export interface LLMToolCallBlock {
-    /** 本次响应内稳定且唯一的块索引。 */
-    readonly index: number;
-    readonly type: "tool_call";
-    /** 供应商工具调用 ID；缺失时由协议规则分配一次本地身份。 */
-    readonly callId: string;
-    /** 模型选择的工具名。 */
-    readonly toolId: string;
-    /** 工具参数 JSON 文本。 */
-    readonly argumentsJson: string;
-}
+export type LLMToolCallBlock = ModelToolCallBlock;
 
 /** 一次模型响应的有序内容块。 */
-export type LLMContentBlock = LLMTextBlock | LLMReasoningBlock | LLMToolCallBlock;
+export type LLMContentBlock = ModelContentBlock;
 
 /**
  * 供应商无关的完整模型响应。
@@ -209,7 +194,7 @@ export type LLMContentBlock = LLMTextBlock | LLMReasoningBlock | LLMToolCallBloc
  * 原生 OpenAI/Gemini Adapter 在响应携带用量时把归一化 token 计数写入
  * `providerMetadata.usage`（`{ inputTokens, outputTokens, cachedInputTokens? }`），
  * 供应商缺失或核心字段非法时该子对象缺省，不以 0 或估算值代替。
- * pi-ai 不提供计数原始存在性的保证，其数值仅写入 piUsage 诊断字段，usage 始终缺省。
+ * pi-ai 在计数非零且可读取时同样写入该子对象；全零视为未上报，保持缺省。
  *
  * @example
  * ```ts

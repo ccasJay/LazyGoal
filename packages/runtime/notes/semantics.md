@@ -5,33 +5,36 @@
 | 概念 | 简明含义 | 归属模块 | 权威说明 |
 | --- | --- | --- | --- |
 | Goal | 可恢复的会话聚合。 | [Goal Runtime](../README.md) | [模块说明](./overview.md) |
-| Work Trigger material | `work.submitted` 的 `material` 只承载原始文本；Goal 配置与权限上限由 Worker Runtime 和 Supervisor 分别提供，不从 Trigger payload 注入。 | [Goal Runtime](../README.md) | [Trigger 契约](../src/trigger.ts)、[Goal 定义](../src/domain.ts)、[Worker Goal 构造](../../../apps/goal-server/src/runtime/worker-process.ts) |
+| Work Trigger material | `work.submitted` 的 `material` 只承载原始文本；Goal 配置与工具集由 Worker Runtime 和 Supervisor 分别提供，权限档位属于 workspace 且不从 Trigger payload 注入。 | [Goal Runtime](../README.md) | [Trigger 契约](../src/trigger.ts)、[Goal 定义](../src/domain.ts)、[Worker Goal 构造](../../../apps/goal-server/src/runtime/worker-process.ts) |
 | Goal 目录扫描 | 正式快照目录的摘要边界：历史扫描返回可解码摘要与不可解码快照数量，可恢复扫描保持损坏即拒绝。 | [Goal Runtime](../README.md) | [Goal Store 端口](../src/goal-store.ts) |
 | Run | Goal 内的一次执行边界。 | [Goal Runtime](../README.md) | [模块说明](./overview.md) |
 | Run 结束状态 | `RunEndStatus` 表示当前 Run 已结束；`waiting` 仍可恢复。 | [Goal Runtime](../README.md) | [Run 领域契约](../src/domain.ts) |
+| Goal 模型选择 | 在安全等待点或中断已结算的终态保存。后继 Run 继承已保存的选择。 | [Goal Runtime](../README.md) | [模型选择协调器](../src/goal-model-selection-coordinator.ts) |
+| 原生模型响应轨迹 | 仅接受后提交，并按身份与已结算事实回放；OpenAI-compatible 使用共享 blocks，其他 Provider 保留既有历史形状。 | [Goal Runtime](../README.md) | [轨迹契约](../src/trajectory.ts)、[原生历史](../../model-context/src/native-model-history.ts) |
 | 正式消息身份 | 每条已保存消息有稳定 `messageId`、所属 `runId` 和持久化 `position`；同源提交重试复用身份与位置，不从正文推导。 | [Goal Runtime](../README.md) | [消息身份与来源](../src/goal-message.ts) |
 | Run 内消息位置 | `afterSequence` 指消息前最后一条已提交事实，首事实前为 0；同锚点 `order` 按 Snapshot 顺序从 0 连续编号。 | [Goal Runtime](../README.md) | [统一提交边界](../src/trajectory-checkpoint-committer.ts) |
 | 消息来源 | 描述消息为什么存在的判别式来源：基础输入、交互回复、模型正文块、被接受的完成候选、宿主执行或 Runtime 通知；参与提交重试核对与原生历史去重。 | [Goal Runtime](../README.md) | [消息身份与来源](../src/goal-message.ts) |
 | 助手消息用途 | `process` 是模型公开过程正文，`answer` 是被审查接受的最终答复，`notice` 是等待、失败等 Runtime 通知。 | [Goal Runtime](../README.md) | [消息身份与来源](../src/goal-message.ts) |
 | 同源幂等提交 | 同一来源重试返回已提交的原消息身份，不追加第二条；同一来源正文不一致时明确失败，不覆盖已提交正文。 | [Goal Runtime](../README.md) | [消息身份与来源](../src/goal-message.ts) |
 | 会话输入受理 | 在短提交边界内保存一条带稳定身份的输入并返回收据；受理不等于应用。 | [Goal Runtime](../README.md) | [输入受理边界](../src/session-admission.ts) |
-| 长期 Session | 稳定 Goal 句柄与只读状态投影；创建、连接与输入受理复用同一 Runtime 执行规则。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
-| 单活动执行名额 | 一个实例同时只运行一个 Goal；其他 Goal 的执行、交互推进与输入受理返回 busy，不进入隐式调度队列。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
+| 长期 Session | 稳定 Goal 句柄与只读状态投影；创建、连接与输入受理复用同一 Runtime 执行规则。创建身份是 Goal ID、首个 inputId 与规范化正文摘要；同身份重试返回原收据且不隐式推进。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
+| 单活动执行名额 | 一个实例同时只运行一个 Goal；推进受理在提交前取得名额，其他 Goal 的执行与输入返回 busy，不进入隐式调度队列。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
 | 后台执行任务 | 受理返回后由被追踪的后台 Promise 推进 Run；异常被观察并保留真实恢复状态。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
 | 输入账本 | Goal 内按受理序号保存的输入身份、种类、载荷摘要与 pending／applied／cleared 状态。 | [Goal Runtime](../README.md) | [输入契约](../src/session-input.ts) |
 | 消息队列 | 尚未应用的普通消息 FIFO、队列修订与暂停原因；追加、单条删除、清空和队列消息转 Steer 都在对应持久化边界推进修订。 | [Goal Runtime](../README.md) | [输入契约](../src/session-input.ts) |
 | 队列暂停 | 失败终态与暂停在同一 Snapshot 提交，即使队列为空也保留暂停事实；用户 Interrupt 在受理 Snapshot 立即暂停；有积压时须显式继续，空队列上的新消息可解除暂停。 | [Goal Runtime](../README.md) | [终态队列提交](../src/runner.ts)、[会话调度与幂等补齐](../src/session-manager.ts) |
 | 会话 Steer 受理 | 目标 running Run 的补充输入与 Run 内待应用记录、账本收据在同一提交生效；可通过队列修订绑定原子消费一条待处理消息，过期或错配时拒绝且不写收据。 | [Goal Runtime](../README.md) | [输入受理边界](../src/session-admission.ts)、[Runner](../src/runner.ts) |
-| 交互回答受理 | 匹配当前等待身份的回答通过既有 Coordinator 规则推进对应等待并写入收据；旧请求与错身份不解除等待。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
+| 交互回答受理 | 匹配当前等待身份的回答或 blocked 恢复把等待解除、真实用户消息与 applied 收据放在同一次 Snapshot 提交；后续推进由后台执行所有者完成，旧请求与错身份不解除等待也不写收据。 | [Goal Runtime](../README.md) | [GoalCoordinator](../src/goal-coordinator.ts)、[会话所有者](../src/session-manager.ts) |
+| 会话推进交接 | 受理提交后把目标 Run 与执行身份交给后台执行者；同一 Goal 已有执行者时由它接手，关闭开始后不再接受新推进。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
 | 交互视图 | 由当前已提交等待派生的类型化请求：种类、Goal／Run 与请求身份、可用决定；不复制可变请求正文。 | [Goal Runtime](../README.md) | [交互视图](../src/interaction-view.ts) |
 | 交互详情读取 | 按稳定引用返回当前等待的完整问题、任务范围或 Action 输入；引用过期时拒绝且不推进等待。 | [Goal Runtime](../README.md) | [交互视图](../src/interaction-view.ts) |
-| 交互处理器 | 会话边界按种类分派的宿主处理函数入口：单一自动所有者、按引用去重、Gate 外调用；故障、迟到结果、解除与关闭都不默认决定。 | [Goal Runtime](../README.md) | [交互处理器](../src/interaction-handlers.ts) |
+| 交互处理器 | 会话边界按种类分派的宿主处理函数入口：单一自动所有者、按引用去重、Gate 外调用；基线一致同步完成前不启动宿主函数，派发读取在途时解除后也不再启动；故障、迟到结果、解除与关闭都不默认决定。 | [Goal Runtime](../README.md) | [交互处理器](../src/interaction-handlers.ts)、[会话所有者](../src/session-manager.ts) |
 | 问答响应分支 | 逐题答案、整体回复与跳过三种互斥分支；整体回复保留用户原文，跳过提交未回答并要求继续的控制语义，都不伪造选项。 | [Goal Runtime](../README.md) | [输入契约](../src/session-input.ts) |
 | 显式恢复 | 匹配最新 Run 与提交修订的恢复命令唤醒执行所有者或已受理队首；已受理 Interrupt 可恢复取消结算，但不解除队列暂停或代答等待。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
-| 异步输入消费 | `consume` 逐条等待持久化受理；业务拒绝继续，基础设施失败停止来源，迟到项不受理。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
+| 异步输入消费 | `consume` 逐条等待持久化受理；业务拒绝继续，基础设施失败停止来源，迟到项不受理；至多请求一次来源清理，清理故障按 Goal、阶段与原因单独诊断。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
 | 单消息封装 | 等待指定 Run 的等待或终态结果并返回可恢复身份；只释放自己的资源。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
 | 有界关闭 | 停止接受与订阅后按期限结算；未结算时保留类型化错误，不伪造取消。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
-| 会话输出订阅 | Goal 范围实时输出：先 `state_sync`，再输入结果与公开执行活动；不随 Run 结束关闭。 | [Goal Runtime](../README.md) | [会话流](../src/session-stream.ts) |
+| 会话输出订阅 | Goal 范围实时输出：先 `state_sync`，再输入结果与公开执行活动；不随 Run 结束关闭。同步按提交修订单调接纳，后继 Run 经一致快照确认后接管临时增量，迟到的前一 Run 增量被过滤而正式事实仍交付。 | [Goal Runtime](../README.md) | [会话流](../src/session-stream.ts) |
 | 类型化会话输出 | 可辨识联合区分状态同步、输入结果、公开生成、正式消息、工具活动、交互、Run 状态与终态、流故障与提交边界；消费者不按任意 `kind` 猜测。 | [Goal Runtime](../README.md) | [会话输出分类器](../src/session-output.ts) |
 | 提交边界元数据 | `commit_boundary` 携带本批次来源事件类型与可用的 Action／执行单元，供消费者声明实际失效范围。 | [Goal Runtime](../README.md) | [会话输出分类器](../src/session-output.ts) |
 | 正式消息通知 | 保存成功后按稳定 `messageId`、用途、来源与提交修订通知；重复同步只更新同一条消息。 | [Goal Runtime](../README.md) | [会话输出分类器](../src/session-output.ts) |
@@ -40,14 +43,14 @@
 | 有界消息查询 | 按稳定身份分页读取正式消息与正文：页大小 50／100，正文上限 64,000，翻页区间由首批固定。 | [Goal Runtime](../README.md) | [消息查询](../src/session-message-query.ts) |
 | 完成候选生命周期 | 候选预览始终未确认；审查拒绝、Steer 弃用、中断或被新候选替代时明确作废，只有审查接受且消息已保存才成为正式答复。 | [Goal Runtime](../README.md) | [Runner](../src/runner.ts) |
 | 提交核对 | 有观察者时按不超过一秒的间隔只读核对最新提交修订，弥补末次通知丢失。 | [Goal Runtime](../README.md) | [会话流](../src/session-stream.ts) |
-| 流背压 | 控制事件无法保留时以 `backpressure` 结束该订阅，不静默丢弃也不阻塞执行。 | [Goal Runtime](../README.md) | [事件 Core](../../execution-stream/src/publisher.ts) |
+| 流背压 | 从 Core 到最终消费者共享固定待交付上限；不足时先合并相邻同 Run 增量，临时内容仍不完整时报告缺口并重新核对，控制事件无法保留时以 `backpressure` 结束该订阅，不静默丢弃也不阻塞执行。 | [Goal Runtime](../README.md) | [事件 Core](../../execution-stream/src/publisher.ts)、[会话流](../src/session-stream.ts) |
 | 模型 Binding 对齐 | 新 Run 启动前按最新 Goal 的 `modelSelection` 重新对齐实例绑定。 | [Goal Runtime](../README.md) | [会话所有者](../src/session-manager.ts) |
 | Goal 动态模型执行选择 | 保存非敏感 API 协议、容量和模型能力供宿主恢复 Binding；不含端点或凭据。 | [Goal Runtime](../README.md) | [领域契约](../src/domain.ts) |
 | 会话 Interrupt 受理 | 中断意图、账本收据与队列暂停在同一提交生效；受理使旧交互引用失效，受理后停止执行，记录已开始工具的未知结果并直接结算 cancelled，不再调用模型。 | [Goal Runtime](../README.md) | [Runner](../src/runner.ts) |
-| 停止与交互竞争 | 停止先受理时旧等待的回答／批准不再被接受；回答先提交时按最新 Run 状态处理停止，不回滚已提交事实。 | [Goal Runtime](../README.md) | [GoalCoordinator](../src/goal-coordinator.ts) |
-| 后继 Run 绑定 | 队首消息、输入应用关联、队列修订与新 Run 创建在同一 Snapshot 提交中完成。 | [Goal Runtime](../README.md) | [GoalCoordinator](../src/goal-coordinator.ts) |
+| 停止与交互竞争 | 等待决定与 Interrupt 在同一 Goal Gate 按 Snapshot 提交顺序裁决；先受理的停止使旧等待失效，先提交的决定在调度前释放 Gate，随后仍可受理停止；取消收尾重读最新状态并只结算一次。 | [Goal Runtime](../README.md) | [GoalCoordinator](../src/goal-coordinator.ts)、[Runner](../src/runner.ts) |
+| 后继 Run 绑定 | 队首消息、输入应用关联、队列修订与新 Run 创建在同一 Snapshot 提交中完成；宿主可用 `commitContinuation` 只提交新 Run，再由自己的调度边界推进。 | [Goal Runtime](../README.md) | [GoalCoordinator](../src/goal-coordinator.ts) |
 | Goal 提交修订 | Goal 级单调提交修订，跨 Run 递增，用于恢复命令、状态同步与竞态判定。 | [Goal Runtime](../README.md) | [提交边界](../src/trajectory-checkpoint-committer.ts) |
-| 短 mutation Gate | 按 Store 与 Goal 串行化读取与 Snapshot 提交；同一异步调用链可安全重入。 | [Goal Runtime](../README.md) | [提交边界](../src/goal-mutation-gate.ts) |
+| 短 mutation Gate | 按 Store 与 Goal 串行化当前状态裁决及短 Snapshot 提交；恢复审批的准备/Grant 暂存在 Gate 外，决定提交后才调度 Runner；同一异步调用链可安全重入。 | [Goal Runtime](../README.md) | [提交边界](../src/goal-mutation-gate.ts)、[GoalCoordinator](../src/goal-coordinator.ts) |
 | 模型调用指标事实 | Provider 调用的用量及端到端请求耗时观测，不作为 Goal 恢复输入。 | [Goal Runtime](../README.md) | [模型调用指标 Port](../src/model-call-metrics.ts) |
 | 实例生命周期 | 与进程退出无关的 `open`/`closing`/`closed` 状态、受理边界与有界关闭。 | [Goal Runtime](../README.md) | [生命周期核心](../src/lifecycle/runtime-lifecycle.ts) |
 | 受管资源结算 | 实例自有资源按 `ManagedResource` 契约报告成功、拒绝或未完成，失败原因保留至结算或注销。 | [Goal Runtime](../README.md) | [资源注册表](../src/lifecycle/managed-resources.ts) |
@@ -55,12 +58,13 @@
 | 工具发现 | 在授权目录中排序并累积当前 Run 可见工具。 | [Goal Runtime](../README.md) | [模块说明](./overview.md) |
 | Memory proposal 纠错 | 模型记忆提议在副作用前校验，拒绝进入同一 Decide 预算。 | [Goal Runtime](../README.md) | [阶段反馈](../src/runtime-feedback.ts) |
 | Run 阶段 | Run 内模型自主组织的阶段说明与完成条件；业务执行需活动阶段，最终审查拒绝后可重新打开已接受阶段。 | [Goal Runtime](../README.md) | [阶段规则](../src/run-stage.ts) |
-| Plan Run 路线 | 仅已批准 Plan Run 持有的完整有序阶段、状态、修订理由和 Runtime 恢复游标；范围内修订保留已接受结果。 | [Goal Runtime](../README.md) | [路线规则](../src/run-plan.ts) |
-| PTC 回放不匹配 | 恢复时程序身份或轨迹不符合回放契约会明确失败当前 Run；宿主关闭和中断仍可恢复。 | [Goal Runtime](../README.md) | [Runner](../src/runner.ts) |
+| Plan Run 路线 | 仅已批准 Plan Run 持有的完整有序阶段、状态、修订理由和 Runtime 恢复游标；范围内修订保留已接受结果，最终审查拒绝末阶段时回拨游标并清除两处接受指针。 | [Goal Runtime](../README.md) | [路线规则](../src/run-plan.ts) |
+| PTC 回放不匹配 | 恢复时程序身份或轨迹不符合回放契约会明确失败当前 Run；PTC 子调用的修订元数据按最后已提交批准决定重建，延迟停止重试沿用获批参数与停止原因。 | [Goal Runtime](../README.md) | [Runner](../src/runner.ts) |
 | 轨迹查询上下文 | 浏览器查询固定首次读取的 `committedThroughSequence`，列表、详情、执行单元与时间线在同一可见边界内解释。 | [Goal Runtime](../README.md) | [轨迹查询契约](../src/trajectory-query.ts) |
 | 轨迹执行单元范围 | 只有显式携带 `executionUnitId` 的事件属于该单元；未归属事件与上下文邻居不进入单元结果集。 | [Goal Runtime](../README.md) | [轨迹查询契约](../src/trajectory-query.ts) |
 | 批次顺序执行 | 一次 Decide 返回的多个业务 Action 按模型返回顺序逐个暂存与执行。 | [Runtime](../README.md) | [Runner](../src/runner.ts) |
-| 批次恢复点 | `pendingAction` 与 `pendingActionBatch` 共同构成"从第一个未产生结果的 Action 继续"的指针。 | [Runtime](../README.md) | [Goal 领域模型](../src/domain.ts) |
+| 批次恢复点 | `pendingAction` 与 `pendingActionBatch` 共同构成"从第一个未产生结果的 Action 继续"的指针；程序开始检查点与消费队首共用同一次提交。 | [Runtime](../README.md) | [Goal 领域模型](../src/domain.ts)、[Runner](../src/runner.ts) |
+| 导航恢复 | 每个 `(goalId, runId)` 按自身提交水位恢复历史阶段与 notes；读取失败或非零水位缺少边界时显式失败并停止依赖该导航的模型推进。 | [Goal Runtime](../README.md) | [恢复读取边界](../src/run-recovery-reader.ts)、[Runner](../src/runner.ts) |
 | 不推进类预算 | 零调用正文与无可用结果的独立有界计数，与协议类纠错预算互不占用。 | [Runtime](../README.md) | [Runner](../src/runner.ts) |
 | 审批参数修订 | 审批者可为同一工具提交最终参数版本；原请求引用与最终 canonical 参数一并冻结，获批后不可再编辑。 | [Goal Runtime](../README.md) | [审批修订规则](../src/action-approval.ts) |
 | 审批只读预检 | 重新准备参数、规划执行准入、权限与沙箱范围并返回可审阅结果；不保存批准、不暂存授权、不解除等待。 | [Goal Runtime](../README.md) | [审批修订规则](../src/action-approval.ts) |
@@ -70,4 +74,4 @@
 | 模型请求失败 | 适配边界确认的请求错误以 `MODEL_REQUEST_FAILED` 结算，不进入协议纠错。 | [Goal Runtime](../README.md) | [错误分类](../src/runner.ts) |
 | 阶段请求状态核对 | 在接受与提交前核对请求的阶段和路线版本，拒绝过期结果并重新决策。 | [Goal Runtime](../README.md) | [执行循环](../src/runner.ts) |
 
-| GoalTriggerContext | 记录创建 Goal 的 Trigger ID 和动作权限上限；Runner 在工具准备与授权时强制工具 ID 和实际沙箱范围不越界。 | [Runtime](../README.md) | [领域契约](../src/domain.ts)、[Runner](../src/runner.ts) |
+| GoalTriggerContext | 记录创建 Goal 的 Trigger ID 与冻结的工作区身份、工具 ID 集合；Runner 在工具准备时强制工具 ID 不越界，沙箱边界由决策期读取的 workspace 权限档位决定。 | [Runtime](../README.md) | [领域契约](../src/domain.ts)、[Runner](../src/runner.ts) |

@@ -18,7 +18,7 @@ Goal Board 只消费 `@lazygoal/web-contracts` 导出的 DTO 与生成绑定，�
 
 ## 操作说明
 
-运行前提、命令和结果示例见 [使用说明](./usage.md)。
+运行前提、命令和结果示例见 [使用说明](./usage.md) 与 [UI 验收工具说明](./ui-harness.md)。
 
 ## 页面交互
 
@@ -30,11 +30,11 @@ Appearance 的 Activity width 可选 Standard（可用宽度的 85%，最小 480
 
 `GET /api/project/workspace` 在同一访问边界内读取 Composition Root 的执行工作目录和当前 Git 分支、worktree 根路径；非 Git 工作区及 detached HEAD 明确区分。所有本机 Goal 共用启动工作区，这些值不表示 Goal 创建时的历史绑定。页面在打开会话、已提交会话刷新及重新获得焦点时读取位置，并在会话顶栏的紧凑一行中展示分支与 worktree；完整路径可悬停查看。
 
-React 看板源码位于 [`apps/goal-board`](../README.md)，由 `WorkspaceShell`、会话 Context、业务组件和自治 Hooks 组成。`useGoalSession` 维护 Goal 状态、固定水位 Activity 和按需完整会话；`useRunStream` 负责 SSE 重连与临时正文；`useRunCommands` 提交支持的创建、结构化回答、停止与恢复命令。New Goal 的输入框只提交首个意图、稳定 `inputId` 和选定模型，成功后不再提供普通续聊、Steer 或队列控制。已有 Goal 只显示结构化等待项、Worker 运行状态、停止操作或可用的恢复操作。恢复运行中检查点会先展示未知副作用确认，确认后才通过 Trigger 提交决定。页面的状态、授权、模型、Activity 与轨迹读取仍来自同源受保护 API；Goal SSE 先给出 `state_sync`，断线重连重新读取服务端权威状态。
+React 看板源码位于 [`apps/goal-board`](../README.md)，由 `WorkspaceShell`、会话 Context、业务组件和自治 Hooks 组成。`useGoalSession` 维护固定水位 Activity 与按需完整会话，当前 Goal 状态从控制 reducer 读取；`useRunStream` 负责 SSE 重连与临时正文；`useRunCommands` 提交支持的创建、结构化回答、停止与恢复命令。New Goal 的输入框只提交首个意图、稳定 `inputId` 和选定模型，成功后不再提供普通续聊、Steer 或队列控制。已有 Goal 只显示结构化等待项、Worker 运行状态、停止操作或可用的恢复操作；仅当服务端投影 `continuation.available` 时，Activity 显示续接输入框和模型选择器。续接绑定已结算终态 Run，模型选择提交期间保留草稿并暂停发送。续接输入框先按 Slash 命令派发：`/compact` 只提交一次整理会话输入，不写入对话，并在失败时展示稳定原因。连接未确认时暂停发送与切换。恢复运行中检查点会先展示未知副作用确认，确认后才通过 Trigger 提交决定。页面的状态、授权、模型、Activity 与轨迹读取仍来自同源受保护 API；Goal SSE 先给出 `state_sync`，断线重连重新读取服务端权威状态。
 
 Goal 范围事件与 session metrics 两条 SSE 共用 [`readSseMessages`](../src/sse.ts) 分帧入口：`eventsource-parser` 的 `EventSourceParserStream` 与 `TextDecoderStream` 负责跨 chunk 行拼接、CRLF／LF／单独 CR、注释与多行 `data:`，事件名称映射与 DTO 校验留在 [`api.ts`](../src/api.ts)。Goal 事件接受 `update` 与未命名默认事件，metrics 只接受 `snapshot`；未知命名事件忽略，已接受事件的无效 JSON 或无效 DTO 结束本次生成器并按协议错误处理。`useRunStream` 与 `useGoals` 的 800ms 重连循环随后重新订阅；重连不发送 `Last-Event-ID`、不请求服务端补发，新连接以首个 `state_sync` 或最新指标快照恢复权威状态，并清空旧连接遗留的临时进度与未提交正文。
 
-`state_sync` 携带的 `BrowserControlSnapshot` 直接替换会话控制状态，不触发 session／activity 全量重读；`state_committed` 与 `stream_fault` 只按声明的 `ControlScope` 定向读取（`session` 读窄状态、`activity` 读固定 Activity 页、`goals`／`grants`／`permission`／`model` 走各自入口）。`refreshSelectedSession` 只用于显式刷新、首次同步失败兜底与完整历史读取。控制 reducer 见下节。
+窄 HTTP 状态与 `state_sync` 共用控制快照接纳入口。切换或关闭 Goal 结束当前观察，后续重新打开同一 Goal 使用新视图代次。已结束观察的读取结果、错误与流事件不参与当前视图。Activity、Trajectory 和完整历史沿用各自的 Run、cursor 与查询水位。
 
 未限定 execution unit 的轨迹列表按服务端 cursor 每段最多读取 100 条。首屏固定该 Run 的 `committedThroughSequence`，后续段与详情复用同一水位；游标由服务端签发并绑定 Run、水位与过滤条件，客户端不改写可见边界。左右箭头在相邻段之间移动，已读取的相邻段最多保留 3 段；移出窗口的段返回时按 cursor 重读，使事件列表与内存中的页数据都有界。页脚显示当前导航段末的匹配事件序数/总量，返回上一段时序数随之回退。切换段时滚动到该段第一条实际渲染的事件，跳过列表隐藏的边界事件。限定 execution unit 的轨迹视图不提供跨段导航。
 
@@ -45,6 +45,8 @@ Goal 范围事件与 session metrics 两条 SSE 共用 [`readSseMessages`](../sr
 看板通过受同一 Bearer 令牌保护的 [`session-metrics` 查询路由](../../../packages/session-metrics/notes/overview.md)读取各 Goal 的累计指标；已选 Goal 额外订阅指标 SSE。卡片展示 Goal 汇总；会话输入区下方以独立紧凑行展示 Goal 累计轮次、Step、模型用量、端到端输出速率、缓存命中率与当前模型上下文余量；窄屏在该行内横向滚动。点击 Goal metrics 打开 Popover，查看当前 Run 状态、完整指标与计量说明。输出速率在每条模型调用结束事实写入后更新，运行中的调用不参与速率计数；卡片与展开后的指标详情保留测量及排除调用数。未上报用量和不可计算的缓存命中率、输出速率、上下文余量显示为缺失值；部分用量覆盖单独提示，不将缺失值计为零。输出速率的计时范围和聚合规则由会话指标模块定义。
 
 待处理交互由统一的交互区域承载，按已提交等待的种类、稳定引用与可用决定分派具体视图，整体替换旧的 AskUser／任务批准／工具批准表单：标题、请求正文与决定区都在 Activity 正文列内，停止 Run 是独立可达的操作，不使用阻塞模态弹窗。
+
+权限入口是工作区级的档位选择器：按钮展示当前档位名称，展开后以单选列出 Ask for approval、Approve for me、Full access 与只读自定义档位，并按服务端真实取值展示 Sandbox、Approvals 与 Reviewer 三轴；非空 `writableRoots` 单独列出。任一项都提交完整的 `permission_profile` 命令并携带读取到的 `expectedRevision`；版本冲突时展示服务端当前档位与 revision，保留重试入口，不把失败显示成已切换。入口下方只列边界越界豁免：网络范围（`all_outbound` 明示包含回环的任意出站访问）、额外路径与读写方向、作用域与状态；撤销经 `exemption_revoke` 提交并刷新列表，Tool 级授权不再展示。Goal information 面板的 Permission exemptions 展示同一份豁免。
 
 问答视图提供问题导航与已答状态、单选／多选、逐题 Other 与提交前的完整答案审阅；整体回复是并列模式，切换时保留两份草稿且只提交当前方式。跳过以独立次操作展开后果并要求显式确认；文本框的 Enter／Escape 不隐式提交、批准、跳过或停止。任务审批在决定前展示完整目标、验收条件与完整有序候选阶段，批准是明确操作，非空反馈使提案失效后重新规划，反馈不构成批准。工具／沙箱审批在决定前按稳定引用读取并展示完整 canonical 输入、申请能力与授权期限，默认只批准本次；持续授权受完整审阅与既有可用性限制，拒绝必须携带非空理由。未知结果使用独立标题与「可能已执行、重试可能重复效果」警示，只提供单次 Retry action 与拒绝，不提供参数编辑或持续授权。详情读取失败时保留等待并禁用依赖完整范围的决定，不静默降级为批准。
 
@@ -76,7 +78,7 @@ Activity 与输入区宽度由 Appearance 的 Activity width 控制，正文／�
 
 命令钩子不再分别维护 busy／unknown 状态：按钮忙碌态从待处理意图派生，结果不明时展示可由 [`verify.ts`](../src/control/verify.ts) 按既有资源身份核验的原身份记录；只有 `not_applied` 允许以同一身份重试，`applied` 结算为成功，读取失败保持 `unknown`。模型选择与默认偏好是一次 `model_selection` 命令，receipt 分别报告 `selection` 与 `defaultPreference`，部分成功保留同一意图身份重试。
 
-`ApprovalSession` 与 `ToolActivity` 是纯 selector：审批阶段由 `pendingAction`、最近 `action_review` 意图与关联 `respond` 提交派生；工具活动以 `actionId` + `executionUnitId` 聚合尝试，工具返回停在 `result_pending`，只有 Observation 提交事实进入 `observed_committed`。`state_sync` 是权威快照来源，`state_committed.changed` 与 `stream_fault.resync` 是定向失效来源；页面不得用完整会话重读替代它们。
+`ApprovalSession` 与 `ToolActivity` 是纯 selector：审批阶段由 `pendingAction`、最近 `action_review` 意图与关联 `respond` 提交派生；工具活动以 `actionId` + `executionUnitId` 聚合尝试，工具返回停在 `result_pending`，只有 Observation 提交事实进入 `observed_committed`。窄 HTTP 和 SSE 只在当前 Goal 内比较 `commitRevision`，后继 Run 继续沿用同一修订序列。等待与终态增量触发窄状态确认，`state_committed.changed` 与 `stream_fault.resync` 触发对应投影定向读取。重连保留最后确认的内容和草稿。组合快照或恢复窄读取达到当前连接声明与已知提交修订后才恢复同步。审批预检按发起视图、Run 和等待身份使用。
 
 实时进度按真实 `executionUnitId`／`actionId` 归入事件或工具步骤的折叠内容，不设独立进度面板。尚无已保存节点的真实执行单元先显示为当前 Run 内的临时步骤；没有执行身份的事件不按相邻位置猜测归属。连续执行节点使用 shadcn Trace，消息和待用户处理的交互断开步骤组；Run 使用独立的浅色标题条。实时正文在首次产生时确定位置，工具调用或新的模型阶段会关闭当前块，恢复输出创建新块；进度、正文与工具节点按同一首次出现顺序追加，已显示节点不因后续事件重排，只有当前活跃块显示流式光标，Run 到达终态后由已提交历史接管。单成员工具组的详情不重复组标题与成员状态。事件标题保持可见，诊断与进度在折叠内容内查看。Bash 标题由活动投影按简单命令前缀确定：Git 工作区、提交历史、代码变更和常见测试命令各有固定标题；复杂 Shell 表达式及未知命令使用 `Run shell commands`。连续 Bash 调用组合至多两种不同操作并提示其余操作数量，调用次数仍由辅助计数显示。服务端提供的有界命令摘要与执行结果只在成员详情中换行显示，超出服务端上限的原始命令通过 Trajectory 查看；计数、异常状态与展开按钮保持对齐。等待或终态后不再显示临时进度；已提交的完整历史由 Trajectory 提供，缓存事件不决定 Run 状态。
 

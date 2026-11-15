@@ -16,3 +16,9 @@ export {
 } from "./default-bundles";
 
 export { createDefaultDynamicSectionRegistry } from "./default-dynamic-sections";
+
+export {
+    CONTEXT_COMPACTION_TEMPLATE_ID,
+    renderContextCompactionPrompt,
+} from "./context-compaction/render";
+export type { ContextCompactionPromptInput } from "./context-compaction/render";

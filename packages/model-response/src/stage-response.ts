@@ -396,13 +396,22 @@ export function readPublicTextBlocks(
  * ```
  */
 export function nativeResponseMessage(response: LLMResponse): ModelAssistantMessage {
+    const continuation = response.continuation;
+    if (continuation?.identity.provider === "openai-compatible") {
+        return {
+            role: "assistant",
+            blocks: response.blocks,
+            continuation: { identity: continuation.identity },
+        };
+    }
     const reasoning = readReasoningText(response);
     const toolCalls = readToolCalls(response);
     return {
-        role: "assistant", content: readAssistantText(response),
-        ...(reasoning === undefined ? {} : { reasoning }),
+        role: "assistant",
+        content: readAssistantText(response),
+        ...(reasoning === undefined || reasoning.length === 0 ? {} : { reasoning }),
         ...(toolCalls.length === 0 ? {} : { toolCalls }),
-        ...(response.continuation === undefined ? {} : { continuation: response.continuation }),
+        ...(continuation === undefined ? {} : { continuation }),
     };
 }
 

@@ -132,10 +132,12 @@ test("真实 SDK 流按 Part 顺序分离文本、thought 与整块函数参数�
         assert.deepEqual(response.continuation?.parts, partsInOrder);
 
         // 下一轮请求原样回放 Parts 与签名，并以函数响应配对调用身份。
+        const assistantHistory = nativeResponseMessage(response);
+        if ("blocks" in assistantHistory) throw new Error("Gemini history must preserve its existing parts shape");
         const replay: LLMRequest = {
             messages: [
                 request.messages[0]!,
-                nativeResponseMessage(response),
+                assistantHistory,
                 { role: "tool", callId: "call-a", toolId: "read_file", content: '{"observation":{"kind":"success","output":"file"}}' },
                 { role: "user", content: "继续" },
             ],

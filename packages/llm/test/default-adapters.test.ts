@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { LLMConfigurationError, type LLMConfig } from "../../llm-core/src/index";
 import { Gemini } from "../../llm-google/src/index";
-import { OpenAICompatible } from "../../llm-openai/src/index";
+import { OpenAICompatible, StructuredOutputModeOpenAICompatible } from "../../llm-openai/src/index";
 import { PiAiAdapter } from "../../llm-pi-ai/src/index";
 import * as entry from "../src/index";
 import {
@@ -39,12 +39,12 @@ test("createLlmAdapter 的实现、固定模式与身份和直接构造一致且
         assert.equal(anthropic.structuredOutputMode, "prompt_only");
 
         const openaiStrict = createLlmAdapter({ ...openai, structuredOutputMode: "strict" });
-        assert.ok(openaiStrict instanceof OpenAICompatible);
+        assert.ok(openaiStrict instanceof StructuredOutputModeOpenAICompatible);
         assert.equal(openaiStrict.structuredOutputMode, "strict");
-        const openaiDirect = new OpenAICompatible({
+        const openaiDirect = new StructuredOutputModeOpenAICompatible({
             provider: "openai", model: "gpt-4.1-mini", apiKey: "sk-test",
-            baseURL: "https://api.openai.com/v1", structuredOutputMode: "strict",
-        });
+            baseURL: "https://api.openai.com/v1",
+        }, "strict");
         assert.equal(openaiStrict.constructor, openaiDirect.constructor);
         assert.deepEqual(openaiStrict.nativeConversationIdentity, openaiDirect.nativeConversationIdentity);
 
@@ -87,7 +87,7 @@ test("createLlmAdapter 的实现、固定模式与身份和直接构造一致且
 
 test("two_stage 经工厂解析为供应商对应的 Decide 模式", () => {
     const openaiTwoStage = createLlmAdapter({ ...openai, structuredOutputMode: "two_stage" });
-    assert.ok(openaiTwoStage instanceof OpenAICompatible);
+        assert.ok(openaiTwoStage instanceof StructuredOutputModeOpenAICompatible);
     assert.equal(openaiTwoStage.structuredOutputMode, "strict");
 
     const anthropicTwoStage = createLlmAdapter({
@@ -101,9 +101,9 @@ test("createLlmStageAdapters 固定 Think/Decide 差异且对象不可变", () =
     const stages = createLlmStageAdapters({ ...openai, structuredOutputMode: "two_stage" });
     assert.ok(Object.isFrozen(stages));
     // Think 走反思工厂的原生优先规则；Decide 对原生供应商固定 strict。
-    assert.ok(stages.thinkAdapter instanceof OpenAICompatible);
+    assert.ok(stages.thinkAdapter instanceof StructuredOutputModeOpenAICompatible);
     assert.equal(stages.thinkAdapter.structuredOutputMode, "prompt_only");
-    assert.ok(stages.decideAdapter instanceof OpenAICompatible);
+    assert.ok(stages.decideAdapter instanceof StructuredOutputModeOpenAICompatible);
     assert.equal(stages.decideAdapter.structuredOutputMode, "strict");
 
     const piStages = createLlmStageAdapters({

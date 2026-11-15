@@ -29,11 +29,12 @@ export {
     type BrowserModelSelectionCommand,
     type BrowserModelSelectionResult,
     type BrowserActionDetailsResult,
-    type BrowserToolGrantSummary,
-    type BrowserToolGrantResult,
-    type BrowserToolGrantRevokeCommand,
-    type BrowserPermissionModeCommand,
-    type BrowserPermissionModeResult,
+    type BrowserPermissionExemptionResult,
+    type BrowserPermissionExemptionRevokeCommand,
+    type BrowserPermissionExemptionSummary,
+    type BrowserPermissionProfile,
+    type BrowserPermissionProfileCommand,
+    type BrowserPermissionProfileResult,
 } from "./browser-goal-command-service";
 export type { BrowserGoalEvent } from "../../web-contracts/src/index";
 export {
@@ -42,6 +43,7 @@ export {
     projectInputOutcome,
     projectSessionInputReceipt,
     projectSessionState,
+    readBrowserControlSnapshot,
     type BrowserGoalLiveFeed,
     type BrowserGoalSessionPort,
     type BrowserGoalSessionPortDependencies,

@@ -22,7 +22,7 @@ import {
     BrowserGoalCommandService,
     listBrowserGoals,
     readBrowserGoalSession,
-    readBrowserGoalSessionState,
+    readBrowserControlSnapshot,
 } from "../../../packages/browser/src/index";
 import { createCompositionRoot } from "../../goal-server/src/composition-root";
 
@@ -244,10 +244,10 @@ const sessionPort = createBrowserGoalSessionPort({
     sessions: root.sessions,
     profileId: root.profile.id,
     isShuttingDown: () => root.abortController.signal.aborted,
-    readGoalState: (goalId) => readBrowserGoalSessionState(
+    readControlSnapshot: (goalId) => readBrowserControlSnapshot(
         goalId,
         root.workspaceGoalStore,
-        root.sessions.activeGoal,
+        () => root.sessions.activeGoal === goalId,
     ),
     resolveModelSelection: async (command) => {
         const modelId = command.modelId ?? root.defaultModelSelection.modelId;
@@ -278,10 +278,10 @@ root.httpService.mount("/", createBrowserGoalRoutes({
         root.readWorkspaceTrajectory,
         root.sessions.activeGoal,
     ),
-    readState: (goalId) => readBrowserGoalSessionState(
+    readState: (goalId) => readBrowserControlSnapshot(
         goalId,
         root.workspaceGoalStore,
-        root.sessions.activeGoal,
+        () => root.sessions.activeGoal === goalId,
     ),
     readActivity: (goalId, query) => readBrowserGoalActivity(
         goalId,

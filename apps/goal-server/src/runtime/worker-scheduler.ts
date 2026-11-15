@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { canonicalJson } from "../../../../packages/contracts/src/index";
-import type { LLMAdapter } from "../../../../packages/llm-core/src/index";
+import type { ProjectPermissionProfile } from "../../../../packages/permission/src/index";
 import type { Goal, GoalTriggerContext } from "../../../../packages/runtime/src/domain";
-import type { Trigger } from "../../../../packages/runtime/src/trigger";
+import type { Trigger, TriggerActor, TriggerTarget } from "../../../../packages/runtime/src/trigger";
 import { projectInteractionView } from "../../../../packages/runtime/src/interaction-view";
 import { JsonFileGoalStore } from "../../../../packages/storage/src/goal-store";
 import { TriggerStore } from "../../../../packages/storage/src/trigger-store";
@@ -12,7 +12,7 @@ import {
     decodeTriggerActionPermissionReply,
     decodeTriggerActionPermissionRequest,
 } from "../../../../packages/storage/src/trigger-permission-codec";
-import type { TriggerActionPermissionFailureReason } from "../../../../packages/storage/src/trigger-store";
+import type { TriggerActionPermissionFailureReason, TriggerGoalQueueRecord } from "../../../../packages/storage/src/trigger-store";
 import type { TriggerActionPermissionReply, TriggerActionPermissionRequest } from "../../../../packages/storage/src/trigger-permission";
 import { decodeWorkerInteractionPayload } from "./worker-interaction";
 import { decideWorkerActionPermission } from "./worker-permission";
@@ -80,6 +80,22 @@ export type WorkerInteractionResult = { readonly kind: "handled"; readonly progr
  */
 export type WorkerRecoveryResult = { readonly kind: "resumed"; readonly goalId: string };
 
+/**
+ * Supervisor 接收一条续接指令后的结果。
+ *
+ * @remarks `accepted` 表示本次提交了新 Run，`settled` 表示同一输入已应用或按已提交快照补做，
+ * `rejected` 表示目标终态不再接受此输入且不会创建 Run。
+ *
+ * @example
+ * ```ts
+ * const result: WorkerContinuationResult = { kind: "accepted", goalId: "goal-1", runId: "run-2" };
+ * ```
+ */
+export type WorkerContinuationResult =
+    | { readonly kind: "accepted"; readonly goalId: string; readonly runId: string }
+    | { readonly kind: "settled"; readonly goalId: string; readonly runId: string }
+    | { readonly kind: "rejected"; readonly goalId: string; readonly code: string; readonly message: string };
+
 interface WorkerSlot {
     readonly workerId: string;
     readonly generation: string;
@@ -109,7 +125,7 @@ type WorkerRunResponsePayload = Exclude<WorkerResponseTrigger["payload"], { read
  *
  * @example
  * ```ts
- * const scheduler = new WorkerScheduler({ owner, triggers, goals, cwd, dataDirectory, permissionAdapter });
+ * const scheduler = new WorkerScheduler({ owner, triggers, goals, cwd, dataDirectory, readPermissionProfile });
  * await scheduler.pump();
  * ```
  */
@@ -129,8 +145,25 @@ export class WorkerScheduler {
         readonly cwd: string;
         readonly dataDirectory: string;
         readonly env?: NodeJS.ProcessEnv;
-        /** Supervisor 直接调用的默认权限判断模型。 */
-        readonly permissionAdapter: LLMAdapter;
+        /** Worker 快照保存后通知宿主刷新只读指标。回调失败不影响快照提交。 */
+        readonly notifyGoalSaved?: (goalId: string) => void;
+        /**
+         * 读取当前工作区权限档位。
+         *
+         * @remarks
+         * 每次 Action 权限等待都重新读取；读取失败时对应 Action 被拒绝，而不是退回默认档位。
+         */
+        readonly readPermissionProfile: () => Promise<ProjectPermissionProfile>;
+        /** 在同一 Goal 内只提交下一 Run 的续接命令；Scheduler 负责排查与重新派发。 */
+        readonly commitContinuation: (request: {
+            readonly goalId: string;
+            readonly runId: string;
+            readonly inputId: string;
+            readonly content: string;
+        }) => Promise<
+            | { readonly ok: true; readonly goalId: string; readonly runId: string }
+            | { readonly ok: false; readonly code: string; readonly message: string }
+        >;
     }) {}
 
     /**
@@ -140,7 +173,8 @@ export class WorkerScheduler {
      * @param request - Goal 身份、原始意图与首个 Run 配置。
      * @param workspace - 已由 Supervisor 决定并准备的项目与执行工作区。
      * @returns Worker 构造的 Goal 候选；本方法不保存 Goal 或改变 Trigger 队列。
-     * @throws Worker 启动、配置解析、Goal 构造或进程通信失败时拒绝。
+     * @throws WorkerExecutionUnavailableError 注册、启动、握手或控制通道不可用时抛出。
+     * @throws WorkerGoalCreationRejectedError Worker 明确拒绝构造时抛出。
      * @example
      * ```ts
      * const goal = await scheduler.createGoal({ goalId: "goal-1", intent: "检查测试", mode: "normal" }, workspace);
@@ -245,6 +279,7 @@ export class WorkerScheduler {
      *
      * @remarks
      * 先验证来源授权与当前 Run 身份，再持久保存 Trigger；路由时再次核对当前 Run，Worker 也按该 Run 身份执行中断。
+     * 已确认当前 Worker 绑定时直接派发取消，允许与交互回复结算并发；绑定缺失时先尝试队列恢复。
      * Worker 只有在 Runtime 中断结果及 Supervisor 对应 Goal 进度已持久化后才标记该 Trigger 已路由。
      * 队列的等待或终态状态仍由独立的 Goal 队列记录。
      * 断连、过期代次或未确认停止会保留原队列绑定，不终止进程，也不重新派发副作用未知的工作。未路由 Trigger 留在 Store 供 `pump()` 使用原事件恢复；调用方不得重交相同 ID。
@@ -269,8 +304,15 @@ export class WorkerScheduler {
         await this.assertCurrentCancellationRun(goalId, trigger.payload.runId);
         this.options.triggers.receive(authorizedTrigger);
 
-        await this.pump();
+        const queue = this.options.triggers.queueRecord(goalId);
+        if (queue?.status !== "terminal" && this.cancellationWorker(queue) === undefined) await this.pump();
         return this.routeCancelTrigger(authorizedTrigger);
+    }
+
+    private cancellationWorker(queue: TriggerGoalQueueRecord | undefined): WorkerSlot | undefined {
+        if (queue?.workerId === undefined || queue.generation === undefined) return undefined;
+        const slot = this.workers.get(queue.workerId);
+        return slot?.generation === queue.generation && slot.process.assignedGoalId === queue.goalId ? slot : undefined;
     }
 
     private async routeCancelTrigger(trigger: Trigger): Promise<WorkerProgress> {
@@ -291,10 +333,8 @@ export class WorkerScheduler {
             this.options.triggers.markRouted(trigger.id);
             return progress;
         }
-        const slot = queue.workerId === undefined || queue.generation === undefined
-            ? undefined
-            : this.workers.get(queue.workerId);
-        if (slot === undefined || slot.generation !== queue.generation || slot.process.assignedGoalId !== goalId) {
+        const slot = this.cancellationWorker(queue);
+        if (slot === undefined) {
             throw new Error("Cancellation target has no confirmed active Worker");
         }
         const progress = await slot.process.cancel(goalId, trigger.payload.runId, trigger.id);
@@ -308,6 +348,116 @@ export class WorkerScheduler {
         const goal = await this.options.goals.restore(goalId);
         if (goal === undefined || goal.state.run.id !== runId) {
             throw new Error("Cancellation Trigger targets a stale or missing Run");
+        }
+    }
+
+    /**
+     * 接收并路由一条已认证的续接指令。
+     *
+     * @remarks
+     * 只接受指向当前已结算终态 Run 的 `instruction.continue`。启动前核对来源授权、目标 Run、
+     * 队列终态与 `replyTo` 对应的终态响应。提交与推进分开：本方法调用宿主提供的只提交命令，
+     * 再按现有队列重新派发；同一终态只接受一个输入身份。
+     *
+     * @param trigger - `instruction.continue` Trigger。
+     * @param principal - 已认证且可访问目标 Goal 的来源。
+     * @returns 已提交的新 Run、已结算的原结果或稳定拒绝。
+     * @throws 载荷、授权、身份冲突或存储失败时抛出；已存储但未路由的输入由 `pump()` 重试。
+     * @example
+     * ```ts
+     * const result = await scheduler.handleContinueTrigger(trigger, authenticatedExternalActor);
+     * ```
+     */
+    async handleContinueTrigger(trigger: Trigger, principal: TriggerIngressPrincipal): Promise<WorkerContinuationResult> {
+        const continuation = assertContinuationTrigger(trigger);
+        validateAuthorizedTrigger(continuation, principal);
+        if (this.options.triggers.routeStatus(continuation.id) !== undefined) throw new Error("Trigger identity conflict");
+        receiveAuthorizedTrigger(this.options.triggers, continuation, principal);
+        const result = await this.routeContinueTrigger(continuation, true);
+        if (result.kind === "accepted") await this.pump();
+        return result;
+    }
+
+    private async routeContinueTrigger(input: Trigger, alreadyReceived: boolean): Promise<WorkerContinuationResult> {
+        const trigger = assertContinuationTrigger(input);
+        const goalId = trigger.goalId;
+        return this.options.owner.runExclusive(JSON.stringify(["continuation", goalId, trigger.id]), async () => {
+            if (alreadyReceived) assertStoredUnroutedTrigger(this.options.triggers, trigger);
+            else receiveAuthorizedTrigger(this.options.triggers, trigger, principalForStoredTrigger(trigger));
+
+            if (this.options.triggers.routeStatus(trigger.id) === "routed") {
+                const record = this.options.triggers.continuationForTrigger(trigger.id);
+                return { kind: "settled", goalId, runId: record?.appliedRunId ?? trigger.payload.runId };
+            }
+
+            const goal = await this.options.goals.restore(goalId);
+            if (goal === undefined) return this.rejectContinuation(trigger, "GOAL_NOT_FOUND", "Goal does not exist");
+            if (trigger.payload.content.trim().length === 0) {
+                return this.rejectContinuation(trigger, "INVALID_GOAL_INPUT", "Continuation input must not be empty");
+            }
+
+            const archived = (goal.state.completedRuns ?? []).find((record) => record.runId === trigger.payload.runId
+                && record.continuation?.messageId === trigger.id);
+            if (archived !== undefined && archived.continuation !== undefined) {
+                return this.settleContinuation(trigger, archived.continuation.nextRunId);
+            }
+
+            if (goal.state.run.id !== trigger.payload.runId) {
+                return this.rejectContinuation(trigger, "RUN_NOT_FOUND", "Continuation targets a stale Run");
+            }
+            if (!isTerminalRunStatus(goal.state.run.status)) {
+                return this.rejectContinuation(trigger, "GOAL_NOT_COMPLETED", "Continuation requires an ended Run");
+            }
+            const queue = this.options.triggers.queueRecord(goalId);
+            if (queue?.status !== "terminal" || this.options.triggers.workerRecovery(goalId)?.status === "pending") {
+                // 终态仍在结算：保留未路由，下一次 pump 重试。
+                throw new Error("Continuation target is not settled yet");
+            }
+            this.assertTerminalReply(trigger);
+
+            const reservation = this.options.triggers.reserveContinuation(goalId, trigger.payload.runId, trigger.id);
+            if (reservation === "existing") {
+                const record = this.options.triggers.continuationRecord(goalId, trigger.payload.runId);
+                if (record?.appliedRunId !== undefined) return this.settleContinuation(trigger, record.appliedRunId);
+            }
+
+            const committed = await this.options.commitContinuation({
+                goalId,
+                runId: trigger.payload.runId,
+                inputId: trigger.id,
+                content: trigger.payload.content,
+            });
+            if (!committed.ok) {
+                if (committed.code === "INVALID_GOAL_INPUT" || committed.code === "GOAL_NOT_COMPLETED" || committed.code === "RUN_NOT_FOUND") {
+                    return this.rejectContinuation(trigger, committed.code, committed.message);
+                }
+                throw new Error(committed.message);
+            }
+            return this.settleContinuation(trigger, committed.runId);
+        });
+    }
+
+    private settleContinuation(trigger: ContinuationTrigger, runId: string): WorkerContinuationResult {
+        this.options.triggers.bindContinuationRun(trigger.goalId, trigger.payload.runId, trigger.id, runId);
+        this.options.triggers.markRouted(trigger.id);
+        if (this.options.triggers.queueRecord(trigger.goalId)?.status === "terminal") {
+            this.options.triggers.requeueGoalForContinuation(trigger.goalId);
+        }
+        return { kind: "accepted", goalId: trigger.goalId, runId };
+    }
+
+    private rejectContinuation(trigger: ContinuationTrigger, code: string, message: string): WorkerContinuationResult {
+        if (this.options.triggers.routeStatus(trigger.id) === "unrouted") this.options.triggers.markRouted(trigger.id);
+        return { kind: "rejected", goalId: trigger.goalId, code, message };
+    }
+
+    private assertTerminalReply(trigger: ContinuationTrigger): void {
+        const reply = this.options.triggers.read(trigger.replyTo);
+        if (reply === undefined || reply.type !== "response" || !("goalId" in reply) || reply.goalId !== trigger.goalId
+            || !("runId" in reply.payload) || reply.payload.runId !== trigger.payload.runId
+            || (reply.payload.action !== "completed" && reply.payload.action !== "failed" && reply.payload.action !== "cancelled")
+            || this.options.triggers.routeStatus(reply.id) !== "routed") {
+            throw new Error("Continuation does not reference this Run terminal response");
         }
     }
 
@@ -680,7 +830,14 @@ export class WorkerScheduler {
             owner: this.options.owner,
             triggers: this.options.triggers,
             goals: this.options.goals,
-            onSnapshotSaved: (goal: Goal) => this.reportPersistedRunningProgress(registration.workerId, registration.generation, goal),
+            onSnapshotSaved: (goal: Goal) => {
+                try {
+                    this.options.notifyGoalSaved?.(goal.id);
+                } catch {
+                    // 指标通知失败不改变已保存快照的提交结果。
+                }
+                return this.reportPersistedRunningProgress(registration.workerId, registration.generation, goal);
+            },
         };
     }
 
@@ -734,9 +891,7 @@ export class WorkerScheduler {
             try {
                 if (trigger.type === "instruction" && trigger.payload.action === "cancel") {
                     const queue = "goalId" in trigger ? this.options.triggers.queueRecord(trigger.goalId) : undefined;
-                    if (queue?.status === "terminal"
-                        || (queue !== undefined && queue.workerId !== undefined && queue.generation !== undefined
-                            && this.workers.get(queue.workerId)?.generation === queue.generation)) {
+                    if (queue?.status === "terminal" || this.cancellationWorker(queue) !== undefined) {
                         await this.routeCancelTrigger(trigger);
                     }
                     continue;
@@ -746,6 +901,10 @@ export class WorkerScheduler {
                     if (recovery !== undefined && (recovery.status === "pending" || recovery.status === "resumed")) {
                         await this.routeWorkerRecoveryTrigger(trigger, principal, true);
                     }
+                    continue;
+                }
+                if (trigger.type === "instruction" && trigger.payload.action === "continue") {
+                    await this.routeContinueTrigger(trigger, true);
                     continue;
                 }
                 if (trigger.type === "interaction" && trigger.payload.action === "answered") {
@@ -979,11 +1138,12 @@ export class WorkerScheduler {
             };
         }
 
-        const advice = await decideWorkerActionPermission(this.options.permissionAdapter, goal);
-        if (advice.kind === "pending") {
-            this.options.triggers.recordActionPermissionFailure(requestTrigger.id, advice.reason);
-            return undefined;
-        }
+        const advice = await decideWorkerActionPermission({
+            goal,
+            workspaceRoot: goal.definition.triggerContext?.authorization.workspace.executionRoot ?? this.options.cwd,
+            readProfile: this.options.readPermissionProfile,
+        });
+        if (advice.kind === "pending") return undefined;
         const decision = advice.decision;
         const replyIdentity = { requestId: request.requestId, decision };
         const digest = createHash("sha256").update(canonicalJson(replyIdentity)).digest("hex");
@@ -1223,4 +1383,31 @@ function assertStoredUnroutedTrigger(triggers: TriggerStore, trigger: Trigger): 
 
 function triggerActorMatchesPrincipal(source: Trigger["source"], role: TriggerIngressPrincipal["role"]): boolean {
     return source.role === (role === "user" ? "external" : role);
+}
+
+function assertContinuationTrigger(trigger: Trigger): ContinuationTrigger {
+    if (trigger.type !== "instruction" || !("goalId" in trigger) || !("replyTo" in trigger)) {
+        throw new Error("Continuation requires a Goal-bound instruction Trigger");
+    }
+    const payload = trigger.payload;
+    if (payload.action !== "continue" || trigger.target !== "supervisor") {
+        throw new Error("Continuation requires a Supervisor-targeted instruction.continue Trigger");
+    }
+    return { ...trigger, payload };
+}
+
+type ContinuationTrigger = {
+    readonly id: string;
+    readonly name: string;
+    readonly type: "instruction";
+    readonly source: TriggerActor;
+    readonly target: TriggerTarget;
+    readonly payload: { readonly action: "continue"; readonly runId: string; readonly content: string };
+    readonly sentAt: string;
+    readonly goalId: string;
+    readonly replyTo: string;
+};
+
+function isTerminalRunStatus(status: string): boolean {
+    return status === "completed" || status === "failed" || status === "cancelled";
 }

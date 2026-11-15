@@ -37,7 +37,7 @@ import {
     listBrowserGoals,
     projectSessionState,
     readBrowserGoalSession,
-    readBrowserGoalSessionState,
+    readBrowserControlSnapshot,
 } from "../src/index";
 import { bindMessagesToRun, testAssistantMessage, testUserMessage } from "../../runtime/test/current-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
@@ -396,7 +396,7 @@ function createApi(store: JsonFileGoalStore, trajectory: JsonFileTrajectoryStore
                 return { ok: true as const, feed: createBrowserSessionFeed(
                     session,
                     stream,
-                    (target) => readBrowserGoalSessionState(target, store, undefined),
+                    (target) => readBrowserControlSnapshot(target, store, () => false),
                     signal,
                 ) };
             },

@@ -3,8 +3,8 @@
   "version": 1,
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
-    "path": "packages/web-contracts/src/wire.ts#BrowserGoalSessionEnvelope,BrowserGoalSession,BrowserRunStatus,BrowserGoalExecution,BrowserExecutionState,BrowserSessionMessage,BrowserMessagePosition,BrowserPendingSteer,BrowserPendingMessage,BrowserQueueState,BrowserInterruption,BrowserSessionRun,BrowserSessionStep,BrowserSessionStepThink,BrowserBashExecutionDetail,BrowserRunStageGroup,BrowserRunStageStatus,BrowserRunStageRejection,BrowserRunStageResultRef,BrowserRunStageRevision,BrowserPlanRoute,BrowserPlanRouteStageState,BrowserSessionRunTerminalDetail,BrowserGoalPlan,BrowserGoalPlanItem,BrowserInteractionView,BrowserInteractionKind,BrowserInteractionDecision,BrowserPendingAction,BrowserSandboxReview,BrowserToolGrantExtraFile,BrowserParentProgram,BrowserSessionState,BrowserSessionStateInteraction,BrowserSessionStateMessage,BrowserSessionStateInterruption",
-    "sha256": "091fd8307d78bb6df37fd565e42ab804a987f1b40a71a7c444ef78c699e03c6e"
+    "path": "packages/web-contracts/src/wire.ts#BrowserGoalSessionEnvelope,BrowserGoalSession,BrowserRunStatus,BrowserGoalExecution,BrowserGoalContinuation,BrowserExecutionState,BrowserSessionMessage,BrowserMessagePosition,BrowserPendingSteer,BrowserPendingMessage,BrowserQueueState,BrowserInterruption,BrowserSessionRun,BrowserSessionStep,BrowserSessionStepThink,BrowserBashExecutionDetail,BrowserRunStageGroup,BrowserRunStageStatus,BrowserRunStageRejection,BrowserRunStageResultRef,BrowserRunStageRevision,BrowserPlanRoute,BrowserPlanRouteStageState,BrowserSessionRunTerminalDetail,BrowserGoalPlan,BrowserGoalPlanItem,BrowserInteractionView,BrowserInteractionKind,BrowserInteractionDecision,BrowserPendingAction,BrowserSandboxReview,BrowserPermissionExtraFile,BrowserParentProgram,BrowserSessionState,BrowserSessionStateInteraction,BrowserSessionStateMessage,BrowserSessionStateInterruption",
+    "sha256": "8bd0f7e569fe3db33828dd3385985aada78f95cadc1fc1a89edbcad4c43dcb31"
   },
   "generator": {
     "name": "ts-json-schema-generator",

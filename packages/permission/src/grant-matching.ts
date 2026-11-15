@@ -6,41 +6,7 @@ import type {
 import type {
     SandboxGrant,
     SandboxGrantMatcher,
-    ToolGrant,
-    ToolGrantMatcher,
 } from "./types";
-
-/**
- * 校验 Tool 匹配器是否能放行候选请求。
- *
- * @remarks
- * - exact_input: 输入摘要必须完全一致；
- * - target_path: 目标文件真实路径一致，允许后续不同写入内容。
- *
- * @param requested - 当前 Action 经校验的候选匹配器。
- * @param approved - 已存在的持久化授权匹配器。
- * @returns 是否完全匹配放行。
- *
- * @example
- * ```ts
- * const matched = matchesToolGrantMatcher(reqMatcher, appMatcher);
- * ```
- */
-export function matchesToolGrantMatcher(
-    requested: ToolGrantMatcher,
-    approved: ToolGrantMatcher,
-): boolean {
-    if (requested.kind !== approved.kind || requested.toolId !== approved.toolId || requested.version !== approved.version) {
-        return false;
-    }
-    if (requested.kind === "exact_input" && approved.kind === "exact_input") {
-        return requested.digest === approved.digest;
-    }
-    if (requested.kind === "target_path" && approved.kind === "target_path") {
-        return requested.path === approved.path;
-    }
-    return false;
-}
 
 /**
  * 计算规范化输入的 sha256 摘要（64 字符十六进制）。
@@ -105,28 +71,6 @@ export function matchesSandboxGrantMatcher(
     }
 
     return true;
-}
-
-/**
- * 校验 Tool 持续授权是否适用于当前查询。
- *
- * @param query - 工作区、会话以及待核对的操作匹配器。
- * @param grant - 持久化授权记录。
- * @returns 是否匹配生效。
- *
- * @example
- * ```ts
- * const matched = matchesToolGrant({ workspaceId: "ws-1", matcher }, grant);
- * ```
- */
-export function matchesToolGrant(
-    query: { readonly workspaceId: string; readonly goalId?: string; readonly matcher: ToolGrantMatcher },
-    grant: ToolGrant,
-): boolean {
-    if (grant.status !== "active") return false;
-    if (grant.workspaceId !== query.workspaceId) return false;
-    if (grant.scope === "goal" && (query.goalId === undefined || grant.goalId !== query.goalId)) return false;
-    return matchesToolGrantMatcher(query.matcher, grant.matcher);
 }
 
 /**

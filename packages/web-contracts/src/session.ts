@@ -14,6 +14,7 @@ export type {
     BrowserAskUserQuestion,
     BrowserBashExecutionDetail,
     BrowserExecutionState,
+    BrowserGoalContinuation,
     BrowserGoalExecution,
     BrowserGoalList,
     BrowserGoalListItem,
@@ -28,6 +29,7 @@ export type {
     BrowserInteractionView,
     BrowserMessagePosition,
     BrowserPendingAction,
+    BrowserPermissionExtraFile,
     BrowserPlanRoute,
     BrowserPlanRouteStage,
     BrowserPlanRouteStageState,
@@ -39,5 +41,4 @@ export type {
     BrowserSessionMessage,
     BrowserSessionRun,
     BrowserSessionStep,
-    BrowserToolGrantExtraFile,
 } from "./wire";

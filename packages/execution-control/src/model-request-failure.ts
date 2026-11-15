@@ -60,3 +60,36 @@ export class TransientModelRequestFailure extends Error {
         this.retryAfterMs = options.retryAfterMs;
     }
 }
+
+/**
+ * 供应商明确以超出上下文窗口拒绝请求的故障。
+ *
+ * @remarks
+ * 只有适配边界从结构化状态、错误代码或供应商明确的窗口拒绝文案识别出来时才构造此类型；
+ * 普通请求错误与协议错误不得归入本类型。Runtime 依据该类型执行一次工作窗口整理，
+ * 并在整理成功后只重试一次同一逻辑请求。消息不得包含供应商响应正文、凭据或请求内容。
+ *
+ * @example
+ * ```ts
+ * throw new ContextWindowRejectedError({ status: 400, providerCode: "context_length_exceeded" });
+ * ```
+ */
+export class ContextWindowRejectedError extends ModelRequestFailure {
+    readonly kind = "context_window_rejected" as const;
+    readonly status: number | undefined;
+    readonly providerCode: string | undefined;
+
+    /**
+     * @param options - 可选的 HTTP 拒绝状态与供应商错误代码，仅用于诊断。
+     */
+    constructor(options: { readonly status?: number; readonly providerCode?: string } = {}) {
+        super(
+            `Provider rejected the model request because it exceeds the model context window${
+                options.status === undefined ? "" : ` (HTTP ${options.status})`
+            }`,
+        );
+        this.name = "ContextWindowRejectedError";
+        this.status = options.status;
+        this.providerCode = options.providerCode;
+    }
+}

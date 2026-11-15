@@ -21,8 +21,9 @@ import {
     browserModelInputsBinding,
     browserModelPreferenceResultBinding,
     browserModelSelectionResultBinding,
-    browserPermissionModeResultBinding,
     browserPendingActionBinding,
+    browserPermissionExemptionResultBinding,
+    browserPermissionProfileResultBinding,
     browserProviderProfileActivationResultBinding,
     browserProviderProfileBinding,
     browserProviderProfileDeleteResultBinding,
@@ -35,7 +36,6 @@ import {
     browserSessionMessageBinding,
     browserSessionRunBinding,
     browserSessionStateBinding,
-    browserToolGrantResultBinding,
     browserTrajectoryDetailBinding,
     browserTrajectoryEntryBinding,
     browserTrajectoryPageBinding,
@@ -48,7 +48,7 @@ import {
 import {
     hasConsistentTerminalDetail,
     hasNoProviderCredentialKey,
-    hasValidContextRemainingPercent,
+    hasValidContextUsage,
     isActivityPage,
     isInteractionView,
     isJsonValue,
@@ -78,8 +78,9 @@ import type {
     BrowserModelInputs,
     BrowserModelPreferenceResult,
     BrowserModelSelectionResult,
-    BrowserPermissionModeResult,
     BrowserPendingAction,
+    BrowserPermissionExemptionResult,
+    BrowserPermissionProfileResult,
     BrowserProviderProfile,
     BrowserProviderProfileActivationResult,
     BrowserProviderProfileDeleteResult,
@@ -93,7 +94,6 @@ import type {
     BrowserSessionMessageResult,
     BrowserSessionRun,
     BrowserSessionState,
-    BrowserToolGrantResult,
     BrowserTrajectoryDetail,
     BrowserTrajectoryEntry,
     BrowserTrajectoryPage,
@@ -620,33 +620,33 @@ export function isActionDetailsResult(value: unknown): value is BrowserActionDet
 }
 
 /**
- * 工具授权结果守卫。
+ * 边界豁免结果守卫。
  *
  * @param value - 待检测值。
- * @returns 是否为 BrowserToolGrantResult。
+ * @returns 是否为 BrowserPermissionExemptionResult。
  *
  * @example
  * ```ts
- * if (isToolGrantResult(res)) console.log(res.ok);
+ * if (isPermissionExemptionResult(res)) console.log(res.ok);
  * ```
  */
-export function isToolGrantResult(value: unknown): value is BrowserToolGrantResult {
-    return accepts(browserToolGrantResultBinding, value);
+export function isPermissionExemptionResult(value: unknown): value is BrowserPermissionExemptionResult {
+    return accepts(browserPermissionExemptionResultBinding, value);
 }
 
 /**
- * 权限模式查询/设置结果守卫。
+ * 权限档位查询/设置结果守卫。
  *
  * @param value - 待检测值。
- * @returns 是否为 BrowserPermissionModeResult。
+ * @returns 是否为 BrowserPermissionProfileResult。
  *
  * @example
  * ```ts
- * if (isPermissionModeResult(res)) console.log(res.ok);
+ * if (isPermissionProfileResult(res)) console.log(res.ok);
  * ```
  */
-export function isPermissionModeResult(value: unknown): value is BrowserPermissionModeResult {
-    return accepts(browserPermissionModeResultBinding, value);
+export function isPermissionProfileResult(value: unknown): value is BrowserPermissionProfileResult {
+    return accepts(browserPermissionProfileResultBinding, value);
 }
 
 /**
@@ -855,7 +855,7 @@ export function isMetricsSnapshot(value: unknown): value is SessionMetricsSnapsh
     const result = sessionMetricsSnapshotBinding.read(value, "strip");
     if (!result.ok) return false;
     return hasValidMetricValues(result.data)
-        && hasValidContextRemainingPercent(result.data)
+        && hasValidContextUsage(result.data)
         && result.data.runs.every((run) => hasValidMetricValues(run));
 }
 

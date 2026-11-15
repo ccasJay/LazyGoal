@@ -31,25 +31,25 @@ Activity 响应项数有界；当前文件 JSONL 读取器仍可扫描整个 Run
 
 所有 JSON 请求体先经传输层校验（Content-Type、字节上限与 UTF-8/JSON 解码），再由 `@lazygoal/web-contracts` 生成的命令绑定读取并剥离未知字段；route 保留 wire ID、路径身份、kind/跨字段关系、固定 HTTP 错误映射与有界未知字段诊断，不维护第二套 body 字段白名单。Provider 档案可选的 `null` 值按 DTO 保留并交由下游解释为清空，`apiKey: null` 被合同拒绝。
 
-`POST /api/goals/:goalId/inputs` 受理统一会话输入联合：`message`、`steer`、`interrupt`、`respond`、`resume` 与 `queue_control`，每项都携带 Goal 内稳定 `inputId`。Browser 只做严格 wire 校验与安全投影，受理、去重、队列、执行所有权与恢复判定全部委派 Runtime 会话所有者：新受理返回 202，同身份同载荷的既有收据返回 200，业务拒绝返回稳定错误码（字段错误 400、文本超限 413、Goal 缺失 404、身份／状态／容量冲突与 busy 409、关闭或保存结果不明 503）。`respond` 携带当前 `runId`、`requestId` 与回答、提案批准/反馈或 Action 批准/拒绝载荷，由 Runtime 再次校验等待类型与身份；旧身份、错配等待点或载荷冲突不写入收据，普通文本也不能代答结构化等待。`GET /api/goals/:goalId/inputs/:inputId` 按身份返回持久化收据及应用关联，未找到与读取失败分别返回明确结果。
+`POST /api/goals/:goalId/inputs` 受理统一会话输入联合：`message`、`steer`、`interrupt`、`respond`、`resume`、`queue_control` 与 `compact`，每项都携带 Goal 内稳定 `inputId`。`compact` 只携带目标 `runId`，由 Runtime 绑定 Goal 的当前 Epoch 执行一轮整理：不写入对话、不创建业务 Run；无法切换窗口时以 `context_compaction_unavailable` 返回稳定原因。Browser 只做严格 wire 校验与安全投影，受理、去重、队列、执行所有权与恢复判定全部委派 Runtime 会话所有者：新受理返回 202，同身份同载荷的既有收据返回 200，业务拒绝返回稳定错误码（字段错误 400、文本超限 413、Goal 缺失 404、身份／状态／容量冲突与 busy 409、关闭或保存结果不明 503）。`respond` 携带当前 `runId`、`requestId` 与回答、提案批准/反馈或 Action 批准/拒绝载荷，由 Runtime 再次校验等待类型与身份；旧身份、错配等待点或载荷冲突不写入收据，普通文本也不能代答结构化等待。`GET /api/goals/:goalId/inputs/:inputId` 按身份返回持久化收据及应用关联，未找到与读取失败分别返回明确结果。
 
 Plan Run 的待审批会话 DTO 会投影候选路线中的全部阶段顺序、目标和验收条件，文本受有界投影处理。普通会话不返回路线字段；候选仍属于待审批 Snapshot，不代表 Runtime 已批准或正在执行的阶段。
 
 当前已批准 Plan Run 另从 Runtime Snapshot 投影完整 `planRoute`：保留路线修订与理由、下一个阶段游标、每个阶段的稳定 ID/修订/状态/目标/验收条件及接受序号。路线文本按界面 DTO 限长；普通 Run 以及待审批 Run 不含权威路线字段。该路线投影独立于从 Trajectory 派生的 `stages` 执行记录，不替代活动事件视图。
 
-`GET /api/goals/:goalId/actions/:actionId?runId=...` 仅在该 Goal/Run 仍处于对应 Action 审批等待时返回完整 canonical Tool 输入。常规会话投影只携带限长输入预览；写入类 Tool 额外投影目标路径。`GET /api/goals/:goalId/grants?runId=...` 只列出当前 Goal 与 Workspace 的授权摘要，不暴露精确输入摘要；`DELETE /api/goals/:goalId/grants/:grantId` 按授权层级撤销并返回更新后的列表。三个端点均受 BrowserSessionAccess 保护，并在服务层重验当前 Run 身份。
+`GET /api/goals/:goalId/actions/:actionId?runId=...` 仅在该 Goal/Run 仍处于对应 Action 审批等待时返回完整 canonical Tool 输入。常规会话投影只携带限长输入预览；写入类 Tool 额外投影目标路径。`GET /api/goals/:goalId/exemptions?runId=...` 只列出当前 Goal 与 workspace 的边界越界豁免摘要，不暴露精确输入摘要；`DELETE /api/goals/:goalId/exemptions/:exemptionId` 按豁免身份撤销并返回更新后的列表。`GET /api/project/permission-profile` 读取工作区当前档位与修订；`POST /api/project/permission-profile` 携带读取到的修订提交 `sandbox`、`approvals`、`reviewer` 与 `writableRoots`，并发覆盖返回冲突。这些端点均受 BrowserSessionAccess 保护；按 Goal 读取或撤销豁免时，服务层重验当前 Run 身份。
 
 普通 `message` 不绑定发送时的旧 Run：运行中或等待交互时按受理顺序进入该 Goal 的持久化队列，Goal 处于可启动终态且无恢复或队列暂停约束时由 Runtime 为队首创建后继 Run。终止态或 Interrupt 暂停保留队列与暂停原因，只有显式 `queue_control` 继续才解除。`steer` 只面向当前 running Run，受理不取消在途调用，应用发生在既有模型安全边界并写入真实用户消息；旧 Run、已进入中断或非 running 目标明确拒绝，不会静默降级为普通队列消息。`interrupt` 按目标 Run 与稳定身份在同一提交内保存中断意图并暂停队列，随后委派执行器中止执行并直接结算取消，不再调用模型，重复请求返回同一收据。用户终止只影响目标 Run，最终以 cancelled 结算；普通服务关闭或断连不生成该意图。会话投影按顺序公开已受理、尚未应用的 Steer，并区分队列、暂停、提交修订、中断阶段与是否需要显式恢复。
 
 `POST /api/goals/:goalId/plan-mode` 只接受当前 `runId`，并由管理命令服务在转交 Coordinator 前校验 Goal/Run 身份与实例活动名额。Runtime 允许未启动 Run 进入 Plan Mode，或为已完成或失败 Run 标记下一 Run 使用 Plan Mode；已开始的普通 Run 和其他不允许切换的状态返回稳定错误。命令文本不写入消息或 Step。
 
-`GET /api/goals/:goalId/events` 订阅整个 Goal，不再要求客户端绑定单一当前 Run，也不接受 `runId` 查询参数。该路由用 Hono `streamSSE` 写出 `event: update` 与 JSON `data:`，并在返回前恢复 `cache-control: no-cache, no-transform` 与 `x-accel-buffering: no`；客户端断开、feed 正常结束或迭代失败都会结束响应，并只释放本连接的一次 Browser feed 订阅。Goal 事件不设置 metrics 的 5 秒写超时：慢客户端由 128 项有界 `LiveEventQueue` 关闭本连接订阅，HTTP 连接可能保持到客户端断开。首项是一致 `state_sync` 安全会话状态，并在同一次读取中携带可直接应用的 `BrowserControlSnapshot`；其后按来源顺序输出 `input_result`（按 `inputId` 关联受理与拒绝）、控制事实与公开执行活动；后继 Run 开始不关闭订阅、不遗漏开始事件。事件仅投影白名单活动和长度受限的助手文本：内部块协议中只有公开普通正文增量与整块完成映射为 `assistant_text_delta`，结构化 JSON、Tool 参数、reasoning、调用失败摘要及未识别载荷不转发。Trajectory／Checkpoint 事件与 Goal 保存发送带 `eventTypes`、可选 `actionId`／`executionUnitId` 与提交修订的 `state_committed`，并只声明实际变化的 `ControlScope`；订阅缺口、同步读取失败、背压关闭或连接故障发送带稳定 `code` 与 `resync` 的 `stream_fault`，不代表 Run 完成。
+`GET /api/goals/:goalId/events` 订阅整个 Goal，不再要求客户端绑定单一当前 Run，也不接受 `runId` 查询参数。该路由用 Hono `streamSSE` 写出 `event: update` 与 JSON `data:`，并在返回前恢复 `cache-control: no-cache, no-transform` 与 `x-accel-buffering: no`；客户端断开、feed 正常结束或迭代失败都会结束响应，并只释放本连接的一次 Browser feed 订阅。Goal 事件不设置 metrics 的 5 秒写超时：慢客户端由 128 项有界 `LiveEventQueue` 关闭本连接订阅，HTTP 连接可能保持到客户端断开。首项是 `state_sync` 安全会话状态，并可携带同一提交的 `BrowserControlSnapshot`；其后按来源顺序输出 `input_result`（按 `inputId` 关联受理与拒绝）、控制事实与公开执行活动；后继 Run 开始不关闭订阅、不遗漏开始事件。事件仅投影白名单活动和长度受限的助手文本：内部块协议中只有公开普通正文增量与整块完成映射为 `assistant_text_delta`，结构化 JSON、Tool 参数、reasoning、调用失败摘要及未识别载荷不转发。Trajectory／Checkpoint 事件与 Goal 保存发送带 `eventTypes`、可选 `actionId`／`executionUnitId` 与提交修订的 `state_committed`，并只声明实际变化的 `ControlScope`；订阅缺口、同步读取失败、背压关闭或连接故障发送带稳定 `code` 与 `resync` 的 `stream_fault`，不代表 Run 完成。
 
 模型开始事件投影真实来源时间，以及来源提供的调用阶段、调用身份和执行单元；不复制模型输入或输出。Bash 的实时及已提交活动输入摘要只公开至多 240 字符的命令，不带环境或其它参数。实时工具活动的安全 DTO 附带 ExecutionStream 自己的 `sourceEventId` 与 `sourceCursor`，并保留跨流调用对齐所需的 `actionId` 与 `executionUnitId`。这些来源标识不等同于 Trajectory 中同名字段；`actionId` 与 `executionUnitId` 用于将同一调用的暂时活动与已提交步骤对齐。输入与结果仅允许投影白名单摘要，不发送任意 Tool 参数、原始 Tool 输出或隐藏推理。助手可见回复投影为 `assistant_reply` 内容边界；等待建立与结算、Run 状态与终态、工具尝试分别投影为 `interaction_opened`／`interaction_settled`、`run_status_changed`／`run_result` 与 `tool_activity`，不再压扁为通用活动边界。
 
 ## 控制协议投影
 
-`state_sync` 的 `BrowserControlSnapshot` 由 Browser 在订阅建立或重建时组装：Runtime 窄状态与同一 Run 的 Goal 控制投影读取一次，Run 身份不一致或读取失败时省略快照，不拼接不同提交的字段。后续增量事件不重复完整读取。`state_committed` 按提交批次内的来源事件类型映射作用域：授权撤销只声明 `grants`，状态提交与 Run 事实声明 `session`，活动事实声明 `activity`／`trajectory`，无法识别时保守声明 `session`。Observation 提交边界额外投影一条 `observed_committed` 工具活动，使工具返回与已提交结果分离。
+`GET /api/goals/:goalId?view=state` 从一次 Snapshot 读取生成 Goal 和 Runtime 窄状态。`state_sync` 携带的组合快照也来自单次 Snapshot 读取。若快照与同步事件的 Goal、Run 或提交修订不一致，省略组合快照，由客户端定向读取窄状态。`state_committed` 按提交批次内的来源事件类型映射作用域：授权撤销只声明 `grants`，状态提交与 Run 事实声明 `session`，活动事实声明 `activity`／`trajectory`，无法识别时保守声明 `session`。Observation 提交边界额外投影一条 `observed_committed` 工具活动，使工具返回与已提交结果分离。
 
 Browser 不向 SSE 写入客户端 `intentId`、客户端派生的 `intent_applied`／`intent_rejected`、旧 `snapshot_changed`／`refresh_required` 或旧 `interaction_required`；控制事实只有本模块定义的显式事件。
 
@@ -78,7 +78,7 @@ PTC 子操作沿用普通 Action 的审批入口；待审视图额外展示父�
 ## 模型目录
 
 `GET /api/models` 从工作区私有偏好和当前 Provider 目录解析草稿实际默认模型，必要时返回 Provider 改变或模型不可用的回退原因；读取故障返回错误，不清除偏好。`GET /api/goals/:goalId/models?runId=...` 先核对最新 Goal/Run，再返回该 Goal 自身保存的选择。Composition Root 使用现有模型目录服务获取在线结果或离线目录兜底。浏览器边界仅投影模型标识、展示名、容量、能力和可用性来源。鉴权、权限、协议及目录不可用故障返回稳定错误码，不传递凭据或 Provider 原始响应。
-`POST /api/project/model-preference` 验证当前 Provider 下的模型可选后保存工作区默认偏好。`POST /api/goals/:goalId/model-selection` 接收当前 Run 身份与模型 ID；浏览器命令服务在受理锁内核对安全等待状态或已完成、失败终态，服务端重新读取当前 Provider 目录并检查可选性，再由 Runtime 模型选择协调器保存完整非敏感选择。终态选择与下一 Run 消息共享浏览器受理锁；先保存的选择由下一 Run 继承，新 Run 已提交时旧 Run 请求被拒绝。Goal 选择提交后再写偏好，写入失败仅以 `defaultModelSaved: false` 报告，不回滚 Goal。旧 Run、Action 审批、忙碌与不可选模型不会改写快照或偏好。
+`POST /api/project/model-preference` 验证当前 Provider 下的模型可选后保存工作区默认偏好。`POST /api/goals/:goalId/model-selection` 接收当前 Run 身份与模型 ID；浏览器命令服务在受理锁内核对安全等待状态或中断已结算的终态，服务端重新读取当前 Provider 目录并检查可选性，再由 Runtime 模型选择协调器保存完整非敏感选择。终态选择与下一 Run 消息共享浏览器受理锁；先保存的选择由下一 Run 继承，新 Run 已提交时旧 Run 请求被拒绝。Goal 选择提交后再写偏好，写入失败仅以 `defaultModelSaved: false` 报告，不回滚 Goal。当前 Run 运行中、旧 Run 请求、Action 审批与不可选模型不会改写快照或偏好。其他 Goal 的执行不影响本 Goal 保存选择。
 模型选择在安全等待点由 Runtime 模型选择协调器提交。执行前由装配按最新 Goal 快照重新对齐模型 Binding：无法由本进程服务的 Provider 明确失败并中止本次推进，不回退其他 Goal 或进程默认配置。进程重启或多个 Goal 交替使用时，每次推进均以对应 Snapshot 为准，不继承上一个 Goal 的进程全局 Binding。
 
 ## 受管 Provider 设置

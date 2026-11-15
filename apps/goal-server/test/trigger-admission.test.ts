@@ -9,7 +9,8 @@ import { currentProtocols } from "../../../packages/runtime/test/current-fixture
 import { JsonFileGoalStore } from "../../../packages/storage/src/goal-store";
 import { SupervisorOwnership } from "../../../packages/storage/src/supervisor-ownership";
 import { TriggerStore } from "../../../packages/storage/src/trigger-store";
-import { admitTrigger } from "../src/runtime/trigger-admission";
+import { admitTrigger, resumeUnroutedWorkTrigger } from "../src/runtime/trigger-admission";
+import { receiveAuthorizedTrigger } from "../../../packages/storage/src/trigger-ingress";
 import { cancelTrigger, workTrigger } from "../../../packages/runtime/test/trigger-fixtures";
 
 function mockAdapter(handler: LLMAdapter["generate"], structuredOutputMode: "strict" | "prompt_only" = "prompt_only"): LLMAdapter {
@@ -20,7 +21,7 @@ function factory(intent: string, reserved: string | undefined, workspaceMode: "s
         promptBundleVersion: 1, profile: { id: "profile", systemPrompt: "", instructions: [], toolIds: [] } }), authorization: { workspace: workspaceMode === "shared"
             ? { mode: "shared" as const, projectRoot: "/workspace", executionRoot: "/workspace" }
             : { mode: "worktree" as const, projectRoot: "/workspace", executionRoot: "/workspace/.worktrees/goal", branch: "lazygoal/goal-test", baseBranch: "main", baseCommit: "a".repeat(40) },
-        toolIds: [], sandbox: { extraFiles: [], network: "none" as const } } });
+        toolIds: [] } });
 }
 const user = { role: "user", externalId: "test-actor", mayCreateGoal: true, goalIds: [] } as const;
 const external = { role: "external", externalId: "test-actor", mayCreateGoal: true, goalIds: [] } as const;
@@ -40,7 +41,7 @@ test("explicit user work is accepted and control Trigger admission does not crea
         assert.deepEqual(triggers.goalQueueRecords().map((record) => record.triggerId), [trigger.id]);
         assert.deepEqual((await goals.restore("goal-inspect"))?.definition.triggerContext, {
             triggerId: trigger.id,
-            authorization: { workspace: { mode: "shared", projectRoot: "/workspace", executionRoot: "/workspace" }, toolIds: [], sandbox: { extraFiles: [], network: "none" } },
+            authorization: { workspace: { mode: "shared", projectRoot: "/workspace", executionRoot: "/workspace" }, toolIds: [] },
         });
 
         const isolated = workTrigger("work-worktree", "change");
@@ -119,6 +120,40 @@ test("failed admissions remain unrouted across restart while distinct Trigger ID
         assert.equal(triggers.routeStatus(successTrigger.id), "routed");
         assert.deepEqual(triggers.queuedGoalIds(), ["goal-recover"]);
         assert.deepEqual(triggers.unroutedTriggers(), [failedTrigger, invalidTrigger]);
+        await owner.close();
+        triggers.close();
+    } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test("持久化的手动创建来源在重启后决定准入，缺少来源的来源仍走模型准入", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "trigger-admission-"));
+    try {
+        const owner = new SupervisorOwnership(join(dir, "owner.db"));
+        const path = join(dir, "triggers.db");
+        const goals = new JsonFileGoalStore(join(dir, "goals"));
+
+        let triggers = new TriggerStore(path);
+        const manual = workTrigger("work-manual", "resume");
+        receiveAuthorizedTrigger(triggers, manual, user, "web-manual");
+        assert.equal(triggers.goalOrigin(manual.id), "web-manual");
+        const dispatched = workTrigger("work-dispatched", "dispatched");
+        receiveAuthorizedTrigger(triggers, dispatched, external);
+        assert.equal(triggers.goalOrigin(dispatched.id), undefined);
+        triggers.close();
+
+        triggers = new TriggerStore(path);
+        const noModel = mockAdapter(async () => { throw new Error("unexpected model call"); });
+        assert.deepEqual(await resumeUnroutedWorkTrigger(owner, triggers, goals, noModel, manual.id, factory),
+            { kind: "accepted", goalId: "goal-resume" });
+
+        let calls = 0;
+        const accepting = mockAdapter(async () => {
+            calls += 1;
+            return { blocks: [{ index: 0, type: "text", format: "plain", text: '{"kind":"accept","workspaceMode":"shared"}' }] };
+        });
+        assert.deepEqual(await resumeUnroutedWorkTrigger(owner, triggers, goals, accepting, dispatched.id, factory),
+            { kind: "accepted", goalId: "goal-dispatched" });
+        assert.equal(calls, 1);
         await owner.close();
         triggers.close();
     } finally { await rm(dir, { recursive: true, force: true }); }

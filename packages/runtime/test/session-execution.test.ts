@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -376,7 +376,8 @@ test("missing and unreadable Goals fail explicitly on open", async () => {
         assert.equal(missing.ok === false && missing.error.code, "GOAL_NOT_FOUND");
 
         const encoded = Buffer.from("goal-corrupt", "utf8").toString("base64url");
-        await writeFile(join(directory, `${encoded}.json`), "{ not json", "utf8");
+        await mkdir(join(directory, encoded), { recursive: true });
+        await writeFile(join(directory, encoded, "snapshot.json"), "{ not json", "utf8");
         const corrupt = await harness.sessions.open("goal-corrupt");
         assert.equal(corrupt.ok, false);
         assert.equal(corrupt.ok === false && corrupt.error.code, "GOAL_UNREADABLE");

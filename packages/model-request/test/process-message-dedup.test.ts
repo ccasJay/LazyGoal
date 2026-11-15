@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import type { ModelAssistantMessage, NativeConversationIdentity } from "../../model-contracts/src/index";
+import type { ModelConversationMessage, ModelLegacyAssistantMessage, NativeConversationIdentity } from "../../model-contracts/src/index";
+import { readModelMessageText } from "../../llm-core/src/index";
 import {
     allocateImmutableEvent,
     createGoal,
@@ -61,7 +62,7 @@ function settledExchange(options: { readonly observationOutput?: string; readonl
         events.push(event);
         return event;
     };
-    const message: ModelAssistantMessage = {
+    const message: ModelLegacyAssistantMessage = {
         role: "assistant",
         content: PROCESS_BODY,
         toolCalls: [{ callId: "provider-call", toolId: "read_file", argumentsJson: JSON.stringify({ path: "README.md" }) }],
@@ -142,7 +143,7 @@ function createGoalWithProcessMessage(modelCallId = "call-0"): Goal {
 }
 
 interface RenderedRequest {
-    readonly messages: readonly { readonly role: string; readonly content: string }[];
+    readonly messages: readonly ModelConversationMessage[];
 }
 
 async function buildRequest(options: {
@@ -184,7 +185,7 @@ async function buildRequest(options: {
 }
 
 function countByText(request: RenderedRequest, text: string): number {
-    return request.messages.filter((message) => message.content === text).length;
+    return request.messages.filter(message => readModelMessageText(message) === text).length;
 }
 
 test("已结算且实际选入请求的原生交换覆盖同源过程正文，正文只出现一次", async () => {
@@ -194,7 +195,7 @@ test("已结算且实际选入请求的原生交换覆盖同源过程正文，�
     // 原生 assistant 正文与已提交过程正文同源，只保留原生一份。
     assert.equal(countByText(request, PROCESS_BODY), 1);
     const toolIndex = request.messages.findIndex((message) => message.role === "tool");
-    const assistantIndex = request.messages.findIndex((message) => message.content === PROCESS_BODY);
+    const assistantIndex = request.messages.findIndex(message => readModelMessageText(message) === PROCESS_BODY);
     assert.ok(toolIndex > 0);
     // 调用与结果保持相邻。
     assert.equal(toolIndex, assistantIndex + 1);
@@ -215,8 +216,8 @@ test("原生交换未结算时保留仍在对话预算内的过程正文", async
     assert.equal(countByText(request, PROCESS_BODY), 1);
     assert.equal(countByText(request, SAME_TEXT), 2);
     // 没有原生交换时，过程正文仍在真实对话位置（意图之后）。
-    const intentIndex = request.messages.findIndex((message) => message.content === INTENT);
-    const processIndex = request.messages.findIndex((message) => message.content === PROCESS_BODY);
+    const intentIndex = request.messages.findIndex(message => readModelMessageText(message) === INTENT);
+    const processIndex = request.messages.findIndex(message => readModelMessageText(message) === PROCESS_BODY);
     assert.ok(intentIndex >= 0 && processIndex > intentIndex);
 });
 
@@ -287,8 +288,8 @@ test("文件存储重建后按已提交来源得到同样的最终请求", async
             identity,
         );
 
-        assert.equal(plan.request.messages.filter((message) => message.content === PROCESS_BODY).length, 1);
-        assert.equal(plan.request.messages.filter((message) => message.content === SAME_TEXT).length, 2);
+        assert.equal(plan.request.messages.filter(message => readModelMessageText(message) === PROCESS_BODY).length, 1);
+        assert.equal(plan.request.messages.filter(message => readModelMessageText(message) === SAME_TEXT).length, 2);
         assert.equal(plan.request.messages.filter((message) => message.role === "tool").length, 1);
     } finally {
         await rm(directory, { recursive: true, force: true });

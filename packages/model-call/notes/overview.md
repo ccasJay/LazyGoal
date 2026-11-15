@@ -1,6 +1,6 @@
 # 模型调用
 
-本包拥有一次模型调用的完整生命周期：应用输出上限、保存最终输入、记录调用开始/结束、调用 `generate` 或消费 `stream`、发布既有可见性事件，并返回最终响应与调用身份；它不选择模型、不持有可变 Binding、不重试、不解码业务结果，也不关闭借用资源。公开入口是 [src/index.ts](../src/index.ts)。
+本包拥有一次模型调用的完整生命周期：应用输出上限、记录输入诊断投影、记录调用开始/结束、调用 `generate` 或消费 `stream`、发布既有可见性事件，并返回最终响应与调用身份；它不选择模型、不持有可变 Binding、不重试、不解码业务结果，也不关闭借用资源。公开入口是 [src/index.ts](../src/index.ts)。
 
 ## 调用生命周期
 
@@ -12,7 +12,7 @@
 
 ## 记录与来源
 
-输入记录的 `messages.source` 沿用原规则：`native_history`、`system`、`request`（反馈与阶段消息）、`working_context`（末尾控制消息）、`conversation`（真实会话）与 `section`（动态 Section 正文）。调用身份 `callId` 同时用于指标、输入记录与诊断关联；阶段输出与 frame 的 `modelCallId` 由调用方使用返回的 `callId` 填充。
+输入记录的 `messages.source` 沿用原规则：`native_history`、`system`、`request`（反馈与阶段消息）、`working_context`（末尾控制消息）、`conversation`（真实会话）与 `section`（动态 Section 正文）。OpenAI-compatible 请求携带的 blocks-only 原生历史在输入记录和 Trace 中投影为既有文本、reasoning、工具调用字段；这些诊断记录不保存块顺序，也不是 Runtime 原生回放来源。Adapter 收到的请求仍保留共享 blocks，回放真源是 Runtime 提交的 `model_response_received` 轨迹。调用身份 `callId` 同时用于指标、输入记录与诊断关联；阶段输出与 frame 的 `modelCallId` 由调用方使用返回的 `callId` 填充。
 
 [`llm-diagnostic-trace`](../src/llm-diagnostic-trace.ts) 提供有界脱敏的请求、响应、工具 schema 与错误诊断：Trace 为 best effort、超限标记截断，不保证供应商 HTTP wire 原文，也不参与恢复。
 

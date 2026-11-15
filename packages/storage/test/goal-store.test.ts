@@ -12,7 +12,7 @@ import {
     writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -26,6 +26,9 @@ import { currentProtocols, messageOutline, trajectoryStoreFor, testUserMessage, 
 import {
     GoalSnapshotProtocolError,
     goalSnapshotCodec,
+    goalArchiveMarkerPath,
+    goalDirectory,
+    goalSnapshotPath,
     InMemoryGoalStore,
     INVALID_GOAL_SNAPSHOT_CODE,
     JsonFileGoalStore,
@@ -126,8 +129,11 @@ function createActionSnapshot(): Goal {
 }
 
 function snapshotPath(directory: string, goalId: string): string {
-    const encodedGoalId = Buffer.from(goalId, "utf8").toString("base64url");
-    return join(directory, `${encodedGoalId}.json`);
+    return goalSnapshotPath(directory, goalId);
+}
+
+function archivePath(directory: string, goalId: string): string {
+    return goalArchiveMarkerPath(directory, goalId);
 }
 
 function transitionGoal(
@@ -804,11 +810,10 @@ test("JsonFileGoalStore saves a full snapshot and restores it in a new instance"
         assert.deepEqual(restored?.state.messages, goal.state.messages);
         assert.deepEqual(restored?.state.run, goal.state.run);
 
-        const files = (await readdir(directory)).filter((name) => name.endsWith(".json"));
-        assert.equal(files.length, 1);
-        assert.match(files[0] ?? "", /^[A-Za-z0-9_-]+\.json$/);
+        const directories = await readdir(directory);
+        assert.deepEqual(directories, [Buffer.from(goal.id, "utf8").toString("base64url")]);
         assert.deepEqual(
-            JSON.parse(await readFile(join(directory, files[0] ?? ""), "utf8")),
+            JSON.parse(await readFile(snapshotPath(directory, goal.id), "utf8")),
             goalSnapshotCodec.encode(goal),
         );
     } finally {
@@ -821,8 +826,9 @@ test("JsonFileGoalStore verifies a completed rename and finishes archive cleanup
 
     try {
         const goal = createSnapshot("run-retry");
-        const archivePath = `${snapshotPath(directory, goal.id)}.archived`;
-        await writeFile(archivePath, "", { mode: 0o600 });
+        const archiveMarker = archivePath(directory, goal.id);
+        await mkdir(goalDirectory(directory, goal.id), { recursive: true });
+        await writeFile(archiveMarker, "", { mode: 0o600 });
         let renameCalls = 0;
         let archiveDeleteCalls = 0;
         const store = new JsonFileGoalStore(directory, {
@@ -838,7 +844,7 @@ test("JsonFileGoalStore verifies a completed rename and finishes archive cleanup
                 }
             },
             unlink: async (path) => {
-                if (path === archivePath && archiveDeleteCalls === 0) {
+                if (path === archiveMarker && archiveDeleteCalls === 0) {
                     archiveDeleteCalls += 1;
                     await unlink(path);
                     throw Object.assign(new Error("archive cleanup result unknown"), { code: "EAGAIN" });
@@ -852,7 +858,7 @@ test("JsonFileGoalStore verifies a completed rename and finishes archive cleanup
         assert.equal(renameCalls, 1);
         assert.equal(archiveDeleteCalls, 1);
         assert.deepEqual(await store.restore(goal.id), goal);
-        await assert.rejects(readFile(archivePath), (error: unknown) =>
+        await assert.rejects(readFile(archiveMarker), (error: unknown) =>
             error instanceof Error && (error as NodeJS.ErrnoException).code === "ENOENT");
         assert.deepEqual((await readdir(directory)).filter((name) => name.endsWith(".tmp")), []);
     } finally {
@@ -868,7 +874,7 @@ test("JsonFileGoalStore retries only confirmed temporary failures and caps attem
         const goal = createSnapshot("run-open-retry");
         const retrying = new JsonFileGoalStore(directory, {
             open: async (path, flags, mode) => {
-                if (String(path).startsWith(snapshotPath(directory, goal.id))) openCalls += 1;
+                if (dirname(String(path)) === goalDirectory(directory, goal.id)) openCalls += 1;
                 if (openCalls === 1) {
                     throw Object.assign(new Error("temporary open failure"), { code: "EINTR" });
                 }
@@ -943,7 +949,7 @@ test("JsonFileGoalStore overwrites the previous snapshot for the same Goal", asy
             await new JsonFileGoalStore(directory).restore(initial.id),
             latest,
         );
-        assert.equal((await readdir(directory)).filter((name) => name.endsWith(".json")).length, 1);
+        assert.equal((await readdir(directory)).length, 1);
     } finally {
         await rm(directory, { recursive: true, force: true });
     }
@@ -967,9 +973,9 @@ test("JsonFileGoalStore uses a safe encoded filename for arbitrary Goal IDs", as
         await store.save(goal);
 
         assert.deepEqual(await store.restore(goalId), goal);
-        const files = (await readdir(directory)).filter((name) => name.endsWith(".json"));
-        assert.equal(files.length, 1);
-        assert.match(files[0] ?? "", /^[A-Za-z0-9_-]+\.json$/);
+        const directories = await readdir(directory);
+        assert.equal(directories.length, 1);
+        assert.match(directories[0] ?? "", /^[A-Za-z0-9_-]+$/);
     } finally {
         await rm(directory, { recursive: true, force: true });
     }
@@ -1126,8 +1132,9 @@ test("JsonFileGoalStore rejects a damaged formal catalog snapshot", async () => 
     const directory = await mkdtemp(join(tmpdir(), "kai-goal-store-"));
 
     try {
+        await mkdir(goalDirectory(directory, "goal-broken"), { recursive: true });
         await writeFile(
-            join(directory, "broken.json"),
+            snapshotPath(directory, "goal-broken"),
             "{invalid-json",
             "utf8",
         );
@@ -1137,9 +1144,10 @@ test("JsonFileGoalStore rejects a damaged formal catalog snapshot", async () => 
             assertProtocolError,
         );
 
-        await rm(join(directory, "broken.json"), { force: true });
+        await rm(goalDirectory(directory, "goal-broken"), { recursive: true, force: true });
+        await mkdir(goalDirectory(directory, "wrong-name"), { recursive: true });
         await writeFile(
-            join(directory, "wrong-name.json"),
+            snapshotPath(directory, "wrong-name"),
             JSON.stringify(goalSnapshotCodec.encode(
                 createCatalogGoal("goal-valid", "running"),
             )),
@@ -1163,8 +1171,9 @@ test("JsonFileGoalStore.listHistory 跳过无法解码的历史快照并上报�
         await store.save(createCatalogGoal("goal-readable", "running"));
 
         // 旧版本快照：JSON 合法但不符合当前快照协议。
+        await mkdir(goalDirectory(directory, "goal-legacy"), { recursive: true });
         await writeFile(
-            join(directory, `${Buffer.from("goal-legacy", "utf8").toString("base64url")}.json`),
+            snapshotPath(directory, "goal-legacy"),
             JSON.stringify({ id: "goal-legacy", state: { messages: [] } }),
             "utf8",
         );
@@ -1269,6 +1278,7 @@ test("JsonFileGoalStore preserves filesystem errors and cleans failed temp files
         const directory = join(parent, "snapshots");
         await mkdir(directory);
         const goal = createSnapshot("run-io");
+        await mkdir(goalDirectory(directory, goal.id), { recursive: true });
         await mkdir(snapshotPath(directory, goal.id));
         const store = new JsonFileGoalStore(directory);
         let saveError: unknown;
@@ -1285,7 +1295,7 @@ test("JsonFileGoalStore preserves filesystem errors and cleans failed temp files
             INVALID_GOAL_SNAPSHOT_CODE,
         );
         assert.deepEqual(
-            (await readdir(directory)).filter((name) => name.endsWith(".tmp")),
+            (await readdir(goalDirectory(directory, goal.id))).filter((name) => name.endsWith(".tmp")),
             [],
         );
     } finally {
@@ -1501,7 +1511,7 @@ test("JsonFileGoalStore removes its temporary file when exclusive creation fails
             link: async () => { throw new Error("injected link failure"); },
         });
         await assert.rejects(store.createForTrigger("trigger", createSnapshot()), /injected link failure/);
-        assert.deepEqual(await readdir(directory), []);
+        assert.deepEqual(await readdir(goalDirectory(directory, createSnapshot().id)), []);
     } finally { await rm(directory, { recursive: true, force: true }); }
 });
 

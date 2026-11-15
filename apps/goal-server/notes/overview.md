@@ -2,13 +2,25 @@
 
 本机 Web Composition Root，连接 Browser、HTTP、Supervisor、Trigger 持久化与独立 Worker。本文描述当前实现、使用边界与限制；[公开入口](../src/index.ts)。
 
+## 出站代理
+
+[`lazygoal web` 启动入口](../../../bin/lazygoal.cjs) 在 Node.js 子进程启动前解析代理，Web 服务再把同一环境传给新建 Worker。显式 `HTTP_PROXY`、`HTTPS_PROXY` 优先，缺少其中一种时复用另一种。也接受 HTTP(S) URL 形式的 `ALL_PROXY`。macOS 上没有显式代理变量时，从系统设置读取静态 HTTP 和 HTTPS 代理，翻译可用的主机名例外。本机回环地址直接访问，显式 `NO_PROXY` 可指定额外例外。系统代理变更在下次启动时生效。
+
+已配置代理时，Node.js 必须支持 `--use-env-proxy`。启用 PAC、自动发现或只配置 SOCKS 时，通过 `HTTPS_PROXY` 提供显式 HTTP(S) 代理。使用代理的请求在连接失败时返回错误，直连仅适用于无代理设置或命中绕过规则的目标。代理自身的出口路由由代理软件决定。
+
+## Web 服务
+
+Supervisor 保存 Worker 快照后会通知 Web 指标订阅重新读取用量。订阅读取同一 Run 的持久化调用记录，因此 Activity 与 Context 指标可以在页面保持打开时一起更新。
+
 默认 `lazygoal web` 入口把 Goal Board 的创建与控制命令交给 [Trigger Browser Session Port](../src/browser-session-port.ts)。浏览器 Bearer 能力映射为认证 `externalId`；Supervisor 在持久化前校验 Trigger.source 与连接 Actor。所有 Worker-target 消息先经 Supervisor；当前支持的取消、交互与权限决定由 WorkerScheduler 按 Goal 路由，Worker 之间没有直接连接。取消 Trigger 在持久接收前匹配当前 Run，并在路由时复核；过期 Run 保持未路由。`collaboration.requested/result` 仅保留动作标签；payload 与处理行为未定义，Supervisor 不解释额外内容。Supervisor 独占 Goal Store 写入权，并用 SQLite 直接保存不可变 Trigger、独立路由状态和 FIFO 派发队列；重复 Trigger ID 冲突，不回放旧准入结果。Goal Snapshot 发布后，队列插入与 Trigger 路由完成在同一 SQLite 事务提交。启动时清理已排队 Goal 的残留创建意图，并从存储的未路由 work Trigger 继续准入，不等待来源重交；已有冻结 Goal 创建意图优先于当前配置。未冻结的工作在恢复时重新执行模型准入，因为持久化 Actor 不能区分 Browser user 与 external。Worker 重新接管后，Supervisor 还会尝试原样路由当前状态允许的取消、交互、权限决定和 checkpoint resume；交互回答须匹配 Goal、replyTo 与当前等待，并在 Runtime 应用且 Snapshot 保存后标记路由。checkpoint resume 以 replyTo 关联已记录的 lifecycle.exited，并要求显式确认未知副作用。不适用的事件保留未路由，协作 payload 仍不解释。独立 Worker 进程推进获派 Goal，检查点、进度、交互、取消和生命周期报告经 Trigger 与 Supervisor 协调。列表、会话状态及实时流都按 Goal 查询，不把单个活动 Goal 当作全局状态。
 
-Web 创建 work Trigger 前，Supervisor Adapter 将原始文本摘要为简短 `name`；该名称只用于识别，不替代 `{ kind: "text", text }` material。摘要失败或为空时不会持久化 Trigger，同一来源创建命令仍可重试。控制事件使用由程序确定的名称；Trigger 只记录创建时的 `sentAt`，不另存接收或完成时间。
+Web 创建 work Trigger 前，服务端按该命令已解析的 `GoalModelSelection` 构造一次性摘要 Adapter，不修改进程级模型绑定；随后 Supervisor 请求一次纯文本名称摘要。摘要请求使用创建命令的 `goalId` 作为稳定 `sessionId`，OpenCode Go Adapter 据此发送 `x-opencode-session`；不携带结构化输出与工具，输出预算最多 256 token，模型选择包含最大输出容量时取较小值。该名称只用于识别，不替代 `{ kind: "text", text }` material。摘要是 best-effort：空正文、仅 reasoning、Markdown 围栏、超长输出、调用异常或超过默认 5 秒等待上限都回退到由原始意图派生的本地名称（去围栏与引号、折叠空白、截断到 120 字符，全空时为 `New goal`），创建继续并持久化 Trigger。控制事件使用由程序确定的名称；Trigger 只记录创建时的 `sentAt`，不另存接收或完成时间。
 
-浏览器入口支持创建 Goal、结构化交互、停止运行和对明确待恢复记录的恢复。普通后续消息、Steer 与消息队列控制返回不支持；已有运行快照保留原样，不自动接回旧 Runtime 会话，也不因缺少 Worker 恢复记录而重新执行。恢复运行中检查点要求用户明确承认最后动作可能产生了未知外部效果。
+创建失败按原因分类：Worker 注册、进程启动、身份握手或控制通道不可用时返回 `execution_unavailable`（HTTP 503），并在服务端按失败类别记录诊断；准入失败、存储失败与 Worker 明确拒绝构造 Goal 保持 `create_failed`（HTTP 500）。Worker 本机 socket 在注册时按平台 `sun_path` 可用字节上限解析（macOS 103、Linux 107），优先使用仅本人可访问的短私有根 `/tmp/lazygoal-<uid>`，回退到平台临时目录；没有可用路径或根不可复用时按上述通道失败处理，不做静默截断。注册与重新接管复用同一已解析路径。
 
-Worker 遇到 Action 审批时由 [WorkerScheduler](../src/runtime/worker-scheduler.ts) 根据已持久化的 Goal 等待创建权限请求 Trigger。Supervisor 直接调用配置的模型 Adapter，并先核对工具 ID 与实际沙箱范围仍在 Goal 冻结上限内；批准只生成针对当前 Action 的一次性回复。模型失败、输出无效或范围缺失时请求保持待处理并记录失败原因。用户回复与自动回复都要匹配同一请求、Run、Action、提交修订和 Worker generation；Worker Runtime 应用决定后，Scheduler 才原子结算请求与回复。
+浏览器入口支持创建 Goal、结构化交互、停止运行、对明确待恢复记录的恢复，以及手动创建 Goal 在当前 Run 已结算终态后的普通消息续接。续接要求消息绑定该终态 Run 身份，后端重新核对创建来源与结算状态；非手动来源、运行中或仍在结算的 Goal 一律拒绝且不写输入。Steer 与消息队列控制仍返回不支持；已有运行快照保留原样，不自动接回旧 Runtime 会话，也不因缺少 Worker 恢复记录而重新执行。恢复运行中检查点要求用户明确承认最后动作可能产生了未知外部效果。
+
+Worker 遇到越界 Action 时由 [WorkerScheduler](../src/runtime/worker-scheduler.ts) 根据已持久化的 Goal 等待创建权限请求 Trigger，并在决策期读取工作区当前权限档位按边界规则裁决。无人工审阅者的宿主把 `reviewer` 按 `auto_review` 处理：越界命中规则表时保留请求等待人工，其余越界自动放行；`approvals` 为 `never` 或档位读取失败时直接拒绝。裁决只决定是否放行，不改写 Action 输入、路径或网络范围。用户回复与自动回复都要匹配同一请求、Run、Action、提交修订和 Worker generation；Worker Runtime 应用决定后，Scheduler 才原子结算请求与回复。
 
 ## 职责与使用
 
@@ -64,11 +76,11 @@ flowchart LR
 ## 主流程
 
 1. Web 创建命令校验模型选择并提交以 Trigger ID 标识的工作事件。Supervisor 对显式用户工作走确定性 Fast path；其他来源由 Supervisor 模型决定接受或忽略并选择工作区策略，不得改写 Trigger 中的原始工作文本。
-2. 对已接受的工作 Trigger，Worker Runtime 使用原始 material 和自己的 Profile、Prompt Bundle、上下文协议及执行策略构造 Goal。Supervisor 加入来源与授权上限，持久化 Goal Snapshot 后再写入 FIFO Worker 队列、标记原 Trigger 已路由并发布 `response.goal_created`。准入故障保留未路由 Trigger 及失败分类；Goal ID 冲突不会覆盖现有快照。
+2. 对已接受的工作 Trigger，Worker Runtime 使用原始 material 和自己的 Profile、Prompt Bundle、上下文协议及执行策略构造 Goal。Supervisor 加入来源、工作区与工具暴露范围，持久化 Goal Snapshot 后再写入 FIFO Worker 队列、标记原 Trigger 已路由并发布 `response.goal_created`。准入故障保留未路由 Trigger 及失败分类；Goal ID 冲突不会覆盖现有快照。
 3. WorkerScheduler 按派发顺序为 Goal 选择匹配的空闲 Worker，或启动独立进程；不同 Goal 可并行。Supervisor 是 Goal Snapshot 的唯一写入者，Worker Snapshot 经 Supervisor 持久化；Run 的 `running` 进度在对应 Snapshot 保存后发布，`waiting` 与终态响应在 Worker 报告且 Snapshot 核对后发布。所有 Run 响应以 `replyTo` 关联创建该 Goal 的 work Trigger；完成响应的 `answer` 取自已持久化的最终助手答复，失败与取消响应只暴露 `runId`。
 4. 结构化回答、取消、权限请求与恢复决定都绑定 Goal、Run、请求身份及必要的 Worker generation，经 Trigger 往返。取消在接收和路由时核对当前 Run；checkpoint resume 绑定对应的 Worker 退出 Trigger。未知工具副作用只有用户明确确认恢复后才可能重试。
 5. Supervisor 重启时先清理已入队 Goal 的残留创建意图、补发缺失的创建响应，并重试存储中的未路由新 Goal work Trigger；这不依赖来源重新提交。随后核对所有权和存活 Worker、处理离线积压，再尝试路由仍适用于当前 Goal/Worker 状态的已存储控制 Trigger；不凭 PID 或超时重派未知动作，只有确认退出的 Worker 才形成显式恢复记录。
-6. Browser 从 Supervisor 保存的 Goal 与 Trigger 状态构造列表和详情，Goal SSE 初始发送 `state_sync`，后续按提交修订刷新；断线后重新连接会重新读取权威状态。
+6. Browser 从 Supervisor 保存的 Goal 与 Trigger 状态构造列表和详情，窄会话 HTTP 与 Goal SSE 的控制快照由一次 Goal Snapshot 读取投影。Goal SSE 初始发送 `state_sync`，后续按提交修订刷新；断线后重新连接会重新读取权威状态。
 7. Benchmark 仍有自己的 Headless Composition Root；Prompt Evaluation 执行、GEPA 与 Harness2 的优化执行入口明确返回不支持，不回退旧执行链。
 
 `RuntimeComposition.interactions` 暴露无界面宿主的窄交互接入：`attach` 打开 Goal 会话并注册按交互种类分派的处理函数，`read` 只读返回当前等待的类型化视图；两者都不需要 HTTP、进程信号或前端，决定仍经统一 `send` 与既有身份、授权和提交规则受理。注册处理器只做一致同步：连接之前已有的历史等待不会被自动回答，宿主显式 `resume` 发现仍需交互时只解锁该请求并把结果交给已注册的处理函数；同一 Goal 已有自动所有者时第二次连接被明确拒绝，解除句柄不取消 Goal。可运行示例见 [headless-interaction-handlers.ts](../examples/headless-interaction-handlers.ts)（`npx tsx apps/goal-server/examples/headless-interaction-handlers.ts`）。
@@ -89,7 +101,7 @@ Home 与数据目录上装配模型、存储、工具与上下文默认实现，
 `RuntimeLifecycle`，并使用同一 Checkpoint Gate、实例控制器与受理边界。它返回执行与
 控制命令、只读恢复与查询 Port、`manageGoal`、模型选择协调器以及生命周期与资源集合，
 不创建 HTTP 服务、不注册进程信号；`runTrackedOperation` 供宿主把已受理的写操作纳入
-同一关闭结算边界。装配同时注入沙箱计划解析器：仅从已核准的 `effectiveScope` 为当前工作区和 Action 重建进程内执行计划，服务重建后的审批恢复使用同一路径，不重新授权或扩大范围。借用依赖不被接管，装配失败时只结算本层自有的受管资源并保留初始故障。
+同一关闭结算边界。装配同时注入工作区权限档位存储与边界豁免账本，供 Runner 在每个 Action 决策期读取当前档位、Coordinator 暂存与撤销边界豁免；并注入沙箱计划解析器：仅从已核准的 `effectiveScope` 为当前工作区和 Action 重建进程内执行计划，服务重建后的审批恢复使用同一路径，不重新授权或扩大范围。借用依赖不被接管，装配失败时只结算本层自有的受管资源并保留初始故障。
 
 `composition-root.ts` 是无界面装配之上的 HTTP 宿主：创建 HTTP 服务、挂载指标路由与
 浏览器访问控制、追加关闭准入中间件，并构造宿主退出协调器。
@@ -109,7 +121,7 @@ Run 并创建后继 Run。包装层不引入迁移、后继 Run 自动调度或�
 
 Composition Root 构造 `RuntimeLifecycle` 并把实例 Gate、`ManagedResourceRegistry`、实例 AbortController 交付给它；HTTP 关闭后写请求的拒绝继续读取实例控制器信号，不为关闭另建状态。`HostShutdownCoordinator`（[进程退出适配](../src/process-exit.ts)）幂等地并发执行实例关闭与应用资源清理（HTTP 服务），再经 `ExitPort` 请求退出码 130；实例关闭失败或应用清理失败都会上报，但退出请求始终已发出，`ProcessExitPort` 是本应用直接调用 `process.exit` 的唯一实现。CLI 的 SIGINT 与普通退出路径共用该协调器，关闭不完整时记录 `RuntimeLifecycleIncompleteError` 的原因后仍返回 130。
 
-受管进程（`ProcessManager`）与执行流发布者注册在实例注册表中，随实例关闭结算；HTTP 与浏览器连接由应用自己的关闭流程处理，不注册为 Runtime 自有资源。模型与档案写操作（Provider 档案增删改与激活、模型偏好、权限模式、归档与终态删除）通过 `runTrackedOperation` 纳入同一受理与关闭结算边界；进程信号注册与退出决策不进入 Runtime。
+受管进程（`ProcessManager`）与执行流发布者注册在实例注册表中，随实例关闭结算；HTTP 与浏览器连接由应用自己的关闭流程处理，不注册为 Runtime 自有资源。模型与档案写操作（Provider 档案增删改与激活、模型偏好、权限档位、归档与终态删除）通过 `runTrackedOperation` 纳入同一受理与关闭结算边界；进程信号注册与退出决策不进入 Runtime。
 
 ## 受管 Provider 解析
 
@@ -125,10 +137,14 @@ Provider 表单在线查询由 Composition Root 校验供应商和端点规则�
 
 OpenCode Go 在线文本模型按实时模型元数据确认文本生成、工具调用和容量后可选，并统一通过 `llm-pi-ai` 的 Chat Completions 适配路径执行。`GoalModelSelection` 与 Snapshot 保存协议、容量、推理、视觉和工具选择能力；每次恢复按保存数据构造 Adapter，并按已保存的 Profile ID 解析当前 API Key。端点由 `llm-pi-ai` 固定，API Key 与 Base URL 不写入 Goal 状态。上游可能限制部分免费模型只能在 OpenCode 内调用，外部客户端请求可能收到 403。
 
-[Trigger 准入组件](../src/runtime/trigger-admission.ts) 对显式用户工作使用确定性 Fast path；其他来源由 Supervisor 直接调用模型执行 Slow path。准入失败分类随未路由 Trigger 保存，Supervisor 重启时会直接从该事件恢复处理。默认浏览器入口使用该准入路径。
+[Trigger 准入组件](../src/runtime/trigger-admission.ts) 对显式用户工作使用确定性 Fast path；其他来源由 Supervisor 直接调用模型执行 Slow path，OpenCode Go 请求以稳定 Trigger ID 作为 `sessionId`。手动 Web 创建入口在受理时与 Trigger 同事务写入宿主持久来源，Supervisor 重启后以该记录判断创建来源，缺少记录时保守地重新执行模型准入。准入失败分类随未路由 Trigger 保存，Supervisor 重启时会直接从该事件恢复处理。默认浏览器入口使用该准入路径。
 
-[独立 Worker](../src/runtime/worker-process.ts) 以 OS 子进程复用执行 Runtime；Goal 快照经 generation 与持久队列绑定核验后由 Supervisor 保存，等待中的 Goal 保持 Worker 占用。Worker 持久化离线 outbox 与执行检查点；等待、终态和取消确认以绑定 Worker 身份的 `progress` Trigger 持久记录。取消只在 Runtime 中断结算且 Supervisor 保存终态报告后释放进程。
+[独立 Worker](../src/runtime/worker-process.ts) 以 OS 子进程复用执行 Runtime。Goal 快照经 generation 与持久队列绑定核验后由 Supervisor 保存。Worker 将执行检查点和待确认的结果保存在本地 outbox。
 
-[Worker 调度器](../src/runtime/worker-scheduler.ts) 按持久队列顺序认领 Goal，匹配同一授权工作区的空闲 Worker；需要时启动新进程，不为不同 Goal 设并发上限。只有 Runtime 报告终态且队列状态提交后才释放 Worker。
+Worker 推进 Run 或应用交互与权限回复前，从 Supervisor 读取已提交的 Goal 快照，按其中的 `GoalModelSelection` 装配执行模型。断开连接时沿用本地快照。受管档案在绑定前刷新，选择无法解析时拒绝本次执行命令。
+
+对已确认绑定的 Worker，[取消路由](../src/runtime/worker-scheduler.ts)直接派发当前 Run 的取消。正在提交推进或回复命令时，取消等该命令提交后即可发送。原操作槽保留到其结果返回或通信失败。断线且缺少终态证据时，Supervisor 保留持久绑定与未路由 Trigger，供恢复流程核验。
+
+[Worker 调度器](../src/runtime/worker-scheduler.ts) 按持久队列顺序认领 Goal，匹配同一授权工作区的空闲 Worker，需要时启动新进程。等待中的 Goal 保持 Worker 占用。原操作返回、终态 Snapshot 与响应保存、队列提交终态后，Worker 才可复用。取消遇到已完成或失败的 Run 时返回已有终态。
 
 [Goal 工作区管理器](../src/runtime/goal-workspace.ts) 根据准入选择使用共享目录或在干净 Git 项目中创建可恢复的独立 worktree。项目权限身份保持在项目根；合并前需要绑定 Goal、目标分支、head 和变更摘要的用户确认，合并后才清理 worktree。

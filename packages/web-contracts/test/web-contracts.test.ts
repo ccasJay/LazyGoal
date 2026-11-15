@@ -37,9 +37,9 @@ import {
     isProviderProfileActivationResult,
     isOkResponse,
     isPendingAction,
-    isPermissionModeResult,
+    isPermissionExemptionResult,
+    isPermissionProfileResult,
     isRunStatus,
-    isToolGrantResult,
     isTrajectoryDetail,
     isTrajectoryEntry,
     isTrajectoryPage,
@@ -541,6 +541,7 @@ test("isMetricsSnapshot validates metrics", () => {
         throughputMeasuredCalls: 1,
         throughputExcludedCalls: 0,
         tokensPerSecond: 25,
+        contextCapacity: null,
         runs: [],
     };
     assert.equal(isMetricsSnapshot(validMetrics), true);
@@ -1127,10 +1128,19 @@ test("Trajectory、Model Input 与 Metrics 合同保留开放 JSON 与数值边�
     assert.equal(isMetricValues({ ...metrics, stepCount: 1.5 }), false);
 
     const runMetrics = { ...metrics, runId: "run-1" };
-    const snapshot = { goalId: "goal-1", roundCount: 1, ...metrics, contextRemainingPercent: 1, runs: [runMetrics] };
+    const contextUsage = { usedPercent: 0.5, capacityTokens: 200, source: "model", estimated: false };
+    const contextCapacity = { capacityTokens: 200, source: "model" };
+    const snapshot = { goalId: "goal-1", roundCount: 1, ...metrics, contextCapacity, contextUsage, runs: [runMetrics] };
     assert.equal(isMetricsSnapshot(snapshot), true);
-    assert.equal(isMetricsSnapshot({ ...snapshot, contextRemainingPercent: 1.1 }), false);
-    assert.equal(isMetricsSnapshot({ ...snapshot, contextRemainingPercent: -0.1 }), false);
+    assert.equal(isMetricsSnapshot({ ...snapshot, contextUsage: { ...contextUsage, usedPercent: 1.1 } }), false);
+    assert.equal(isMetricsSnapshot({ ...snapshot, contextUsage: { ...contextUsage, usedPercent: -0.1 } }), false);
+    assert.equal(isMetricsSnapshot({ ...snapshot, contextUsage: { ...contextUsage, capacityTokens: 0 } }), false);
+    assert.equal(isMetricsSnapshot({ ...snapshot, contextUsage: { ...contextUsage, source: "user" } }), false);
+    assert.equal(isMetricsSnapshot({ ...snapshot, contextUsage: null }), true);
+    assert.equal(isMetricsSnapshot({ ...snapshot, contextCapacity: null }), false);
+    assert.equal(isMetricsSnapshot({ ...snapshot, contextCapacity: { ...contextCapacity, capacityTokens: 0 } }), false);
+    assert.equal(isMetricsSnapshot({ ...snapshot, contextCapacity: { ...contextCapacity, source: "user" } }), false);
+    assert.equal(isMetricsSnapshot({ ...snapshot, contextCapacity: { ...contextCapacity, capacityTokens: 300 } }), false);
     assert.equal(isMetricsSnapshot({ ...snapshot, runs: [{ ...runMetrics, runId: "" }] }), false);
     assert.equal(isMetricsSnapshot({ ...snapshot, runs: [runMetrics] }), true);
 });
@@ -1180,11 +1190,21 @@ test("Provider、模型与命令结果合同校验嵌套凭据键、声明字段
         }],
     }), true);
 
-    assert.equal(isPermissionModeResult({ ok: true, mode: "yolo", revision: 2, workspaceId: "ws-1" }), true);
-    assert.equal(isPermissionModeResult({ ok: false, error: "unknown" }), false);
-    assert.equal(isPermissionModeResult({ ok: false, error: "conflict", actualRevision: Number.MAX_SAFE_INTEGER + 1 }), false);
-    assert.equal(isToolGrantResult({ ok: false, error: "grant_failed" }), true);
-    assert.equal(isToolGrantResult({ ok: false, error: "unknown" }), false);
+    assert.equal(isPermissionProfileResult({
+        ok: true,
+        profile: { sandbox: "read-only", approvals: "never", reviewer: "user", writableRoots: [] },
+        revision: 2,
+    }), true);
+    assert.equal(isPermissionProfileResult({ ok: false, error: "unknown" }), false);
+    assert.equal(isPermissionProfileResult({ ok: false, error: "conflict", revision: Number.MAX_SAFE_INTEGER + 1 }), false);
+    assert.equal(isPermissionExemptionResult({ ok: false, error: "exemption_failed" }), true);
+    assert.equal(isPermissionExemptionResult({ ok: false, error: "grant_failed" }), false);
+    assert.equal(isPermissionExemptionResult({
+        ok: true,
+        goalId: "g",
+        runId: "r",
+        exemptions: [{ id: "x", scope: "goal", network: "none", extraFiles: [], status: "active" }],
+    }), true);
     assert.equal(isActionDetailsResult({ ok: true, goalId: "g", runId: "r", actionId: "a", toolId: "t", input: () => undefined }), false);
     assert.equal(isAcceptedCommand({ goalId: "g", runId: "r", existing: false }), true);
 });

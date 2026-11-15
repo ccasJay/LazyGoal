@@ -72,22 +72,44 @@ test("统一核验复用各资源现有身份", async (t) => {
     assert.equal(await verifyControlIntent(sessionInput("input-found")), "applied");
     assert.equal(await verifyControlIntent(sessionInput("input-missing")), "not_applied");
 
-    // 权限模式：当前模式一致即已应用；同一 revision 且不一致即未应用。
-    routes.set("/api/project/permission-mode", () => Response.json({ ok: true, mode: "yolo", revision: 3, workspaceId: "ws-1" }));
+    // 权限档位：三轴与目标档位一致即已应用；同一 revision 且不一致即未应用。
+    const workspaceWrite = {
+      sandbox: "workspace-write" as const,
+      approvals: "on-request" as const,
+      reviewer: "auto_review" as const,
+      writableRoots: [] as string[],
+    };
+    routes.set("/api/project/permission-profile", () => Response.json({ ok: true, profile: workspaceWrite, revision: 3 }));
     assert.equal(await verifyControlIntent({
-      kind: "permission_mode", intentId: "permission-1", mode: "yolo", expectedRevision: 2,
+      kind: "permission_profile", intentId: "permission-1", profile: workspaceWrite, expectedRevision: 2,
     }), "applied");
     assert.equal(await verifyControlIntent({
-      kind: "permission_mode", intentId: "permission-2", mode: "default", expectedRevision: 3,
+      kind: "permission_profile", intentId: "permission-2",
+      profile: { ...workspaceWrite, reviewer: "user" }, expectedRevision: 3,
     }), "not_applied");
     assert.equal(await verifyControlIntent({
-      kind: "permission_mode", intentId: "permission-3", mode: "default", expectedRevision: 2,
+      kind: "permission_profile", intentId: "permission-3",
+      profile: { ...workspaceWrite, reviewer: "user" }, expectedRevision: 2,
     }), "unknown");
 
-    // Grant：摘要中不存在即已撤销。
-    routes.set("/api/goals/goal-1/grants", () => Response.json({ ok: true, goalId: "goal-1", runId: "run-1", grants: [] }));
+    // 边界豁免：列表仍存在同 id 且未撤销即未撤销。
+    routes.set("/api/goals/goal-1/exemptions", () => Response.json({
+      ok: true,
+      goalId: "goal-1",
+      runId: "run-1",
+      exemptions: [{
+        id: "exemption-1",
+        scope: "goal",
+        network: "all_outbound",
+        extraFiles: [],
+        status: "active",
+      }],
+    }));
     assert.equal(await verifyControlIntent({
-      kind: "grant_revoke", intentId: "grant-1", goalId: "goal-1", runId: "run-1", grantId: "grant-1", scope: "goal",
+      kind: "exemption_revoke", intentId: "exemption-a", goalId: "goal-1", runId: "run-1", exemptionId: "exemption-1",
+    }), "not_applied");
+    assert.equal(await verifyControlIntent({
+      kind: "exemption_revoke", intentId: "exemption-b", goalId: "goal-1", runId: "run-1", exemptionId: "exemption-2",
     }), "applied");
 
     // Goal：存在即删除未应用，不存在即删除已应用。
@@ -130,7 +152,9 @@ test("核验读取失败返回 unknown，不推断未执行", async (t) => {
     });
     assert.equal(await verifyControlIntent(sessionInput("input-1")), "unknown");
     assert.equal(await verifyControlIntent({
-      kind: "permission_mode", intentId: "permission-1", mode: "yolo", expectedRevision: 1,
+      kind: "permission_profile", intentId: "permission-1",
+      profile: { sandbox: "workspace-write", approvals: "on-request", reviewer: "user", writableRoots: [] },
+      expectedRevision: 1,
     }), "unknown");
   } finally {
     restoreWindow(previous);

@@ -88,12 +88,10 @@ async function fixture(t: TestContext, changes: {
         const inputTokens = callsBefore === 0 ? 12 : 0;
         const missingCalls = callCount - (callsBefore === 0 ? 1 : 0);
         await mkdir(join(instanceDirectory, "goals"), { recursive: true });
-        await mkdir(join(instanceDirectory, "trajectories"), { recursive: true });
-        await mkdir(join(instanceDirectory, "traces"), { recursive: true });
         const persistence = {
             goalSnapshot: `runtime/${supervisorOptions.task.instance_id}/goals`,
-            trajectory: `runtime/${supervisorOptions.task.instance_id}/trajectories`,
-            diagnosticTrace: `runtime/${supervisorOptions.task.instance_id}/traces`,
+            trajectory: `runtime/${supervisorOptions.task.instance_id}/goals`,
+            diagnosticTrace: `runtime/${supervisorOptions.task.instance_id}/goals`,
         };
         if (changes.exportFails) {
             return { stopReason: null, patch: null, patchPath: null, persistence,
@@ -116,7 +114,7 @@ async function fixture(t: TestContext, changes: {
 }
 
 async function latestObservation(output: string, instanceId: string): Promise<number | undefined> {
-    const directory = join(output, "runtime", Buffer.from("swebench").toString("base64url"), Buffer.from(instanceId).toString("base64url"), "trajectories");
+    const directory = join(output, "runtime", Buffer.from("swebench").toString("base64url"), Buffer.from(instanceId).toString("base64url"), "goals");
     const files = await readdir(directory, { recursive: true });
     for (const file of files.filter((file) => file.endsWith(".jsonl"))) {
         const events = (await readFile(join(directory, file), "utf8")).trim().split("\n").map((line) => JSON.parse(line));

@@ -11,6 +11,7 @@ import { test } from "node:test";
 
 import {
     AgentProfileConfigurationError,
+    goalSnapshotPath,
     JsonFileAgentProfileStore,
     JsonFileGoalStore,
 } from "../src/index";
@@ -204,7 +205,7 @@ test("loaded Profile metadata survives Goal snapshot persistence", async () => {
     assert.equal(restored?.definition.profile.description, defaultProfile.description);
 
     const files = await readFile(
-        join(goalsDirectory, `${Buffer.from(goal.id).toString("base64url")}.json`),
+        goalSnapshotPath(goalsDirectory, goal.id),
         "utf8",
     );
     const snapshot = JSON.parse(files) as {

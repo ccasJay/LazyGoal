@@ -3,8 +3,8 @@
   "version": 1,
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
-    "path": "packages/web-contracts/src/wire.ts#BrowserGoalSessionStateEnvelope,BrowserGoalSessionState,BrowserRunStatus,BrowserSessionRunTerminalDetail,BrowserPlanRoute,BrowserPlanRouteStageState,BrowserGoalExecution,BrowserExecutionState,BrowserPendingSteer,BrowserPendingMessage,BrowserQueueState,BrowserInterruption,BrowserGoalPlan,BrowserGoalPlanItem,BrowserInteractionView,BrowserInteractionKind,BrowserInteractionDecision,BrowserPendingAction,BrowserSandboxReview,BrowserToolGrantExtraFile,BrowserParentProgram,BrowserActivityHistoryMarker,BrowserSessionState,BrowserSessionStateInteraction,BrowserSessionStateMessage,BrowserMessagePosition,BrowserSessionStateInterruption",
-    "sha256": "80bc79c4463069586b9f36e5b1216b26eb0adb4dc0924b08659382f5474a0dc5"
+    "path": "packages/web-contracts/src/wire.ts#BrowserGoalSessionStateEnvelope,BrowserGoalSessionState,BrowserRunStatus,BrowserSessionRunTerminalDetail,BrowserPlanRoute,BrowserPlanRouteStageState,BrowserGoalExecution,BrowserGoalContinuation,BrowserExecutionState,BrowserPendingSteer,BrowserPendingMessage,BrowserQueueState,BrowserInterruption,BrowserGoalPlan,BrowserGoalPlanItem,BrowserInteractionView,BrowserInteractionKind,BrowserInteractionDecision,BrowserPendingAction,BrowserSandboxReview,BrowserPermissionExtraFile,BrowserParentProgram,BrowserActivityHistoryMarker,BrowserSessionState,BrowserSessionStateInteraction,BrowserSessionStateMessage,BrowserMessagePosition,BrowserSessionStateInterruption",
+    "sha256": "b6e0e10fa7532a2668e1a5db101909082568c57af87a35fca2777fdad4967a1d"
   },
   "generator": {
     "name": "ts-json-schema-generator",

@@ -309,27 +309,25 @@ export class GaiaEnvironmentSpec
             ...(this.runId === undefined ? [] : [encodeIdentifier(this.runId)]),
         );
 
-        const copied: Partial<Record<"goals" | "trajectories" | "traces", string>> = {};
+        const copied: Partial<Record<"goals", string>> = {};
         await mkdir(runtimeRoot, { recursive: true });
 
-        for (const kind of ["goals", "trajectories", "traces"] as const) {
-            try {
-                const target = join(runtimeRoot, kind);
-                copied[kind] = await env.copyOut(
-                    `/opt/lazygoal/state/${benchmarkKey}/${taskKey}/${kind}`,
-                    target,
-                );
-                await access(copied[kind]);
-            } catch {
-                // 持久化文件在未启用状态或异常时可能缺失，不阻塞整体流程
-            }
+        try {
+            const target = join(runtimeRoot, "goals");
+            copied.goals = await env.copyOut(
+                `/opt/lazygoal/state/${benchmarkKey}/${taskKey}/goals`,
+                target,
+            );
+            await access(copied.goals);
+        } catch {
+            // 持久化文件在未启用状态或异常时可能缺失，不阻塞整体流程
         }
 
         if (copied.goals !== undefined) {
             persistence = {
                 goalSnapshot: relative(output, copied.goals),
-                trajectory: relative(output, copied.trajectories ?? copied.goals),
-                ...(copied.traces === undefined ? {} : { diagnosticTrace: relative(output, copied.traces) }),
+                trajectory: relative(output, copied.goals),
+                diagnosticTrace: relative(output, copied.goals),
             };
         }
 

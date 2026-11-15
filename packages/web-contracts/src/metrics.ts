@@ -8,5 +8,7 @@
 export type {
     MetricsCoverage,
     RunSessionMetrics,
+    SessionMetricsContextCapacity,
+    SessionMetricsContextUsage,
     SessionMetricsSnapshot,
 } from "./wire";

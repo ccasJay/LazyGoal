@@ -14,10 +14,10 @@ var require_BrowserControlReceipt_validator = __commonJS({
     module.exports.default = validate10;
     var schema12 = { "anyOf": [{ "type": "object", "properties": { "intentId": { "type": "string" }, "status": { "type": "string", "enum": ["accepted", "existing"] }, "result": { "$ref": "#/definitions/BrowserControlIntentResult" } }, "required": ["intentId", "status", "result"], "additionalProperties": false }, { "type": "object", "properties": { "intentId": { "type": "string" }, "status": { "type": "string", "const": "rejected" }, "error": { "type": "string" }, "refresh": { "type": "boolean" }, "actualRevision": { "type": "integer", "maximum": 9007199254740991 } }, "required": ["intentId", "status", "error"], "additionalProperties": false }, { "type": "object", "properties": { "intentId": { "type": "string" }, "status": { "type": "string", "const": "unknown" } }, "required": ["intentId", "status"], "additionalProperties": false }], "description": "\u63A7\u5236\u547D\u4EE4\u7684\u53D7\u7406\u6536\u636E\uFF1B\u53EA\u8868\u8FBE\u53D7\u7406\u7ED3\u679C\uFF0C\u4E0D\u8868\u8FBE Runtime \u4E8B\u5B9E\u3002" };
     var schema20 = { "anyOf": [{ "type": "object", "properties": { "ok": { "type": "boolean", "const": true }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "existing": { "type": "boolean" } }, "required": ["ok", "goalId", "runId", "existing"], "additionalProperties": false }, { "type": "object", "properties": { "ok": { "type": "boolean", "const": false }, "error": { "type": "string", "enum": ["goal_not_found", "stale_run", "goal_busy", "plan_mode_busy", "plan_mode_failed", "service_shutting_down"] } }, "required": ["ok", "error"], "additionalProperties": false }], "description": "\u5207\u6362\u8BA1\u5212\u6A21\u5F0F\u7ED3\u679C\u3002" };
-    var schema14 = { "anyOf": [{ "type": "object", "properties": { "ok": { "type": "boolean", "const": true }, "existing": { "type": "boolean" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "receipt": { "$ref": "#/definitions/BrowserSessionInputReceipt" } }, "required": ["ok", "existing", "goalId", "runId", "receipt"], "additionalProperties": false }, { "type": "object", "properties": { "ok": { "type": "boolean", "const": false }, "error": { "type": "string", "enum": ["goal_id_conflict", "input_conflict", "goal_busy", "model_not_selectable", "model_catalog_unavailable", "profile_not_found", "invalid_goal_input", "goal_unreadable", "service_shutting_down", "create_failed"] } }, "required": ["ok", "error"], "additionalProperties": false }], "description": "\u521B\u5EFA Session \u7684 wire \u7ED3\u679C\u3002" };
+    var schema14 = { "anyOf": [{ "type": "object", "properties": { "ok": { "type": "boolean", "const": true }, "existing": { "type": "boolean" }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "receipt": { "$ref": "#/definitions/BrowserSessionInputReceipt" } }, "required": ["ok", "existing", "goalId", "runId", "receipt"], "additionalProperties": false }, { "type": "object", "properties": { "ok": { "type": "boolean", "const": false }, "error": { "type": "string", "enum": ["goal_id_conflict", "input_conflict", "goal_busy", "model_not_selectable", "model_catalog_unavailable", "profile_not_found", "invalid_goal_input", "goal_unreadable", "service_shutting_down", "execution_unavailable", "create_failed"] } }, "required": ["ok", "error"], "additionalProperties": false }], "description": "\u521B\u5EFA Session \u7684 wire \u7ED3\u679C\u3002" };
     var pattern0 = new RegExp("\\S", "u");
     var schema15 = { "type": "object", "properties": { "goalId": { "type": "string", "pattern": "\\S" }, "inputId": { "type": "string", "pattern": "\\S" }, "kind": { "$ref": "#/definitions/BrowserSessionInputKind" }, "sequence": { "type": "integer", "maximum": 9007199254740991, "minimum": 1 }, "status": { "$ref": "#/definitions/BrowserSessionInputStatus" }, "admittedAtRevision": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 }, "targetRunId": { "type": "string", "pattern": "\\S" }, "appliedRunId": { "type": "string", "pattern": "\\S" }, "messageIndex": { "type": "integer", "maximum": 9007199254740991, "minimum": 0 } }, "required": ["goalId", "inputId", "kind", "sequence", "status", "admittedAtRevision"], "additionalProperties": false, "description": "\u4E00\u6761\u5DF2\u6301\u4E45\u5316\u8F93\u5165\u7684\u53D7\u7406\u6536\u636E\u6295\u5F71\u3002" };
-    var schema16 = { "type": "string", "enum": ["message", "steer", "interrupt", "respond", "resume", "queue_control"], "description": "\u4F1A\u8BDD\u8F93\u5165\u79CD\u7C7B\u3002" };
+    var schema16 = { "type": "string", "enum": ["message", "steer", "interrupt", "respond", "resume", "queue_control", "compact"], "description": "\u4F1A\u8BDD\u8F93\u5165\u79CD\u7C7B\u3002" };
     var schema17 = { "type": "string", "enum": ["pending", "applied", "cleared"], "description": "\u8F93\u5165\u8D26\u672C\u4E2D\u7684\u53D7\u7406\u72B6\u6001\u3002" };
     var func2 = Object.prototype.hasOwnProperty;
     function validate14(data, { instancePath = "", parentData, parentDataProperty, rootData = data } = {}) {
@@ -144,7 +144,7 @@ var require_BrowserControlReceipt_validator = __commonJS({
             }
             errors++;
           }
-          if (!(data2 === "message" || data2 === "steer" || data2 === "interrupt" || data2 === "respond" || data2 === "resume" || data2 === "queue_control")) {
+          if (!(data2 === "message" || data2 === "steer" || data2 === "interrupt" || data2 === "respond" || data2 === "resume" || data2 === "queue_control" || data2 === "compact")) {
             const err12 = { instancePath: instancePath + "/kind", schemaPath: "#/definitions/BrowserSessionInputKind/enum", keyword: "enum", params: { allowedValues: schema16.enum }, message: "must be equal to one of the allowed values" };
             if (vErrors === null) {
               vErrors = [err12];
@@ -547,7 +547,7 @@ var require_BrowserControlReceipt_validator = __commonJS({
               }
               errors++;
             }
-            if (!(data6 === "goal_id_conflict" || data6 === "input_conflict" || data6 === "goal_busy" || data6 === "model_not_selectable" || data6 === "model_catalog_unavailable" || data6 === "profile_not_found" || data6 === "invalid_goal_input" || data6 === "goal_unreadable" || data6 === "service_shutting_down" || data6 === "create_failed")) {
+            if (!(data6 === "goal_id_conflict" || data6 === "input_conflict" || data6 === "goal_busy" || data6 === "model_not_selectable" || data6 === "model_catalog_unavailable" || data6 === "profile_not_found" || data6 === "invalid_goal_input" || data6 === "goal_unreadable" || data6 === "service_shutting_down" || data6 === "execution_unavailable" || data6 === "create_failed")) {
               const err20 = { instancePath: instancePath + "/error", schemaPath: "#/anyOf/1/properties/error/enum", keyword: "enum", params: { allowedValues: schema14.anyOf[1].properties.error.enum }, message: "must be equal to one of the allowed values" };
               if (vErrors === null) {
                 vErrors = [err20];
@@ -590,7 +590,7 @@ var require_BrowserControlReceipt_validator = __commonJS({
       validate13.errors = vErrors;
       return errors === 0;
     }
-    var schema19 = { "type": "string", "enum": ["INVALID_INPUT", "INPUT_CONFLICT", "INPUT_NOT_FOUND", "GOAL_NOT_FOUND", "BUSY", "STEER_CONFLICT", "INTERRUPT_CONFLICT", "STALE_REVISION", "INTERACTION_MISMATCH", "INTERACTION_REQUIRED", "QUEUE_PAUSED", "RUN_NOT_RESUMABLE", "QUEUE_FULL", "QUEUE_TEXT_TOO_LARGE", "TEXT_TOO_LARGE", "QUEUE_NOT_PAUSED", "QUEUE_REVISION_MISMATCH", "QUEUED_MESSAGE_NOT_FOUND", "RUN_NOT_FOUND", "RUN_NOT_RUNNING", "RUN_CONTROL_UNAVAILABLE", "input_admission_failed", "session_unavailable"], "description": "\u8F93\u5165\u53D7\u7406\u4E0E\u67E5\u8BE2\u7684\u7A33\u5B9A wire \u62D2\u7EDD\u4EE3\u7801\u3002" };
+    var schema19 = { "type": "string", "enum": ["INVALID_INPUT", "INPUT_CONFLICT", "INPUT_NOT_FOUND", "GOAL_NOT_FOUND", "BUSY", "STEER_CONFLICT", "INTERRUPT_CONFLICT", "STALE_REVISION", "INTERACTION_MISMATCH", "INTERACTION_REQUIRED", "QUEUE_PAUSED", "RUN_NOT_RESUMABLE", "QUEUE_FULL", "QUEUE_TEXT_TOO_LARGE", "TEXT_TOO_LARGE", "QUEUE_NOT_PAUSED", "QUEUE_REVISION_MISMATCH", "QUEUED_MESSAGE_NOT_FOUND", "RUN_NOT_FOUND", "RUN_NOT_RUNNING", "CONTINUATION_UNAVAILABLE", "RUN_CONTROL_UNAVAILABLE", "CONTEXT_COMPACTION_UNAVAILABLE", "input_admission_failed", "session_unavailable"], "description": "\u8F93\u5165\u53D7\u7406\u4E0E\u67E5\u8BE2\u7684\u7A33\u5B9A wire \u62D2\u7EDD\u4EE3\u7801\u3002" };
     function validate17(data, { instancePath = "", parentData, parentDataProperty, rootData = data } = {}) {
       let vErrors = null;
       let errors = 0;
@@ -749,7 +749,7 @@ var require_BrowserControlReceipt_validator = __commonJS({
               }
               errors++;
             }
-            if (!(data4 === "INVALID_INPUT" || data4 === "INPUT_CONFLICT" || data4 === "INPUT_NOT_FOUND" || data4 === "GOAL_NOT_FOUND" || data4 === "BUSY" || data4 === "STEER_CONFLICT" || data4 === "INTERRUPT_CONFLICT" || data4 === "STALE_REVISION" || data4 === "INTERACTION_MISMATCH" || data4 === "INTERACTION_REQUIRED" || data4 === "QUEUE_PAUSED" || data4 === "RUN_NOT_RESUMABLE" || data4 === "QUEUE_FULL" || data4 === "QUEUE_TEXT_TOO_LARGE" || data4 === "TEXT_TOO_LARGE" || data4 === "QUEUE_NOT_PAUSED" || data4 === "QUEUE_REVISION_MISMATCH" || data4 === "QUEUED_MESSAGE_NOT_FOUND" || data4 === "RUN_NOT_FOUND" || data4 === "RUN_NOT_RUNNING" || data4 === "RUN_CONTROL_UNAVAILABLE" || data4 === "input_admission_failed" || data4 === "session_unavailable")) {
+            if (!(data4 === "INVALID_INPUT" || data4 === "INPUT_CONFLICT" || data4 === "INPUT_NOT_FOUND" || data4 === "GOAL_NOT_FOUND" || data4 === "BUSY" || data4 === "STEER_CONFLICT" || data4 === "INTERRUPT_CONFLICT" || data4 === "STALE_REVISION" || data4 === "INTERACTION_MISMATCH" || data4 === "INTERACTION_REQUIRED" || data4 === "QUEUE_PAUSED" || data4 === "RUN_NOT_RESUMABLE" || data4 === "QUEUE_FULL" || data4 === "QUEUE_TEXT_TOO_LARGE" || data4 === "TEXT_TOO_LARGE" || data4 === "QUEUE_NOT_PAUSED" || data4 === "QUEUE_REVISION_MISMATCH" || data4 === "QUEUED_MESSAGE_NOT_FOUND" || data4 === "RUN_NOT_FOUND" || data4 === "RUN_NOT_RUNNING" || data4 === "CONTINUATION_UNAVAILABLE" || data4 === "RUN_CONTROL_UNAVAILABLE" || data4 === "CONTEXT_COMPACTION_UNAVAILABLE" || data4 === "input_admission_failed" || data4 === "session_unavailable")) {
               const err14 = { instancePath: instancePath + "/error", schemaPath: "#/definitions/BrowserSessionInputErrorCode/enum", keyword: "enum", params: { allowedValues: schema19.enum }, message: "must be equal to one of the allowed values" };
               if (vErrors === null) {
                 vErrors = [err14];
@@ -1270,8 +1270,8 @@ var require_BrowserControlReceipt_validator = __commonJS({
       validate20.errors = vErrors;
       return errors === 0;
     }
-    var schema24 = { "anyOf": [{ "type": "object", "properties": { "ok": { "type": "boolean", "const": true }, "mode": { "$ref": "#/definitions/BrowserPermissionMode" }, "revision": { "type": "integer", "maximum": 9007199254740991 }, "workspaceId": { "type": "string", "pattern": "\\S" } }, "required": ["ok", "mode", "revision", "workspaceId"], "additionalProperties": false }, { "type": "object", "properties": { "ok": { "type": "boolean", "const": false }, "error": { "type": "string", "enum": ["permissions_unavailable", "conflict", "service_shutting_down"] }, "actualRevision": { "type": "integer", "maximum": 9007199254740991 } }, "required": ["ok", "error"], "additionalProperties": false }], "description": "\u6743\u9650\u6A21\u5F0F\u53D8\u66F4\u7ED3\u679C\u3002" };
-    var schema25 = { "type": "string", "enum": ["default", "yolo"], "description": "\u9879\u76EE\u6743\u9650\u6A21\u5F0F\u3002" };
+    var schema24 = { "anyOf": [{ "type": "object", "properties": { "ok": { "type": "boolean", "const": true }, "profile": { "$ref": "#/definitions/BrowserPermissionProfile" }, "revision": { "type": "integer", "maximum": 9007199254740991 } }, "required": ["ok", "profile", "revision"], "additionalProperties": false }, { "type": "object", "properties": { "ok": { "type": "boolean", "const": false }, "error": { "type": "string", "enum": ["permissions_unavailable", "conflict", "service_shutting_down"] }, "profile": { "$ref": "#/definitions/BrowserPermissionProfile", "description": "\u51B2\u7A81\u65F6\u5F53\u524D\u5DF2\u6301\u4E45\u5316\u7684\u6863\u4F4D\u3002" }, "revision": { "type": "integer", "description": "\u51B2\u7A81\u65F6\u5F53\u524D\u5DF2\u6301\u4E45\u5316\u7684\u7248\u672C\u3002", "maximum": 9007199254740991 } }, "required": ["ok", "error"], "additionalProperties": false }], "description": "\u6743\u9650\u6863\u4F4D\u67E5\u8BE2\u6216\u8BBE\u7F6E\u7ED3\u679C\u3002" };
+    var schema25 = { "type": "object", "properties": { "sandbox": { "type": "string", "enum": ["read-only", "workspace-write", "danger-full-access"] }, "approvals": { "type": "string", "enum": ["on-request", "never"] }, "reviewer": { "type": "string", "enum": ["user", "auto_review"] }, "writableRoots": { "type": "array", "items": { "type": "string" }, "description": "\u5DE5\u4F5C\u533A\u6811\u4E4B\u5916\u989D\u5916\u5141\u8BB8\u8BFB\u5199\u7684\u5DE5\u4F5C\u533A\u5916\u6839\u76EE\u5F55\uFF0C\u5143\u7D20\u4E3A\u7EDD\u5BF9\u8DEF\u5F84\u3002" } }, "required": ["sandbox", "approvals", "reviewer", "writableRoots"], "additionalProperties": false, "description": "\u5DE5\u4F5C\u533A\u6743\u9650\u6863\u4F4D\u7684 wire \u5F62\u72B6\u3002" };
     function validate22(data, { instancePath = "", parentData, parentDataProperty, rootData = data } = {}) {
       let vErrors = null;
       let errors = 0;
@@ -1288,8 +1288,8 @@ var require_BrowserControlReceipt_validator = __commonJS({
           }
           errors++;
         }
-        if (data.mode === void 0) {
-          const err1 = { instancePath, schemaPath: "#/anyOf/0/required", keyword: "required", params: { missingProperty: "mode" }, message: "must have required property 'mode'" };
+        if (data.profile === void 0) {
+          const err1 = { instancePath, schemaPath: "#/anyOf/0/required", keyword: "required", params: { missingProperty: "profile" }, message: "must have required property 'profile'" };
           if (vErrors === null) {
             vErrors = [err1];
           } else {
@@ -1306,22 +1306,13 @@ var require_BrowserControlReceipt_validator = __commonJS({
           }
           errors++;
         }
-        if (data.workspaceId === void 0) {
-          const err3 = { instancePath, schemaPath: "#/anyOf/0/required", keyword: "required", params: { missingProperty: "workspaceId" }, message: "must have required property 'workspaceId'" };
-          if (vErrors === null) {
-            vErrors = [err3];
-          } else {
-            vErrors.push(err3);
-          }
-          errors++;
-        }
         for (const key0 in data) {
-          if (!(key0 === "ok" || key0 === "mode" || key0 === "revision" || key0 === "workspaceId")) {
-            const err4 = { instancePath, schemaPath: "#/anyOf/0/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key0 }, message: "must NOT have additional properties" };
+          if (!(key0 === "ok" || key0 === "profile" || key0 === "revision")) {
+            const err3 = { instancePath, schemaPath: "#/anyOf/0/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key0 }, message: "must NOT have additional properties" };
             if (vErrors === null) {
-              vErrors = [err4];
+              vErrors = [err3];
             } else {
-              vErrors.push(err4);
+              vErrors.push(err3);
             }
             errors++;
           }
@@ -1329,7 +1320,16 @@ var require_BrowserControlReceipt_validator = __commonJS({
         if (data.ok !== void 0) {
           let data0 = data.ok;
           if (typeof data0 !== "boolean") {
-            const err5 = { instancePath: instancePath + "/ok", schemaPath: "#/anyOf/0/properties/ok/type", keyword: "type", params: { type: "boolean" }, message: "must be boolean" };
+            const err4 = { instancePath: instancePath + "/ok", schemaPath: "#/anyOf/0/properties/ok/type", keyword: "type", params: { type: "boolean" }, message: "must be boolean" };
+            if (vErrors === null) {
+              vErrors = [err4];
+            } else {
+              vErrors.push(err4);
+            }
+            errors++;
+          }
+          if (true !== data0) {
+            const err5 = { instancePath: instancePath + "/ok", schemaPath: "#/anyOf/0/properties/ok/const", keyword: "const", params: { allowedValue: true }, message: "must be equal to constant" };
             if (vErrors === null) {
               vErrors = [err5];
             } else {
@@ -1337,171 +1337,169 @@ var require_BrowserControlReceipt_validator = __commonJS({
             }
             errors++;
           }
-          if (true !== data0) {
-            const err6 = { instancePath: instancePath + "/ok", schemaPath: "#/anyOf/0/properties/ok/const", keyword: "const", params: { allowedValue: true }, message: "must be equal to constant" };
-            if (vErrors === null) {
-              vErrors = [err6];
-            } else {
-              vErrors.push(err6);
-            }
-            errors++;
-          }
         }
-        if (data.mode !== void 0) {
-          let data1 = data.mode;
-          if (typeof data1 !== "string") {
-            const err7 = { instancePath: instancePath + "/mode", schemaPath: "#/definitions/BrowserPermissionMode/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-            if (vErrors === null) {
-              vErrors = [err7];
-            } else {
-              vErrors.push(err7);
+        if (data.profile !== void 0) {
+          let data1 = data.profile;
+          if (data1 && typeof data1 == "object" && !Array.isArray(data1)) {
+            if (data1.sandbox === void 0) {
+              const err6 = { instancePath: instancePath + "/profile", schemaPath: "#/definitions/BrowserPermissionProfile/required", keyword: "required", params: { missingProperty: "sandbox" }, message: "must have required property 'sandbox'" };
+              if (vErrors === null) {
+                vErrors = [err6];
+              } else {
+                vErrors.push(err6);
+              }
+              errors++;
             }
-            errors++;
-          }
-          if (!(data1 === "default" || data1 === "yolo")) {
-            const err8 = { instancePath: instancePath + "/mode", schemaPath: "#/definitions/BrowserPermissionMode/enum", keyword: "enum", params: { allowedValues: schema25.enum }, message: "must be equal to one of the allowed values" };
+            if (data1.approvals === void 0) {
+              const err7 = { instancePath: instancePath + "/profile", schemaPath: "#/definitions/BrowserPermissionProfile/required", keyword: "required", params: { missingProperty: "approvals" }, message: "must have required property 'approvals'" };
+              if (vErrors === null) {
+                vErrors = [err7];
+              } else {
+                vErrors.push(err7);
+              }
+              errors++;
+            }
+            if (data1.reviewer === void 0) {
+              const err8 = { instancePath: instancePath + "/profile", schemaPath: "#/definitions/BrowserPermissionProfile/required", keyword: "required", params: { missingProperty: "reviewer" }, message: "must have required property 'reviewer'" };
+              if (vErrors === null) {
+                vErrors = [err8];
+              } else {
+                vErrors.push(err8);
+              }
+              errors++;
+            }
+            if (data1.writableRoots === void 0) {
+              const err9 = { instancePath: instancePath + "/profile", schemaPath: "#/definitions/BrowserPermissionProfile/required", keyword: "required", params: { missingProperty: "writableRoots" }, message: "must have required property 'writableRoots'" };
+              if (vErrors === null) {
+                vErrors = [err9];
+              } else {
+                vErrors.push(err9);
+              }
+              errors++;
+            }
+            for (const key1 in data1) {
+              if (!(key1 === "sandbox" || key1 === "approvals" || key1 === "reviewer" || key1 === "writableRoots")) {
+                const err10 = { instancePath: instancePath + "/profile", schemaPath: "#/definitions/BrowserPermissionProfile/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key1 }, message: "must NOT have additional properties" };
+                if (vErrors === null) {
+                  vErrors = [err10];
+                } else {
+                  vErrors.push(err10);
+                }
+                errors++;
+              }
+            }
+            if (data1.sandbox !== void 0) {
+              let data2 = data1.sandbox;
+              if (typeof data2 !== "string") {
+                const err11 = { instancePath: instancePath + "/profile/sandbox", schemaPath: "#/definitions/BrowserPermissionProfile/properties/sandbox/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                if (vErrors === null) {
+                  vErrors = [err11];
+                } else {
+                  vErrors.push(err11);
+                }
+                errors++;
+              }
+              if (!(data2 === "read-only" || data2 === "workspace-write" || data2 === "danger-full-access")) {
+                const err12 = { instancePath: instancePath + "/profile/sandbox", schemaPath: "#/definitions/BrowserPermissionProfile/properties/sandbox/enum", keyword: "enum", params: { allowedValues: schema25.properties.sandbox.enum }, message: "must be equal to one of the allowed values" };
+                if (vErrors === null) {
+                  vErrors = [err12];
+                } else {
+                  vErrors.push(err12);
+                }
+                errors++;
+              }
+            }
+            if (data1.approvals !== void 0) {
+              let data3 = data1.approvals;
+              if (typeof data3 !== "string") {
+                const err13 = { instancePath: instancePath + "/profile/approvals", schemaPath: "#/definitions/BrowserPermissionProfile/properties/approvals/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                if (vErrors === null) {
+                  vErrors = [err13];
+                } else {
+                  vErrors.push(err13);
+                }
+                errors++;
+              }
+              if (!(data3 === "on-request" || data3 === "never")) {
+                const err14 = { instancePath: instancePath + "/profile/approvals", schemaPath: "#/definitions/BrowserPermissionProfile/properties/approvals/enum", keyword: "enum", params: { allowedValues: schema25.properties.approvals.enum }, message: "must be equal to one of the allowed values" };
+                if (vErrors === null) {
+                  vErrors = [err14];
+                } else {
+                  vErrors.push(err14);
+                }
+                errors++;
+              }
+            }
+            if (data1.reviewer !== void 0) {
+              let data4 = data1.reviewer;
+              if (typeof data4 !== "string") {
+                const err15 = { instancePath: instancePath + "/profile/reviewer", schemaPath: "#/definitions/BrowserPermissionProfile/properties/reviewer/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                if (vErrors === null) {
+                  vErrors = [err15];
+                } else {
+                  vErrors.push(err15);
+                }
+                errors++;
+              }
+              if (!(data4 === "user" || data4 === "auto_review")) {
+                const err16 = { instancePath: instancePath + "/profile/reviewer", schemaPath: "#/definitions/BrowserPermissionProfile/properties/reviewer/enum", keyword: "enum", params: { allowedValues: schema25.properties.reviewer.enum }, message: "must be equal to one of the allowed values" };
+                if (vErrors === null) {
+                  vErrors = [err16];
+                } else {
+                  vErrors.push(err16);
+                }
+                errors++;
+              }
+            }
+            if (data1.writableRoots !== void 0) {
+              let data5 = data1.writableRoots;
+              if (Array.isArray(data5)) {
+                const len0 = data5.length;
+                for (let i0 = 0; i0 < len0; i0++) {
+                  if (typeof data5[i0] !== "string") {
+                    const err17 = { instancePath: instancePath + "/profile/writableRoots/" + i0, schemaPath: "#/definitions/BrowserPermissionProfile/properties/writableRoots/items/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    if (vErrors === null) {
+                      vErrors = [err17];
+                    } else {
+                      vErrors.push(err17);
+                    }
+                    errors++;
+                  }
+                }
+              } else {
+                const err18 = { instancePath: instancePath + "/profile/writableRoots", schemaPath: "#/definitions/BrowserPermissionProfile/properties/writableRoots/type", keyword: "type", params: { type: "array" }, message: "must be array" };
+                if (vErrors === null) {
+                  vErrors = [err18];
+                } else {
+                  vErrors.push(err18);
+                }
+                errors++;
+              }
+            }
+          } else {
+            const err19 = { instancePath: instancePath + "/profile", schemaPath: "#/definitions/BrowserPermissionProfile/type", keyword: "type", params: { type: "object" }, message: "must be object" };
             if (vErrors === null) {
-              vErrors = [err8];
+              vErrors = [err19];
             } else {
-              vErrors.push(err8);
+              vErrors.push(err19);
             }
             errors++;
           }
         }
         if (data.revision !== void 0) {
-          let data2 = data.revision;
-          if (!(typeof data2 == "number" && (!(data2 % 1) && !isNaN(data2)) && isFinite(data2))) {
-            const err9 = { instancePath: instancePath + "/revision", schemaPath: "#/anyOf/0/properties/revision/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
+          let data7 = data.revision;
+          if (!(typeof data7 == "number" && (!(data7 % 1) && !isNaN(data7)) && isFinite(data7))) {
+            const err20 = { instancePath: instancePath + "/revision", schemaPath: "#/anyOf/0/properties/revision/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
             if (vErrors === null) {
-              vErrors = [err9];
+              vErrors = [err20];
             } else {
-              vErrors.push(err9);
+              vErrors.push(err20);
             }
             errors++;
           }
-          if (typeof data2 == "number" && isFinite(data2)) {
-            if (data2 > 9007199254740991 || isNaN(data2)) {
-              const err10 = { instancePath: instancePath + "/revision", schemaPath: "#/anyOf/0/properties/revision/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
-              if (vErrors === null) {
-                vErrors = [err10];
-              } else {
-                vErrors.push(err10);
-              }
-              errors++;
-            }
-          }
-        }
-        if (data.workspaceId !== void 0) {
-          let data3 = data.workspaceId;
-          if (typeof data3 === "string") {
-            if (!pattern0.test(data3)) {
-              const err11 = { instancePath: instancePath + "/workspaceId", schemaPath: "#/anyOf/0/properties/workspaceId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
-              if (vErrors === null) {
-                vErrors = [err11];
-              } else {
-                vErrors.push(err11);
-              }
-              errors++;
-            }
-          } else {
-            const err12 = { instancePath: instancePath + "/workspaceId", schemaPath: "#/anyOf/0/properties/workspaceId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-            if (vErrors === null) {
-              vErrors = [err12];
-            } else {
-              vErrors.push(err12);
-            }
-            errors++;
-          }
-        }
-      } else {
-        const err13 = { instancePath, schemaPath: "#/anyOf/0/type", keyword: "type", params: { type: "object" }, message: "must be object" };
-        if (vErrors === null) {
-          vErrors = [err13];
-        } else {
-          vErrors.push(err13);
-        }
-        errors++;
-      }
-      var _valid0 = _errs1 === errors;
-      valid0 = valid0 || _valid0;
-      if (!valid0) {
-        const _errs13 = errors;
-        if (data && typeof data == "object" && !Array.isArray(data)) {
-          if (data.ok === void 0) {
-            const err14 = { instancePath, schemaPath: "#/anyOf/1/required", keyword: "required", params: { missingProperty: "ok" }, message: "must have required property 'ok'" };
-            if (vErrors === null) {
-              vErrors = [err14];
-            } else {
-              vErrors.push(err14);
-            }
-            errors++;
-          }
-          if (data.error === void 0) {
-            const err15 = { instancePath, schemaPath: "#/anyOf/1/required", keyword: "required", params: { missingProperty: "error" }, message: "must have required property 'error'" };
-            if (vErrors === null) {
-              vErrors = [err15];
-            } else {
-              vErrors.push(err15);
-            }
-            errors++;
-          }
-          for (const key1 in data) {
-            if (!(key1 === "ok" || key1 === "error" || key1 === "actualRevision")) {
-              const err16 = { instancePath, schemaPath: "#/anyOf/1/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key1 }, message: "must NOT have additional properties" };
-              if (vErrors === null) {
-                vErrors = [err16];
-              } else {
-                vErrors.push(err16);
-              }
-              errors++;
-            }
-          }
-          if (data.ok !== void 0) {
-            let data4 = data.ok;
-            if (typeof data4 !== "boolean") {
-              const err17 = { instancePath: instancePath + "/ok", schemaPath: "#/anyOf/1/properties/ok/type", keyword: "type", params: { type: "boolean" }, message: "must be boolean" };
-              if (vErrors === null) {
-                vErrors = [err17];
-              } else {
-                vErrors.push(err17);
-              }
-              errors++;
-            }
-            if (false !== data4) {
-              const err18 = { instancePath: instancePath + "/ok", schemaPath: "#/anyOf/1/properties/ok/const", keyword: "const", params: { allowedValue: false }, message: "must be equal to constant" };
-              if (vErrors === null) {
-                vErrors = [err18];
-              } else {
-                vErrors.push(err18);
-              }
-              errors++;
-            }
-          }
-          if (data.error !== void 0) {
-            let data5 = data.error;
-            if (typeof data5 !== "string") {
-              const err19 = { instancePath: instancePath + "/error", schemaPath: "#/anyOf/1/properties/error/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-              if (vErrors === null) {
-                vErrors = [err19];
-              } else {
-                vErrors.push(err19);
-              }
-              errors++;
-            }
-            if (!(data5 === "permissions_unavailable" || data5 === "conflict" || data5 === "service_shutting_down")) {
-              const err20 = { instancePath: instancePath + "/error", schemaPath: "#/anyOf/1/properties/error/enum", keyword: "enum", params: { allowedValues: schema24.anyOf[1].properties.error.enum }, message: "must be equal to one of the allowed values" };
-              if (vErrors === null) {
-                vErrors = [err20];
-              } else {
-                vErrors.push(err20);
-              }
-              errors++;
-            }
-          }
-          if (data.actualRevision !== void 0) {
-            let data6 = data.actualRevision;
-            if (!(typeof data6 == "number" && (!(data6 % 1) && !isNaN(data6)) && isFinite(data6))) {
-              const err21 = { instancePath: instancePath + "/actualRevision", schemaPath: "#/anyOf/1/properties/actualRevision/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
+          if (typeof data7 == "number" && isFinite(data7)) {
+            if (data7 > 9007199254740991 || isNaN(data7)) {
+              const err21 = { instancePath: instancePath + "/revision", schemaPath: "#/anyOf/0/properties/revision/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
               if (vErrors === null) {
                 vErrors = [err21];
               } else {
@@ -1509,36 +1507,282 @@ var require_BrowserControlReceipt_validator = __commonJS({
               }
               errors++;
             }
-            if (typeof data6 == "number" && isFinite(data6)) {
-              if (data6 > 9007199254740991 || isNaN(data6)) {
-                const err22 = { instancePath: instancePath + "/actualRevision", schemaPath: "#/anyOf/1/properties/actualRevision/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
+          }
+        }
+      } else {
+        const err22 = { instancePath, schemaPath: "#/anyOf/0/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+        if (vErrors === null) {
+          vErrors = [err22];
+        } else {
+          vErrors.push(err22);
+        }
+        errors++;
+      }
+      var _valid0 = _errs1 === errors;
+      valid0 = valid0 || _valid0;
+      if (!valid0) {
+        const _errs22 = errors;
+        if (data && typeof data == "object" && !Array.isArray(data)) {
+          if (data.ok === void 0) {
+            const err23 = { instancePath, schemaPath: "#/anyOf/1/required", keyword: "required", params: { missingProperty: "ok" }, message: "must have required property 'ok'" };
+            if (vErrors === null) {
+              vErrors = [err23];
+            } else {
+              vErrors.push(err23);
+            }
+            errors++;
+          }
+          if (data.error === void 0) {
+            const err24 = { instancePath, schemaPath: "#/anyOf/1/required", keyword: "required", params: { missingProperty: "error" }, message: "must have required property 'error'" };
+            if (vErrors === null) {
+              vErrors = [err24];
+            } else {
+              vErrors.push(err24);
+            }
+            errors++;
+          }
+          for (const key2 in data) {
+            if (!(key2 === "ok" || key2 === "error" || key2 === "profile" || key2 === "revision")) {
+              const err25 = { instancePath, schemaPath: "#/anyOf/1/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key2 }, message: "must NOT have additional properties" };
+              if (vErrors === null) {
+                vErrors = [err25];
+              } else {
+                vErrors.push(err25);
+              }
+              errors++;
+            }
+          }
+          if (data.ok !== void 0) {
+            let data8 = data.ok;
+            if (typeof data8 !== "boolean") {
+              const err26 = { instancePath: instancePath + "/ok", schemaPath: "#/anyOf/1/properties/ok/type", keyword: "type", params: { type: "boolean" }, message: "must be boolean" };
+              if (vErrors === null) {
+                vErrors = [err26];
+              } else {
+                vErrors.push(err26);
+              }
+              errors++;
+            }
+            if (false !== data8) {
+              const err27 = { instancePath: instancePath + "/ok", schemaPath: "#/anyOf/1/properties/ok/const", keyword: "const", params: { allowedValue: false }, message: "must be equal to constant" };
+              if (vErrors === null) {
+                vErrors = [err27];
+              } else {
+                vErrors.push(err27);
+              }
+              errors++;
+            }
+          }
+          if (data.error !== void 0) {
+            let data9 = data.error;
+            if (typeof data9 !== "string") {
+              const err28 = { instancePath: instancePath + "/error", schemaPath: "#/anyOf/1/properties/error/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+              if (vErrors === null) {
+                vErrors = [err28];
+              } else {
+                vErrors.push(err28);
+              }
+              errors++;
+            }
+            if (!(data9 === "permissions_unavailable" || data9 === "conflict" || data9 === "service_shutting_down")) {
+              const err29 = { instancePath: instancePath + "/error", schemaPath: "#/anyOf/1/properties/error/enum", keyword: "enum", params: { allowedValues: schema24.anyOf[1].properties.error.enum }, message: "must be equal to one of the allowed values" };
+              if (vErrors === null) {
+                vErrors = [err29];
+              } else {
+                vErrors.push(err29);
+              }
+              errors++;
+            }
+          }
+          if (data.profile !== void 0) {
+            let data10 = data.profile;
+            if (data10 && typeof data10 == "object" && !Array.isArray(data10)) {
+              if (data10.sandbox === void 0) {
+                const err30 = { instancePath: instancePath + "/profile", schemaPath: "#/definitions/BrowserPermissionProfile/required", keyword: "required", params: { missingProperty: "sandbox" }, message: "must have required property 'sandbox'" };
                 if (vErrors === null) {
-                  vErrors = [err22];
+                  vErrors = [err30];
                 } else {
-                  vErrors.push(err22);
+                  vErrors.push(err30);
+                }
+                errors++;
+              }
+              if (data10.approvals === void 0) {
+                const err31 = { instancePath: instancePath + "/profile", schemaPath: "#/definitions/BrowserPermissionProfile/required", keyword: "required", params: { missingProperty: "approvals" }, message: "must have required property 'approvals'" };
+                if (vErrors === null) {
+                  vErrors = [err31];
+                } else {
+                  vErrors.push(err31);
+                }
+                errors++;
+              }
+              if (data10.reviewer === void 0) {
+                const err32 = { instancePath: instancePath + "/profile", schemaPath: "#/definitions/BrowserPermissionProfile/required", keyword: "required", params: { missingProperty: "reviewer" }, message: "must have required property 'reviewer'" };
+                if (vErrors === null) {
+                  vErrors = [err32];
+                } else {
+                  vErrors.push(err32);
+                }
+                errors++;
+              }
+              if (data10.writableRoots === void 0) {
+                const err33 = { instancePath: instancePath + "/profile", schemaPath: "#/definitions/BrowserPermissionProfile/required", keyword: "required", params: { missingProperty: "writableRoots" }, message: "must have required property 'writableRoots'" };
+                if (vErrors === null) {
+                  vErrors = [err33];
+                } else {
+                  vErrors.push(err33);
+                }
+                errors++;
+              }
+              for (const key3 in data10) {
+                if (!(key3 === "sandbox" || key3 === "approvals" || key3 === "reviewer" || key3 === "writableRoots")) {
+                  const err34 = { instancePath: instancePath + "/profile", schemaPath: "#/definitions/BrowserPermissionProfile/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key3 }, message: "must NOT have additional properties" };
+                  if (vErrors === null) {
+                    vErrors = [err34];
+                  } else {
+                    vErrors.push(err34);
+                  }
+                  errors++;
+                }
+              }
+              if (data10.sandbox !== void 0) {
+                let data11 = data10.sandbox;
+                if (typeof data11 !== "string") {
+                  const err35 = { instancePath: instancePath + "/profile/sandbox", schemaPath: "#/definitions/BrowserPermissionProfile/properties/sandbox/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                  if (vErrors === null) {
+                    vErrors = [err35];
+                  } else {
+                    vErrors.push(err35);
+                  }
+                  errors++;
+                }
+                if (!(data11 === "read-only" || data11 === "workspace-write" || data11 === "danger-full-access")) {
+                  const err36 = { instancePath: instancePath + "/profile/sandbox", schemaPath: "#/definitions/BrowserPermissionProfile/properties/sandbox/enum", keyword: "enum", params: { allowedValues: schema25.properties.sandbox.enum }, message: "must be equal to one of the allowed values" };
+                  if (vErrors === null) {
+                    vErrors = [err36];
+                  } else {
+                    vErrors.push(err36);
+                  }
+                  errors++;
+                }
+              }
+              if (data10.approvals !== void 0) {
+                let data12 = data10.approvals;
+                if (typeof data12 !== "string") {
+                  const err37 = { instancePath: instancePath + "/profile/approvals", schemaPath: "#/definitions/BrowserPermissionProfile/properties/approvals/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                  if (vErrors === null) {
+                    vErrors = [err37];
+                  } else {
+                    vErrors.push(err37);
+                  }
+                  errors++;
+                }
+                if (!(data12 === "on-request" || data12 === "never")) {
+                  const err38 = { instancePath: instancePath + "/profile/approvals", schemaPath: "#/definitions/BrowserPermissionProfile/properties/approvals/enum", keyword: "enum", params: { allowedValues: schema25.properties.approvals.enum }, message: "must be equal to one of the allowed values" };
+                  if (vErrors === null) {
+                    vErrors = [err38];
+                  } else {
+                    vErrors.push(err38);
+                  }
+                  errors++;
+                }
+              }
+              if (data10.reviewer !== void 0) {
+                let data13 = data10.reviewer;
+                if (typeof data13 !== "string") {
+                  const err39 = { instancePath: instancePath + "/profile/reviewer", schemaPath: "#/definitions/BrowserPermissionProfile/properties/reviewer/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                  if (vErrors === null) {
+                    vErrors = [err39];
+                  } else {
+                    vErrors.push(err39);
+                  }
+                  errors++;
+                }
+                if (!(data13 === "user" || data13 === "auto_review")) {
+                  const err40 = { instancePath: instancePath + "/profile/reviewer", schemaPath: "#/definitions/BrowserPermissionProfile/properties/reviewer/enum", keyword: "enum", params: { allowedValues: schema25.properties.reviewer.enum }, message: "must be equal to one of the allowed values" };
+                  if (vErrors === null) {
+                    vErrors = [err40];
+                  } else {
+                    vErrors.push(err40);
+                  }
+                  errors++;
+                }
+              }
+              if (data10.writableRoots !== void 0) {
+                let data14 = data10.writableRoots;
+                if (Array.isArray(data14)) {
+                  const len1 = data14.length;
+                  for (let i1 = 0; i1 < len1; i1++) {
+                    if (typeof data14[i1] !== "string") {
+                      const err41 = { instancePath: instancePath + "/profile/writableRoots/" + i1, schemaPath: "#/definitions/BrowserPermissionProfile/properties/writableRoots/items/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                      if (vErrors === null) {
+                        vErrors = [err41];
+                      } else {
+                        vErrors.push(err41);
+                      }
+                      errors++;
+                    }
+                  }
+                } else {
+                  const err42 = { instancePath: instancePath + "/profile/writableRoots", schemaPath: "#/definitions/BrowserPermissionProfile/properties/writableRoots/type", keyword: "type", params: { type: "array" }, message: "must be array" };
+                  if (vErrors === null) {
+                    vErrors = [err42];
+                  } else {
+                    vErrors.push(err42);
+                  }
+                  errors++;
+                }
+              }
+            } else {
+              const err43 = { instancePath: instancePath + "/profile", schemaPath: "#/definitions/BrowserPermissionProfile/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+              if (vErrors === null) {
+                vErrors = [err43];
+              } else {
+                vErrors.push(err43);
+              }
+              errors++;
+            }
+          }
+          if (data.revision !== void 0) {
+            let data16 = data.revision;
+            if (!(typeof data16 == "number" && (!(data16 % 1) && !isNaN(data16)) && isFinite(data16))) {
+              const err44 = { instancePath: instancePath + "/revision", schemaPath: "#/anyOf/1/properties/revision/type", keyword: "type", params: { type: "integer" }, message: "must be integer" };
+              if (vErrors === null) {
+                vErrors = [err44];
+              } else {
+                vErrors.push(err44);
+              }
+              errors++;
+            }
+            if (typeof data16 == "number" && isFinite(data16)) {
+              if (data16 > 9007199254740991 || isNaN(data16)) {
+                const err45 = { instancePath: instancePath + "/revision", schemaPath: "#/anyOf/1/properties/revision/maximum", keyword: "maximum", params: { comparison: "<=", limit: 9007199254740991 }, message: "must be <= 9007199254740991" };
+                if (vErrors === null) {
+                  vErrors = [err45];
+                } else {
+                  vErrors.push(err45);
                 }
                 errors++;
               }
             }
           }
         } else {
-          const err23 = { instancePath, schemaPath: "#/anyOf/1/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+          const err46 = { instancePath, schemaPath: "#/anyOf/1/type", keyword: "type", params: { type: "object" }, message: "must be object" };
           if (vErrors === null) {
-            vErrors = [err23];
+            vErrors = [err46];
           } else {
-            vErrors.push(err23);
+            vErrors.push(err46);
           }
           errors++;
         }
-        var _valid0 = _errs13 === errors;
+        var _valid0 = _errs22 === errors;
         valid0 = valid0 || _valid0;
       }
       if (!valid0) {
-        const err24 = { instancePath, schemaPath: "#/anyOf", keyword: "anyOf", params: {}, message: "must match a schema in anyOf" };
+        const err47 = { instancePath, schemaPath: "#/anyOf", keyword: "anyOf", params: {}, message: "must match a schema in anyOf" };
         if (vErrors === null) {
-          vErrors = [err24];
+          vErrors = [err47];
         } else {
-          vErrors.push(err24);
+          vErrors.push(err47);
         }
         errors++;
       } else {
@@ -1554,15 +1798,15 @@ var require_BrowserControlReceipt_validator = __commonJS({
       validate22.errors = vErrors;
       return errors === 0;
     }
-    var schema26 = { "anyOf": [{ "type": "object", "properties": { "ok": { "type": "boolean", "const": true }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "grants": { "type": "array", "items": { "$ref": "#/definitions/BrowserToolGrantSummary" } } }, "required": ["ok", "goalId", "runId", "grants"], "additionalProperties": false }, { "type": "object", "properties": { "ok": { "type": "boolean", "const": false }, "error": { "type": "string", "enum": ["goal_not_found", "stale_run", "permissions_unavailable", "grant_failed", "service_shutting_down"] } }, "required": ["ok", "error"], "additionalProperties": false }], "description": "\u5DE5\u5177\u6388\u6743\u67E5\u8BE2\u6216\u64A4\u9500\u7ED3\u679C\u3002" };
-    var schema27 = { "type": "object", "properties": { "grantId": { "type": "string", "pattern": "\\S" }, "scope": { "type": "string", "enum": ["goal", "workspace"] }, "toolId": { "type": "string", "pattern": "\\S" }, "status": { "type": "string", "enum": ["pending", "active", "revoked"] }, "kind": { "type": "string", "enum": ["tool", "sandbox"] }, "targetPath": { "type": "string" }, "command": { "type": "string" }, "network": { "type": "string", "enum": ["none", "all_outbound"] }, "extraFiles": { "type": "array", "items": { "$ref": "#/definitions/BrowserToolGrantExtraFile" } } }, "required": ["grantId", "scope", "toolId", "status"], "additionalProperties": false, "description": "\u6388\u6743\u6458\u8981\u6761\u76EE\u3002" };
-    var schema28 = { "type": "object", "properties": { "canonicalPath": { "type": "string", "pattern": "\\S" }, "access": { "type": "string", "enum": ["read", "write"] }, "kind": { "type": "string", "enum": ["file", "directory_tree"] } }, "required": ["canonicalPath", "access", "kind"], "additionalProperties": false, "description": "\u5DE5\u5177\u6388\u6743\u6216\u6C99\u7BB1\u8BBF\u95EE\u4E2D\u7684\u5355\u4E2A\u5916\u90E8\u6587\u4EF6/\u76EE\u5F55\u6761\u76EE\u3002" };
+    var schema27 = { "anyOf": [{ "type": "object", "properties": { "ok": { "type": "boolean", "const": true }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "exemptions": { "type": "array", "items": { "$ref": "#/definitions/BrowserPermissionExemptionSummary" } } }, "required": ["ok", "goalId", "runId", "exemptions"], "additionalProperties": false }, { "type": "object", "properties": { "ok": { "type": "boolean", "const": false }, "error": { "type": "string", "enum": ["goal_not_found", "stale_run", "permissions_unavailable", "exemption_failed", "service_shutting_down"] } }, "required": ["ok", "error"], "additionalProperties": false }], "description": "\u8FB9\u754C\u8C41\u514D\u67E5\u8BE2\u6216\u64A4\u9500\u7ED3\u679C\u3002" };
+    var schema28 = { "type": "object", "properties": { "id": { "type": "string", "pattern": "\\S" }, "scope": { "type": "string", "enum": ["goal", "workspace"] }, "network": { "type": "string", "enum": ["none", "all_outbound"] }, "extraFiles": { "type": "array", "items": { "$ref": "#/definitions/BrowserPermissionExtraFile" } }, "status": { "type": "string", "enum": ["pending", "active", "revoked"] } }, "required": ["id", "scope", "network", "extraFiles", "status"], "additionalProperties": false, "description": "\u4E00\u6761\u8FB9\u754C\u8D8A\u754C\u8C41\u514D\u3002" };
+    var schema29 = { "type": "object", "properties": { "canonicalPath": { "type": "string", "pattern": "\\S" }, "access": { "type": "string", "enum": ["read", "write"] }, "kind": { "type": "string", "enum": ["file", "directory_tree"] } }, "required": ["canonicalPath", "access", "kind"], "additionalProperties": false, "description": "\u6743\u9650\u8FB9\u754C\u4E2D\u7684\u5355\u4E2A\u5916\u90E8\u6587\u4EF6/\u76EE\u5F55\u6761\u76EE\u3002" };
     function validate25(data, { instancePath = "", parentData, parentDataProperty, rootData = data } = {}) {
       let vErrors = null;
       let errors = 0;
       if (data && typeof data == "object" && !Array.isArray(data)) {
-        if (data.grantId === void 0) {
-          const err0 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "grantId" }, message: "must have required property 'grantId'" };
+        if (data.id === void 0) {
+          const err0 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "id" }, message: "must have required property 'id'" };
           if (vErrors === null) {
             vErrors = [err0];
           } else {
@@ -1579,8 +1823,8 @@ var require_BrowserControlReceipt_validator = __commonJS({
           }
           errors++;
         }
-        if (data.toolId === void 0) {
-          const err2 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "toolId" }, message: "must have required property 'toolId'" };
+        if (data.network === void 0) {
+          const err2 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "network" }, message: "must have required property 'network'" };
           if (vErrors === null) {
             vErrors = [err2];
           } else {
@@ -1588,8 +1832,8 @@ var require_BrowserControlReceipt_validator = __commonJS({
           }
           errors++;
         }
-        if (data.status === void 0) {
-          const err3 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "status" }, message: "must have required property 'status'" };
+        if (data.extraFiles === void 0) {
+          const err3 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "extraFiles" }, message: "must have required property 'extraFiles'" };
           if (vErrors === null) {
             vErrors = [err3];
           } else {
@@ -1597,43 +1841,40 @@ var require_BrowserControlReceipt_validator = __commonJS({
           }
           errors++;
         }
+        if (data.status === void 0) {
+          const err4 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "status" }, message: "must have required property 'status'" };
+          if (vErrors === null) {
+            vErrors = [err4];
+          } else {
+            vErrors.push(err4);
+          }
+          errors++;
+        }
         for (const key0 in data) {
-          if (!func2.call(schema27.properties, key0)) {
-            const err4 = { instancePath, schemaPath: "#/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key0 }, message: "must NOT have additional properties" };
+          if (!(key0 === "id" || key0 === "scope" || key0 === "network" || key0 === "extraFiles" || key0 === "status")) {
+            const err5 = { instancePath, schemaPath: "#/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key0 }, message: "must NOT have additional properties" };
             if (vErrors === null) {
-              vErrors = [err4];
+              vErrors = [err5];
             } else {
-              vErrors.push(err4);
+              vErrors.push(err5);
             }
             errors++;
           }
         }
-        if (data.grantId !== void 0) {
-          let data0 = data.grantId;
+        if (data.id !== void 0) {
+          let data0 = data.id;
           if (typeof data0 === "string") {
             if (!pattern0.test(data0)) {
-              const err5 = { instancePath: instancePath + "/grantId", schemaPath: "#/properties/grantId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+              const err6 = { instancePath: instancePath + "/id", schemaPath: "#/properties/id/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
               if (vErrors === null) {
-                vErrors = [err5];
+                vErrors = [err6];
               } else {
-                vErrors.push(err5);
+                vErrors.push(err6);
               }
               errors++;
             }
           } else {
-            const err6 = { instancePath: instancePath + "/grantId", schemaPath: "#/properties/grantId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-            if (vErrors === null) {
-              vErrors = [err6];
-            } else {
-              vErrors.push(err6);
-            }
-            errors++;
-          }
-        }
-        if (data.scope !== void 0) {
-          let data1 = data.scope;
-          if (typeof data1 !== "string") {
-            const err7 = { instancePath: instancePath + "/scope", schemaPath: "#/properties/scope/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            const err7 = { instancePath: instancePath + "/id", schemaPath: "#/properties/id/type", keyword: "type", params: { type: "string" }, message: "must be string" };
             if (vErrors === null) {
               vErrors = [err7];
             } else {
@@ -1641,8 +1882,11 @@ var require_BrowserControlReceipt_validator = __commonJS({
             }
             errors++;
           }
-          if (!(data1 === "goal" || data1 === "workspace")) {
-            const err8 = { instancePath: instancePath + "/scope", schemaPath: "#/properties/scope/enum", keyword: "enum", params: { allowedValues: schema27.properties.scope.enum }, message: "must be equal to one of the allowed values" };
+        }
+        if (data.scope !== void 0) {
+          let data1 = data.scope;
+          if (typeof data1 !== "string") {
+            const err8 = { instancePath: instancePath + "/scope", schemaPath: "#/properties/scope/type", keyword: "type", params: { type: "string" }, message: "must be string" };
             if (vErrors === null) {
               vErrors = [err8];
             } else {
@@ -1650,21 +1894,20 @@ var require_BrowserControlReceipt_validator = __commonJS({
             }
             errors++;
           }
-        }
-        if (data.toolId !== void 0) {
-          let data2 = data.toolId;
-          if (typeof data2 === "string") {
-            if (!pattern0.test(data2)) {
-              const err9 = { instancePath: instancePath + "/toolId", schemaPath: "#/properties/toolId/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
-              if (vErrors === null) {
-                vErrors = [err9];
-              } else {
-                vErrors.push(err9);
-              }
-              errors++;
+          if (!(data1 === "goal" || data1 === "workspace")) {
+            const err9 = { instancePath: instancePath + "/scope", schemaPath: "#/properties/scope/enum", keyword: "enum", params: { allowedValues: schema28.properties.scope.enum }, message: "must be equal to one of the allowed values" };
+            if (vErrors === null) {
+              vErrors = [err9];
+            } else {
+              vErrors.push(err9);
             }
-          } else {
-            const err10 = { instancePath: instancePath + "/toolId", schemaPath: "#/properties/toolId/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            errors++;
+          }
+        }
+        if (data.network !== void 0) {
+          let data2 = data.network;
+          if (typeof data2 !== "string") {
+            const err10 = { instancePath: instancePath + "/network", schemaPath: "#/properties/network/type", keyword: "type", params: { type: "string" }, message: "must be string" };
             if (vErrors === null) {
               vErrors = [err10];
             } else {
@@ -1672,11 +1915,8 @@ var require_BrowserControlReceipt_validator = __commonJS({
             }
             errors++;
           }
-        }
-        if (data.status !== void 0) {
-          let data3 = data.status;
-          if (typeof data3 !== "string") {
-            const err11 = { instancePath: instancePath + "/status", schemaPath: "#/properties/status/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+          if (!(data2 === "none" || data2 === "all_outbound")) {
+            const err11 = { instancePath: instancePath + "/network", schemaPath: "#/properties/network/enum", keyword: "enum", params: { allowedValues: schema28.properties.network.enum }, message: "must be equal to one of the allowed values" };
             if (vErrors === null) {
               vErrors = [err11];
             } else {
@@ -1684,215 +1924,163 @@ var require_BrowserControlReceipt_validator = __commonJS({
             }
             errors++;
           }
-          if (!(data3 === "pending" || data3 === "active" || data3 === "revoked")) {
-            const err12 = { instancePath: instancePath + "/status", schemaPath: "#/properties/status/enum", keyword: "enum", params: { allowedValues: schema27.properties.status.enum }, message: "must be equal to one of the allowed values" };
-            if (vErrors === null) {
-              vErrors = [err12];
-            } else {
-              vErrors.push(err12);
-            }
-            errors++;
-          }
-        }
-        if (data.kind !== void 0) {
-          let data4 = data.kind;
-          if (typeof data4 !== "string") {
-            const err13 = { instancePath: instancePath + "/kind", schemaPath: "#/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-            if (vErrors === null) {
-              vErrors = [err13];
-            } else {
-              vErrors.push(err13);
-            }
-            errors++;
-          }
-          if (!(data4 === "tool" || data4 === "sandbox")) {
-            const err14 = { instancePath: instancePath + "/kind", schemaPath: "#/properties/kind/enum", keyword: "enum", params: { allowedValues: schema27.properties.kind.enum }, message: "must be equal to one of the allowed values" };
-            if (vErrors === null) {
-              vErrors = [err14];
-            } else {
-              vErrors.push(err14);
-            }
-            errors++;
-          }
-        }
-        if (data.targetPath !== void 0) {
-          if (typeof data.targetPath !== "string") {
-            const err15 = { instancePath: instancePath + "/targetPath", schemaPath: "#/properties/targetPath/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-            if (vErrors === null) {
-              vErrors = [err15];
-            } else {
-              vErrors.push(err15);
-            }
-            errors++;
-          }
-        }
-        if (data.command !== void 0) {
-          if (typeof data.command !== "string") {
-            const err16 = { instancePath: instancePath + "/command", schemaPath: "#/properties/command/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-            if (vErrors === null) {
-              vErrors = [err16];
-            } else {
-              vErrors.push(err16);
-            }
-            errors++;
-          }
-        }
-        if (data.network !== void 0) {
-          let data7 = data.network;
-          if (typeof data7 !== "string") {
-            const err17 = { instancePath: instancePath + "/network", schemaPath: "#/properties/network/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-            if (vErrors === null) {
-              vErrors = [err17];
-            } else {
-              vErrors.push(err17);
-            }
-            errors++;
-          }
-          if (!(data7 === "none" || data7 === "all_outbound")) {
-            const err18 = { instancePath: instancePath + "/network", schemaPath: "#/properties/network/enum", keyword: "enum", params: { allowedValues: schema27.properties.network.enum }, message: "must be equal to one of the allowed values" };
-            if (vErrors === null) {
-              vErrors = [err18];
-            } else {
-              vErrors.push(err18);
-            }
-            errors++;
-          }
         }
         if (data.extraFiles !== void 0) {
-          let data8 = data.extraFiles;
-          if (Array.isArray(data8)) {
-            const len0 = data8.length;
+          let data3 = data.extraFiles;
+          if (Array.isArray(data3)) {
+            const len0 = data3.length;
             for (let i0 = 0; i0 < len0; i0++) {
-              let data9 = data8[i0];
-              if (data9 && typeof data9 == "object" && !Array.isArray(data9)) {
-                if (data9.canonicalPath === void 0) {
-                  const err19 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserToolGrantExtraFile/required", keyword: "required", params: { missingProperty: "canonicalPath" }, message: "must have required property 'canonicalPath'" };
+              let data4 = data3[i0];
+              if (data4 && typeof data4 == "object" && !Array.isArray(data4)) {
+                if (data4.canonicalPath === void 0) {
+                  const err12 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserPermissionExtraFile/required", keyword: "required", params: { missingProperty: "canonicalPath" }, message: "must have required property 'canonicalPath'" };
                   if (vErrors === null) {
-                    vErrors = [err19];
+                    vErrors = [err12];
                   } else {
-                    vErrors.push(err19);
+                    vErrors.push(err12);
                   }
                   errors++;
                 }
-                if (data9.access === void 0) {
-                  const err20 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserToolGrantExtraFile/required", keyword: "required", params: { missingProperty: "access" }, message: "must have required property 'access'" };
+                if (data4.access === void 0) {
+                  const err13 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserPermissionExtraFile/required", keyword: "required", params: { missingProperty: "access" }, message: "must have required property 'access'" };
                   if (vErrors === null) {
-                    vErrors = [err20];
+                    vErrors = [err13];
                   } else {
-                    vErrors.push(err20);
+                    vErrors.push(err13);
                   }
                   errors++;
                 }
-                if (data9.kind === void 0) {
-                  const err21 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserToolGrantExtraFile/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
+                if (data4.kind === void 0) {
+                  const err14 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserPermissionExtraFile/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
                   if (vErrors === null) {
-                    vErrors = [err21];
+                    vErrors = [err14];
                   } else {
-                    vErrors.push(err21);
+                    vErrors.push(err14);
                   }
                   errors++;
                 }
-                for (const key1 in data9) {
+                for (const key1 in data4) {
                   if (!(key1 === "canonicalPath" || key1 === "access" || key1 === "kind")) {
-                    const err22 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserToolGrantExtraFile/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key1 }, message: "must NOT have additional properties" };
+                    const err15 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserPermissionExtraFile/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key1 }, message: "must NOT have additional properties" };
                     if (vErrors === null) {
-                      vErrors = [err22];
+                      vErrors = [err15];
                     } else {
-                      vErrors.push(err22);
+                      vErrors.push(err15);
                     }
                     errors++;
                   }
                 }
-                if (data9.canonicalPath !== void 0) {
-                  let data10 = data9.canonicalPath;
-                  if (typeof data10 === "string") {
-                    if (!pattern0.test(data10)) {
-                      const err23 = { instancePath: instancePath + "/extraFiles/" + i0 + "/canonicalPath", schemaPath: "#/definitions/BrowserToolGrantExtraFile/properties/canonicalPath/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                if (data4.canonicalPath !== void 0) {
+                  let data5 = data4.canonicalPath;
+                  if (typeof data5 === "string") {
+                    if (!pattern0.test(data5)) {
+                      const err16 = { instancePath: instancePath + "/extraFiles/" + i0 + "/canonicalPath", schemaPath: "#/definitions/BrowserPermissionExtraFile/properties/canonicalPath/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                       if (vErrors === null) {
-                        vErrors = [err23];
+                        vErrors = [err16];
                       } else {
-                        vErrors.push(err23);
+                        vErrors.push(err16);
                       }
                       errors++;
                     }
                   } else {
-                    const err24 = { instancePath: instancePath + "/extraFiles/" + i0 + "/canonicalPath", schemaPath: "#/definitions/BrowserToolGrantExtraFile/properties/canonicalPath/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    const err17 = { instancePath: instancePath + "/extraFiles/" + i0 + "/canonicalPath", schemaPath: "#/definitions/BrowserPermissionExtraFile/properties/canonicalPath/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                     if (vErrors === null) {
-                      vErrors = [err24];
+                      vErrors = [err17];
                     } else {
-                      vErrors.push(err24);
+                      vErrors.push(err17);
                     }
                     errors++;
                   }
                 }
-                if (data9.access !== void 0) {
-                  let data11 = data9.access;
-                  if (typeof data11 !== "string") {
-                    const err25 = { instancePath: instancePath + "/extraFiles/" + i0 + "/access", schemaPath: "#/definitions/BrowserToolGrantExtraFile/properties/access/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                if (data4.access !== void 0) {
+                  let data6 = data4.access;
+                  if (typeof data6 !== "string") {
+                    const err18 = { instancePath: instancePath + "/extraFiles/" + i0 + "/access", schemaPath: "#/definitions/BrowserPermissionExtraFile/properties/access/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                     if (vErrors === null) {
-                      vErrors = [err25];
+                      vErrors = [err18];
                     } else {
-                      vErrors.push(err25);
+                      vErrors.push(err18);
                     }
                     errors++;
                   }
-                  if (!(data11 === "read" || data11 === "write")) {
-                    const err26 = { instancePath: instancePath + "/extraFiles/" + i0 + "/access", schemaPath: "#/definitions/BrowserToolGrantExtraFile/properties/access/enum", keyword: "enum", params: { allowedValues: schema28.properties.access.enum }, message: "must be equal to one of the allowed values" };
+                  if (!(data6 === "read" || data6 === "write")) {
+                    const err19 = { instancePath: instancePath + "/extraFiles/" + i0 + "/access", schemaPath: "#/definitions/BrowserPermissionExtraFile/properties/access/enum", keyword: "enum", params: { allowedValues: schema29.properties.access.enum }, message: "must be equal to one of the allowed values" };
                     if (vErrors === null) {
-                      vErrors = [err26];
+                      vErrors = [err19];
                     } else {
-                      vErrors.push(err26);
+                      vErrors.push(err19);
                     }
                     errors++;
                   }
                 }
-                if (data9.kind !== void 0) {
-                  let data12 = data9.kind;
-                  if (typeof data12 !== "string") {
-                    const err27 = { instancePath: instancePath + "/extraFiles/" + i0 + "/kind", schemaPath: "#/definitions/BrowserToolGrantExtraFile/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                if (data4.kind !== void 0) {
+                  let data7 = data4.kind;
+                  if (typeof data7 !== "string") {
+                    const err20 = { instancePath: instancePath + "/extraFiles/" + i0 + "/kind", schemaPath: "#/definitions/BrowserPermissionExtraFile/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                     if (vErrors === null) {
-                      vErrors = [err27];
+                      vErrors = [err20];
                     } else {
-                      vErrors.push(err27);
+                      vErrors.push(err20);
                     }
                     errors++;
                   }
-                  if (!(data12 === "file" || data12 === "directory_tree")) {
-                    const err28 = { instancePath: instancePath + "/extraFiles/" + i0 + "/kind", schemaPath: "#/definitions/BrowserToolGrantExtraFile/properties/kind/enum", keyword: "enum", params: { allowedValues: schema28.properties.kind.enum }, message: "must be equal to one of the allowed values" };
+                  if (!(data7 === "file" || data7 === "directory_tree")) {
+                    const err21 = { instancePath: instancePath + "/extraFiles/" + i0 + "/kind", schemaPath: "#/definitions/BrowserPermissionExtraFile/properties/kind/enum", keyword: "enum", params: { allowedValues: schema29.properties.kind.enum }, message: "must be equal to one of the allowed values" };
                     if (vErrors === null) {
-                      vErrors = [err28];
+                      vErrors = [err21];
                     } else {
-                      vErrors.push(err28);
+                      vErrors.push(err21);
                     }
                     errors++;
                   }
                 }
               } else {
-                const err29 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserToolGrantExtraFile/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                const err22 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserPermissionExtraFile/type", keyword: "type", params: { type: "object" }, message: "must be object" };
                 if (vErrors === null) {
-                  vErrors = [err29];
+                  vErrors = [err22];
                 } else {
-                  vErrors.push(err29);
+                  vErrors.push(err22);
                 }
                 errors++;
               }
             }
           } else {
-            const err30 = { instancePath: instancePath + "/extraFiles", schemaPath: "#/properties/extraFiles/type", keyword: "type", params: { type: "array" }, message: "must be array" };
+            const err23 = { instancePath: instancePath + "/extraFiles", schemaPath: "#/properties/extraFiles/type", keyword: "type", params: { type: "array" }, message: "must be array" };
             if (vErrors === null) {
-              vErrors = [err30];
+              vErrors = [err23];
             } else {
-              vErrors.push(err30);
+              vErrors.push(err23);
+            }
+            errors++;
+          }
+        }
+        if (data.status !== void 0) {
+          let data8 = data.status;
+          if (typeof data8 !== "string") {
+            const err24 = { instancePath: instancePath + "/status", schemaPath: "#/properties/status/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            if (vErrors === null) {
+              vErrors = [err24];
+            } else {
+              vErrors.push(err24);
+            }
+            errors++;
+          }
+          if (!(data8 === "pending" || data8 === "active" || data8 === "revoked")) {
+            const err25 = { instancePath: instancePath + "/status", schemaPath: "#/properties/status/enum", keyword: "enum", params: { allowedValues: schema28.properties.status.enum }, message: "must be equal to one of the allowed values" };
+            if (vErrors === null) {
+              vErrors = [err25];
+            } else {
+              vErrors.push(err25);
             }
             errors++;
           }
         }
       } else {
-        const err31 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+        const err26 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
         if (vErrors === null) {
-          vErrors = [err31];
+          vErrors = [err26];
         } else {
-          vErrors.push(err31);
+          vErrors.push(err26);
         }
         errors++;
       }
@@ -1933,8 +2121,8 @@ var require_BrowserControlReceipt_validator = __commonJS({
           }
           errors++;
         }
-        if (data.grants === void 0) {
-          const err3 = { instancePath, schemaPath: "#/anyOf/0/required", keyword: "required", params: { missingProperty: "grants" }, message: "must have required property 'grants'" };
+        if (data.exemptions === void 0) {
+          const err3 = { instancePath, schemaPath: "#/anyOf/0/required", keyword: "required", params: { missingProperty: "exemptions" }, message: "must have required property 'exemptions'" };
           if (vErrors === null) {
             vErrors = [err3];
           } else {
@@ -1943,7 +2131,7 @@ var require_BrowserControlReceipt_validator = __commonJS({
           errors++;
         }
         for (const key0 in data) {
-          if (!(key0 === "ok" || key0 === "goalId" || key0 === "runId" || key0 === "grants")) {
+          if (!(key0 === "ok" || key0 === "goalId" || key0 === "runId" || key0 === "exemptions")) {
             const err4 = { instancePath, schemaPath: "#/anyOf/0/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key0 }, message: "must NOT have additional properties" };
             if (vErrors === null) {
               vErrors = [err4];
@@ -2018,18 +2206,18 @@ var require_BrowserControlReceipt_validator = __commonJS({
             errors++;
           }
         }
-        if (data.grants !== void 0) {
-          let data3 = data.grants;
+        if (data.exemptions !== void 0) {
+          let data3 = data.exemptions;
           if (Array.isArray(data3)) {
             const len0 = data3.length;
             for (let i0 = 0; i0 < len0; i0++) {
-              if (!validate25(data3[i0], { instancePath: instancePath + "/grants/" + i0, parentData: data3, parentDataProperty: i0, rootData })) {
+              if (!validate25(data3[i0], { instancePath: instancePath + "/exemptions/" + i0, parentData: data3, parentDataProperty: i0, rootData })) {
                 vErrors = vErrors === null ? validate25.errors : vErrors.concat(validate25.errors);
                 errors = vErrors.length;
               }
             }
           } else {
-            const err11 = { instancePath: instancePath + "/grants", schemaPath: "#/anyOf/0/properties/grants/type", keyword: "type", params: { type: "array" }, message: "must be array" };
+            const err11 = { instancePath: instancePath + "/exemptions", schemaPath: "#/anyOf/0/properties/exemptions/type", keyword: "type", params: { type: "array" }, message: "must be array" };
             if (vErrors === null) {
               vErrors = [err11];
             } else {
@@ -2113,8 +2301,8 @@ var require_BrowserControlReceipt_validator = __commonJS({
               }
               errors++;
             }
-            if (!(data6 === "goal_not_found" || data6 === "stale_run" || data6 === "permissions_unavailable" || data6 === "grant_failed" || data6 === "service_shutting_down")) {
-              const err19 = { instancePath: instancePath + "/error", schemaPath: "#/anyOf/1/properties/error/enum", keyword: "enum", params: { allowedValues: schema26.anyOf[1].properties.error.enum }, message: "must be equal to one of the allowed values" };
+            if (!(data6 === "goal_not_found" || data6 === "stale_run" || data6 === "permissions_unavailable" || data6 === "exemption_failed" || data6 === "service_shutting_down")) {
+              const err19 = { instancePath: instancePath + "/error", schemaPath: "#/anyOf/1/properties/error/enum", keyword: "enum", params: { allowedValues: schema27.anyOf[1].properties.error.enum }, message: "must be equal to one of the allowed values" };
               if (vErrors === null) {
                 vErrors = [err19];
               } else {
@@ -2156,11 +2344,11 @@ var require_BrowserControlReceipt_validator = __commonJS({
       validate24.errors = vErrors;
       return errors === 0;
     }
-    var schema31 = { "anyOf": [{ "type": "object", "properties": { "ok": { "type": "boolean", "const": true }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "review": { "$ref": "#/definitions/BrowserActionReview" } }, "required": ["ok", "goalId", "runId", "review"], "additionalProperties": false }, { "type": "object", "properties": { "ok": { "type": "boolean", "const": false }, "error": { "type": "string", "enum": ["goal_not_found", "stale_run", "action_not_waiting", "action_id_mismatch", "tool_not_found", "invalid_tool_input", "scope_unavailable", "sandbox_scope_unavailable", "review_unavailable"] }, "issues": { "type": "array", "items": { "$ref": "#/definitions/BrowserActionReviewIssue" } } }, "required": ["ok", "error"], "additionalProperties": false }], "description": "\u53EA\u8BFB\u5BA1\u6279\u9884\u68C0\u7684 wire \u7ED3\u679C\u3002" };
-    var schema37 = { "type": "object", "properties": { "path": { "type": "array", "items": { "type": ["string", "number"] } }, "message": { "type": "string" } }, "required": ["path", "message"], "additionalProperties": false, "description": "\u53EF\u5B9A\u4F4D\u7684\u5B57\u6BB5\u7EA7\u95EE\u9898\u3002" };
-    var schema32 = { "type": "object", "properties": { "actionId": { "type": "string", "pattern": "\\S" }, "toolId": { "type": "string", "pattern": "\\S" }, "originalInput": {}, "finalInput": {}, "changed": { "type": "boolean" }, "scope": { "$ref": "#/definitions/BrowserActionReviewScope" }, "availableScopes": { "type": "array", "items": { "$ref": "#/definitions/BrowserActionReviewScope" } }, "capability": { "$ref": "#/definitions/BrowserActionCapability" }, "requiresSandboxApproval": { "type": "boolean" }, "reviewRef": { "type": "string", "pattern": "\\S" } }, "required": ["actionId", "toolId", "originalInput", "finalInput", "changed", "scope", "availableScopes", "capability", "requiresSandboxApproval", "reviewRef"], "additionalProperties": false, "description": "\u53EA\u8BFB\u5BA1\u6279\u9884\u68C0\u8FD4\u56DE\u7684\u53EF\u5BA1\u9605\u5185\u5BB9\u3002" };
-    var schema33 = { "type": "string", "enum": ["action", "goal", "workspace"], "description": "Action \u5BA1\u9605\u53EF\u7533\u8BF7\u7684\u6388\u6743\u671F\u9650\u3002" };
-    var schema35 = { "type": "object", "properties": { "network": { "type": "string", "enum": ["none", "all_outbound"] }, "extraFiles": { "type": "array", "items": { "$ref": "#/definitions/BrowserToolGrantExtraFile" } }, "targetPaths": { "type": "array", "items": { "type": "string" } } }, "required": ["network", "extraFiles", "targetPaths"], "additionalProperties": false, "description": "\u91CD\u65B0\u8BA1\u7B97\u51FA\u7684\u5B9E\u9645\u80FD\u529B\u8303\u56F4\u3002" };
+    var schema32 = { "anyOf": [{ "type": "object", "properties": { "ok": { "type": "boolean", "const": true }, "goalId": { "type": "string", "pattern": "\\S" }, "runId": { "type": "string", "pattern": "\\S" }, "review": { "$ref": "#/definitions/BrowserActionReview" } }, "required": ["ok", "goalId", "runId", "review"], "additionalProperties": false }, { "type": "object", "properties": { "ok": { "type": "boolean", "const": false }, "error": { "type": "string", "enum": ["goal_not_found", "stale_run", "action_not_waiting", "action_id_mismatch", "tool_not_found", "invalid_tool_input", "scope_unavailable", "sandbox_scope_unavailable", "review_unavailable"] }, "issues": { "type": "array", "items": { "$ref": "#/definitions/BrowserActionReviewIssue" } } }, "required": ["ok", "error"], "additionalProperties": false }], "description": "\u53EA\u8BFB\u5BA1\u6279\u9884\u68C0\u7684 wire \u7ED3\u679C\u3002" };
+    var schema38 = { "type": "object", "properties": { "path": { "type": "array", "items": { "type": ["string", "number"] } }, "message": { "type": "string" } }, "required": ["path", "message"], "additionalProperties": false, "description": "\u53EF\u5B9A\u4F4D\u7684\u5B57\u6BB5\u7EA7\u95EE\u9898\u3002" };
+    var schema33 = { "type": "object", "properties": { "actionId": { "type": "string", "pattern": "\\S" }, "toolId": { "type": "string", "pattern": "\\S" }, "originalInput": {}, "finalInput": {}, "changed": { "type": "boolean" }, "scope": { "$ref": "#/definitions/BrowserActionReviewScope" }, "availableScopes": { "type": "array", "items": { "$ref": "#/definitions/BrowserActionReviewScope" } }, "capability": { "$ref": "#/definitions/BrowserActionCapability" }, "requiresSandboxApproval": { "type": "boolean" }, "reviewRef": { "type": "string", "pattern": "\\S" } }, "required": ["actionId", "toolId", "originalInput", "finalInput", "changed", "scope", "availableScopes", "capability", "requiresSandboxApproval", "reviewRef"], "additionalProperties": false, "description": "\u53EA\u8BFB\u5BA1\u6279\u9884\u68C0\u8FD4\u56DE\u7684\u53EF\u5BA1\u9605\u5185\u5BB9\u3002" };
+    var schema34 = { "type": "string", "enum": ["action", "goal", "workspace"], "description": "Action \u5BA1\u9605\u53EF\u7533\u8BF7\u7684\u6388\u6743\u671F\u9650\u3002" };
+    var schema36 = { "type": "object", "properties": { "network": { "type": "string", "enum": ["none", "all_outbound"] }, "extraFiles": { "type": "array", "items": { "$ref": "#/definitions/BrowserPermissionExtraFile" } }, "targetPaths": { "type": "array", "items": { "type": "string" } } }, "required": ["network", "extraFiles", "targetPaths"], "additionalProperties": false, "description": "\u91CD\u65B0\u8BA1\u7B97\u51FA\u7684\u5B9E\u9645\u80FD\u529B\u8303\u56F4\u3002" };
     function validate30(data, { instancePath = "", parentData, parentDataProperty, rootData = data } = {}) {
       let vErrors = null;
       let errors = 0;
@@ -2215,7 +2403,7 @@ var require_BrowserControlReceipt_validator = __commonJS({
             errors++;
           }
           if (!(data0 === "none" || data0 === "all_outbound")) {
-            const err5 = { instancePath: instancePath + "/network", schemaPath: "#/properties/network/enum", keyword: "enum", params: { allowedValues: schema35.properties.network.enum }, message: "must be equal to one of the allowed values" };
+            const err5 = { instancePath: instancePath + "/network", schemaPath: "#/properties/network/enum", keyword: "enum", params: { allowedValues: schema36.properties.network.enum }, message: "must be equal to one of the allowed values" };
             if (vErrors === null) {
               vErrors = [err5];
             } else {
@@ -2232,7 +2420,7 @@ var require_BrowserControlReceipt_validator = __commonJS({
               let data2 = data1[i0];
               if (data2 && typeof data2 == "object" && !Array.isArray(data2)) {
                 if (data2.canonicalPath === void 0) {
-                  const err6 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserToolGrantExtraFile/required", keyword: "required", params: { missingProperty: "canonicalPath" }, message: "must have required property 'canonicalPath'" };
+                  const err6 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserPermissionExtraFile/required", keyword: "required", params: { missingProperty: "canonicalPath" }, message: "must have required property 'canonicalPath'" };
                   if (vErrors === null) {
                     vErrors = [err6];
                   } else {
@@ -2241,7 +2429,7 @@ var require_BrowserControlReceipt_validator = __commonJS({
                   errors++;
                 }
                 if (data2.access === void 0) {
-                  const err7 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserToolGrantExtraFile/required", keyword: "required", params: { missingProperty: "access" }, message: "must have required property 'access'" };
+                  const err7 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserPermissionExtraFile/required", keyword: "required", params: { missingProperty: "access" }, message: "must have required property 'access'" };
                   if (vErrors === null) {
                     vErrors = [err7];
                   } else {
@@ -2250,7 +2438,7 @@ var require_BrowserControlReceipt_validator = __commonJS({
                   errors++;
                 }
                 if (data2.kind === void 0) {
-                  const err8 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserToolGrantExtraFile/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
+                  const err8 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserPermissionExtraFile/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
                   if (vErrors === null) {
                     vErrors = [err8];
                   } else {
@@ -2260,7 +2448,7 @@ var require_BrowserControlReceipt_validator = __commonJS({
                 }
                 for (const key1 in data2) {
                   if (!(key1 === "canonicalPath" || key1 === "access" || key1 === "kind")) {
-                    const err9 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserToolGrantExtraFile/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key1 }, message: "must NOT have additional properties" };
+                    const err9 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserPermissionExtraFile/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key1 }, message: "must NOT have additional properties" };
                     if (vErrors === null) {
                       vErrors = [err9];
                     } else {
@@ -2273,7 +2461,7 @@ var require_BrowserControlReceipt_validator = __commonJS({
                   let data3 = data2.canonicalPath;
                   if (typeof data3 === "string") {
                     if (!pattern0.test(data3)) {
-                      const err10 = { instancePath: instancePath + "/extraFiles/" + i0 + "/canonicalPath", schemaPath: "#/definitions/BrowserToolGrantExtraFile/properties/canonicalPath/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                      const err10 = { instancePath: instancePath + "/extraFiles/" + i0 + "/canonicalPath", schemaPath: "#/definitions/BrowserPermissionExtraFile/properties/canonicalPath/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                       if (vErrors === null) {
                         vErrors = [err10];
                       } else {
@@ -2282,7 +2470,7 @@ var require_BrowserControlReceipt_validator = __commonJS({
                       errors++;
                     }
                   } else {
-                    const err11 = { instancePath: instancePath + "/extraFiles/" + i0 + "/canonicalPath", schemaPath: "#/definitions/BrowserToolGrantExtraFile/properties/canonicalPath/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    const err11 = { instancePath: instancePath + "/extraFiles/" + i0 + "/canonicalPath", schemaPath: "#/definitions/BrowserPermissionExtraFile/properties/canonicalPath/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                     if (vErrors === null) {
                       vErrors = [err11];
                     } else {
@@ -2294,7 +2482,7 @@ var require_BrowserControlReceipt_validator = __commonJS({
                 if (data2.access !== void 0) {
                   let data4 = data2.access;
                   if (typeof data4 !== "string") {
-                    const err12 = { instancePath: instancePath + "/extraFiles/" + i0 + "/access", schemaPath: "#/definitions/BrowserToolGrantExtraFile/properties/access/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    const err12 = { instancePath: instancePath + "/extraFiles/" + i0 + "/access", schemaPath: "#/definitions/BrowserPermissionExtraFile/properties/access/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                     if (vErrors === null) {
                       vErrors = [err12];
                     } else {
@@ -2303,7 +2491,7 @@ var require_BrowserControlReceipt_validator = __commonJS({
                     errors++;
                   }
                   if (!(data4 === "read" || data4 === "write")) {
-                    const err13 = { instancePath: instancePath + "/extraFiles/" + i0 + "/access", schemaPath: "#/definitions/BrowserToolGrantExtraFile/properties/access/enum", keyword: "enum", params: { allowedValues: schema28.properties.access.enum }, message: "must be equal to one of the allowed values" };
+                    const err13 = { instancePath: instancePath + "/extraFiles/" + i0 + "/access", schemaPath: "#/definitions/BrowserPermissionExtraFile/properties/access/enum", keyword: "enum", params: { allowedValues: schema29.properties.access.enum }, message: "must be equal to one of the allowed values" };
                     if (vErrors === null) {
                       vErrors = [err13];
                     } else {
@@ -2315,7 +2503,7 @@ var require_BrowserControlReceipt_validator = __commonJS({
                 if (data2.kind !== void 0) {
                   let data5 = data2.kind;
                   if (typeof data5 !== "string") {
-                    const err14 = { instancePath: instancePath + "/extraFiles/" + i0 + "/kind", schemaPath: "#/definitions/BrowserToolGrantExtraFile/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    const err14 = { instancePath: instancePath + "/extraFiles/" + i0 + "/kind", schemaPath: "#/definitions/BrowserPermissionExtraFile/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                     if (vErrors === null) {
                       vErrors = [err14];
                     } else {
@@ -2324,7 +2512,7 @@ var require_BrowserControlReceipt_validator = __commonJS({
                     errors++;
                   }
                   if (!(data5 === "file" || data5 === "directory_tree")) {
-                    const err15 = { instancePath: instancePath + "/extraFiles/" + i0 + "/kind", schemaPath: "#/definitions/BrowserToolGrantExtraFile/properties/kind/enum", keyword: "enum", params: { allowedValues: schema28.properties.kind.enum }, message: "must be equal to one of the allowed values" };
+                    const err15 = { instancePath: instancePath + "/extraFiles/" + i0 + "/kind", schemaPath: "#/definitions/BrowserPermissionExtraFile/properties/kind/enum", keyword: "enum", params: { allowedValues: schema29.properties.kind.enum }, message: "must be equal to one of the allowed values" };
                     if (vErrors === null) {
                       vErrors = [err15];
                     } else {
@@ -2334,7 +2522,7 @@ var require_BrowserControlReceipt_validator = __commonJS({
                   }
                 }
               } else {
-                const err16 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserToolGrantExtraFile/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                const err16 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserPermissionExtraFile/type", keyword: "type", params: { type: "object" }, message: "must be object" };
                 if (vErrors === null) {
                   vErrors = [err16];
                 } else {
@@ -2485,7 +2673,7 @@ var require_BrowserControlReceipt_validator = __commonJS({
           errors++;
         }
         for (const key0 in data) {
-          if (!func2.call(schema32.properties, key0)) {
+          if (!func2.call(schema33.properties, key0)) {
             const err10 = { instancePath, schemaPath: "#/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key0 }, message: "must NOT have additional properties" };
             if (vErrors === null) {
               vErrors = [err10];
@@ -2562,7 +2750,7 @@ var require_BrowserControlReceipt_validator = __commonJS({
             errors++;
           }
           if (!(data3 === "action" || data3 === "goal" || data3 === "workspace")) {
-            const err17 = { instancePath: instancePath + "/scope", schemaPath: "#/definitions/BrowserActionReviewScope/enum", keyword: "enum", params: { allowedValues: schema33.enum }, message: "must be equal to one of the allowed values" };
+            const err17 = { instancePath: instancePath + "/scope", schemaPath: "#/definitions/BrowserActionReviewScope/enum", keyword: "enum", params: { allowedValues: schema34.enum }, message: "must be equal to one of the allowed values" };
             if (vErrors === null) {
               vErrors = [err17];
             } else {
@@ -2587,7 +2775,7 @@ var require_BrowserControlReceipt_validator = __commonJS({
                 errors++;
               }
               if (!(data5 === "action" || data5 === "goal" || data5 === "workspace")) {
-                const err19 = { instancePath: instancePath + "/availableScopes/" + i0, schemaPath: "#/definitions/BrowserActionReviewScope/enum", keyword: "enum", params: { allowedValues: schema33.enum }, message: "must be equal to one of the allowed values" };
+                const err19 = { instancePath: instancePath + "/availableScopes/" + i0, schemaPath: "#/definitions/BrowserActionReviewScope/enum", keyword: "enum", params: { allowedValues: schema34.enum }, message: "must be equal to one of the allowed values" };
                 if (vErrors === null) {
                   vErrors = [err19];
                 } else {
@@ -2858,7 +3046,7 @@ var require_BrowserControlReceipt_validator = __commonJS({
               errors++;
             }
             if (!(data5 === "goal_not_found" || data5 === "stale_run" || data5 === "action_not_waiting" || data5 === "action_id_mismatch" || data5 === "tool_not_found" || data5 === "invalid_tool_input" || data5 === "scope_unavailable" || data5 === "sandbox_scope_unavailable" || data5 === "review_unavailable")) {
-              const err18 = { instancePath: instancePath + "/error", schemaPath: "#/anyOf/1/properties/error/enum", keyword: "enum", params: { allowedValues: schema31.anyOf[1].properties.error.enum }, message: "must be equal to one of the allowed values" };
+              const err18 = { instancePath: instancePath + "/error", schemaPath: "#/anyOf/1/properties/error/enum", keyword: "enum", params: { allowedValues: schema32.anyOf[1].properties.error.enum }, message: "must be equal to one of the allowed values" };
               if (vErrors === null) {
                 vErrors = [err18];
               } else {
@@ -2910,7 +3098,7 @@ var require_BrowserControlReceipt_validator = __commonJS({
                       for (let i1 = 0; i1 < len1; i1++) {
                         let data9 = data8[i1];
                         if (typeof data9 !== "string" && !(typeof data9 == "number" && isFinite(data9))) {
-                          const err22 = { instancePath: instancePath + "/issues/" + i0 + "/path/" + i1, schemaPath: "#/definitions/BrowserActionReviewIssue/properties/path/items/type", keyword: "type", params: { type: schema37.properties.path.items.type }, message: "must be string,number" };
+                          const err22 = { instancePath: instancePath + "/issues/" + i0 + "/path/" + i1, schemaPath: "#/definitions/BrowserActionReviewIssue/properties/path/items/type", keyword: "type", params: { type: schema38.properties.path.items.type }, message: "must be string,number" };
                           if (vErrors === null) {
                             vErrors = [err22];
                           } else {
@@ -3559,8 +3747,8 @@ var require_BrowserControlReceipt_validator = __commonJS({
                     }
                     errors++;
                   }
-                  if ("permission_mode" !== data14) {
-                    const err50 = { instancePath: instancePath + "/kind", schemaPath: "#/anyOf/4/properties/kind/const", keyword: "const", params: { allowedValue: "permission_mode" }, message: "must be equal to constant" };
+                  if ("permission_profile" !== data14) {
+                    const err50 = { instancePath: instancePath + "/kind", schemaPath: "#/anyOf/4/properties/kind/const", keyword: "const", params: { allowedValue: "permission_profile" }, message: "must be equal to constant" };
                     if (vErrors === null) {
                       vErrors = [err50];
                     } else {
@@ -3629,8 +3817,8 @@ var require_BrowserControlReceipt_validator = __commonJS({
                       }
                       errors++;
                     }
-                    if ("grant_revoke" !== data16) {
-                      const err56 = { instancePath: instancePath + "/kind", schemaPath: "#/anyOf/5/properties/kind/const", keyword: "const", params: { allowedValue: "grant_revoke" }, message: "must be equal to constant" };
+                    if ("exemption_revoke" !== data16) {
+                      const err56 = { instancePath: instancePath + "/kind", schemaPath: "#/anyOf/5/properties/kind/const", keyword: "const", params: { allowedValue: "exemption_revoke" }, message: "must be equal to constant" };
                       if (vErrors === null) {
                         vErrors = [err56];
                       } else {

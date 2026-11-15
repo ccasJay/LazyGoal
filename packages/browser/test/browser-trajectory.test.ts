@@ -114,9 +114,12 @@ test("trajectory query rejects malformed wire input and distinguishes missing da
 
     const directory = await mkdtemp(join(tmpdir(), "lazygoal-browser-trajectory-failure-"));
     try {
-        const goalDirectory = join(directory, encodePathSegment(goalId));
         await writeTrajectory(directory, { [runId]: [] });
-        await writeFile(join(goalDirectory, `${encodePathSegment(runId)}.jsonl`), "{not-json}\n", "utf8");
+        await writeFile(
+            join(directory, encodePathSegment(goalId), "runs", encodePathSegment(runId), "trajectory.jsonl"),
+            "{not-json}\n",
+            "utf8",
+        );
         const store = new JsonFileTrajectoryStore(directory);
         const app = createBrowserTrajectoryRoutesForFailure(store);
         const failure = await app.request("/api/goals/goal-1/trajectory?runId=run-1");

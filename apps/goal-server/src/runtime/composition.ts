@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { realpath, rm } from "node:fs/promises";
+import { realpath } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 import {
@@ -11,6 +11,7 @@ import {
     CheckpointGateGoalStore,
     ManagedResourceRegistry,
     RuntimeLifecycle,
+    DEFAULT_GOAL_MODEL_SELECTION,
     DefaultGoalModelSelectionCoordinator,
     TrajectoryCheckpointCommitter,
     allocateDiagnosticTraceRecord,
@@ -24,6 +25,7 @@ import {
     type SessionInteractionHandlers,
     type AgentProfile,
     type AgentProfileRegistry,
+    type Goal,
     type GoalCatalog,
     type GoalStore,
     type GoalModelSelection,
@@ -34,10 +36,11 @@ import {
     type TrajectoryQueryPort,
     type TrajectoryStore,
     type ToolPolicy,
+    type RunnerDependencies,
     IndexedContextLookupService,
     hasUnsettledSessionWork,
 } from "../../../../packages/runtime/src/index";
-import type { ProjectPermissionModeStore } from "../../../../packages/permission/src/index";
+import type { ProjectPermissionProfileStore } from "../../../../packages/permission/src/index";
 import {
     DEFAULT_WORKING_MEMORY_LIMITS,
     type WorkingMemoryLimits,
@@ -51,9 +54,8 @@ import {
     JsonFileMetricsStore,
     JsonFileTrajectoryStore,
     JsonFileContextRetrievalIndexStore,
-    JsonFileToolGrantStore,
     JsonFileSandboxGrantStore,
-    JsonFileProjectPermissionModeStore,
+    JsonFileProjectPermissionProfileStore,
     JsonFileModelPreferenceStore,
     JsonFileProcessSessionStore,
 } from "../../../../packages/storage/src/index";
@@ -68,6 +70,9 @@ import {
     createModelCapabilities,
     ModelCapabilitiesError,
     resolveTokenEstimatorEncoding,
+    resolveEpochCapacity,
+    tryResolveEpochCapacity,
+    type EpochCapacity,
     type ModelCapabilities,
     type ModelContextBudgetPolicy,
     type ModelContextBudgetPolicyInput,
@@ -81,6 +86,7 @@ import {
 } from "../../../../packages/model-execution/src/index";
 import {
     createDefaultPromptBundleRenderer,
+    renderContextCompactionPrompt,
     createDefaultPromptBundleProtocolValidator,
 } from "../../../../packages/prompt-bundle/src/index";
 import {
@@ -92,9 +98,10 @@ import {
 } from "../../../../packages/config/src/index";
 import {
     LLMConfigurationError,
+    readAssistantText,
     type LLMConfig,
 } from "../../../../packages/llm-core/src/index";
-import { loadRuntimeConfig } from "../../../../packages/config/src/index";
+import { loadContextConfig, loadRuntimeConfig } from "../../../../packages/config/src/index";
 import {
     ensureSecureConfigFile,
     ensureSecureHomeDirectories,
@@ -113,12 +120,9 @@ import {
 import {
     DEFAULT_TOOL_IDS,
     createDefaultToolRegistrations,
-    BASH_TOOL_ID,
     BashTool,
-    EXECUTE_PROGRAM_TOOL_ID,
     createExecuteProgramRegistration,
     EditFileTool,
-    READ_FILE_TOOL_ID,
     ReadFileTool,
     WriteFileTool,
 } from "../../../../packages/tools/src/index";
@@ -136,24 +140,21 @@ import {
 const DEFAULT_PROFILE_ID = "default";
 
 /**
- * 默认 Tool 授权策略。
+ * 默认 Tool 执行策略。
+ *
+ * @remarks
+ * 工具不再逐条申请审批：资源边界由工作区权限档位的 `sandbox`、`approvals` 与
+ * `reviewer` 在执行期裁决，Tool 的暴露与输入校验由 Registry 和 Input Contract
+ * 负责。因此该策略对已注册 Tool 一律返回 `allow`，不产生 Tool 级审批或授权记录。
+ *
+ * @returns 允许所有已注册 Tool 的确定性策略。
+ * @example
+ * ```ts
+ * const policy = createDefaultToolPolicy();
+ * ```
  */
-export function createDefaultToolPolicy(options?: {
-    readonly platform?: NodeJS.Platform;
-}): ToolPolicy {
-    const platform = options?.platform ?? process.platform;
-    const autoAllowedToolIds = new Set(
-        platform === "darwin"
-            ? [READ_FILE_TOOL_ID, BASH_TOOL_ID, EXECUTE_PROGRAM_TOOL_ID]
-            : [READ_FILE_TOOL_ID, EXECUTE_PROGRAM_TOOL_ID],
-    );
-
-    return {
-        evaluate: ({ tool }) =>
-            autoAllowedToolIds.has(tool.id)
-                ? "allow"
-                : "require_approval",
-    };
+export function createDefaultToolPolicy(): ToolPolicy {
+    return { evaluate: () => "allow" };
 }
 
 /**
@@ -294,8 +295,8 @@ export interface RuntimeCompositionOptions {
     readonly toolRegistry?: InMemoryToolRegistry;
     readonly toolPolicy?: ToolPolicy;
     readonly abortController?: AbortController;
-    /** 项目权限执行模式存储；省略时使用工作区下的默认文件存储。 */
-    readonly permissionModeStore?: ProjectPermissionModeStore;
+    /** 项目权限档位存储；省略时使用工作区下的默认文件存储。 */
+    readonly permissionProfileStore?: ProjectPermissionProfileStore;
     /**
      * 实例自有资源集合；省略时由本装配创建。
      *
@@ -307,6 +308,11 @@ export interface RuntimeCompositionOptions {
     readonly gracePeriodMs?: number;
     readonly modelInputEstimator?: ModelInputEstimator;
     readonly modelContextBudget?: ModelContextBudgetPolicyInput;
+    /** 显式覆盖 `[context]` 小节；省略时从 Home 配置文件读取。 */
+    readonly contextConfig?: {
+        readonly epochLimitTokens?: number;
+        readonly compactThresholdPercent?: number;
+    };
     readonly modelCatalog?: LlmModelCatalog;
     readonly modelBinding?: MutableModelBinding;
     readonly goalModelSelectionCoordinator?: GoalModelSelectionCoordinator;
@@ -358,16 +364,16 @@ export interface RuntimeInteractionPort {
 
 export interface RuntimeComposition {
     readonly workspaceRoot: string;
+    /** 本工作区的稳定身份；权限档位、授权账本与 Trigger 绑定都使用它。 */
+    readonly workspaceId: string;
     readonly workspaceHomeDirectory: string;
     readonly dataDirectory: string;
     readonly goalsDirectory: string;
-    readonly trajectoriesDirectory: string;
-    readonly tracesDirectory: string;
-    readonly metricsDirectory: string;
-    readonly contextSidecarsDirectory: string;
     readonly llmConfig?: LLMConfig;
     /** 受管 Provider 档案存储，供 Settings 管理接口使用。 */
     readonly providerProfileStore: JsonFileProviderProfileStore;
+    /** 当前工作区权限档位的持久化存储；worker 与 Web 共用同一记录。 */
+    readonly permissionProfileStore: ProjectPermissionProfileStore;
     /** 启动时读取的受管 Provider 档案快照；最新状态以 `providerProfileStore` 为准。 */
     readonly providerProfiles: readonly ProviderProfile[];
     /** 受管档案变更后刷新运行时解析视图。 */
@@ -384,6 +390,25 @@ export interface RuntimeComposition {
     readonly modelContextPolicy: ModelContextBudgetPolicy;
     readonly trajectoryContextAssembler: TrajectoryModelContextAssembler;
     readonly adapter: LLMAdapter;
+    /**
+     * 为一次性纯文本请求构造指定模型选择对应的摘要 Adapter。
+     *
+     * @remarks
+     * 只构造 Adapter，不发布或修改进程级模型绑定；档案身份与动态执行元数据按该选择解析。
+     * 返回的 Adapter 用于不携带结构化输出、不携带工具的一次性文本生成，调用方应传入
+     * 服务端已解析的模型选择，并为 OpenCode Go 请求提供稳定的 `sessionId`。
+     *
+     * @param selection - 经服务端模型目录确认可选的完整模型选择。
+     * @returns 与该选择对应、可独立用于一次性纯文本请求的 Adapter。
+     * @throws ProviderProfileResolutionError 当选择引用的档案不再可用时抛出。
+     * @throws ModelBindingUnavailableError 当选择的 Provider 与其连接配置不一致时抛出。
+     * @throws LLMConfigurationError 当动态模型执行元数据不完整或无效时抛出。
+     * @example
+     * ```ts
+     * const adapter = root.createSummaryAdapterForSelection(selection);
+     * ```
+     */
+    readonly createSummaryAdapterForSelection: (selection: GoalModelSelection) => LLMAdapter;
     readonly profile: AgentProfile;
     readonly profiles: AgentProfileRegistry;
     readonly readFileTool?: ReadFileTool;
@@ -402,6 +427,7 @@ export interface RuntimeComposition {
     readonly contextLookupService: IndexedContextLookupService;
     readonly modelCatalog: LlmModelCatalog;
     readonly modelBinding: MutableModelBinding;
+    /** 按已保存的 Goal 选择发布阶段适配器。档案或供应商不可用时抛出异常并保留当前绑定。 */
     readonly alignModelBinding: (selection: GoalModelSelection) => void;
     readonly goalModelSelectionCoordinator: GoalModelSelectionCoordinator;
     readonly defaultModelSelection: GoalModelSelection;
@@ -586,6 +612,27 @@ async function assembleRuntimeComposition(
     const configuredEstimator = resolveModelInputEstimator(options.modelInputEstimator);
     const modelCapabilities = readModelCapabilities(env, configuredEstimator);
     const modelInputEstimator = modelCapabilities?.tokenEstimator ?? configuredEstimator;
+    const contextConfig = options.contextConfig ?? await loadContextConfig({ homePaths });
+    // 选择快照可能来自在线目录且不含容量；此时以该 Goal 所属 Provider 配置声明的窗口为准。
+    const configuredContextWindowTokens = (selection: GoalModelSelection): number | undefined => {
+        if (selection.profileId !== undefined) {
+            try {
+                const profileConfig = resolveProviderProfileConfig(selection.profileId, selection.modelId);
+                if ("contextWindowTokens" in profileConfig) return profileConfig.contextWindowTokens;
+            } catch {
+                // 档案不可用时不阻断容量解析，由启动配置或能力来源继续判断。
+            }
+        }
+        return llmConfig !== undefined && "contextWindowTokens" in llmConfig
+            ? llmConfig.contextWindowTokens
+            : modelCapabilities?.contextWindowTokens;
+    };
+    const resolveGoalEpochCapacity = (goal: Goal): EpochCapacity => resolveEpochCapacity({
+        modelContextWindowTokens: goal.state.modelSelection.contextWindowTokens
+            ?? configuredContextWindowTokens(goal.state.modelSelection),
+        configuredLimitTokens: contextConfig?.epochLimitTokens,
+        thresholdPercent: contextConfig?.compactThresholdPercent,
+    });
     const workspaceRoot = await resolveWorkspaceRoot(options.cwd ?? process.cwd());
     const workspaceIdentityRoot = await resolveWorkspaceRoot(options.workspaceIdentityRoot ?? workspaceRoot);
     const workspaceHomePaths = await resolveWorkspaceHomePaths(homePaths, workspaceIdentityRoot);
@@ -593,12 +640,6 @@ async function assembleRuntimeComposition(
         ? resolve(options.dataDirectory)
         : workspaceHomePaths.workspaceDirectory;
     const goalsDirectory = join(dataDirectory, "goals");
-    const trajectoriesDirectory = join(dataDirectory, "trajectories");
-    const tracesDirectory = join(dataDirectory, "traces");
-    const metricsDirectory = dataDirectory === workspaceHomePaths.workspaceDirectory
-        ? workspaceHomePaths.metricsDirectory
-        : join(dataDirectory, "metrics");
-    const contextSidecarsDirectory = join(dataDirectory, "context-sidecars");
     const profilesDirectory = homePaths.agentProfilesDir;
     const profilePath = join(profilesDirectory, `${DEFAULT_PROFILE_ID}.json`);
 
@@ -722,8 +763,13 @@ async function assembleRuntimeComposition(
             listResumable: () => primaryGoalStore.listResumable(),
             listHistory: () => primaryGoalStore.listHistory(),
         };
-    const metricsStore = new JsonFileMetricsStore(metricsDirectory);
-    const sessionMetricsService = new SessionMetricsService(store, metricsStore, metricsStore);
+    const metricsStore = new JsonFileMetricsStore(goalsDirectory);
+    const sessionMetricsService = new SessionMetricsService(store, metricsStore, metricsStore, (goal) => tryResolveEpochCapacity({
+        modelContextWindowTokens: goal.state.modelSelection.contextWindowTokens
+            ?? modelCapabilities?.contextWindowTokens,
+        configuredLimitTokens: contextConfig?.epochLimitTokens,
+        thresholdPercent: contextConfig?.compactThresholdPercent,
+    }));
     const metricsAwareGoalStore: GoalStore = {
         async save(goal) {
             await store.save(goal);
@@ -740,19 +786,18 @@ async function assembleRuntimeComposition(
             return goal;
         },
     };
-    const primaryTrajectoryStore = new JsonFileTrajectoryStore(trajectoriesDirectory);
-    const toolGrantStore = new JsonFileToolGrantStore(workspaceHomePaths.workspaceDirectory);
+    const primaryTrajectoryStore = new JsonFileTrajectoryStore(goalsDirectory);
     const sandboxGrantStore = new JsonFileSandboxGrantStore(workspaceHomePaths.workspaceDirectory);
-    const permissionModeStore = options.permissionModeStore
-        ?? new JsonFileProjectPermissionModeStore(workspaceHomePaths.workspaceDirectory);
+    const permissionProfileStore = options.permissionProfileStore
+        ?? new JsonFileProjectPermissionProfileStore(workspaceHomePaths.workspaceDirectory);
     const trajectoryStore = primaryTrajectoryStore;
-    const retrievalIndexStore = new JsonFileContextRetrievalIndexStore(contextSidecarsDirectory);
+    const retrievalIndexStore = new JsonFileContextRetrievalIndexStore(goalsDirectory);
     const contextLookupService = new IndexedContextLookupService({
         trajectoryStore,
         indexStore: retrievalIndexStore,
     });
-    const traceSink = new JsonFileDiagnosticTraceSink(tracesDirectory);
-    const modelInputStore = new JsonFileModelInputStore(join(dataDirectory, "model-inputs"));
+    const traceSink = new JsonFileDiagnosticTraceSink(goalsDirectory);
+    const modelInputStore = new JsonFileModelInputStore(goalsDirectory);
     const trajectoryContextAssembler = new TrajectoryModelContextAssembler({
         trajectoryStore,
         policy: modelContextPolicy,
@@ -786,7 +831,9 @@ async function assembleRuntimeComposition(
         provider: llmConfig?.provider ?? ((adapter as { readonly provider?: string }).provider as GoalModelSelection["provider"] | undefined) ?? "openai",
         ...(bootConfigFromProfile && activeProviderProfile !== undefined ? { profileId: activeProviderProfile.id } : {}),
         modelId: llmConfig?.model ?? (adapter as { readonly modelId?: string }).modelId ?? "default-model",
-        structuredOutputMode: llmConfig?.structuredOutputMode ?? adapter.structuredOutputMode ?? "prompt_only",
+        ...(llmConfig?.provider === "openai-compatible" ? {} : {
+            structuredOutputMode: llmConfig?.structuredOutputMode ?? adapter.structuredOutputMode ?? "prompt_only",
+        }),
         ...(defaultExecutionMetadata === undefined ? {} : { executionApi: defaultExecutionMetadata.executionApi }),
         ...(defaultExecutionMetadata === undefined ? {} : { reasoning: defaultExecutionMetadata.reasoning }),
         ...(defaultExecutionMetadata === undefined ? {} : { vision: defaultExecutionMetadata.vision }),
@@ -796,7 +843,13 @@ async function assembleRuntimeComposition(
         ...(defaultExecutionMetadata !== undefined ? {
             contextWindowTokens: defaultExecutionMetadata.contextWindowTokens,
             maxOutputTokens: defaultExecutionMetadata.maxOutputTokens,
-        } : modelCapabilities === undefined ? {} : {
+        } : llmConfig !== undefined && "contextWindowTokens" in llmConfig ? {
+            contextWindowTokens: llmConfig.contextWindowTokens,
+            maxOutputTokens: llmConfig.maxOutputTokens,
+        } : modelCapabilities === undefined ? {
+            contextWindowTokens: DEFAULT_GOAL_MODEL_SELECTION.contextWindowTokens!,
+            maxOutputTokens: DEFAULT_GOAL_MODEL_SELECTION.maxOutputTokens!,
+        } : {
             contextWindowTokens: modelCapabilities.contextWindowTokens,
             maxOutputTokens: modelCapabilities.maxOutputTokens,
         }),
@@ -888,6 +941,18 @@ async function assembleRuntimeComposition(
         });
         modelBinding.publish(candidate);
     };
+    const assertModelSelectionProvider = (selection: GoalModelSelection): void => {
+        const expectedProvider = selection.profileId === undefined
+            ? defaultModelSelection.provider
+            : resolveProviderProfileConfig(selection.profileId, selection.modelId).provider;
+        if (selection.provider !== expectedProvider) {
+            throw new ModelBindingUnavailableError(selection.provider, expectedProvider);
+        }
+    };
+    const createSummaryAdapterForSelection = (selection: GoalModelSelection): LLMAdapter => {
+        assertModelSelectionProvider(selection);
+        return createStageAdaptersForSelection(selection).thinkAdapter;
+    };
     const goalIdGenerator = options.goalIdGenerator ?? randomUUID;
     const runIdGenerator = options.runIdGenerator ?? randomUUID;
     /**
@@ -899,13 +964,38 @@ async function assembleRuntimeComposition(
      * 进程真正可用的连接一致。核验失败会中止本次推进，Run 保留真实可恢复状态。
      */
     const alignGoalModelBinding = (selection: GoalModelSelection): void => {
-        const expectedProvider = selection.profileId === undefined
-            ? defaultModelSelection.provider
-            : resolveProviderProfileConfig(selection.profileId, selection.modelId).provider;
-        if (selection.provider !== expectedProvider) {
-            throw new ModelBindingUnavailableError(selection.provider, expectedProvider);
-        }
+        assertModelSelectionProvider(selection);
         alignModelBinding(selection);
+    };
+    const contextCompaction: NonNullable<RunnerDependencies["contextCompaction"]> = {
+        readOccupancy: async (goal) => {
+            const snapshot = await sessionMetricsService.read(goal.id);
+            const usage = snapshot?.contextUsage;
+            if (usage === undefined || usage === null) return null;
+            const capacity = tryResolveEpochCapacity({
+                modelContextWindowTokens: goal.state.modelSelection.contextWindowTokens
+                    ?? modelCapabilities?.contextWindowTokens,
+                configuredLimitTokens: contextConfig?.epochLimitTokens,
+                thresholdPercent: contextConfig?.compactThresholdPercent,
+            });
+            if (capacity === undefined) return null;
+            return {
+                occupiedTokens: Math.round(usage.usedPercent * usage.capacityTokens),
+                capacityTokens: usage.capacityTokens,
+                thresholdPercent: capacity.thresholdPercent,
+            };
+        },
+        compact: async (input) => {
+            const prompt = await renderContextCompactionPrompt(input);
+            const response = await modelBinding.current().decideAdapter.generate({
+                messages: [{ role: "system", content: prompt }],
+                ...(modelCapabilities === undefined
+                    ? {}
+                    : { maxOutputTokens: modelCapabilities.maxOutputTokens }),
+            });
+            const text = readAssistantText(response).trim();
+            return text.length === 0 ? undefined : text;
+        },
     };
     const executionComponents = createExecutionComponents({
         store: checkpointStore,
@@ -918,18 +1008,21 @@ async function assembleRuntimeComposition(
             metricsRecorder: sessionMetricsService,
             trajectoryContextAssembler,
             ...(modelCapabilities === undefined ? {} : { modelCapabilities }),
+            assertEpochCapacity: (goal) => {
+                resolveGoalEpochCapacity(goal);
+            },
         }),
         profiles,
         toolRegistry,
         toolPolicy,
-        toolGrantStore,
         sandboxGrantStore,
-        permissionModeStore,
+        permissionProfileStore,
         workspaceId: workspaceHomePaths.workspaceId,
         workspaceRoot,
         sandboxPlanResolver: ({ workspaceRoot, action, effectiveScope }) => effectiveScope === undefined
             ? undefined
             : { actionId: action.actionId, workspaceRoot, scope: effectiveScope },
+        contextCompaction,
         trajectoryStore,
         traceSink,
         workingMemoryLimits,
@@ -943,6 +1036,7 @@ async function assembleRuntimeComposition(
         store: checkpointStore,
         committer: checkpointCommitter,
         coordinator: executionComponents.commands,
+        compactContext: executionComponents.compactContext,
         profiles,
         runIdGenerator,
         protocolValidator,
@@ -981,28 +1075,42 @@ async function assembleRuntimeComposition(
     };
     const commands: ExecutionCommands = {
         launch: (request, control) =>
-            runTrackedOperation("launch", () => rawCommands.launch(request, control)),
+            runTrackedOperation("launch", () => rawCommands.launch(
+                request.modelSelection === undefined
+                    ? { ...request, modelSelection: defaultModelSelection }
+                    : request,
+                control,
+            )),
         advance: (ref, control) =>
             runTrackedOperation("advance", () => rawCommands.advance(ref, control)),
         resume: (request, control) =>
             runTrackedOperation("resume", () => rawCommands.resume(request, control)),
+        resumeForSession: (request, sessionInput, control) =>
+            runTrackedOperation(
+                "resume_for_session",
+                () => rawCommands.resumeForSession(request, sessionInput, control),
+            ),
+        scheduleAuthorizedAction: (ref, authorizedActionId, control) =>
+            runTrackedOperation(
+                "schedule_authorized_action",
+                () => rawCommands.scheduleAuthorizedAction(ref, authorizedActionId, control),
+            ),
         continue: (ref, content, control, continuation, queueBinding) =>
             runTrackedOperation("continue", () => rawCommands.continue(ref, content, control, continuation, queueBinding)),
+        commitContinuation: (ref, content, inputId, control) =>
+            runTrackedOperation("commit_continuation", () => rawCommands.commitContinuation(ref, content, inputId, control)),
         steer: (ref, messageId, content, ledger) =>
             runTrackedOperation("steer", () => rawCommands.steer(ref, messageId, content, ledger)),
         interrupt: (ref, requestId, ledger) =>
             runTrackedOperation("interrupt", () => rawCommands.interrupt(ref, requestId, ledger)),
         enterPlanMode: (ref, control) =>
             runTrackedOperation("enter_plan_mode", () => rawCommands.enterPlanMode(ref, control)),
-        getPermissionMode: (workspaceId) => rawCommands.getPermissionMode(workspaceId),
-        setPermissionMode: (mode, expectedRevision, workspaceId) =>
-            runTrackedOperation("set_permission_mode", () => rawCommands.setPermissionMode(mode, expectedRevision, workspaceId)),
+        getPermissionProfile: () => rawCommands.getPermissionProfile(),
+        setPermissionProfile: (profile, expectedRevision) =>
+            runTrackedOperation("set_permission_profile", () => rawCommands.setPermissionProfile(profile, expectedRevision)),
         listGrants: (ref) => rawCommands.listGrants(ref),
         revokeGrant: (request) =>
             runTrackedOperation("revoke_grant", () => rawCommands.revokeGrant(request)),
-        listToolGrants: (ref) => rawCommands.listToolGrants(ref),
-        revokeToolGrant: (request) =>
-            runTrackedOperation("revoke_tool_grant", () => rawCommands.revokeToolGrant(request)),
         reviewActionApproval: (request, control) =>
             runTrackedOperation("review_action_approval", () => rawCommands.reviewActionApproval(request, control)),
     };
@@ -1014,7 +1122,13 @@ async function assembleRuntimeComposition(
                 } catch {
                     // 覆盖标记旁路失败忽略
                 }
-                return rawCommands.launch(request, control);
+                // 未指定选择时冻结本实例真正服务的默认选择，避免记录无法在本实例执行的占位值。
+                return rawCommands.launch(
+                    request.modelSelection === undefined
+                        ? { ...request, modelSelection: defaultModelSelection }
+                        : request,
+                    control,
+                );
             });
         },
     };
@@ -1049,15 +1163,13 @@ async function assembleRuntimeComposition(
 
     return {
         workspaceRoot,
+        workspaceId: workspaceHomePaths.workspaceId,
         workspaceHomeDirectory: workspaceHomePaths.workspaceDirectory,
         dataDirectory,
         goalsDirectory,
-        trajectoriesDirectory,
-        tracesDirectory,
-        metricsDirectory,
-        contextSidecarsDirectory,
         ...(llmConfig === undefined ? {} : { llmConfig }),
         providerProfileStore,
+        permissionProfileStore,
         providerProfiles,
         refreshProviderProfiles,
         resolveProviderProfileConfig,
@@ -1093,11 +1205,6 @@ async function assembleRuntimeComposition(
                     const status = goal.state.run.status;
                     if (status !== "completed" && status !== "failed" && status !== "cancelled") return "goal_not_terminal";
                     if (hasUnsettledSessionWork(goal)) return "goal_has_pending_inputs";
-                    const encodedGoalId = Buffer.from(goalId, "utf8").toString("base64url");
-                    for (const directory of [trajectoriesDirectory, tracesDirectory, metricsDirectory, contextSidecarsDirectory, join(dataDirectory, "model-inputs")]) {
-                        await rm(join(directory, encodedGoalId), { recursive: true, force: true });
-                    }
-                    await toolGrantStore.deleteGoalGrants(workspaceHomePaths.workspaceId, goalId);
                     await sandboxGrantStore.deleteGoalGrants(workspaceHomePaths.workspaceId, goalId);
                     await processSessionStore.deleteGoalSessions(goalId);
                     await primaryGoalStore.deleteTerminal(goalId);
@@ -1118,7 +1225,7 @@ async function assembleRuntimeComposition(
         executionStream,
         readTrajectory,
         readWorkspaceTrajectory,
-        readWorkspaceModelInputs: (goalId, runId) => new JsonFileModelInputStore(join(workspaceHomePaths.workspaceDirectory, "model-inputs")).read(goalId, runId),
+        readWorkspaceModelInputs: (goalId, runId) => new JsonFileModelInputStore(goalsDirectory).read(goalId, runId),
         checkpointStore,
         sessions,
         interactions: {
@@ -1138,7 +1245,8 @@ async function assembleRuntimeComposition(
         runTrackedOperation,
         modelCatalog,
         modelBinding,
-        alignModelBinding,
+        createSummaryAdapterForSelection,
+        alignModelBinding: alignGoalModelBinding,
         goalModelSelectionCoordinator,
         defaultModelSelection,
         launcher,

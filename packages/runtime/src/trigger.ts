@@ -265,6 +265,17 @@ export type Trigger =
     | {
         readonly id: string;
         readonly name: string;
+        readonly type: "instruction";
+        readonly source: TriggerActor;
+        readonly target: TriggerTarget;
+        readonly payload: { readonly action: "continue"; readonly runId: string; readonly content: string };
+        readonly sentAt: string;
+        readonly goalId: string;
+        readonly replyTo: string;
+    }
+    | {
+        readonly id: string;
+        readonly name: string;
         readonly type: "lifecycle";
         readonly source: TriggerActor;
         readonly target: TriggerTarget;

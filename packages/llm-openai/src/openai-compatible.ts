@@ -1,9 +1,16 @@
-import { sameNativeIdentity, type NativeConversationIdentity } from "../../model-contracts/src/index";
+import {
+    readModelAssistantReasoning,
+    readModelAssistantText,
+    readModelToolCalls,
+    sameNativeIdentity,
+    type NativeConversationIdentity,
+} from "../../model-contracts/src/index";
 import OpenAI from "openai";
 import { randomUUID } from "node:crypto";
 
 import {
     LLMRequestModeMismatchError,
+    classifyContextWindowRejection,
     classifyTransientModelFailure,
     type LLMAdapter,
     type LLMContentBlock,
@@ -13,7 +20,6 @@ import {
     type LLMStreamEvent,
     type LLMTextBlockFormat,
     type LLMToolCall,
-    type StructuredOutputMode,
 } from "../../llm-core/src/index";
 import { extractOpenAIUsage } from "./usage";
 import {
@@ -30,7 +36,7 @@ import {
  * ```ts
  * const config: OpenAICompatibleConfig = {
  *     apiKey: "secret", baseURL: "https://api.openai.com/v1", model: "model-id",
- *     structuredOutputMode: "strict", maxOutputTokens: 4096,
+ *     maxOutputTokens: 4096,
  * };
  * ```
  */
@@ -43,8 +49,6 @@ export interface OpenAICompatibleConfig {
     baseURL: string;
     /** 每次生成请求使用的模型名称。 */
     model: string;
-    /** 固定的结构化输出模式。 */
-    structuredOutputMode: StructuredOutputMode;
     /** 请求未指定上限时使用的最大输出 Token。 */
     maxOutputTokens?: number;
 }
@@ -55,9 +59,7 @@ export interface OpenAICompatibleConfig {
  * @remarks
  * `baseURL` 可指向 OpenAI 或实现兼容协议的第三方服务。消息角色和顺序会
  * 原样映射；响应按真实字段与分片归一化为有序完整内容块，SDK 异常原样传播。
- * 在 strict 模式下将结构 Schema 原样映射为 `response_format.json_schema` 且 `strict: true`；
- * 在 prompt_only 模式下不传递任何原生结构 Schema 参数。
- * 若请求的结构化配置与 Adapter 固定模式不匹配，在发起网络请求前抛出 `LLMRequestModeMismatchError`。
+ * 结构化输出、工具调用策略、工具参数约束和流尾用量均由本次 {@link LLMRequest} 声明；未声明时遵循 Chat Completions 默认行为。
  * 响应携带 `usage` 时将其归一化写入 `providerMetadata.usage`
  * （`{ inputTokens, outputTokens, cachedInputTokens? }`），缺失时该字段缺省。
  * 长度截断、内容过滤、错误结束与无法归一化的内容抛出 `OpenAIIncompleteResponseError`，
@@ -67,22 +69,20 @@ export interface OpenAICompatibleConfig {
  * ```ts
  * const adapter = new OpenAICompatible({
  *     apiKey: "secret", baseURL: "https://api.openai.com/v1",
- *     model: "gpt-4o", structuredOutputMode: "prompt_only",
+ *     model: "gpt-4o",
  * });
  * const response = await adapter.generate({ messages: [{ role: "user", content: "你好" }] });
  * ```
  */
 export class OpenAICompatible implements LLMAdapter {
-    readonly structuredOutputMode: StructuredOutputMode;
     /** 无凭据的原生回放身份。 */
     readonly nativeConversationIdentity: NativeConversationIdentity;
     private readonly client: OpenAI;
     private readonly model: string;
     private readonly maxOutputTokens: number | undefined;
 
-    /** @param config - API Key、兼容端点地址、模型名称与固定的结构化输出模式。 */
+    /** @param config - API Key、兼容端点地址与模型名称。 */
     constructor (config: OpenAICompatibleConfig){
-        this.structuredOutputMode = config.structuredOutputMode;
         this.nativeConversationIdentity = {
             provider: config.provider ?? "openai-compatible", endpoint: config.baseURL.replace(/\/+$/, ""),
             model: config.model, protocol: "openai-chat",
@@ -102,14 +102,13 @@ export class OpenAICompatible implements LLMAdapter {
      * @returns Chat Completions 首个候选归一化后的有序完整内容块。
      * @throws OpenAI SDK 暴露的网络、鉴权、限流或协议异常；截断或内容过滤响应抛出
      *   `OpenAIIncompleteResponseError`；中止时抛出 `ExecutionAbortedError`；
-     *   请求参数模式不匹配时抛出 `LLMRequestModeMismatchError`。
+     *   原生历史 provider、端点、模型或协议身份不匹配时抛出 `LLMRequestModeMismatchError`。
      */
     async generate(
         _request: LLMRequest,
         control?: ExecutionControl,
     ): Promise<LLMResponse> {
         throwIfAborted(control);
-        this.assertRequestMode(_request);
         const payload = this.buildPayload(_request, toOpenAIMessages(_request.messages, this.nativeConversationIdentity));
 
         try {
@@ -119,30 +118,43 @@ export class OpenAICompatible implements LLMAdapter {
             throwIfAborted(control);
             const choice = response.choices[0];
             const message = choice?.message;
-            const extended = message as typeof message & { reasoning_content?: string; thought?: string } | undefined;
+            const extended = message as typeof message & { reasoning_content?: string; thought?: string; refusal?: string | null } | undefined;
+            if (typeof extended?.refusal === "string" && extended.refusal.length > 0) throw new OpenAIRefusalError();
             const reasoningContent = extended?.reasoning_content;
-            const reasoning = reasoningContent ?? extended?.thought;
+            const thought = extended?.thought;
             const finishReason = choice?.finish_reason ?? null;
-            assertAcceptedFinishReason(finishReason);
+            const toolCalls = (message?.tool_calls ?? []).map(tc => {
+                const func = "function" in tc ? tc.function : (tc as any).function;
+                return {
+                    callId: this.nativeConversationIdentity.provider === "openai-compatible" && tc.id.length === 0
+                        ? ""
+                        : tc.id.length > 0 ? tc.id : `call_${randomUUID()}`,
+                    toolId: func?.name ?? "",
+                    argumentsJson: func?.arguments ?? "{}",
+                };
+            });
+            if (_request.acceptedFinishReasons !== undefined && toolCalls.some(call => call.callId.length === 0)) {
+                throw new OpenAIIncompleteResponseError("Chat Completions tool call ended without a provider call ID", "missing_tool_call_id");
+            }
+            assertAcceptedFinishReason(finishReason, _request.acceptedFinishReasons, toolCalls.length);
             const usage = extractOpenAIUsage(response.usage);
 
             return {
                 blocks: toCompletionBlocks({
                     text: readProviderText(message?.content, "message content"),
-                    ...(reasoning === undefined ? {} : { reasoning }),
-                    toolCalls: (message?.tool_calls ?? []).map(tc => {
-                        const func = "function" in tc ? tc.function : (tc as any).function;
-                        return {
-                            callId: tc.id.length > 0 ? tc.id : `call_${randomUUID()}`,
-                            toolId: func?.name ?? "",
-                            argumentsJson: func?.arguments ?? "{}",
-                        };
+                    ...(reasoningContent === undefined && thought === undefined ? {} : {
+                        reasoning: [
+                            ...(reasoningContent === undefined ? [] : [{ source: "reasoning_content" as const, text: reasoningContent }]),
+                            ...(thought === undefined ? [] : [{ source: "thought" as const, text: thought }]),
+                        ],
                     }),
+                    toolCalls,
                     textFormat: this.textFormat(_request),
                 }),
                 continuation: {
                     identity: this.nativeConversationIdentity,
-                    ...(reasoningContent === undefined ? {} : { reasoningContent }),
+                    ...(this.nativeConversationIdentity.provider === "openai" && reasoningContent !== undefined ? { reasoningContent } : {}),
+                    ...(this.nativeConversationIdentity.provider === "openai" && thought !== undefined ? { thought } : {}),
                 },
                 providerMetadata: {
                     requestId: response.id,
@@ -174,22 +186,30 @@ export class OpenAICompatible implements LLMAdapter {
         control?: ExecutionControl,
     ): AsyncIterable<LLMStreamEvent> {
         throwIfAborted(control);
-        this.assertRequestMode(request);
         const payload = this.buildPayload(request, toOpenAIMessages(request.messages, this.nativeConversationIdentity));
         const textFormat = this.textFormat(request);
         yield { kind: "started" };
 
         try {
             const sdkStream = control?.signal === undefined
-                ? await this.client.chat.completions.create({ ...payload, stream: true, stream_options: { include_usage: true } })
+                ? await this.client.chat.completions.create({
+                    ...payload,
+                    stream: true,
+                    ...(request.includeUsage === true ? { stream_options: { include_usage: true } } : {}),
+                })
                 : await this.client.chat.completions.create(
-                    { ...payload, stream: true, stream_options: { include_usage: true } },
+                    {
+                        ...payload,
+                        stream: true,
+                        ...(request.includeUsage === true ? { stream_options: { include_usage: true } } : {}),
+                    },
                     { signal: control.signal },
                 );
 
             let nextIndex = 0;
             let text: { readonly index: number; text: string } | undefined;
-            let reasoning: { readonly index: number; text: string } | undefined;
+            let reasoningContent: { readonly index: number; text: string } | undefined;
+            let thought: { readonly index: number; text: string } | undefined;
             const toolBlocks = new Map<number, { readonly index: number; callId: string; toolId: string; argumentsJson: string }>();
             let finishReason: string | null = null;
             let sawChunk = false;
@@ -207,13 +227,21 @@ export class OpenAICompatible implements LLMAdapter {
                     throwIfAborted(control);
                     const chunk = next.value;
                     sawChunk = true;
+                    if (request.acceptedFinishReasons !== undefined && finishReason !== null && chunk.choices.length > 0) {
+                        throw new OpenAIIncompleteResponseError("Chat Completions stream emitted content after its finish reason", "duplicate_finish_reason");
+                    }
                     requestId ??= chunk.id;
                     model ??= chunk.model;
                     created ??= chunk.created;
                     usage = extractOpenAIUsage(chunk.usage) ?? usage;
                     const choice = chunk.choices[0];
                     const delta = choice?.delta;
-                    if (choice?.finish_reason !== undefined && choice.finish_reason !== null) finishReason = choice.finish_reason;
+                    if (choice?.finish_reason !== undefined && choice.finish_reason !== null) {
+                        if (finishReason !== null && request.acceptedFinishReasons !== undefined) {
+                            throw new OpenAIIncompleteResponseError("Chat Completions stream contained multiple finish reasons", "duplicate_finish_reason");
+                        }
+                        finishReason = choice.finish_reason;
+                    }
 
                     const deltaText = readProviderText(delta?.content, "stream content delta");
                     if (deltaText.length > 0) {
@@ -225,15 +253,25 @@ export class OpenAICompatible implements LLMAdapter {
                         yield { kind: "content_block_delta", index: text.index, deltaKind: "text", delta: deltaText };
                     }
 
-                    const extended = delta as typeof delta & { reasoning_content?: unknown; thought?: unknown } | undefined;
-                    const reasoningDelta = readProviderText(extended?.reasoning_content ?? extended?.thought, "stream reasoning delta");
+                    const extended = delta as typeof delta & { reasoning_content?: unknown; thought?: unknown; refusal?: unknown } | undefined;
+                    if (typeof extended?.refusal === "string" && extended.refusal.length > 0) throw new OpenAIRefusalError();
+                    const reasoningDelta = readProviderText(extended?.reasoning_content, "stream reasoning delta");
                     if (reasoningDelta.length > 0) {
-                        if (reasoning === undefined) {
-                            reasoning = { index: nextIndex++, text: "" };
-                            yield { kind: "content_block_started", index: reasoning.index, blockType: "reasoning", delivery: "incremental" };
+                        if (reasoningContent === undefined) {
+                            reasoningContent = { index: nextIndex++, text: "" };
+                            yield { kind: "content_block_started", index: reasoningContent.index, blockType: "reasoning", delivery: "incremental" };
                         }
-                        reasoning.text += reasoningDelta;
-                        yield { kind: "content_block_delta", index: reasoning.index, deltaKind: "reasoning", delta: reasoningDelta };
+                        reasoningContent.text += reasoningDelta;
+                        yield { kind: "content_block_delta", index: reasoningContent.index, deltaKind: "reasoning", delta: reasoningDelta };
+                    }
+                    const thoughtDelta = readProviderText(extended?.thought, "stream thought delta");
+                    if (thoughtDelta.length > 0) {
+                        if (thought === undefined) {
+                            thought = { index: nextIndex++, text: "" };
+                            yield { kind: "content_block_started", index: thought.index, blockType: "reasoning", delivery: "incremental" };
+                        }
+                        thought.text += thoughtDelta;
+                        yield { kind: "content_block_delta", index: thought.index, deltaKind: "reasoning", delta: thoughtDelta };
                     }
 
                     for (const call of delta?.tool_calls ?? []) {
@@ -263,20 +301,30 @@ export class OpenAICompatible implements LLMAdapter {
             if (primaryError !== undefined) throw primaryError;
 
             throwIfAborted(control);
-            if (!sawChunk) throw new OpenAIIncompleteResponseError("Chat Completions stream produced no chunks");
+            if (!sawChunk) throw new OpenAIIncompleteResponseError("Chat Completions stream produced no chunks", "empty_stream");
             if (finishReason === null) {
-                throw new OpenAIIncompleteResponseError("Chat Completions stream ended without a valid finish reason");
+                throw new OpenAIIncompleteResponseError("Chat Completions stream ended without a valid finish reason", "missing_finish_reason");
             }
-            assertAcceptedFinishReason(finishReason);
+            assertAcceptedFinishReason(finishReason, request.acceptedFinishReasons, toolBlocks.size);
+            if (request.acceptedFinishReasons !== undefined
+                && [...toolBlocks.values()].some(block => block.callId.length === 0)) {
+                throw new OpenAIIncompleteResponseError("Chat Completions tool call ended without a provider call ID", "missing_tool_call_id");
+            }
 
             const orderedBlocks: LLMContentBlock[] = [];
             if (text !== undefined && text.text.length > 0) {
                 orderedBlocks.push({ index: text.index, type: "text", format: textFormat, text: text.text });
             }
-            if (reasoning !== undefined && reasoning.text.length > 0) {
-                orderedBlocks.push({ index: reasoning.index, type: "reasoning", text: reasoning.text });
+            if (reasoningContent !== undefined && reasoningContent.text.length > 0) {
+                orderedBlocks.push({ index: reasoningContent.index, type: "reasoning", source: "reasoning_content", text: reasoningContent.text });
+            }
+            if (thought !== undefined && thought.text.length > 0) {
+                orderedBlocks.push({ index: thought.index, type: "reasoning", source: "thought", text: thought.text });
             }
             for (const block of toolBlocks.values()) {
+                if (this.nativeConversationIdentity.provider === "openai-compatible" && block.callId.length === 0) {
+                    throw new OpenAIIncompleteResponseError("Chat Completions tool call ended without a provider call ID", "missing_tool_call_id");
+                }
                 orderedBlocks.push({
                     index: block.index, type: "tool_call",
                     callId: block.callId.length > 0 ? block.callId : `call_${randomUUID()}`,
@@ -295,7 +343,12 @@ export class OpenAICompatible implements LLMAdapter {
                     blocks: orderedBlocks,
                     continuation: {
                         identity: this.nativeConversationIdentity,
-                        ...(reasoning === undefined ? {} : { reasoningContent: reasoning.text }),
+                        ...(this.nativeConversationIdentity.provider === "openai" && reasoningContent !== undefined
+                            ? { reasoningContent: reasoningContent.text }
+                            : {}),
+                        ...(this.nativeConversationIdentity.provider === "openai" && thought !== undefined
+                            ? { thought: thought.text }
+                            : {}),
                     },
                     providerMetadata: {
                         ...(requestId === undefined ? {} : { requestId }),
@@ -308,22 +361,6 @@ export class OpenAICompatible implements LLMAdapter {
             };
         } catch (error) {
             throw this.classifyFailure(error, control);
-        }
-    }
-
-    private assertRequestMode(request: LLMRequest): void {
-        if (request.tools === undefined && this.structuredOutputMode === "strict") {
-            if (request.structuredOutput === undefined) {
-                throw new LLMRequestModeMismatchError(
-                    "OpenAICompatible adapter is configured with 'strict' mode, but LLMRequest does not provide structuredOutput",
-                );
-            }
-        } else if (this.structuredOutputMode === "prompt_only") {
-            if (request.structuredOutput !== undefined) {
-                throw new LLMRequestModeMismatchError(
-                    "OpenAICompatible adapter is configured with 'prompt_only' mode, but LLMRequest provides structuredOutput",
-                );
-            }
         }
     }
 
@@ -345,7 +382,7 @@ export class OpenAICompatible implements LLMAdapter {
             ...(maxOutputTokens !== undefined
                 ? { max_tokens: maxOutputTokens }
                 : {}),
-            ...((this.structuredOutputMode === "strict" || this.structuredOutputMode === "two_stage") && request.structuredOutput !== undefined && !hasTools
+            ...(request.structuredOutput !== undefined && !hasTools
                 ? {
                     response_format: {
                         type: "json_schema" as const,
@@ -365,11 +402,11 @@ export class OpenAICompatible implements LLMAdapter {
                             name: tool.id,
                             description: tool.description,
                             parameters: tool.parametersSchema,
-                            strict: true,
+                            ...(request.toolArgumentConstraint === "strict" ? { strict: true } : {}),
                         },
                     })),
-                    tool_choice: request.toolChoice ?? "required",
-                    parallel_tool_calls: false,
+                    tool_choice: request.toolChoice ?? "auto",
+                    ...(request.parallelToolCalls === undefined ? {} : { parallel_tool_calls: request.parallelToolCalls }),
                 }
                 : {}),
         };
@@ -378,6 +415,8 @@ export class OpenAICompatible implements LLMAdapter {
     private classifyFailure(error: unknown, control: ExecutionControl | undefined): unknown {
         if (isExecutionAbortedError(error)) return error;
         if (control?.signal?.aborted) return new ExecutionAbortedError();
+        const contextRejection = classifyContextWindowRejection(error);
+        if (contextRejection !== undefined) return contextRejection;
         const transientFailure = classifyTransientModelFailure(error);
         return transientFailure ?? error;
     }
@@ -395,20 +434,75 @@ export class OpenAICompatible implements LLMAdapter {
  * throw new OpenAIIncompleteResponseError("Chat Completions response was truncated (length)");
  * ```
  */
+export type OpenAIIncompleteResponseReason =
+    | "length"
+    | "content_filter"
+    | "provider_error"
+    | "empty_stream"
+    | "missing_finish_reason"
+    | "duplicate_finish_reason"
+    | "unsupported_finish_reason"
+    | "tool_calls_without_call"
+    | "missing_tool_call_id"
+    | "unsupported_content";
+
+/**
+ * Chat Completions 响应未以目标协议可接受的状态完成。
+ *
+ * @example
+ * ```ts
+ * if (error instanceof OpenAIIncompleteResponseError) console.log(error.reason);
+ * ```
+ */
 export class OpenAIIncompleteResponseError extends Error {
     readonly code = "OPENAI_INCOMPLETE_RESPONSE";
 
-    constructor(message: string) {
+    /** 导致响应无法提交的稳定分类。 */
+    readonly reason: OpenAIIncompleteResponseReason;
+
+    /**
+     * @param message - 不包含响应正文的诊断信息。
+     * @param reason - 终态或响应协议失败类别。
+     */
+    constructor(message: string, reason: OpenAIIncompleteResponseReason = "unsupported_content") {
         super(message);
         this.name = "OpenAIIncompleteResponseError";
+        this.reason = reason;
     }
 }
 
-/** 拒绝供应商明确报告的截断、安全过滤与错误结束；其余结束原因由调用方判定。 */
-function assertAcceptedFinishReason(finishReason: string | null): void {
-    if (finishReason !== "length" && finishReason !== "content_filter" && finishReason !== "error") return;
+/** 模型明确拒绝当前请求；拒绝正文不进入可执行响应。 */
+export class OpenAIRefusalError extends Error {
+    /** 稳定的 refusal 分类码。 */
+    readonly code = "OPENAI_REFUSAL";
+
+    constructor() {
+        super("Chat Completions model refused the request");
+        this.name = "OpenAIRefusalError";
+    }
+}
+
+/** 归一化终态；兼容端点只接受已约定的 `stop` 和 `tool_calls` 完成原因。 */
+function assertAcceptedFinishReason(
+    finishReason: string | null,
+    acceptedFinishReasons: LLMRequest["acceptedFinishReasons"],
+    toolCallCount: number,
+): void {
+    if (finishReason === "length" || finishReason === "content_filter" || finishReason === "error") {
+        throw new OpenAIIncompleteResponseError(
+            `Chat Completions response did not complete normally (${finishReason})`,
+            finishReason === "length" ? "length" : finishReason === "content_filter" ? "content_filter" : "provider_error",
+        );
+    }
+    if (acceptedFinishReasons === undefined) return;
+    if (finishReason === "tool_calls" && acceptedFinishReasons.includes("tool_calls")) {
+        if (toolCallCount > 0) return;
+        throw new OpenAIIncompleteResponseError("Chat Completions ended with tool_calls but returned no tool call", "tool_calls_without_call");
+    }
+    if (acceptedFinishReasons.includes(finishReason as "stop" | "tool_calls")) return;
     throw new OpenAIIncompleteResponseError(
-        `Chat Completions response did not complete normally (${finishReason})`,
+        `Chat Completions returned an unsupported finish reason (${finishReason ?? "missing"})`,
+        "unsupported_finish_reason",
     );
 }
 
@@ -432,13 +526,17 @@ function readProviderText(value: unknown, label: string): string {
 /** 按正文、公开 reasoning、工具数组的固定顺序映射非流式完整响应块。 */
 function toCompletionBlocks(input: {
     readonly text: string;
-    readonly reasoning?: string;
+    readonly reasoning?: readonly { readonly source: "reasoning_content" | "thought"; readonly text: string }[];
     readonly toolCalls: readonly LLMToolCall[];
     readonly textFormat: LLMTextBlockFormat;
 }): LLMContentBlock[] {
     const blocks: LLMContentBlock[] = [];
     if (input.text.length > 0) blocks.push({ index: blocks.length, type: "text", format: input.textFormat, text: input.text });
-    if (input.reasoning !== undefined && input.reasoning.length > 0) blocks.push({ index: blocks.length, type: "reasoning", text: input.reasoning });
+    for (const reasoning of input.reasoning ?? []) {
+        if (reasoning.text.length > 0) {
+            blocks.push({ index: blocks.length, type: "reasoning", source: reasoning.source, text: reasoning.text });
+        }
+    }
     for (const call of input.toolCalls) blocks.push({ index: blocks.length, type: "tool_call", ...call });
     return blocks;
 }
@@ -456,13 +554,15 @@ function toOpenAIMessages(
         if (message.continuation !== undefined && !sameNativeIdentity(message.continuation.identity, identity)) {
             throw new LLMRequestModeMismatchError("Native history belongs to another provider, endpoint, model or protocol");
         }
+        const reasoningContent = readModelAssistantReasoning(message, "reasoning_content");
+        const toolCalls = readModelToolCalls(message);
         return {
-            role: "assistant", content: message.content,
-            ...(message.toolCalls === undefined ? {} : { tool_calls: message.toolCalls.map(call => ({
+            role: "assistant", content: readModelAssistantText(message),
+            ...(toolCalls.length === 0 ? {} : { tool_calls: toolCalls.map(call => ({
                 id: call.callId, type: "function" as const, function: { name: call.toolId, arguments: call.argumentsJson },
             })) }),
-            ...(message.continuation?.reasoningContent === undefined ? {} : {
-                reasoning_content: message.continuation.reasoningContent,
+            ...(reasoningContent === undefined ? {} : {
+                reasoning_content: reasoningContent,
             }),
         };
     });

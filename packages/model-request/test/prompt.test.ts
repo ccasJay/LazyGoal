@@ -4,6 +4,7 @@ import type { NativeConversationIdentity } from "../../model-contracts/src/index
 import type { RuntimeFeedback } from "../../runtime/src/runtime-feedback";
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { readModelMessageText } from "../../llm-core/src/index";
 import { getEncoding } from "js-tiktoken";
 
 import {
@@ -250,17 +251,17 @@ test("请求按固定 system、真实历史、动态 section、本轮 Working Co
     const goal = createExecutingGoal({ messages });
     const request = await stepRequest(goal);
 
-    assert.match(request.messages[0]?.content ?? "", /你是一个严谨的执行代理/);
-    assert.match(request.messages[0]?.content ?? "", /1\. 先检查输入/);
-    assert.ok((request.messages[0]?.content ?? "").includes(
+    assert.match(readModelMessageText(request.messages[0]!), /你是一个严谨的执行代理/);
+    assert.match(readModelMessageText(request.messages[0]!), /1\. 先检查输入/);
+    assert.ok((readModelMessageText(request.messages[0]!)).includes(
         "Active Decide Instructions: structured@1; trajectory-layered@1; bm25-lite@1",
     ));
-    const firstDynamicIndex = request.messages.findIndex((message) => message.content.includes("section: run_mode"));
+    const firstDynamicIndex = request.messages.findIndex((message) => readModelMessageText(message).includes("section: run_mode"));
     assert.ok(firstDynamicIndex > 1);
     assert.ok(request.messages.slice(1, firstDynamicIndex).every((message) => message.role !== "system"));
-    assert.ok(request.messages.slice(firstDynamicIndex, -1).some((message) => message.content.includes("section: approved_task")));
-    assert.ok(request.messages.slice(firstDynamicIndex, -1).some((message) => message.content.includes("section: working_memory")));
-    const control = JSON.parse(request.messages.at(-1)?.content ?? "") as {
+    assert.ok(request.messages.slice(firstDynamicIndex, -1).some((message) => readModelMessageText(message).includes("section: approved_task")));
+    assert.ok(request.messages.slice(firstDynamicIndex, -1).some((message) => readModelMessageText(message).includes("section: working_memory")));
+    const control = JSON.parse(readModelMessageText(request.messages.at(-1)!)) as {
         readonly phase: string;
         readonly trajectoryContext: unknown;
     };
@@ -282,8 +283,8 @@ test("执行请求只展示调用方传入的授权 ToolDefinition", async () =>
         isReadOnly: true,
     };
     const request = await stepRequest(goal, [tool]);
-    const systemContent = request.messages[0]?.content ?? "";
-    const dynamicText = request.messages.slice(1, -1).map((message) => message.content).join("\n");
+    const systemContent = readModelMessageText(request.messages[0]!);
+    const dynamicText = request.messages.slice(1, -1).map((message) => readModelMessageText(message)).join("\n");
 
     assert.doesNotMatch(systemContent, /read_file/);
     assert.match(dynamicText, /read_file/);
@@ -338,8 +339,8 @@ test("Prompt 使用 Contract 生成字符稳定且不含 AST 的 Tool Schema", a
 
     const first = await stepRequest(goal, CURRENT_TOOL_DEFINITIONS);
     const second = await stepRequest(goal, [...CURRENT_TOOL_DEFINITIONS].reverse());
-    const firstSystemContent = first.messages[0]?.content ?? "";
-    const secondSystemContent = second.messages[0]?.content ?? "";
+    const firstSystemContent = readModelMessageText(first.messages[0]!);
+    const secondSystemContent = readModelMessageText(second.messages[0]!);
 
     assert.equal(firstSystemContent, secondSystemContent);
     assert.equal(
@@ -347,7 +348,7 @@ test("Prompt 使用 Contract 生成字符稳定且不含 AST 的 Tool Schema", a
         false,
     );
     const toolsMarker = "Authorized business Tool definitions (only these business Tool IDs may be requested; system tools are declared separately for this request):\n";
-    const toolsContent = first.messages.find((message) => message.content.includes("section: authorized_tools"))?.content ?? "";
+    const toolsContent = readModelMessageText(first.messages.find(message => readModelMessageText(message).includes("section: authorized_tools"))!);
     const toolsOffset = toolsContent.indexOf(toolsMarker);
 
     assert.notEqual(toolsOffset, -1);
@@ -377,7 +378,7 @@ test("Prompt 使用 Contract 生成字符稳定且不含 AST 的 Tool Schema", a
         createUnapprovedGoal(),
         [...CURRENT_TOOL_DEFINITIONS].reverse(),
     );
-    const unapprovedToolsContent = unapprovedRequest.messages.find((message) => message.content.includes("section: authorized_tools"))?.content ?? "";
+    const unapprovedToolsContent = readModelMessageText(unapprovedRequest.messages.find(message => readModelMessageText(message).includes("section: authorized_tools"))!);
     const unapprovedToolsOffset = unapprovedToolsContent.indexOf(toolsMarker);
 
     assert.notEqual(unapprovedToolsOffset, -1);
@@ -421,8 +422,8 @@ test("按需请求只携带暴露工具 Schema，并将发现结果反馈给 Dec
     assert.equal(JSON.stringify(discovered.bundle.jsonSchema).includes("write_file"), false);
     assert.deepEqual(think.toolDeclarations, []);
     assert.equal(think.bundle.shapeGuide.includes("tool_discovery"), false);
-    assert.ok(discovered.request.messages.some((message) => message.content.includes("runtime_tool_discovery_result")));
-    assert.equal(think.request.messages.some((message) => message.content.includes("runtime_tool_discovery_result")), false);
+    assert.ok(discovered.request.messages.some((message) => readModelMessageText(message).includes("runtime_tool_discovery_result")));
+    assert.equal(think.request.messages.some((message) => readModelMessageText(message).includes("runtime_tool_discovery_result")), false);
 
     const encoding = getEncoding("o200k_base");
     const inputTokens = (plan: typeof initial) => encoding.encode(JSON.stringify({
@@ -471,10 +472,10 @@ test("PTC 发现后同步进入 Prompt、结构化契约与原生工具声明", 
     assert.equal(JSON.stringify(discovered.bundle.jsonSchema).includes("discoveryAliases"), false);
     assert.equal(JSON.stringify(discovered.toolDeclarations).includes("discoveryAliases"), false);
     const authorizedSection = discovered.request.messages.find((message) =>
-        message.content.includes("[Dynamic section: authorized_tools"));
+        readModelMessageText(message).includes("[Dynamic section: authorized_tools"));
     assert.ok(authorizedSection);
-    assert.match(authorizedSection.content, /all required inner business Tools have been discovered/);
-    assert.doesNotMatch(authorizedSection.content, /discoveryAliases/);
+    assert.match(readModelMessageText(authorizedSection), /all required inner business Tools have been discovered/);
+    assert.doesNotMatch(readModelMessageText(authorizedSection), /discoveryAliases/);
 });
 
 test("下一轮请求把已提交 Lookup Result 作为历史瞬时输入传给模型", async () => {
@@ -486,13 +487,13 @@ test("下一轮请求把已提交 Lookup Result 作为历史瞬时输入传给�
         reason: "no_context_match",
     };
     const request = await stepRequest(goal, [], renderer, lookupResult);
-    const control = JSON.parse(request.messages.at(-1)?.content ?? "") as {
+    const control = JSON.parse(readModelMessageText(request.messages.at(-1)!)) as {
         readonly contextLookupResult?: ModelContextLookupResult;
     };
 
     assert.deepEqual(control.contextLookupResult, projectContextLookupResult(lookupResult));
     assert.match(
-        request.messages[0]?.content ?? "",
+        readModelMessageText(request.messages[0]!),
         /A historical lookup can locate prior events or rationale, but cannot establish the current state/,
     );
 });
@@ -527,7 +528,7 @@ test("Context Epoch 按 Conversation 原始索引过滤，而不是按裁剪后�
         { role: "user", content: "当前阶段输入" },
         { role: "assistant", content: "当前阶段响应" },
     ]);
-    assert.ok(request.messages.slice(3, -1).some((message) => message.content.includes("section: run_mode")));
+    assert.ok(request.messages.slice(3, -1).some((message) => readModelMessageText(message).includes("section: run_mode")));
 });
 
 test("Plan 未批准时仅投影 Runtime 提供的只读 ToolDefinition", async () => {
@@ -579,7 +580,7 @@ test("Trajectory Assembler 只替换当前调用的分层 Context，不写入真
     });
     const before = JSON.stringify(goal.state.messages);
     const request = await stepRequest(goal);
-    const control = JSON.parse(request.messages.at(-1)?.content ?? "{}");
+    const control = JSON.parse(readModelMessageText(request.messages.at(-1)!));
 
     assert.deepEqual(control.trajectoryContext.hot, []);
     assert.equal("softOverflow" in control.trajectoryContext, false);
@@ -602,7 +603,7 @@ test("保存恢复后真实消息及 assistant 来源不变，控制消息不进
     assert.ok(restored !== undefined);
     const messagesBeforeRequest = JSON.stringify(restored.state.messages);
     const request = await stepRequest(restored);
-    const controlContent = request.messages.at(-1)?.content ?? "";
+    const controlContent = readModelMessageText(request.messages.at(-1)!);
 
     assert.deepEqual(restored.state.messages, goal.state.messages);
     assert.equal(JSON.stringify(restored.state.messages), messagesBeforeRequest);
@@ -686,7 +687,7 @@ test("Decide 两种输出模式均只注入单工具调用指令", async () => {
         undefined,
         "strict",
     );
-    const strictLast = JSON.parse(strictPlan.request.messages.at(-1)!.content);
+    const strictLast = JSON.parse(readModelMessageText(strictPlan.request.messages.at(-1)!));
     assert.match(strictLast.responseShapeGuide, /Call exactly one declared tool/);
 
     // prompt_only 模式
@@ -702,7 +703,7 @@ test("Decide 两种输出模式均只注入单工具调用指令", async () => {
         undefined,
         "prompt_only",
     );
-    const promptOnlyLast = JSON.parse(promptOnlyPlan.request.messages.at(-1)!.content);
+    const promptOnlyLast = JSON.parse(readModelMessageText(promptOnlyPlan.request.messages.at(-1)!));
     assert.equal(typeof promptOnlyLast.responseShapeGuide, "string");
     assert.match(promptOnlyLast.responseShapeGuide, /Call exactly one declared tool/);
     assert.doesNotMatch(promptOnlyLast.responseShapeGuide, /Respond with a JSON object|"result"/);
@@ -757,7 +758,7 @@ test("会话历史被预算裁剪时，请求计划单向切换为 checkpoint Bu
         ["system_context_checkpoint"],
     );
     // 验证注入的 Shape Guide 也切换为 checkpoint
-    const lastPayload = JSON.parse(prunedPlan.request.messages.at(-1)!.content);
+    const lastPayload = JSON.parse(readModelMessageText(prunedPlan.request.messages.at(-1)!));
     assert.equal(typeof lastPayload.responseShapeGuide, "string");
     assert.match(lastPayload.responseShapeGuide, /Call exactly one declared tool/);
 });
@@ -851,13 +852,13 @@ test("RuntimeFeedback is a tagged stage message and does not alter Conversation 
         trajectoryContextAssembler, undefined, undefined, "prompt_only", "decide",
         { allowThink: true, thinkHistory: [], runtimeFeedback },
     );
-    const feedbackMessage = strictPlan.request.messages.find((message) => message.content.includes("runtime_feedback"));
+    const feedbackMessage = strictPlan.request.messages.find((message) => readModelMessageText(message).includes("runtime_feedback"));
 
     assert.ok(feedbackMessage);
     assert.equal(strictPlan.request.messages.at(-1), feedbackMessage);
-    assert.ok(promptOnlyPlan.request.messages.at(-1)!.content.includes("runtime_feedback"));
+    assert.ok(readModelMessageText(promptOnlyPlan.request.messages.at(-1)!).includes("runtime_feedback"));
     assert.equal(feedbackMessage.role, "user");
-    assert.deepEqual(JSON.parse(feedbackMessage.content), {
+    assert.deepEqual(JSON.parse(readModelMessageText(feedbackMessage)), {
         source: "runtime_feedback",
         stage: "decide",
         origin: "output_contract",
@@ -925,7 +926,7 @@ test("buildStepRequest 在 Plan 提案前只编码 Runtime 提供的明确只读
         trajectoryContextAssembler,
     );
 
-    const dynamicText = plan.request.messages.slice(1, -1).map((message) => message.content).join("\n");
+    const dynamicText = plan.request.messages.slice(1, -1).map((message) => readModelMessageText(message)).join("\n");
     for (const id of ["read_file", "web_search", "custom_doc_search"]) {
         assert.ok(dynamicText.includes(id), `审批前明确只读的 ${id} 应保持暴露`);
     }
@@ -968,7 +969,7 @@ test("GoalPlan Tool 仅在 Plan Mode 暴露，已存在的计划在普通模式�
 
     const plan = await stepPlan(goal);
     assert.ok(plan.toolDeclarations.some((declaration) => declaration.id === "system_update_goal_plan"));
-    const planSection = plan.request.messages.find((message) => message.content.includes("section: goal_plan"))?.content ?? "";
+    const planSection = readModelMessageText(plan.request.messages.find(message => readModelMessageText(message).includes("section: goal_plan"))!);
     assert.match(planSection, /GoalPlan \(read-only projection/);
     assert.match(planSection, /todo-1/);
 
@@ -989,7 +990,7 @@ test("GoalPlan Tool 仅在 Plan Mode 暴露，已存在的计划在普通模式�
         },
     });
     assert.equal(normal.toolDeclarations.some((declaration) => declaration.id === "system_update_goal_plan"), false);
-    const normalSection = normal.request.messages.find((message) => message.content.includes("section: goal_plan"))?.content ?? "";
+    const normalSection = readModelMessageText(normal.request.messages.find(message => readModelMessageText(message).includes("section: goal_plan"))!);
     assert.match(normalSection, /GoalPlan \(read-only projection/);
     assert.match(normalSection, /普通模式可见/);
     assert.doesNotMatch(normalSection, /system_update_goal_plan/);
@@ -1022,7 +1023,7 @@ test("原生路径的授权 Section 移除重复参数 Schema，保留授权身�
     );
 
     const toolsMarker = "Authorized business Tool definitions (only these business Tool IDs may be requested; system tools are declared separately for this request):\n";
-    const nativeToolsMsg = nativePlan.request.messages.find((m) => m.content.includes("section: authorized_tools"))?.content ?? "";
+    const nativeToolsMsg = readModelMessageText(nativePlan.request.messages.find(m => readModelMessageText(m).includes("section: authorized_tools"))!);
     const nativeOffset = nativeToolsMsg.indexOf(toolsMarker);
     assert.notEqual(nativeOffset, -1);
     const nativeProjected = JSON.parse(nativeToolsMsg.slice(nativeOffset + toolsMarker.length));
@@ -1056,7 +1057,7 @@ test("原生路径的授权 Section 移除重复参数 Schema，保留授权身�
         undefined,
     );
 
-    const poToolsMsg = promptOnlyPlan.request.messages.find((m) => m.content.includes("section: authorized_tools"))?.content ?? "";
+    const poToolsMsg = readModelMessageText(promptOnlyPlan.request.messages.find(m => readModelMessageText(m).includes("section: authorized_tools"))!);
     const poOffset = poToolsMsg.indexOf(toolsMarker);
     assert.notEqual(poOffset, -1);
     const poProjected = JSON.parse(poToolsMsg.slice(poOffset + toolsMarker.length));
@@ -1099,6 +1100,6 @@ test("当前 runtime_feedback 始终位于请求末尾，不进入真实 Convers
     const lastMessage = plan.request.messages.at(-1);
     assert.ok(lastMessage, "请求必须包含消息");
     assert.equal(lastMessage.role, "user");
-    assert.match(lastMessage.content, /"source":\s*"runtime_feedback"/);
-    assert.match(lastMessage.content, /"code":\s*"semantic_gap"/);
+    assert.match(readModelMessageText(lastMessage), /"source":\s*"runtime_feedback"/);
+    assert.match(readModelMessageText(lastMessage), /"code":\s*"semantic_gap"/);
 });

@@ -8,17 +8,23 @@ import {
     Runner,
     SessionManager,
     TrajectoryCheckpointCommitter,
+    transition,
     type AgentProfile,
     type AgentProfileRegistry,
     type StepExecutor,
 } from "../src/index";
 import { ExecutionAbortedError } from "../../execution-control/src/index";
-import { createToolRegistration, type Tool } from "../../tool-core/src/index";
+import { createToolRegistration, InMemoryToolRegistry, type Tool } from "../../tool-core/src/index";
 import { InMemoryGoalStore, goalSnapshotCodec } from "../../storage/src/index";
 import { hasPendingSessionInputs } from "../src/index";
 import { currentProtocols, trajectoryStoreFor } from "./current-fixtures";
 import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
+import {
+    createAwaitingApprovalGoal,
+    createControlledWriteTool,
+    type CapturedToolCall,
+} from "./action-approval-fixtures";
 
 const profile: AgentProfile = { id: "interrupt-profile", systemPrompt: "test", instructions: [], toolIds: [] };
 
@@ -129,6 +135,136 @@ test("Interrupt rejects a model decision that arrives after cancellation", async
         eventTypes.slice(cancelledIndex + 1).includes("decision_received"),
         false,
     );
+});
+
+test("Interrupt committed before authorized scheduling prevents the approved Action from starting", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectory = trajectoryStoreFor(store);
+    const waiting = createAwaitingApprovalGoal({
+        goalId: "goal-interrupt-before-authorized-schedule",
+        runId: "run-interrupt-before-authorized-schedule",
+    });
+    const approved = transition(waiting.state.run, {
+        kind: "approve_action",
+        actionId: waiting.state.run.pendingAction!.action.actionId,
+        approvalScope: "action",
+        approvalInputId: "approval-input",
+    });
+    assert.equal(approved.ok, true);
+    if (!approved.ok) return;
+    const interrupted: Goal = {
+        ...waiting,
+        state: {
+            ...waiting.state,
+            messageQueue: {
+                revision: 0,
+                items: [],
+                pause: { reason: "user_interrupt", runId: waiting.state.run.id },
+            },
+            run: {
+                ...approved.state,
+                interruption: { requestId: "interrupt-before-schedule", status: "requested" },
+            },
+        },
+    };
+    await store.save(goalSnapshotCodec.decode(goalSnapshotCodec.encode(interrupted)));
+
+    const calls: Parameters<typeof createControlledWriteTool>[0] = [];
+    const registry = new InMemoryToolRegistry([
+        createTestToolRegistration(createControlledWriteTool(calls)),
+    ]);
+    const runner = new Runner({
+        store,
+        trajectoryStore: trajectory,
+        toolRegistry: registry,
+        executor: {
+            async decide() { throw new Error("The interrupted Action must not request another model decision"); },
+            async think() { throw new Error("Unexpected Think call"); },
+            async reviewCompletion() { return { kind: "accept" }; },
+        },
+    });
+
+    const result = await runner.runUntilBlocked(
+        { goalId: interrupted.id, runId: interrupted.state.run.id },
+        { authorizedActionId: waiting.state.run.pendingAction!.action.actionId },
+    );
+
+    assert.equal(result.ok, true);
+    assert.equal(result.ok && result.state.status, "cancelled");
+    assert.equal(calls.length, 0);
+    const saved = await store.restore(interrupted.id);
+    assert.equal(saved?.state.run.status, "cancelled");
+    assert.equal(
+        trajectory.events.some((event) => event.eventType === "tool_started"),
+        false,
+    );
+});
+
+test("Interrupt accepted while approved resume is between checkpoint and schedule settles once", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectory = trajectoryStoreFor(store);
+    const goal = createAwaitingApprovalGoal({
+        goalId: "goal-interrupt-between-approval-and-schedule",
+        runId: "run-interrupt-between-approval-and-schedule",
+    });
+    await store.save(goal);
+    const calls: CapturedToolCall[] = [];
+    const registry = new InMemoryToolRegistry([
+        createTestToolRegistration(createControlledWriteTool(calls)),
+    ]);
+    const runner = new Runner({
+        store,
+        trajectoryStore: trajectory,
+        toolRegistry: registry,
+        executor: {
+            async decide() { throw new Error("The approved Action must not request a model decision"); },
+            async think() { throw new Error("Unexpected Think call"); },
+            async reviewCompletion() { return { kind: "accept" }; },
+        },
+    });
+    const scheduleEntered = deferred();
+    const releaseSchedule = deferred();
+    const authorizedActionIds: string[] = [];
+    const coordinator = new GoalCoordinator({
+        store,
+        trajectoryStore: trajectory,
+        scheduler: {
+            async schedule(ref, options, control) {
+                authorizedActionIds.push(options?.authorizedActionId ?? "");
+                scheduleEntered.resolve();
+                await releaseSchedule.promise;
+                return runner.runUntilBlocked(ref, options, control);
+            },
+        },
+        toolRegistry: registry,
+    });
+    const ref = { goalId: goal.id, runId: goal.state.run.id };
+    const actionId = goal.state.run.pendingAction!.action.actionId;
+
+    const approving = coordinator.resume({
+        ref,
+        action: { kind: "approve_action", actionId },
+    });
+    await scheduleEntered.promise;
+
+    const accepted = await runner.interrupt(ref, "interrupt-after-approval-commit");
+    assert.equal(accepted.ok, true);
+    releaseSchedule.resolve();
+
+    const result = await approving;
+    assert.equal(result.ok, true);
+    assert.equal(result.ok && result.kind, "terminal");
+    assert.deepEqual(authorizedActionIds, [actionId]);
+    assert.equal(calls.length, 0);
+    assert.equal(
+        trajectory.events.filter((event) => event.eventType === "run_cancelled").length,
+        1,
+    );
+    assert.equal(
+        trajectory.events.some((event) => event.eventType === "tool_started"),
+        false,
+    );
+    assert.equal((await store.restore(goal.id))?.state.run.status, "cancelled");
 });
 
 test("Interrupted Tool cancels without another model call and preserves its unknown outcome", async () => {

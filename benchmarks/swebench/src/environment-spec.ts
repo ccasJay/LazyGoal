@@ -195,17 +195,14 @@ export class SwebenchEnvironmentSpec implements EnvironmentSpec<SwebenchTask, Sw
         const instanceKey = encode(this.metadata.instanceId);
         const runtimeRoot = join(output, "runtime", benchmarkKey, instanceKey, encode(this.metadata.runId));
         await mkdir(runtimeRoot, { recursive: true });
-        const copied: Partial<Record<"goals" | "trajectories" | "traces", string>> = {};
+        let goalDirectory: string | undefined;
         const errors: SwebenchCollectedArtifactError[] = [];
-        for (const kind of ["goals", "trajectories", "traces"] as const) {
-            try {
-                const target = join(runtimeRoot, kind);
-                const source = `/opt/lazygoal/state/${benchmarkKey}/${instanceKey}/${kind}`;
-                copied[kind] = await env.copyOut(source, target);
-                await access(copied[kind]);
-            } catch (error) {
-                errors.push({ stage: "artifact_copy", message: boundedMessage(error) });
-            }
+        try {
+            const source = `/opt/lazygoal/state/${benchmarkKey}/${instanceKey}/goals`;
+            goalDirectory = await env.copyOut(source, join(runtimeRoot, "goals"));
+            await access(goalDirectory);
+        } catch (error) {
+            errors.push({ stage: "artifact_copy", message: boundedMessage(error) });
         }
 
         const { patch, error: patchError } = await exportSwebenchPatch(env, this.task.base_commit);
@@ -215,22 +212,21 @@ export class SwebenchEnvironmentSpec implements EnvironmentSpec<SwebenchTask, Sw
 
         let meta: Readonly<Record<string, unknown>> | undefined;
         try {
-            meta = await recoverSwebenchResult(copied, this.metadata, (message) => {
+            meta = await recoverSwebenchResult(goalDirectory, this.metadata, (message) => {
                 errors.push({ stage: "artifact_copy", message });
             }, new AbortController().signal);
         } catch (error) {
             errors.push({ stage: "artifact_copy", message: boundedMessage(error) });
         }
 
-        const goalDirectory = copied.goals;
         if (goalDirectory === undefined || !(await hasGoalIdentity(goalDirectory, this.metadata.goalId, this.metadata.runId))) {
             if (goalDirectory !== undefined) errors.push({ stage: "artifact_copy", message: "Copied Goal snapshot identity mismatch" });
             return { patch, persistence: null, ...(meta === undefined ? {} : { meta }), errors };
         }
         const persistence: BenchmarkPersistenceLocator = {
             goalSnapshot: relative(output, goalDirectory),
-            trajectory: copied.trajectories === undefined ? relative(output, goalDirectory) : relative(output, copied.trajectories),
-            ...(copied.traces === undefined ? {} : { diagnosticTrace: relative(output, copied.traces) }),
+            trajectory: relative(output, goalDirectory),
+            diagnosticTrace: relative(output, goalDirectory),
         };
         return { patch, persistence, ...(meta === undefined ? {} : { meta }), errors };
     }

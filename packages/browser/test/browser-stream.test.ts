@@ -22,7 +22,7 @@ import {
     createBrowserGoalRoutes,
     createBrowserSessionAccess,
     createBrowserSessionFeed,
-    readBrowserGoalSessionState,
+    readBrowserControlSnapshot,
     type BrowserGoalEvent,
     type BrowserGoalLiveFeed,
     type BrowserGoalSessionPort,
@@ -132,7 +132,7 @@ function openFeed(store: GoalStore, publisher: InMemoryExecutionStreamPublisher,
         detachSession: () => { detached = true; },
     });
     return {
-        feed: createBrowserSessionFeed(session, stream, (target) => readBrowserGoalSessionState(target, store, undefined)),
+        feed: createBrowserSessionFeed(session, stream, (target) => readBrowserControlSnapshot(target, store, () => false)),
         detached: () => detached,
     };
 }

@@ -8,14 +8,15 @@
 | Health probe route | 精确的 `GET /healthz` 固定返回 `{"status":"ok"}`，不读取业务依赖或诊断信息；仅该路由免 Bearer 校验，Host 与已提供的 Origin／Fetch Metadata 校验仍生效。 | [浏览器服务边界](../README.md) | [路由](../src/browser-healthz.ts)、[访问边界](../src/browser-session-access.ts) |
 | Goal 列表响应 | 可读取的 Goal 摘要与因本地快照不兼容而无法读取的历史 Goal 数量；单条不可读快照不使整份列表失败。 | [浏览器服务边界](../README.md) | [Goal Routes](../src/browser-goal-routes.ts) |
 | 共享命令合同解析 | JSON 请求体经 web-contracts 严格命令合同解析，route 只保留 wire ID、路径身份、跨字段关系与 HTTP 错误映射。 | [浏览器服务边界](../README.md) | [Goal Routes](../src/browser-goal-routes.ts) |
-| BrowserGoalCommandService | 未迁入统一 inputs 入口的管理命令（Plan Mode、模型选择、Action 详情、授权与权限模式、终态管理前置检查）到 Runtime 的适配。 | [浏览器服务边界](../README.md) | [模块说明](./overview.md) |
+| BrowserGoalCommandService | 未迁入统一 inputs 入口的管理命令（Plan Mode、安全等待或终态的模型选择、Action 详情、权限档位与边界豁免、终态管理前置检查）到 Runtime 的适配。 | [浏览器服务边界](../README.md) | [模块说明](./overview.md) |
 | BrowserGoalSessionPort | Browser 委派 Runtime 会话所有者的窄端口：创建、统一输入、收据查询、安全状态与 Goal 事件；Browser 不持有账本、队列、执行名额或后台推进。 | [浏览器服务边界](../README.md) | [Browser Session Port](../src/browser-session-port.ts) |
+| compact 会话输入 | 只携带目标 `runId` 的整理命令；不写入对话、不建 Run，无法切换窗口时返回 `context_compaction_unavailable`。 | [浏览器服务边界](../README.md) | [模块说明](./overview.md) |
 | Task approval route projection | Plan Run 审批等待点中的完整候选阶段顺序与验收条件。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |
 | Interaction view projection | 当前等待的类型化摘要：种类、稳定 `interactionId`、可用决定与字段级截断标记；完整请求正文由交互详情读取按同一引用提供，不在会话摘要中复制。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |
 | Interaction details route | 按当前 Goal／Run／交互引用读取完整问题、任务范围或 Action 输入；PTC 子操作按其真实 Action 身份寻址，父程序身份随详情给出；不匹配返回稳定错误且不推进等待。 | [浏览器服务边界](../README.md) | [Goal Routes](../src/browser-goal-routes.ts) |
 | Approved Plan route projection | 当前获批 Plan Run 的 Snapshot 权威完整路线及其 Runtime 状态；普通 Run 省略。 | [浏览器服务边界](../README.md) | [Session Projection](../src/browser-projection.ts) |
 | Session output projection | Runtime 的类型化会话输出投影为单一 Goal SSE：权威控制快照、输入结果、控制事实与内容事实；不保留第二条事件流或旧事件双解析。 | [浏览器服务边界](../README.md) | [Browser Session Port](../src/browser-session-port.ts) |
-| 控制快照投影 | `state_sync` 在订阅建立／重建时读取一次同一 Run 的 Goal 控制投影与 Runtime 窄状态；不一致或读取失败时省略，不拼接不同提交。 | [浏览器服务边界](../README.md) | [Browser Session Port](../src/browser-session-port.ts) |
+| 控制快照投影 | `state_sync` 与窄 HTTP 从同一次 Snapshot 读取投影。SSE 无法与同步事件的 Goal、Run 和修订对齐时省略组合快照。 | [浏览器服务边界](../README.md) | [Browser Session Port](../src/browser-session-port.ts) |
 | 提交作用域投影 | `state_committed.changed` 从提交批次的来源事件类型映射；授权撤销只声明 `grants`，无法识别时保守声明 `session`。 | [浏览器服务边界](../README.md) | [Browser Session Port](../src/browser-session-port.ts) |
 | Observation 提交投影 | 已提交 `observation_recorded` 边界额外投影 `observed_committed` 工具活动，使工具返回与已保存结果分离。 | [浏览器服务边界](../README.md) | [Browser Session Port](../src/browser-session-port.ts) |
 | 流故障投影 | 缺口、读取失败与背压映射为带稳定 `code` 与 `resync` 的 `stream_fault`；不得伪装为 Run 终态。 | [浏览器服务边界](../README.md) | [Browser Session Port](../src/browser-session-port.ts) |

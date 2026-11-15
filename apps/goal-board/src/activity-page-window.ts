@@ -9,6 +9,8 @@ import type {
 export const MAX_CACHED_ACTIVITY_PAGES = 3;
 /** Activity 打开时自动预取更早历史的项数预算。 */
 export const ACTIVITY_PREFETCH_ITEM_BUDGET = 300;
+/** 一次 Activity 读取请求的页大小；使用协议允许的上限，避免小历史因默认页被误报为未加载。 */
+export const ACTIVITY_PAGE_LIMIT = 100;
 /** 一次预取最多连续读取的页数。 */
 export const ACTIVITY_PREFETCH_MAX_PAGES = 6;
 /** 最多缓存的正文分段数量。 */

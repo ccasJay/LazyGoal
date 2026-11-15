@@ -64,6 +64,14 @@ test("an accepted real stage collapses its tools and leaves the final answer out
   assert.match(html, /Verified result/);
 });
 
+test("an acceptance-only continuation does not repeat a stage already shown", () => {
+  const message = { kind: "message" as const, itemId: "progress", presentationKey: "progress", runId: "run-1",
+    role: "assistant" as const, purpose: "process" as const, content: "Progress", position: position(3) };
+  const entries = [stage("run_stage_declared", 1), activity("completed", "stage-1"), message, stage("run_stage_accepted", 4)];
+  assert.equal((render(entries).match(/data-stage-id="stage-1"/g) ?? []).length, 1);
+  assert.equal((render(entries, { stages: [{ runId: "run-1", stageId: "stage-1", revision: 1, target: "Verify the implementation", status: "accepted", completeWithinPage: false }] }).match(/data-stage-id="stage-1"/g) ?? []).length, 2);
+});
+
 test("a stage identity without a real title stays a flat activity", () => {
   const html = render([activity("completed", "stage-not-in-window")]);
   assert.doesNotMatch(html, /class="timeline-stage /);
@@ -211,6 +219,11 @@ test("corrections use an unambiguous execution unit without crossing stage or me
   assert.equal((split.match(/data-stage-id="stage-1"/g) ?? []).length, 2);
   assert.ok(split.indexOf("A progress message") < split.indexOf('data-item-id="repair"'));
   assert.match(split, /Stage activity continued/);
+  const secondSection = split.indexOf('data-stage-id="stage-1"', split.indexOf('data-stage-id="stage-1"') + 1);
+  const continuedAt = split.indexOf("Stage activity continued", secondSection);
+  assert.ok(secondSection >= 0 && continuedAt > secondSection);
+  assert.ok(split.slice(secondSection, continuedAt).includes("Verify the implementation"),
+    "continued stage sections must repeat the stage title");
   const ambiguous = { ...owned, itemId: "other-stage", group: { ...owned.group, stageId: "stage-2" } };
   const separate = render([stage("run_stage_declared", 1), owned, correction, { ...owned, itemId: "activity:again" }, ambiguous], { running: true });
   assert.ok(separate.indexOf('data-item-id="repair"') > separate.indexOf('data-item-id="activity:action:run-1:action-1"'));

@@ -13,14 +13,14 @@ Runtime 是控制平面：拥有 Goal/Run/Step 状态、Run 模式与 GoalPlan�
 | --- | --- | --- |
 | [Domain](../src/domain.ts) | Goal definition/state、Run 模式与获批 Task、Action/Observation 和交互等待契约 | I/O 和模型调用 |
 | [Launcher](../src/launcher.ts) | 校验输入与协议、冻结 Profile、创建并保存 Goal、启动 Coordinator | 恢复已有 Goal |
-| [GoalCoordinator](../src/goal-coordinator.ts) | 统一推进、Run 模式选择、waiting resume、Tool Grant 审批/撤销、completed continue、提交等待点并委派 Scheduler | 直接执行 Tool |
+| [GoalCoordinator](../src/goal-coordinator.ts) | 统一推进、Run 模式选择、以最新 Snapshot 提交 waiting resume、越界审批与边界豁免撤销、权限档位读写、completed continue、委派 Scheduler | 直接执行 Tool，或在 Goal mutation Gate 内等待 Run 完成 |
 | [Runner](../src/runner.ts) | 保持 RunScheduler 调度入口并委派执行器 | Goal 状态推进和恢复读取实现 |
-| [RunExecutor](../src/runner.ts) | 持有单次活动执行的最新已提交 Goal，负责模型决策、Tool 授权、Action/Observation、PTC、Evidence 和 Run 转换；失败终态与队列暂停在同一 Snapshot 提交 | 供应商协议和 UI |
-| [RunRecoveryReader](../src/run-recovery-reader.ts) | 按 Goal/Run 身份恢复最新快照，按 Snapshot 提交边界读取 Trajectory | 推进 Run 或写入持久化 |
+| [RunExecutor](../src/runner.ts) | 持有单次活动执行的最新已提交 Goal，负责模型决策、工作区权限边界判定、Action/Observation、PTC、Evidence 和 Run 转换；失败终态与队列暂停在同一 Snapshot 提交 | 供应商协议和 UI |
+| [RunRecoveryReader](../src/run-recovery-reader.ts) | 按 Goal/Run 身份恢复最新快照，按各 Run 自身的 Snapshot 提交边界读取 Trajectory 与导航历史 | 推进 Run 或写入持久化 |
 | [WorkingMemorySession](../src/working-memory-session.ts) | 按 Snapshot 边界重建临时 Working Memory，校验 Patch/Evidence | 保存 Memory 内容到 Snapshot |
 | [TrajectoryCheckpointCommitter](../src/trajectory-checkpoint-committer.ts) | 统一事实、Patch、Snapshot 和提交 marker 的顺序；gate 内只读取一次最新 Snapshot 并通过 `prepare(latest)` 复用给前置检查或状态构造；在保存前按原提交事实确定新消息位置；维护 Goal 提交修订并在未声明会话权威时保留最新会话状态 | 业务分支和模型调用 |
 | [SessionInputAdmission](../src/session-admission.ts) | 在共享短提交边界内持久化受理会话输入、按 `inputId` 与载荷摘要去重、维护输入账本与待处理消息队列、返回稳定收据 | 推进 Run、调用模型或工具、调度后继 Run |
-| [SessionManager](../src/session-manager.ts) | 创建/只读连接长期 Session、单活动 Goal 执行名额、被追踪的后台执行与安全状态投影 | 复制执行循环、直接执行 Tool、跨进程租约 |
+| [SessionManager](../src/session-manager.ts) | 按 Goal 提交裁决首次创建与首条输入身份、统一推进名额与后台交接、被追踪的后台执行与安全状态投影 | 复制执行循环、直接执行 Tool、跨进程租约 |
 | [Session](../src/session.ts) | Goal 句柄：读取安全状态、受理输入、查询收据、解除连接 | 拥有实例关闭权、改写 Goal 快照 |
 | [Goal mutation gate](../src/goal-mutation-gate.ts) | 按 Goal 串行化读取与 Snapshot 提交的进程内短边界，允许同一异步调用链安全重入 | 承载模型、工具或人工等待 |
 | [GoalStore](../src/goal-store.ts) | 保存/恢复最新 Goal Snapshot | 历史查询和文件格式 |
@@ -34,7 +34,7 @@ Runtime 是控制平面：拥有 Goal/Run/Step 状态、Run 模式与 GoalPlan�
 | [Trajectory query](../src/trajectory-query.ts) | 浏览器查询的水位上下文、事件关联、有界摘要，以及分页／详情／执行单元／时间线查询 Port | 写入事实、索引实现与 HTTP 投影 |
 | [Tool Core](../../tool-core/src/index.ts) | 通用 Tool 接口、输入 Contract 准备、Registry 与暂时故障分类 | Goal/Run 状态与授权策略 |
 | [Tool contracts](../src/tool.ts) | Tool Policy 边界、授权过滤与运行时上下文绑定 | 具体 Tool 业务逻辑与通用输入准备 |
-| [Tool Grant](../src/tool-grant.ts) | 将已验证的 Tool 输入映射为按操作匹配的持续授权身份，并定义授权 Store Port | 执行 Tool 或绕过 Profile、输入、Policy 校验 |
+| [Tool Grant](../src/tool-grant.ts) | 汇总 Permission 包的授权契约与匹配器：Sandbox Grant 身份、权限档位读写 Port 与审批服务 | 执行 Tool、判定边界或创建工具级审批 |
 | [Context Retrieval](../src/context-retrieval.ts) | 历史查询校验、边界门禁及向 `@lazygoal/context-retrieval` 委托的适配层 | 读取当前 Workspace/Environment |
 
 阶段工具的编号和版本来自模型请求的 Run 快照。Runner 在接受阶段结果和提交检查点时核对阶段身份、revision、status 与路线 revision、游标；请求期间状态变化则丢弃旧结果、清除旧纠错链并从权威快照重新决策，不将旧命令绑定到新阶段。恢复输入边界包含同一阶段状态指纹；阶段持久化事实、审查和审批规则保持由既有提交路径负责。
@@ -51,7 +51,7 @@ Goal workflow 只有 `phase: "executing"`。Goal 是可持续恢复的会话聚�
 
 无参数 `/plan` 通过 Coordinator 为尚未提交 `run_started` 的当前 Run 选择 Plan 模式；当前 Run 已完成或失败时，它将 Plan 作为下一 Run 的一次性选择持久化。新 Run 缺省使用普通模式并消费待用选择。模式只属于 Run，GoalPlan 可在任意模式下存在并继续读取。
 
-waiting 输入调用 `resume` 并保留当前 Run；浏览器可从 AskUser 表单取消当前询问。Runtime 清除该待处理交互，记录询问取消事件，并将“跳过此询问、继续当前任务”的控制消息交给同一 Run；Run 不会因此进入取消终态。completed、failed 或 cancelled 输入调用 `continue`，在追加用户消息前归档上一 Run 的终态、保存新 Run，再交给现有 Scheduler。失败 Run 不会原地恢复；只有用户提交新输入才会创建后续 Run。未完成 Todo 不会自动推进。
+waiting 输入调用 `resume` 并保留当前 Run；浏览器可从 AskUser 表单取消当前询问。Runtime 清除该待处理交互，记录询问取消事件，并将“跳过此询问、继续当前任务”的控制消息交给同一 Run；Run 不会因此进入取消终态。completed、failed 或 cancelled 输入调用 `continue`，在追加用户消息前归档上一 Run 的终态、保存新 Run，再交给现有 Scheduler。宿主需要自行分配执行时改用 `commitContinuation`：它只做同一提交并返回新 Run，不调用 Scheduler。失败 Run 不会原地恢复；只有用户提交新输入才会创建后续 Run。未完成 Todo 不会自动推进。
 
 运行中的 Run 可通过 `Runner.steer` 按稳定消息身份持久化接收补充输入；受理只表示 Snapshot 已保存，不会中断当前模型或 Tool。Runtime 按当前 Run 内的受理顺序，在下一模型边界将消息追加到 Goal Conversation 并记录应用位置。Steer 受理与 Run 检查点共用按 Goal 的短暂提交边界：若受理先于旧模型决策提交，旧决策会被丢弃并以新输入重新采样；已开始的 Tool 先提交真实 Observation，再应用 Steer。`RunState.steerInputs` 区分 pending 正文和已应用消息位置，重启后 pending 项仍属于同一 Run，且应用记录防止重复注入。
 
@@ -59,17 +59,17 @@ waiting 输入调用 `resume` 并保留当前 Run；浏览器可从 AskUser 表�
 
 会话输入受理由 [SessionInputAdmission](../src/session-admission.ts) 拥有：它在 [Goal mutation gate](../src/goal-mutation-gate.ts) 内读取最新快照并提交单次变更，先按 `inputId` 与规范化载荷摘要判定重复受理或身份冲突，再校验文本额度，然后追加 `GoalState.inputLedger` 记录与 `messageQueue` 队列项。`queue_control remove` 按队列修订删除单条待处理消息并将其账本状态标记为 `cleared`；Steer 来源绑定在 Run 执行所有者内与队列变更一同提交。受理成功只表示输入已保存，不表示消息已应用、工具已停止或 Run 已完成；受理本身不调用模型或工具。保存失败或结果不明时抛出 `SessionInputAdmissionError`，调用方必须使用原 `inputId` 查询或重试。普通消息与 Steer 共享单条 64,000、128 项与合计 1,048,576 个 UTF-16 code unit 的额度；中断、回答、恢复与队列清空不受文本额度阻塞。
 
-会话模块把交互回答与显式恢复接入同一输入边界：`respond` 先核验 Goal、Run、请求及必要 Action 身份，再委派既有 Coordinator 等待恢复规则；匹配回答只推进对应等待，旧请求、错身份或载荷冲突不解除等待也不写收据。`resume` 必须匹配最新 Run 与当前 Goal 提交修订：等待交互时报告所需交互，失败导致的队列暂停时拒绝并要求显式继续队列，只有可恢复的当前 Run 或已受理队首才唤醒执行所有者。已受理的 Interrupt 若因进程中断而尚未完成取消结算，`resume` 只重新唤醒该 Run 完成取消结算，仍保持队列暂停；它不代答等待，也不解除队列暂停。新 Run 启动前后台执行在推进与创建后继 Run 前按最新快照的 `modelSelection` 重新对齐模型 Binding，避免继承另一个 Goal 的进程绑定。
+会话模块把交互回答与显式恢复接入同一输入边界：`respond` 与带正文的 blocked `resume` 在 Goal mutation Gate 内重新读取最新快照，先按 `inputId` 与摘要判定既有收据或载荷冲突，再由既有 Coordinator 等待恢复规则构造转换；等待解除、真实用户消息与 `applied` 收据经同一 Snapshot 提交写入，因此决定返回时收据已可查询，下一轮模型或工具仍挂起也不影响读取。新受理随后交给后台执行所有者推进；同一身份的重复提交只返回原收据，不重新解除等待，也不重新触发推进。旧请求、错身份或等待已失效的新输入不解除等待也不写收据。`resume` 必须匹配最新 Run 与当前 Goal 提交修订：等待交互时报告所需交互，失败导致的队列暂停时拒绝并要求显式继续队列，只有可恢复的当前 Run 或已受理队首才唤醒执行所有者。已受理的 Interrupt 若因进程中断而尚未完成取消结算，`resume` 只重新唤醒该 Run 完成取消结算，仍保持队列暂停；它不代答等待，也不解除队列暂停。新 Run 启动前后台执行在推进与创建后继 Run 前按最新快照的 `modelSelection` 重新对齐模型 Binding，避免继承另一个 Goal 的进程绑定。
 
 `GoalModelSelection` 为 OpenCode Go 在线模型保存 `executionApi`、上下文容量、输出上限、推理、视觉和工具选择能力，供进程恢复时重建同一执行行为。浏览器只提交模型 ID 和可选 Provider Profile ID；执行 API 与模型能力由服务端实时目录解析。该领域状态不保存 Base URL 或凭据，Adapter 的连接配置由宿主按 Profile 身份重建。
 
-[Session](../src/session.ts) 句柄提供 `read`、`send`、`consume`、`events`、`getInput` 与 `detach`：所有操作委派同一 Runtime 状态所有者，句柄自身不改写快照、不拥有实例关闭权。`consume` 逐条等待持久化受理结果后才读取下一项，不等待业务执行结束；业务拒绝作为输入结果继续消费，保存或受理基础设施失败时停止该来源、不预取后续项并报告原始错误。停止消费或解除句柄后，迟到的 `next()` 结果不再受理，来源资源归宿主；不合作的 `next()`／`return()` 不会阻塞停止或关闭。`sessions.query` 是同一执行链上的单消息封装：等待指定 Run 到达等待或终态后返回真实结果与可恢复身份，等待交互时立即返回，只释放自己的资源，不关闭借用实例。`SessionManager.close` 先停止订阅、输入消费与核对任务，再按可选期限结算后台执行；期限届满时抛出 `SessionManagerCloseError` 并保留未结算的 Goal 身份，不报告安全关闭、不伪造 Run 取消。
+[Session](../src/session.ts) 句柄提供 `read`、`send`、`consume`、`events`、`getInput` 与 `detach`：所有操作委派同一 Runtime 状态所有者，句柄自身不改写快照、不拥有实例关闭权。`consume` 逐条等待持久化受理结果后才读取下一项，不等待业务执行结束；业务拒绝作为输入结果继续消费，保存或受理基础设施失败时停止该来源、不预取后续项并报告原始错误。停止消费或解除句柄后，迟到的 `next()` 结果不再受理，来源资源归宿主；Runtime 至多请求一次 `iterator.return()`，同步抛错与异步拒绝通过既有宿主诊断通道报告 Goal、清理阶段与原因，挂起的清理不会阻塞停止或关闭，受理失败仍是主错误。`sessions.query` 是同一执行链上的单消息封装：等待指定 Run 到达等待或终态后返回真实结果与可恢复身份，等待交互时立即返回，只释放自己的资源，不关闭借用实例。`SessionManager.close` 先停止订阅、输入消费与核对任务并拒绝新的推进受理，再按可选期限结算在途受理写入与后台执行；期限届满时抛出 `SessionManagerCloseError` 并保留未结算的 Goal 身份，不报告安全关闭、不伪造 Run 取消。
 
-会话输出由 [GoalSessionStream](../src/session-stream.ts) 提供：`session.events()` 调用时先向事件 Core 注册 Goal 范围缓冲，再在同一提交协调边界读取一致快照，首项输出 `state_sync` 与 Goal 提交修订，随后按来源顺序交接缓冲。已由同步状态覆盖的旧提交通知去重，旧执行单元的暂时增量被丢弃，当前调用的增量按来源顺序保留；模型或工具分片不会被当作已提交结果。输入受理与拒绝以 `session_input_result` 控制事件发布并按 `inputId` 关联；Run 结束与切换不关闭订阅。
+会话输出由 [GoalSessionStream](../src/session-stream.ts) 提供：`session.events()` 调用时先向事件 Core 注册 Goal 范围缓冲，再在同一提交协调边界读取一致快照，首项输出 `state_sync` 与 Goal 提交修订，随后按来源顺序交接缓冲。订阅持有当前观察身份：同步修订单调接纳，低于已接纳提交修订的快照被丢弃，旧快照不能切回前一 Run 或撤回已显示状态。后继 Run 的临时增量先按一致快照确认身份再交接，确认切换后迟到的前一 Run 临时增量被过滤，而前一 Run 已提交的正式事实与控制结果仍按来源交付；模型或工具分片不会被当作已提交结果。输入受理与拒绝以 `session_input_result` 控制事件发布并按 `inputId` 关联；Run 结束与切换不关闭订阅。
 
 输出语义由 [会话输出分类器](../src/session-output.ts) 拥有：[`SessionOutputEvent`](../src/session-output.ts) 是可辨识联合，成员为 `state_sync`、`input_result`、`generation_event`、`message_committed`、`tool_activity`、`interaction_required`、`interaction_settled`、`run_status`、`run_result`、`stream_fault`、`commit_boundary` 与 `closed`。分类器只依据来源事件自身的事实：公开生成、工具活动与分组边界在 Runtime 内判定，Browser 与 wire 只做受授权的序列化，不再按任意 `kind: string` 猜测业务；reasoning、结构化协议 JSON、工具原始参数与私有阶段输出不进入公开信封。模型开始事件只保留白名单调用阶段、调用身份与执行单元，来源未提供的元数据不推断；工具输入摘要可包含有界 Bash 命令，不包含环境或其它任意参数。`state_sync` 同时携带当前等待的规范交互引用与已提交消息的有界范围（总数、末尾身份与最近摘要）；同步时新出现的消息按稳定身份发出 `message_committed`，新建立的等待发出 `interaction_required`，重复同步不追加第二条通知。`commit_boundary` 携带本批次 `eventTypes` 以及来源可用的 `actionId`／`executionUnitId`，消费者据此声明实际变化范围；工具活动事件在来源提供时携带执行单元，使同一 Action 的尝试与结果保持稳定身份。
 
-存在订阅时，[GoalRevisionMonitor](../src/session-stream.ts) 按不超过一秒的间隔（默认 1000ms，可注入定时器与间隔）合并核对被观察 Goal 的最新提交修订，弥补末次提交通知丢失；提供了 `GoalStore.readRevision` 时优先使用轻量修订提示，避免每秒完整 `restore`，否则回退完整读取。没有观察者时停止核对，核对只读、不调度执行。读取失败作为同步故障报告，不伪装业务结果。订阅队列沿用 Core 的有界背压：控制事件无法保留时订阅以 `backpressure` 结束，执行不受影响；退出迭代或解除句柄只释放该订阅自己的队列与监听。
+存在订阅时，[GoalRevisionMonitor](../src/session-stream.ts) 按不超过一秒的间隔（默认 1000ms，可注入定时器与间隔）合并核对被观察 Goal 的最新提交修订，弥补末次提交通知丢失；提供了 `GoalStore.readRevision` 时优先使用轻量修订提示，避免每秒完整 `restore`，否则回退完整读取。没有观察者时停止核对，核对只读、不调度执行。读取失败作为同步故障报告，不伪装业务结果。订阅沿用 Core 的有界背压，并在此基础上约束最终消费者：从 Core 到调用方的待交付输出共享同一固定上限（`policy.maxQueueSize`，默认 128），初始同步、派生通知与实时事件都计入该上限。上限不足时先合并相邻同 Run、同来源的公开正文增量，合并结果仍受公开投影长度约束；仍无法保留临时内容时报告一次 `stream_fault` 缺口并在消费者腾出容量后重新核对，无法保留控制事件时该订阅以 `backpressure` 结束，执行不受影响。关闭、退出迭代或解除句柄只释放该订阅自己的积压、监听与核对注册。
 
 完成候选由模型执行层在完成审查之前作为旁路预览发布，因此始终未确认：预览不授权工具、不代替审批、不作为完成证据，也不进入 Snapshot 或模型上下文。审查拒绝、Steer 到达使旧决策被弃用、Interrupt 被受理或出现新候选时，Runtime 明确发布作废通知（`candidate_invalidated`）；候选作废不等同于 Run 失败，也不改变既有重试与纠错预算。只有完成审查接受、且对应答复消息随决策提交保存成功后，正式消息才以 `answer` 用途出现，并通过 `message_committed` 通知关联回被替换的预览来源。
 
@@ -77,13 +77,13 @@ waiting 输入调用 `resume` 并保留当前 Run；浏览器可从 AskUser 表�
 
 `GoalState.commitRevision` 是 Goal 级单调提交修订，跨 Run 递增，由 Launcher 的首次保存与 `TrajectoryCheckpointCommitter` 的每次成功提交维护。基于旧快照的执行提交在提交边界重新读取最新修订：未声明会话权威时沿用最新快照的输入账本与消息队列，避免旧快照覆盖并发受理。
 
-[SessionManager](../src/session-manager.ts) 拥有长期会话的创建、只读连接与实例级执行名额。`sessions.create` 先持久化 Goal、首条用户消息、Run 与首条收据（`createGoalCheckpoint` 复用既有 Launcher 校验、Profile 冻结与首次提交），再返回句柄并以被追踪的后台任务推进首个 Run；返回不等待 Run 完成，首次保存失败不会调用模型或工具。相同 `goalId` 与首条输入身份／载荷的重试只连接原 Goal：不推进 Run，也不把创建重试当作恢复指令。`sessions.open` 只读取快照并投影安全状态，不推进、不消费队列；缺失 Goal 返回 `GOAL_NOT_FOUND`，损坏快照返回 `GOAL_UNREADABLE`。
+[SessionManager](../src/session-manager.ts) 拥有长期会话的创建、只读连接与实例级执行名额。`sessions.create` 在按 Goal 的 mutation Gate 内重新读取存在性、核对首条输入身份并在同一短边界内提交首 Run、首条用户消息与首条收据（`createGoalCheckpoint` 复用既有 Launcher 校验、Profile 冻结与首次提交），再返回句柄并以被追踪的后台任务推进首个 Run；返回不等待 Run 完成，首次保存或提交 marker 失败不会调用模型或工具。并发的同 Goal 首次创建只有一方能提交首 Run，另一方按权威快照连接原收据。创建身份以 Goal ID、首个 `inputId` 与规范化正文摘要为准：相同身份与载荷的重试返回原收据，不同 `inputId`、不同正文或用后续普通消息冒充首条输入返回 `INPUT_CONFLICT`。重试只连接原 Goal：不推进 Run，也不把创建重试当作恢复指令。`sessions.open` 只读取快照并投影安全状态，不推进、不消费队列；缺失 Goal 返回 `GOAL_NOT_FOUND`，损坏快照返回 `GOAL_UNREADABLE`。
 
-一个实例同时只运行一个 Goal：其他 Goal 的新执行、交互推进与输入受理返回 `BUSY`，不会进入全局调度队列；活动 Goal 的输入受理、读取与控制不等待其长调用。模型或工具等待期间不持有 Goal 短提交边界。后台执行异常被观察并保留真实恢复状态（Run 保持 `created`／`running`，状态投影报告 `needsRecovery`）；重建实例后的只读连接与新的普通消息都不会自动恢复执行。
+一个实例同时只运行一个 Goal：其他 Goal 的新执行、交互推进与输入受理返回 `BUSY`，不会进入全局调度队列；活动 Goal 的输入受理、读取与控制不等待其长调用。模型或工具等待期间不持有 Goal 短提交边界。会话级推进（创建、回答、显式恢复与队列唤醒）在提交前取得名额：其他 Goal 占用时拒绝且不产生部分受理，同一 Goal 已有执行所有者时由它接手；提交完成后才把已持久化目标交给后台推进。状态投影只在真正无执行所有者时报告 `needsRecovery`。后台执行异常被观察并保留真实恢复状态（Run 保持 `created`／`running`）；重建实例后的只读连接与新的普通消息都不会自动恢复执行。
 
 同一执行所有者在 Run 结束后继续消费持久化队列：Run `completed` 且队列未暂停时，按 FIFO 为队首消息创建后继 Run——归档旧 Run、追加真实用户消息、创建新 Run 与应用队首输入在同一 Snapshot 提交中完成（`GoalCoordinator.continue` 的队列绑定），因此崩溃或响应丢失不会重复创建 Run。Run `waiting` 时队列不出队、不启动后继；Run `failed` 时，RunExecutor 在保存失败终态的同一 Snapshot 内记录队列暂停，避免失败提交与暂停提交之间的崩溃窗口；即使队列为空也保留暂停事实。用户 Interrupt 在受理 Snapshot 立即暂停队列并保存中断收据；SessionManager 只在终态快照缺少暂停标记时幂等补齐。暂停时仍有积压消息，须显式 `queue_control continue` 才从原队首启动；Run 已结束且队列为空时，受理新消息会在同一 Snapshot 提交中解除暂停，随后由执行所有者创建后继 Run。`queue_control clear` 只清除尚未应用的普通消息：保留收据、真实对话和当前 Run。
 
-用户 Interrupt 通过稳定请求身份持久化到 `RunState.interruption`，并同时暂停该 Goal 的消息队列（`user_interrupt`）与写入统一输入账本收据，再中止目标 Run 的进程内信号；受理不等待停止完成，宿主关闭仍使用独立调用信号。已开始但结果未知的直接 Tool 或 PTC 操作会写入不可重试的失败 Observation 和原 Action 来源，原操作不重放。RunExecutor 不再调用模型或执行核查/修复工具，直接在同一提交中保存未知结果事实与 `run_cancelled` 并结算 `cancelled`。该终态可通过 `continue` 在同一 Goal 创建新 Run。普通服务关闭不会创建 Interrupt 记录。
+用户 Interrupt 通过稳定请求身份持久化到 `RunState.interruption`，并同时暂停该 Goal 的消息队列（`user_interrupt`）与写入统一输入账本收据，再中止目标 Run 的进程内信号；受理不等待停止完成，宿主关闭仍使用独立调用信号。等待决定在 Goal mutation Gate 内重读最新 Snapshot 并与 Interrupt 顺序提交；决定先提交后，Gate 在调度前释放，Runner 收到授权 Action ID 时仍先处理已经提交的 Interrupt。停止受理与 Run 取消结算在同一 Gate 上重读并串行化，重复收尾只消费当前未完成的中断。已开始但结果未知的直接 Tool 或 PTC 操作会写入不可重试的失败 Observation 和原 Action 来源，原操作不重放。RunExecutor 不再调用模型或执行核查/修复工具，直接在同一提交中保存未知结果事实与 `run_cancelled` 并结算 `cancelled`。该终态可通过 `continue` 在同一 Goal 创建新 Run。普通服务关闭不会创建 Interrupt 记录。
 
 Runner 将调度契约委派给 RunExecutor；RunExecutor 按当前 Run 模式和获批任务推进：
 
@@ -92,12 +92,12 @@ Runner 将调度契约委派给 RunExecutor；RunExecutor 按当前 Run 模式�
 - 提案进入持久化的 `task_approval` 等待点后停止模型和 Tool 调用；反馈使旧提案失效并重新请求，批准后将任务保存在当前 Run 的 `approvedTask`。
 - 获批 Plan Run 可调用已授权业务 Tool，并按获批任务的完成条件校验证据。GoalPlan 写入由 Run 模式能力授权；计划状态本身不授予业务 Tool 权限。
 - 各模式中的 Tool 调用统一沿用 Tool Registry、Action ID、Policy、Trajectory 和 Observation 提交路径。
-- 每个 Run 从空 `exposedToolIds` 开始。Decide 的 `system_find_tools` 只搜索 Profile/Registry 授权交集：明确提及 Tool ID 或发现别名的结果优先，其余按关键词命中数和 Profile 顺序稳定排序，最多返回 5 项；Runtime 将命中 ID 累积到 Run 并计入一次 Step。别名不进入返回值或模型 Schema。Schema 暴露不授予执行权：直接 Action 和 PTC 子调用仍须命中该 Run 的暴露集合，再经过现有 Profile、Registry、输入、Policy、审批和沙箱检查。
-- 默认本机 Profile 授权 `execute_program` 时，模型可显式选择程序调用；Runner 将程序作为一个父 Step，在独立 Seatbelt worker 内运行 JavaScript。每个内部业务 Tool 调用重新经过冻结 Profile、输入 Contract、Policy、Grant 和原有审批路径；程序入口的许可不授予内部操作。子调用按顺序提交，模型只收到父程序的显式返回或失败。
-- Policy 要求人工审批的 Action 可获准一次、当前 Goal 或当前 workspace。Goal/workspace Grant 支持 Tool Grant 与通用 Sandbox Grant：Sandbox Grant 泛化为 `{ toolId, inputDigest, scope, version: 1 }`，绑定规范化输入摘要与沙箱能力范围，不再硬编码仅限 bash。持续授权始终在 Profile、输入与 Policy 校验之后查询；YOLO 自动批准不生成持续 Grant。
+- 每个 Run 从空 `exposedToolIds` 开始。Decide 的 `system_find_tools` 只搜索 Profile/Registry 授权交集：明确提及 Tool ID 或发现别名的结果优先，其余按关键词命中数和 Profile 顺序稳定排序，最多返回 5 项；Runtime 将命中 ID 累积到 Run 并计入一次 Step。别名不进入返回值或模型 Schema。Schema 暴露不授予执行权：直接 Action 和 PTC 子调用仍须命中该 Run 的暴露集合，再经过现有 Profile、Registry、输入校验与工作区权限档位判定。
+- 默认本机 Profile 授权 `execute_program` 时，模型可显式选择程序调用；Runner 将程序作为一个父 Step，在独立 Seatbelt worker 内运行 JavaScript。每个内部业务 Tool 调用重新经过冻结 Profile、输入 Contract 与工作区权限档位判定；程序入口的许可不授予内部操作。子调用按顺序提交，模型只收到父程序的显式返回或失败。
+- 越界 Action 的审批来自工作区权限档位的 `sandbox`／`approvals`／`reviewer` 三轴，不由 Tool 级审批产生。审批可获准一次、当前 Goal 或当前 workspace；持续授权只有 Sandbox Grant：`{ toolId, inputDigest, scope, version: 1 }` 绑定规范化输入摘要与沙箱能力范围，不再硬编码仅限 bash。持续授权始终在 Profile、输入与档位判定之后查询；Tool Grant 账本保留读写入口但不再参与授权判定。
 - Runner 调度 Tool 时注入可信的 `ToolExecutionContext: { goalId, runId }`；Tool 可选实现 `resolveSandboxAccess`，在准备完成、授权之前派生真实资源范围。显式 Profile 与冻结 Profile 保持工具集合不变，默认 Profile 使用统一的默认工具集同源入口。
 - `ask_user` 进入带 request ID、模式和问题列表的等待点；完整逐题答案、非空整体回复与显式跳过是互斥响应，都在同一提交内写入真实用户消息、响应事实与输入收据后恢复 Runner。整体回复与跳过不被解释为结构化批准，带路线扩展的问卷仍只认既有批准选项。等待点同时暴露只读的类型化交互视图：由种类与既有请求身份派生稳定 `interactionId`，公开可用决定与字段级截断标记；完整问题、任务范围与 Action 输入经按引用核验的详情读取返回，读取不推进等待。
-- 会话边界提供 `attachInteractionHandlers`：同一 Goal 只允许一个自动所有者，按请求引用去重并在提交 Gate 外调用宿主函数；连接只做一致同步，历史等待须宿主显式 `resume` 解锁才投递。处理函数故障、业务拒绝、提交不明（先按冻结 `inputId` 核验收据）、迟到结果、解除连接与有界关闭都不会默认批准或拒绝，也不撤销已经受理的决定。
+- 会话边界提供 `attachInteractionHandlers`：同一 Goal 只允许一个自动所有者，按请求引用去重并在提交 Gate 外调用宿主函数。连接先做一致同步，读取未完成或失败时不启动宿主函数，因此连接之前的历史等待不会被当作新请求，只有宿主显式 `resume` 解锁才投递；初始化期间到达的通知与解锁在基线建立后重新核对一次，不会丢失也不会重复调用。派发读取在途时解除连接或被替换，读取完成后不再启动宿主函数；已启动的调用收到中止信号。处理函数故障、业务拒绝、提交不明（先按冻结 `inputId` 核验收据）、迟到结果、解除连接与有界关闭都不会默认批准或拒绝，也不撤销已经受理的决定。
 - 阶段化 Executor 在单个 Step 内由 Runner 管理 Decide/Think 循环。每次 `request_think` 先和 Decide frame 提交；Think 输出和 Think frame 另存为已提交事实后，Runner 才再次 Decide。Think 不增加 `stepCount`，不执行 Tool；只有最终有效 `AgentDecision` 进入既有转换、授权和证据校验。
 
 中间阶段完成候选与 Run 最终完成候选均须先经过协议、语义、阶段状态和 Evidence 引用校验，再调用必需的 `StepExecutor.reviewCompletion`。输入包含当前阶段说明、修订及同一 Run 前序已接受阶段的历史原始证据，消除成对 Observation 重复正文；最终完成审查在同一次调用中兼顾局部阶段与用户整体交付。审查接受后才提交对应阶段结果或最终完成；无效候选在调用审查前被确定性门禁拦截。该审查不替代工具授权、任务批准或 Benchmark 环境评分。
@@ -118,7 +118,7 @@ Runner 和 GoalCoordinator 可通过 [`@lazygoal/execution-stream`](../../execut
 
 持续授权按最终已验证参数与能力范围生成匹配器，并以来自会话输入的稳定批准身份作为事务来源；同一决定同内容重试复用同一条暂存记录，不同决定的未提交 pending 可以并存，但只有被已提交批准引用的一条会被激活。
 
-Trigger 创建的 Goal 将宿主冻结的工具 ID 与沙箱能力保存为当前 Goal 上限。Runner 在 Tool 准备时拒绝上限外的工具，并在授权及执行计划前复核解析后的实际沙箱能力；该上限不能覆盖 Profile、宿主权限模式、有效 Grant 或平台沙箱约束。
+Trigger 创建的 Goal 只冻结宿主给出的工具 ID 集合；Runner 在 Tool 准备时拒绝该集合外的工具。沙箱能力不再随 Goal 冻结：每个待判定 Action 都在决策期重新读取当前 workspace 的权限档位，由 `sandbox` 轴决定边界、`approvals`／`reviewer` 决定越界裁决，档位读取失败时向上抛出且不回退默认档。
 
 ## 实例生命周期与资源所有权
 
@@ -134,16 +134,22 @@ Gate、控制器与注册表由资源所有者创建并交付实例；宿主借�
 
 Runner 的恢复读取委派给无写入能力的 RunRecoveryReader。它不缓存第二份 Goal，也不触发调度；RunExecutor 消费经过身份校验的最新快照和 Snapshot 边界内轨迹事实，仍是唯一推进活动状态的一方。Trajectory 是恢复事实源，Snapshot 的 `committedThroughSequence` 是当前 Run 的可见边界，`memoryRevision` 是 accepted Memory Patch 链头。模型成功响应后可随共享提交器保存 `model_context_frame`，记录请求阶段、Epoch、Conversation 插入位置，以及实际发送的 Section 文本和对应结构化投影；该 frame 不写入 Goal Conversation，也不替代其他 Trajectory 事实。恢复查询只接受 Snapshot 边界内、Goal/Run/阶段/Epoch/Conversation 起点匹配且 Section 身份仍与当前注册表一致的 frame；未知或身份不匹配的 Section 不能成为比较基线。每个 `(goalId, runId)` 有独立的 Trajectory 序号；跨 Run 历史查询必须携带完整 Run 身份。`completedRuns` 记录已归档 completed、failed 或 cancelled Run 的终态、消息区间和提交边界；浏览器消息创建后继 Run 时，还会把稳定 message ID、正文和 next Run ID 一并保存为重试收据。该收据不改变当前 Run 的 Evidence 所有权。`WorkingMemorySession` 只沿可达 revision 链重放已提交 Patch，并拒绝跨 Goal/Run、断链、循环、越界或不匹配的事实。
 
-`pendingInteraction` 保存问卷或任务提案的完整请求、模式和关联 ID；Plan Run 的任务提案还保存待审完整路线候选。获批任务和权威路线保存在当前 Run，恢复时必须验证 Goal、Run、request ID 与等待状态一致，审批前候选不会被误读为已执行路线。`pendingAction` 按 Tool 的 replay policy 分为安全重放或 `outcome_unknown` 人工确认，并在 Action 获批后记录授权期限与可选 Grant ID。暂存时记录的 `executionUnitId` 在批准恢复后继续用于 Tool 生命周期事件，使 Decision、审批、执行与 Observation 保持在同一执行单元。`safe` Tool 只有显式抛出 `TransientToolExecutionFailure` 才会在同一 Action 内自动重试；每次调用前先提交 `attemptsStarted` 和 Trajectory 事实，最多三次且不增加 Step。普通异常按稳定错误失败，`retryable` Observation 仍作为已知业务结果提交，不单独触发重放。`manual` Tool 异常将该 Action 保存为 `outcome_unknown` 并进入等待，后续只能由用户对原 Action 作出单次恢复选择。Goal/workspace Grant 先以来源 `(goalId, runId, actionId)` 写为 pending，再提交批准事实和 Snapshot，之后才激活并调度；若激活中断，`advance` 必须核验快照身份、授权范围和重新派生的操作匹配器后再恢复激活。pending Grant 从不放行新 Action；撤销立即影响后续查询。`pendingThink` 保存当前未完成 Step 的 Think 输出恢复指针；`pendingModelRepair` 保存 Decide/Think 阶段输入边界、已开始尝试次数及最新尝试和反馈事件身份。模型阶段纠错先追加 Trajectory 事实再提交 Snapshot，恢复只读取已提交反馈，并校验 Goal、Run、执行单元、Step、阶段和输入摘要；Think 恢复还校验原请求目标。每条阶段纠错链最多尝试三次（含首次），Decide 完成候选的协议失败和审查拒绝共用此计数，崩溃中的已记次数不会重复使用。未提交输出不进入恢复历史，身份或输入失配会 fail-closed。有效决策提交时清除相应阶段恢复指针。审查拒绝复用已提交反馈恢复，未完成审查不保存候选接受状态，恢复后需再次审查。当前开发期协议不迁移旧字段；Storage 对旧阶段和旧事件显式拒绝。
+阈值压缩在完整交互与已结算执行单元边界上由 Runner 调度：占用严格超过 Epoch 容量阈值时执行一轮提炼，把候选移出历史与保留的近期交互交给注入的提炼端口，并在同一提交中写入 `context_epoch_advanced`（`threshold_compaction`）与新 Epoch。压缩正文只存在该事件里，快照只保存新 Epoch 与来源 Run；下一窗口按 Epoch 序号从已提交轨迹取回正文。正文无效、未缩减、容量或占用不可用时保持旧窗口并继续执行，提交前中断只留下未提交轨迹，不推进 Epoch。
 
-`pendingProgram` 保存父 Action、代码和 worker 身份、固定计算输入、已提交子调用位置与结果字节数。子调用事实以 `programId/callIndex` 标记并留在 Trajectory 审计账本；原生模型历史、Hot/Warm 与检索索引跳过这些内部事实。每秒活动预算在 worker 运行前追加并同步持久化 `program_time_reserved`，恢复时连未提交 tail 中的预留也计入 120 秒总额；审批和关闭期间不继续预留。审批或宿主关闭后重新运行同一代码，只重放 Snapshot 边界内匹配的结果；未提交的写入结果不得视为完成，已经开始而结果未知的非只读调用必须人工确认，即使该 Tool 声明 safe。取消或资源失败遇到未结算写入时先保存 `pendingStop`，处理未知结果后再结算原停止原因。恢复时若程序身份或 Trajectory 不满足回放契约，Runner 将仍在执行的 Run 明确结算为 `failed`；真实宿主关闭或中断仍保留可恢复状态。程序本身不提供外部副作用的 exactly-once 保证。
+同一提炼边界还服务两种强制触发：适配器从结构化状态或供应商错误代码识别出“请求超出上下文窗口”时，Runtime 忽略占用阈值整理一轮（`context_window_recovery`），成功后只重试一次同一逻辑请求，保留阶段与执行单元身份，不重放已结算 Action；重试再次被明确拒绝为超窗时以 `CONTEXT_WINDOW_EXCEEDED` 结束 Run，整理无法推进时以 `CONTEXT_WINDOW_RECOVERY_FAILED` 结束，其他请求错误仍走既有处理路径。用户触发的 `command_compaction` 依赖同一候选选择、有效性与提交规则。
 
-获批 Plan Run 通过路线游标控制逐阶段执行：模型只能声明下一个待执行阶段，阶段接受先同步更新路线状态再继续 Run；非最终阶段接受不结束 Run。路线修订保留仍然有效的已接受结果；同范围修订在检查点提交，扩大范围时先持久化等待用户决定的候选，批准后再修订和继续原 Run。恢复从 Snapshot 中已提交的路线及阶段事实继续，不再次批准任务或重放已接受阶段的副作用。
+模型工作导航按每个 `(goalId, runId)` 自己的 `committedThroughSequence` 读取历史阶段与 Context Notes：当前 Run 和归档 Run 的水位互不替代，事实追加后保存失败留下的接受记录或 note 修订不进入投影，Snapshot 已保存但 marker 缺失也不会降低其可见水位。导航读取遇到 I/O、协议错误，或启用 Trajectory 的 Run 声明非零水位却缺少该提交边界时，Runtime 返回保留 Goal/Run 身份和原错误的 `RunNavigationRecoveryError`，并停止本次依赖该导航的模型推进；确实无历史的零水位结果仍为空。实时推进维护同一投影的增量，冷恢复从各 Run 的已提交事实重建，两者对已接受阶段和有效 note 版本保持一致。
+
+`pendingInteraction` 保存问卷或任务提案的完整请求、模式和关联 ID；Plan Run 的任务提案还保存待审完整路线候选。获批任务和权威路线保存在当前 Run，恢复时必须验证 Goal、Run、request ID 与等待状态一致，审批前候选不会被误读为已执行路线。`pendingAction` 按 Tool 的 replay policy 分为安全重放或 `outcome_unknown` 人工确认，并在 Action 获批后记录授权期限与可选 Grant ID。暂存时记录的 `executionUnitId` 在批准恢复后继续用于 Tool 生命周期事件，使 Decision、审批、执行与 Observation 保持在同一执行单元。`safe` Tool 只有显式抛出 `TransientToolExecutionFailure` 才会在同一 Action 内自动重试；每次调用前先提交 `attemptsStarted` 和 Trajectory 事实，最多三次且不增加 Step。普通异常按稳定错误失败，`retryable` Observation 仍作为已知业务结果提交，不单独触发重放。`manual` Tool 异常将该 Action 保存为 `outcome_unknown` 并进入等待，后续只能由用户对原 Action 作出单次恢复选择。Goal/workspace Sandbox Grant（边界豁免）先以来源 `(goalId, runId, actionId)` 写为 pending，再提交批准事实和 Snapshot，之后才激活并调度；暂存、批准和激活以决定身份、最终输入与完整能力范围绑定，保存结果不明时仅按最新 Snapshot 恢复批准所引用的 Grant。`advance` 在 Gate 内读取当前批准后才可激活 pending Grant，Interrupt 已受理时不激活；Grant 撤销和当前 Run 的审计提交也在同一 Gate 串行。pending Grant 从不放行新 Action；撤销立即影响后续查询。`pendingThink` 保存当前未完成 Step 的 Think 输出恢复指针；`pendingModelRepair` 保存 Decide/Think 阶段输入边界、已开始尝试次数及最新尝试和反馈事件身份。模型阶段纠错先追加 Trajectory 事实再提交 Snapshot，恢复只读取已提交反馈，并校验 Goal、Run、执行单元、Step、阶段和输入摘要；Think 恢复还校验原请求目标。每条阶段纠错链最多尝试三次（含首次），Decide 完成候选的协议失败和审查拒绝共用此计数，崩溃中的已记次数不会重复使用。未提交输出不进入恢复历史，身份或输入失配会 fail-closed。有效决策提交时清除相应阶段恢复指针。审查拒绝复用已提交反馈恢复，未完成审查不保存候选接受状态，恢复后需再次审查。当前开发期协议不迁移旧字段；Storage 对旧阶段和旧事件显式拒绝。
+
+`pendingProgram` 保存父 Action、代码和 worker 身份、固定计算输入、已提交子调用位置与结果字节数。程序开始检查点同时保存父程序状态和消费批次队首后的剩余 `pendingActionBatch`，因此恢复时程序身份、子调用位置与剩余 Action 顺序来自同一 Snapshot；审批等待检查点已经消费当前批次项，批准启动不会二次推进游标。子调用事实以 `programId/callIndex` 标记并留在 Trajectory 审计账本；原生模型历史、Hot/Warm 与检索索引跳过这些内部事实。每秒活动预算在 worker 运行前追加并同步持久化 `program_time_reserved`，恢复时连未提交 tail 中的预留也计入 120 秒总额；审批和关闭期间不继续预留。审批或宿主关闭后重新运行同一代码，只重放 Snapshot 边界内匹配的结果；未提交的写入结果不得视为完成，已经开始而结果未知的非只读调用必须人工确认，即使该 Tool 声明 safe。`pendingStop` 重执行始终从最终获批 Action 重新准备参数并解析沙箱计划；再次触发资源限制时保留原停止原因，刷新当前恢复身份。取消或资源失败遇到未结算写入时先保存 `pendingStop`，处理未知结果后再结算原停止原因。拒绝未知结果重试时按标准 PTC 信封计入修订元数据的字节，重启回放按该子调用最后提交的批准决定选择 revision，较早孤立修订不能覆盖后续原样批准。恢复时若程序身份或 Trajectory 不满足回放契约，Runner 将仍在执行的 Run 明确结算为 `failed`；真实宿主关闭或中断仍保留可恢复状态。程序本身不提供外部副作用的 exactly-once 保证。
+
+获批 Plan Run 通过路线游标控制逐阶段执行：模型只能声明下一个待执行阶段，阶段接受先同步更新路线状态再继续 Run；非最终阶段接受不结束 Run。路线修订保留仍然有效的已接受结果；同范围修订在检查点提交，扩大范围时先持久化等待用户决定的候选，批准后再修订和继续原 Run。恢复从 Snapshot 中已提交的路线及阶段事实继续，不再次批准任务或重放已接受阶段的副作用。最终交付审查拒绝已接受的末阶段时，同一次提交重开 `currentStage`、回拨路线游标并清除两处接受指针；阶段身份、修订、批准范围和累计预算保持不变，历史接受事实仍留在 Trajectory，修正后可在原 Run 重新接受。
 
 ## 关键错误边界
 
 - Agent 解析/输出契约与 Runner 的决策、Tool 选择/输入、Evidence 校验会生成类型化 `RuntimeFeedback`，只包含有界路径和安全提示，不包含原始模型输出；错误在 Action 副作用前被发现。Runner 提交反馈后在原阶段重试，单条纠错链最多三次阶段尝试（含首次）；失败耗尽后以稳定错误结束 Run。
-- Tool 未授权、未注册、输入不合法或 Policy 拒绝时，不调用 Tool，并追加相应稳定结果。
+- Tool 未授权、未注册、输入不合法或 Policy 拒绝时，不调用 Tool，并追加相应稳定结果。工作区权限档位拒绝越界 Action 时也不调用 Tool、不终结 Run：Runner 提交 `TOOL_NOT_AUTHORIZED` 失败 Observation 后让模型继续决策。
 - Snapshot、Trajectory 或协议校验失败时，不继续模型/Tool 调用；保存失败保留最近已成功快照。
 - 模型调用的限流、暂时性服务、连接与超时故障由 Runner 在同一阶段内最多调用三次（含首次调用）；每次类型化暂时失败先以 `model_request_retry_recorded` 提交到 Trajectory，再退避或结束。退避响应中止信号。鉴权、配置、协议、存储和未知错误不重试；耗尽时稳定原因写入 Run 终态。适配边界确认的 `ModelRequestFailure` 直接以 `MODEL_REQUEST_FAILED` 结束，不进入协议纠错或暂时故障重试。
 - Tool 只有显式的类型化暂时故障、`safe` 重放声明及仍有效的同一 Action 批准同时成立时才重试；尝试次数先写入 Snapshot，最多三次。`manual` 的不确定结果进入人工等待，`retryable` Observation 不触发系统重放。
@@ -153,7 +159,7 @@ Runner 的恢复读取委派给无写入能力的 RunRecoveryReader。它不缓�
 
 Runtime 当前只保存每个 Goal 的最新完整 Snapshot，不提供历史快照查询、跨进程租约或 Outbox 双写。Coordinator 实例内的 continue 闸门只保证单进程同一 Goal 串行；Web Server 与 Benchmark Composition Root 分别注入 Store、Trajectory、Tool、Agent 和 LLM 适配器。Headless Root 仍以单次 Run 返回，后续 Run 必须由持久化 Goal 的显式 continue 触发。
 
-原生模型响应由共享 checkpoint 提交器与接受的阶段结果保存为 `model_response_received`，包含调用身份、Conversation 位置、独立正文与公开 reasoning 摘要以及供应商必要续接字段；响应不进入 Goal Conversation。只有 Snapshot 边界内且具有对应领域结算的响应可回放，审批、Tool replay policy 和 pending Action 仍由现有 Runtime 流程控制。响应已提交而领域决策尚未提交时，恢复后的实际决策只关联其前最近一次 Decide 响应；旧响应不能绑定新 Action。Section frame 的原生身份标记用于结束模型切换前的续接段。
+原生模型响应由共享 checkpoint 提交器与接受的阶段结果保存为 `model_response_received`，包含调用身份、Conversation 位置与供应商必要续接字段；响应不进入 Goal Conversation。OpenAI-compatible 常规 Goal 的消息以 `ModelAssistantMessage.blocks` 作为正文、reasoning 和工具调用的唯一权威；OpenAI 官方与 Gemini 保持现有消息投影。只有 Snapshot 边界内、同一 `provider + endpoint + model + protocol` 身份且具有对应领域结算的响应可回放，审批、Tool replay policy 和 pending Action 仍由现有 Runtime 流程控制。响应已提交而领域决策尚未提交时，恢复后的实际决策只关联其前最近一次 Decide 响应；旧响应不能绑定新 Action。Section frame 的原生身份标记用于结束模型切换前的续接段。安全等待或终态允许保存 Goal 的模型选择，终态已有中断时须先结算。
 
 ## 跨模块不变量
 
@@ -180,14 +186,14 @@ Memory proposal 在模型候选边界以 `memory_patch` 来源提供字段级反
 
 所有携带模型 `memoryPatch` 的 Decide 候选在动作、等待、Epoch 转换和完成审查之前先做原子校验与无 I/O 试归约。试归约身份被丢弃，最终条目按阶段检查点之后的实际提交序号生成；提交器只调用 Runner 提供的纯归约回调，不裁决领域规则。语义阶段审查拒绝（`run_stage_rejected`）作为正常 Step 结算并跨正常 Step 推进，不占用 Decide 参数格式纠错预算；非法参数、证据门禁与格式异常仍在原 Decide 三次预算内纠错。中间阶段接受保持 Run running，最终 complete 接受原子提交阶段与 Run 完成；恢复、配置、存储与生命周期失败不转换为模型修复。
 
-阶段业务工具执行前必须存在 executing 阶段。最终交付审查拒绝可以重新打开已接受阶段：保持阶段身份和历史接受事实，清除当前接受指针并提交拒绝缺口，在同一 Run 的新 Step 修正。此时 Snapshot 允许保存带拒绝缺口的 complete 候选作为最近 Step，但不将 Run 标记完成。
+阶段业务工具执行前必须存在 executing 阶段。最终交付审查拒绝可以重新打开已接受阶段：保持阶段身份和历史接受事实，清除当前接受指针并提交拒绝缺口，在同一 Run 的新 Step 修正；Plan Run 还在同一提交中把路线末阶段恢复为 executing 并回拨 `nextStageIndex`。此时 Snapshot 允许保存带拒绝缺口的 complete 候选作为最近 Step，但不将 Run 标记完成。
 
 ## 批次顺序执行与失败预算
 
-Decide 返回值可以是 `decision`、`request_think`、`assistant_message` 或 `batch`。Runner 对 `batch` 的处理：队首走既有单决策校验与暂存路径，其余按模型返回顺序写入 `Run.pendingActionBatch.remaining`（仅业务 Action）。队首结果提交后，Runner 直接把队列中下一条作为本次 Decide 结果继续，不重新请求模型，因此多个 Action 在一次模型往返内按顺序执行。
+Decide 返回值可以是 `decision`、`request_think`、`assistant_message` 或 `batch`。Runner 对 `batch` 的处理：队首走既有单决策校验与暂存路径，其余按模型返回顺序写入 `Run.pendingActionBatch.remaining`（仅业务 Action）。队首结果提交后，Runner 直接把队列中下一条作为本次 Decide 结果继续，不重新请求模型，因此多个 Action 在一次模型往返内按顺序执行。队首是 `execute_program` 时，程序开始检查点与消费队首共用同一次提交：新批次写入剩余项，既有批次切片，末项消费后清除游标；父级审批等待检查点已经消费当前项，批准启动只接手已暂存的程序。
 
-**恢复点** = `pendingAction`（队首）+ `pendingActionBatch.remaining`（其余）。指针与该 Action 在同一次提交写入，避免"Action 已暂存但队列未推进"导致恢复后重放。已产生 `action_staged` 的 `actionId` 再次出现时按不可重放拒绝并要求模型改用新 Action。
+**恢复点** = `pendingAction`（队首）+ `pendingActionBatch.remaining`（其余）。指针与该 Action 在同一次提交写入，避免"Action 已暂存但队列未推进"导致恢复后重放。程序开始失败时不启动 worker，已保存时以同一检查点的程序身份、子调用位置和剩余批次恢复。已产生 `action_staged` 的 `actionId` 再次出现时按不可重放拒绝并要求模型改用新 Action。
 
 失败预算分两类、各自含首次最多三次、互不占用：`attemptsStarted` 覆盖契约、Tool 选择、Tool 输入与证据类失败；`continuationsStarted` 覆盖零调用正文与无可用结果。`latestFailureClass` 决定下一次调用计入哪个预算，有效 `request_think` 结束当前链时两者一并归零。零调用正文在提交为 Goal 消息后按不推进类预算继续；预算用尽时保留每次原因与该次正文并明确失败。
 
-work Trigger payload 中的 material 只承载原始文本，不配置 GoalDefinition 的 Profile、Prompt Bundle 版本、Memory/Model Context/检索协议、执行策略或权限上限。Worker Runtime 使用自身配置构造 Goal；Supervisor 再将来源 Trigger ID 与冻结的工作区、工具和沙箱能力上限写入 Goal 定义。该快照上限不等于授权，Runtime 执行仍须结合宿主约束、有效授权与沙箱执行。
+work Trigger payload 中的 material 只承载原始文本，不配置 GoalDefinition 的 Profile、Prompt Bundle 版本、Memory/Model Context/检索协议或执行策略。Worker Runtime 使用自身配置构造 Goal；Supervisor 再将来源 Trigger ID 与冻结的工作区、工具暴露范围写入 Goal 定义。资源边界不随 Goal 冻结，而由 workspace 级权限档位在执行期决定，越界进入裁决。

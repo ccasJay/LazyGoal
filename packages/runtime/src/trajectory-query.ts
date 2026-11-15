@@ -1,5 +1,6 @@
 import type { JsonValue, Observation } from "./domain";
 import { canonicalJson } from "../../contracts/src/index";
+import { readModelAssistantText } from "../../model-contracts/src/index";
 import {
     projectTrajectoryEvent,
     type TrajectoryEvent,
@@ -207,7 +208,7 @@ export function projectTrajectoryEventSummary(
                     : `${path}: ${issue.message}`;
         }).join("; ")}${event.payload.feedback.issues.length > 3 ? ` (+${event.payload.feedback.issues.length - 3} more)` : ""}`;
     }
-    if (event.eventType === "model_response_received") preview = event.payload.message.content || "Native model response";
+    if (event.eventType === "model_response_received") preview = readModelAssistantText(event.payload.message) || "Native model response";
     if (event.eventType === "model_context_frame") {
         preview = event.payload.sections.map(section => section.content).join("\n") || "No dynamic context updates";
     }

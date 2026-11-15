@@ -6,7 +6,7 @@ export const modelCallMetricsCoverageFileMetadata = {
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
     "path": "packages/storage/src/metrics-file.ts#ModelCallMetricUsageFile,ModelCallMetricFileRecord,ModelCallMetricsCoverageFileRecord",
-    "sha256": "a5265bac89cd6a8cc3709461823914d0c03dede89a62d4e021a96f6c7cee137c"
+    "sha256": "b1d72bf326f71dbe497a423ec3310cb2bdf6d6b1283143ffbf15ac8cf14cf88b"
   },
   "generator": {
     "name": "ts-json-schema-generator",

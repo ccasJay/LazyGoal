@@ -21,6 +21,9 @@ import type {
 } from "../../llm-core/src/index";
 import {
     createContentBlockStreamTracker,
+    readModelAssistantReasoning,
+    readModelMessageText,
+    readModelToolCalls,
     readNormalizedUsage,
     readToolCalls,
     type ContentBlockStreamTracker,
@@ -93,6 +96,14 @@ export interface ModelCallDependencies {
     readonly metricsRecorder?: ModelCallMetricsRecorder;
     /** 可选的执行流发布通道；发布失败不会改变调用结果。 */
     readonly executionStream?: ExecutionStreamPublisher;
+    /**
+     * 供应商未上报用量时使用的输入 Token 估算。
+     *
+     * @remarks
+     * 只应基于本次请求的固定内容计算；实现必须返回非负安全整数。估算失败或未提供时
+     * 该调用记录为 `unavailable`，不会伪造精度。
+     */
+    readonly estimateInputTokens?: (request: LLMRequest) => number;
 }
 
 /**
@@ -148,36 +159,53 @@ export async function callModel(
         sessionId: context.goalId,
         ...(input.maxOutputTokens === undefined ? {} : { maxOutputTokens: input.maxOutputTokens }),
     };
+    const diagnosticMessages = providerRequest.messages.map(message => {
+        if (message.role !== "assistant" || !("blocks" in message)) return message;
+        const reasoning = readModelAssistantReasoning(message);
+        const toolCalls = readModelToolCalls(message);
+        return {
+            role: "assistant" as const,
+            content: readModelMessageText(message),
+            ...(reasoning === undefined ? {} : { reasoning }),
+            ...(toolCalls.length === 0 ? {} : { toolCalls }),
+            ...(message.continuation === undefined ? {} : { continuation: message.continuation }),
+        };
+    });
     // 预计算来源索引，避免每条请求消息扫描完整 Conversation/Section 列表。
     const conversationSources = new Set(context.conversationMessages.map((message) =>
         `${message.role}\u0000${message.content}`));
     const sectionSources = new Set(context.sections);
     const stageOutputSources = new Set(context.stageOutputs ?? []);
     const lastMessage = providerRequest.messages.at(-1);
-    const trailingFeedback = lastMessage?.content.startsWith('{"source":"runtime_feedback",') === true;
+    const trailingFeedback = lastMessage !== undefined
+        && readModelMessageText(lastMessage).startsWith('{"source":"runtime_feedback",');
     const workingContextIndex = providerRequest.messages.length - 1 - (trailingFeedback ? 1 : 0);
-    const sourceKey = (message: { readonly role: string; readonly content: string }) =>
-        `${message.role}\u0000${message.content}`;
+    const sourceKey = (message: (typeof providerRequest.messages)[number]) =>
+        `${message.role}\u0000${readModelMessageText(message)}`;
     await dependencies.modelInputStore?.append({
         ...metricIdentity, stepIndex: context.stepIndex, stage: input.stage,
         occurredAt: new Date().toISOString(),
-        messages: providerRequest.messages.map((message, index) => ({
-            ...message,
-            source: message.role === "tool" || message.role === "assistant" && message.continuation !== undefined ? "native_history" as const
-                : message.role === "system" ? "system" as const
-                : message.content.startsWith('{"source":"runtime_feedback",') ? "request" as const
-                : index === workingContextIndex ? "working_context" as const
-                : conversationSources.has(sourceKey(message)) ? "conversation" as const
-                : sectionSources.has(message.content) ? "section" as const
-                : stageOutputSources.has(message.content) ? "stage" as const
-                : "request" as const,
-        })),
+        messages: diagnosticMessages.map((diagnosticMessage, index) => {
+            const message = providerRequest.messages[index]!;
+            const content = readModelMessageText(message);
+            return {
+                ...diagnosticMessage,
+                source: message.role === "tool" || message.role === "assistant" && message.continuation !== undefined ? "native_history" as const
+                    : message.role === "system" ? "system" as const
+                    : content.startsWith('{"source":"runtime_feedback",') ? "request" as const
+                    : index === workingContextIndex ? "working_context" as const
+                    : conversationSources.has(sourceKey(message)) ? "conversation" as const
+                    : sectionSources.has(content) ? "section" as const
+                    : stageOutputSources.has(content) ? "stage" as const
+                    : "request" as const,
+            };
+        }),
     });
     throwIfAborted(control);
     await recordLlmRequest(
         dependencies.traceSink,
         context,
-        providerRequest,
+        { ...providerRequest, messages: diagnosticMessages },
         dependencies.modelInputStore === undefined ? undefined : callId,
         callId,
     );
@@ -230,12 +258,19 @@ export async function callModel(
         throw error;
     }
     const usage = readNormalizedUsage(response.providerMetadata);
+    const estimatedInputTokens = usage === undefined
+        ? dependencies.estimateInputTokens?.(providerRequest)
+        : undefined;
     await appendModelMetric(dependencies.metricsRecorder, {
         recordType: "call_finished",
         ...metricIdentity,
         occurredAt: new Date().toISOString(),
         outcome: "completed",
-        usage: usage === undefined ? { source: "unavailable" } : { source: "provider_reported", ...usage },
+        usage: usage === undefined
+            ? estimatedInputTokens === undefined || !Number.isSafeInteger(estimatedInputTokens) || estimatedInputTokens < 0
+                ? { source: "unavailable" }
+                : { source: "estimated", inputTokens: estimatedInputTokens }
+            : { source: "provider_reported", ...usage },
         ...(requestDurationMs === undefined ? {} : { requestDurationMs }),
         ...(decodeDurationMs === undefined ? {} : { decodeDurationMs }),
     });

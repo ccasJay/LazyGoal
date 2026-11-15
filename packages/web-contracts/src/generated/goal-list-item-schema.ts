@@ -5,8 +5,8 @@ export const browserGoalListItemMetadata = {
   "version": 1,
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
-    "path": "packages/web-contracts/src/wire.ts#BrowserGoalListItem,BrowserRunStatus,BrowserGoalExecution,BrowserExecutionState",
-    "sha256": "e07c3043179ce87cc1ac13227b4629651b25d7cbfbf46a3fc5a2893841580406"
+    "path": "packages/web-contracts/src/wire.ts#BrowserGoalListItem,BrowserRunStatus,BrowserGoalExecution,BrowserGoalContinuation,BrowserExecutionState",
+    "sha256": "397eba358a2c970c26a204b58c7707e9a5167384e4ca2e3fe0d0f303ac9635f6"
   },
   "generator": {
     "name": "ts-json-schema-generator",

@@ -15,10 +15,10 @@ import {
     projectBrowserModelCatalog,
     readBrowserGoalActivity,
     readBrowserGoalSession,
-    readBrowserGoalSessionState,
     resolveBrowserDraftModelCatalog,
     type BrowserModelCatalog,
     type BrowserModelSource,
+    type BrowserPermissionExemptionSummary,
     type BrowserSessionAccess,
 } from "../../../packages/browser/src/index";
 import { DefaultProviderModelFetcher } from "../../../packages/model-catalog/src/index";
@@ -207,7 +207,10 @@ export async function runServerSession(
             cwd: root.workspaceRoot,
             dataDirectory: root.dataDirectory,
             env: process.env,
-            permissionAdapter: root.adapter,
+            notifyGoalSaved: (goalId) => root.sessionMetricsService.notifyGoalSaved(goalId),
+            readPermissionProfile: () => root.permissionProfileStore.get(root.workspaceId),
+            commitContinuation: ({ goalId, runId, inputId, content }) =>
+                root.commands.commitContinuation({ goalId, runId }, content, inputId),
         });
         root.resources.register({ close: async () => {
             try { await workerScheduler.detachAll(); }
@@ -232,7 +235,6 @@ export async function runServerSession(
             const authorization: GoalTriggerContext["authorization"] = {
                 workspace,
                 toolIds: goal.definition.profile.toolIds.filter((toolId) => root.toolRegistry.get(toolId) !== undefined),
-                sandbox: { extraFiles: [], network: "none" },
             };
             return { goal, authorization };
         };
@@ -315,7 +317,9 @@ export async function runServerSession(
                     provider: target.config.provider,
                     ...(target.profileId === undefined ? {} : { profileId: target.profileId }),
                     modelId: selectedModel.id,
-                    structuredOutputMode: configuredSelection.structuredOutputMode,
+                    ...(target.config.provider === "openai-compatible"
+                        ? {}
+                        : { structuredOutputMode: configuredSelection.structuredOutputMode }),
                     ...(selectedModel.contextWindowTokens === undefined ? {} : { contextWindowTokens: selectedModel.contextWindowTokens }),
                     ...(selectedModel.maxOutputTokens === undefined ? {} : { maxOutputTokens: selectedModel.maxOutputTokens }),
                     ...(selectedModel.executionApi === undefined ? {} : { executionApi: selectedModel.executionApi }),
@@ -354,7 +358,9 @@ export async function runServerSession(
                 provider: config.provider,
                 ...(targetProfileId === undefined ? {} : { profileId: targetProfileId }),
                 modelId: model.id,
-                structuredOutputMode: current.structuredOutputMode,
+                ...(config.provider === "openai-compatible"
+                    ? {}
+                    : { structuredOutputMode: current.structuredOutputMode }),
                 ...(model.contextWindowTokens === undefined ? {} : { contextWindowTokens: model.contextWindowTokens }),
                 ...(model.maxOutputTokens === undefined ? {} : { maxOutputTokens: model.maxOutputTokens }),
                 ...(model.executionApi === undefined ? {} : { executionApi: model.executionApi }),
@@ -391,7 +397,27 @@ export async function runServerSession(
         };
         const commandService = new BrowserGoalCommandService({
             store: root.workspaceGoalStore,
-            coordinator: root.commands,
+            coordinator: {
+                ...root.commands,
+                listPermissionExemptions: async (ref): Promise<readonly BrowserPermissionExemptionSummary[]> => {
+                    const grants = await root.commands.listGrants(ref);
+                    return grants.flatMap((grant) => grant.kind === "sandbox"
+                        ? [{
+                            id: grant.id,
+                            scope: grant.scope,
+                            network: grant.network,
+                            extraFiles: grant.extraFiles.map((file) => ({
+                                canonicalPath: file.canonicalPath,
+                                access: file.access,
+                                kind: file.kind,
+                            })),
+                            status: grant.status,
+                        }]
+                        : []);
+                },
+                revokePermissionExemption: ({ ref, exemptionId }) =>
+                    root.commands.revokeGrant({ ref, kind: "sandbox", grantId: exemptionId }),
+            },
             modelSelectionCoordinator: root.goalModelSelectionCoordinator,
             resolveModelSelection,
             saveModelPreference: (selection) => preferenceStore.set({
@@ -453,16 +479,7 @@ export async function runServerSession(
                     },
                 };
             },
-            readState: async (goalId) => {
-                const goal = await readBrowserGoalSessionState(goalId, root.workspaceGoalStore);
-                return goal === undefined ? undefined : {
-                    ...goal,
-                    execution: {
-                        state: executionStateFor(goalId),
-                        committedThroughSequence: goal.execution?.committedThroughSequence ?? 0,
-                    },
-                };
-            },
+            readState: browserSessionPort.readControlSnapshot,
             readActivity: (goalId, query) => readBrowserGoalActivity(
                 goalId,
                 query,
@@ -677,11 +694,11 @@ export async function runServerSession(
             },
             readActionDetails: (goalId, runId, actionId) => commandService.readActionDetails(goalId, runId, actionId),
             readInteractionDetails: (goalId, runId, interactionId) => commandService.readInteractionDetails(goalId, runId, interactionId),
-            listToolGrants: (goalId, runId) => commandService.listToolGrants(goalId, runId),
-            revokeToolGrant: (goalId, command) => commandService.revokeToolGrant(goalId, command),
+            listPermissionExemptions: (goalId, runId) => commandService.listPermissionExemptions(goalId, runId),
+            revokePermissionExemption: (goalId, command) => commandService.revokePermissionExemption(goalId, command),
             reviewActionApproval: (goalId, command) => commandService.reviewActionApproval(goalId, command),
-            getPermissionMode: () => commandService.getPermissionMode(),
-            setPermissionMode: (command) => commandService.setPermissionMode(command),
+            getPermissionProfile: () => commandService.getPermissionProfile(),
+            setPermissionProfile: (command) => commandService.setPermissionProfile(command),
         }));
         root.httpService.mount("/", createBrowserTrajectoryRoutes(root.workspaceGoalStore, root.workspaceTrajectoryStore));
         root.httpService.mount("/", createBrowserModelInputRoutes(root.workspaceGoalStore, root.readWorkspaceModelInputs, root.workspaceTrajectoryStore));

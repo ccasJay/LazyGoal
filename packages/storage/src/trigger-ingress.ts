@@ -1,6 +1,6 @@
 import type { Trigger } from "../../runtime/src/trigger";
 import { readTrigger } from "./trigger-wire";
-import { TriggerStore } from "./trigger-store";
+import { TriggerStore, type TriggerGoalOrigin } from "./trigger-store";
 
 /**
  * 已由宿主认证的 Trigger 来源及可访问目标。
@@ -68,21 +68,23 @@ export function validateAuthorizedTrigger(input: unknown, principal: TriggerIngr
 /**
  * 验证可信连接 Actor 与 Trigger 目标授权后，持久化一条新 Trigger。
  *
- * @remarks 已存在的 Trigger ID 一律冲突，不会返回既有事件或处理结果。
+ * @remarks 已存在的 Trigger ID 一律冲突，不会返回既有事件或处理结果。`goalOrigin` 只在宿主已认证手动创建入口时提供，并与 Trigger 在同一事务提交。
  * @param store - 当前 Supervisor 使用的 Trigger 存储。
  * @param input - 不可信的进程或适配器值。
  * @param principal - 已认证连接对应的可信身份和授权。
+ * @param goalOrigin - 宿主确认的 Goal 创建来源；仅用于新建 Goal 的 work Trigger。
  * @returns 新持久化的不可变 Trigger。
  * @throws 结构、身份、目标授权不符、Trigger ID 已存在或存储失败时抛出。
  * @example
  * ```ts
- * const trigger = receiveAuthorizedTrigger(store, input, principal);
+ * const trigger = receiveAuthorizedTrigger(store, input, principal, "web-manual");
  * ```
  */
 export function receiveAuthorizedTrigger(
     store: TriggerStore,
     input: unknown,
     principal: TriggerIngressPrincipal,
+    goalOrigin?: TriggerGoalOrigin,
 ): Trigger {
-    return store.receive(validateAuthorizedTrigger(input, principal));
+    return store.receive(validateAuthorizedTrigger(input, principal), goalOrigin);
 }

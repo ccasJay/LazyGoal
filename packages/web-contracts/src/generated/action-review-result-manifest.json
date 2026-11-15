@@ -3,8 +3,8 @@
   "version": 1,
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
-    "path": "packages/web-contracts/src/wire.ts#BrowserActionReviewResult,BrowserActionReview,BrowserActionReviewScope,BrowserActionCapability,BrowserToolGrantExtraFile,BrowserActionReviewIssue",
-    "sha256": "e2e5ef1405b2b613031e47a8257272914df927422bade8043f98dd583f2cea61"
+    "path": "packages/web-contracts/src/wire.ts#BrowserActionReviewResult,BrowserActionReview,BrowserActionReviewScope,BrowserActionCapability,BrowserPermissionExtraFile,BrowserActionReviewIssue",
+    "sha256": "92eb8e5b639a98f4a4e1ebb7a5b5dcbaa7ae9cd85e1ac0c5f165cc4ccaea604d"
   },
   "generator": {
     "name": "ts-json-schema-generator",

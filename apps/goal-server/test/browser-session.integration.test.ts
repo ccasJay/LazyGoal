@@ -143,20 +143,22 @@ const inactiveAdapter: LLMAdapter = {
     async generate() { throw new Error("This test does not use Supervisor model decisions"); },
 };
 
-function createRetryingWorkNameAdapter(): { readonly adapter: LLMAdapter; readonly calls: () => number } {
+function createWorkNameAdapter(): { readonly adapter: LLMAdapter; readonly calls: () => number } {
     let calls = 0;
     return {
         adapter: {
-            structuredOutputMode: "strict",
+            structuredOutputMode: "prompt_only",
             async generate(request) {
                 calls += 1;
-                assert.equal(request.structuredOutput?.name, "trigger_name_summary");
+                assert.equal(request.structuredOutput, undefined);
+                assert.equal(request.toolChoice, "none");
+                assert.equal(request.maxOutputTokens, 256);
+                assert.equal(request.sessionId, calls === 1 ? "goal-alpha" : "goal-beta");
                 assert.equal(request.messages[1]?.role, "user");
-                const submittedText = calls <= 2 ? "Wait until the user cancels this Goal." : "Wait independently for cancellation.";
+                const submittedText = calls === 1 ? "Wait until the user cancels this Goal." : "Wait independently for cancellation.";
                 assert.equal(request.messages[1]?.content, submittedText);
-                if (calls === 1) throw new Error("Injected name-generation failure");
-                const name = calls === 2 ? "Wait for user cancellation" : "Wait independently for cancellation";
-                return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({ name }) }] };
+                const name = calls === 1 ? "```\nWait for user cancellation\n```" : "\"Wait independently for cancellation\"";
+                return { blocks: [{ index: 0, type: "text", format: "plain", text: name }] };
             },
         },
         calls: () => calls,
@@ -203,7 +205,7 @@ test("真实 Web 入口使用 Trigger 并行启动 Worker、观察状态、拒�
     let root: Awaited<ReturnType<typeof createCompositionRoot>> | undefined;
     let serving: Promise<number> | undefined;
     let triggerStore: TriggerStore | undefined;
-    const nameModel = createRetryingWorkNameAdapter();
+    const nameModel = createWorkNameAdapter();
 
     try {
         root = await createCompositionRoot({
@@ -212,6 +214,7 @@ test("真实 Web 入口使用 Trigger 并行启动 Worker、观察状态、拒�
             env: environment,
             profile,
             adapter: nameModel.adapter,
+            adapterFactory: () => nameModel.adapter,
             httpMiddleware: access.middleware,
             exitPort: { exit() {} },
         });
@@ -247,10 +250,6 @@ test("真实 Web 入口使用 Trigger 并行启动 Worker、观察状态、拒�
             intent: "Wait until the user cancels this Goal.",
             modelId: "test-model",
         } as const;
-        const failedName = await request("/api/control", "POST", alphaCommand);
-        assert.equal(failedName.status, 500);
-        assert.deepEqual(failedName.body, { intentId: "work-alpha", status: "rejected", error: "create_failed" });
-        assert.equal(persistedTriggers.read(alphaCommand.inputId), undefined);
         const createAlphaControl = await request("/api/control", "POST", alphaCommand);
         assert.equal(createAlphaControl.status, 202, JSON.stringify(createAlphaControl.body));
         assert.equal(createAlphaControl.body.status, "accepted");
@@ -270,7 +269,7 @@ test("真实 Web 入口使用 Trigger 并行启动 Worker、观察状态、拒�
         });
         assert.equal(repeatedCreateAlpha.status, 409, JSON.stringify(repeatedCreateAlpha.body));
         assert.equal(repeatedCreateAlpha.body.error, "input_conflict");
-        assert.equal(nameModel.calls(), 2);
+        assert.equal(nameModel.calls(), 1);
         const betaCommand = {
             kind: "create_session",
             intentId: "work-beta",
@@ -286,7 +285,7 @@ test("真实 Web 入口使用 Trigger 并行启动 Worker、观察状态、拒�
         const betaWork = persistedTriggers.read(betaCommand.inputId);
         assert.ok(betaWork !== undefined && betaWork.type === "work");
         assert.equal(betaWork.name, "Wait independently for cancellation");
-        assert.equal(nameModel.calls(), 3);
+        assert.equal(nameModel.calls(), 2);
         await withTimeout(modelServer.started, "Both independent Workers did not enter the model", 15_000);
 
         const list = await request("/api/goals", "GET");
@@ -314,16 +313,27 @@ test("真实 Web 入口使用 Trigger 并行启动 Worker、观察状态、拒�
         const unsupportedMessage = await request("/api/goals/goal-alpha/inputs", "POST", {
             kind: "message",
             inputId: "follow-up-alpha",
+            runId: createAlpha.body.runId,
             content: "Continue the Goal with another message.",
         });
         assert.equal(unsupportedMessage.status, 409);
-        assert.equal(unsupportedMessage.body.error, "RUN_CONTROL_UNAVAILABLE");
+        assert.equal(unsupportedMessage.body.error, "CONTINUATION_UNAVAILABLE");
         const unchangedAfterUnsupportedMessage = await request("/api/goals/goal-alpha", "GET");
         assert.equal(unchangedAfterUnsupportedMessage.status, 200);
         assert.equal(unchangedAfterUnsupportedMessage.body.goal.currentRunId, createAlpha.body.runId);
         assert.deepEqual(unchangedAfterUnsupportedMessage.body.goal.pendingMessages ?? [], []);
         assert.equal(unchangedAfterUnsupportedMessage.body.goal.messages.some((message: { content: string }) =>
             message.content === "Continue the Goal with another message."), false);
+
+        const metricsStream = await fetch(`${origin}/goals/goal-alpha/metrics/stream`, {
+            headers: { authorization: `Bearer ${token}`, origin },
+            signal: AbortSignal.timeout(12_000),
+        });
+        assert.equal(metricsStream.status, 200);
+        const metricsReader = metricsStream.body?.getReader();
+        assert.ok(metricsReader);
+        const firstMetrics = await withTimeout(metricsReader.read(), "Goal metrics did not synchronize");
+        assert.match(new TextDecoder().decode(firstMetrics.value), /"missingCalls":1/);
 
         const stopAlpha = await request("/api/goals/goal-alpha/inputs", "POST", {
             kind: "interrupt",
@@ -354,19 +364,32 @@ test("真实 Web 入口使用 Trigger 并行启动 Worker、观察状态、拒�
         const stopped = await request("/api/goals/goal-alpha", "GET");
         assert.equal(stopped.body.goal.runStatus, "cancelled");
         assert.equal(stopped.body.goal.execution.state, "inactive");
-        const permissionMode = await request("/api/project/permission-mode", "GET");
-        assert.equal(permissionMode.status, 200);
-        assert.equal(permissionMode.body.mode, "default");
-        const setMode = await request("/api/project/permission-mode", "POST", { mode: "yolo", expectedRevision: 0 });
-        assert.equal(setMode.status, 200);
-        const grants = await request(`/api/goals/goal-alpha/grants?runId=${String(createAlpha.body.runId)}`, "GET");
-        assert.equal(grants.status, 200);
+        const permissionProfile = await request("/api/project/permission-profile", "GET");
+        assert.equal(permissionProfile.status, 200);
+        assert.equal(permissionProfile.body.profile.sandbox, "workspace-write");
+        assert.equal(permissionProfile.body.profile.reviewer, "user");
+        const setProfile = await request("/api/project/permission-profile", "POST", {
+            profile: { sandbox: "workspace-write", approvals: "on-request", reviewer: "auto_review", writableRoots: [] },
+            expectedRevision: permissionProfile.body.revision,
+        });
+        assert.equal(setProfile.status, 200);
+        assert.equal(setProfile.body.profile.reviewer, "auto_review");
+        const exemptions = await request(`/api/goals/goal-alpha/exemptions?runId=${String(createAlpha.body.runId)}`, "GET");
+        assert.equal(exemptions.status, 200);
+        assert.deepEqual(exemptions.body.exemptions, []);
         const history = await request("/api/goals", "GET");
         assert.ok((history.body.goals as Array<Record<string, any>>).some((goal) => goal.goalId === "goal-alpha"));
         const runs = await request("/api/goals/goal-alpha/trajectory/runs", "GET");
         assert.equal(runs.status, 200);
         const metrics = await request("/goals/goal-alpha/metrics", "GET");
         assert.equal(metrics.status, 200);
+        try {
+            const update = await withTimeout(metricsReader.read(), "Metrics stream did not update after Worker saved the cancellation");
+            assert.equal(update.done, false);
+            assert.match(new TextDecoder().decode(update.value), /event: snapshot/);
+        } finally {
+            await metricsReader.cancel().catch(() => undefined);
+        }
 
         await root.checkpointStore.save(fixtureGoal("archive-target", root, "completed"));
         const archive = await request("/api/goals/archive-target/archive", "POST", { archived: true });

@@ -4,7 +4,7 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { JsonFileModelInputStore } from "../src/index";
+import { goalBlobsDirectory, JsonFileModelInputStore, runDirectory, runModelInputsPath } from "../src/index";
 import type { ModelInputRecord } from "../../runtime/src/model-input";
 
 test("model input store reuses unchanged bodies across calls and restart without truncation", async () => {
@@ -17,18 +17,17 @@ test("model input store reuses unchanged bodies across calls and restart without
         const second = { ...first, callId: "call-2", stepIndex: 2, stage: "completion_review" as const };
         const third = { ...first, callId: "call-3", messages: [{ ...first.messages[0]!, content: "changed system" }, first.messages[1]!] };
         await Promise.all([store.append(first), store.append(second), store.append(third)]);
-        const runPath = join(directory, Buffer.from("goal-1").toString("base64url"), Buffer.from("run-1").toString("base64url"));
-        assert.equal((await readdir(join(dirname(runPath), "messages"))).length, 3);
-        const manifests = (await readFile(join(runPath, "requests.jsonl"), "utf8")).trim().split("\n").map(line => JSON.parse(line));
+        assert.equal((await readdir(goalBlobsDirectory(directory, "goal-1"))).length, 3);
+        const manifests = (await readFile(runModelInputsPath(directory, "goal-1", "run-1"), "utf8")).trim().split("\n").map(line => JSON.parse(line));
         assert.equal(manifests[0].messages[0].ref, manifests[1].messages[0].ref);
         assert.notEqual(manifests[1].messages[0].ref, manifests[2].messages[0].ref);
         assert.ok(!JSON.stringify(manifests).includes("inspect architecture"));
         assert.deepEqual(await new JsonFileModelInputStore(directory).read("goal-1", "run-1"), [first, second, third]);
         assert.deepEqual(await store.read("goal-1", "missing"), []);
         await store.append({ ...first, runId: "run-2", callId: "call-4" });
-        assert.equal((await readdir(join(dirname(runPath), "messages"))).length, 3);
+        assert.equal((await readdir(goalBlobsDirectory(directory, "goal-1"))).length, 3);
         assert.deepEqual((await store.read("goal-1", "run-2"))[0]!.messages, first.messages);
-        await writeFile(join(dirname(runPath), "messages", `${manifests[0].messages[0].ref}.txt`), "corrupted");
+        await writeFile(join(goalBlobsDirectory(directory, "goal-1"), `${manifests[0].messages[0].ref}.txt`), "corrupted");
         await assert.rejects(store.read("goal-1", "run-1"), /hash mismatch/);
     } finally { await rm(directory, { recursive: true, force: true }); }
 });
@@ -39,7 +38,7 @@ test("model input durable boundary rejects unsupported schema and unsafe content
         const store = new JsonFileModelInputStore(directory);
         const record: ModelInputRecord = { goalId: "goal-1", runId: "run-1", callId: "call-1", stage: "think", stepIndex: 1, occurredAt: new Date().toISOString(), messages: [] };
         await store.append(record);
-        const path = join(directory, Buffer.from("goal-1").toString("base64url"), Buffer.from("run-1").toString("base64url"), "requests.jsonl");
+        const path = runModelInputsPath(directory, "goal-1", "run-1");
         await writeFile(path, JSON.stringify({ ...record, schemaVersion: 2 }) + "\n");
         await assert.rejects(store.read("goal-1", "run-1"), /manifest/);
         await writeFile(path, JSON.stringify({ ...record, schemaVersion: 1, messages: [{ role: "system", source: "system", ref: "../../outside" }] }) + "\n");
@@ -56,9 +55,8 @@ test("model input store skips writes and read-back for bodies already known in-p
             { role: "user", source: "conversation", content: "first question" },
         ] };
         await store.append(record);
-        const runPath = join(directory, Buffer.from("goal-1").toString("base64url"), Buffer.from("run-1").toString("base64url"));
-        const bodyDirectory = join(dirname(runPath), "messages");
-        const manifests = (await readFile(join(runPath, "requests.jsonl"), "utf8"))
+        const bodyDirectory = goalBlobsDirectory(directory, "goal-1");
+        const manifests = (await readFile(runModelInputsPath(directory, "goal-1", "run-1"), "utf8"))
             .trim().split("\n").map((line) => JSON.parse(line) as { messages: Array<{ ref: string }> });
         const systemRef = manifests[0]!.messages[0]!.ref;
         await writeFile(join(bodyDirectory, `${systemRef}.txt`), "corrupted");
@@ -78,7 +76,7 @@ test("model input store reseeds digest state after the body directory is deleted
             { role: "user", source: "conversation", content: "first question" },
         ] };
         await store.append(record);
-        const bodyDirectory = join(directory, Buffer.from("goal-1").toString("base64url"), "messages");
+        const bodyDirectory = goalBlobsDirectory(directory, "goal-1");
         await rm(bodyDirectory, { recursive: true, force: true });
 
         await store.append({ ...record, callId: "call-2", stepIndex: 2 });
@@ -96,8 +94,7 @@ test("model input store rejects an unknown reference whose stored body no longer
         ] };
         const store = new JsonFileModelInputStore(directory);
         await store.append(record);
-        const runPath = join(directory, Buffer.from("goal-1").toString("base64url"), Buffer.from("run-1").toString("base64url"));
-        const bodyDirectory = join(dirname(runPath), "messages");
+        const bodyDirectory = goalBlobsDirectory(directory, "goal-1");
         const lateContent = "appeared after seeding";
         const lateRef = createHash("sha256").update(lateContent).digest("hex");
         await writeFile(join(bodyDirectory, `${lateRef}.txt`), "corrupted");

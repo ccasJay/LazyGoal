@@ -171,7 +171,7 @@ test("LLMStepExecutor records provider usage, request duration, and first-text-t
     assert.ok((finished.requestDurationMs ?? 0) > (finished.decodeDurationMs ?? 0));
 });
 
-test("LLMStepExecutor leaves pi-ai diagnostic usage unavailable and omits non-stream speed", async () => {
+test("LLMStepExecutor records unrecognized provider usage as an estimate and omits non-stream speed", async () => {
     const metricsStore = new CaptureMetricsStore();
     const adapter: LLMAdapter = {
         structuredOutputMode: "prompt_only",
@@ -188,7 +188,8 @@ test("LLMStepExecutor leaves pi-ai diagnostic usage unavailable and omits non-st
     assert.equal(decision.kind, "complete");
     const finished = metricsStore.records.find((record) => record.recordType === "call_finished");
     assert.ok(finished && finished.recordType === "call_finished");
-    assert.deepEqual(finished.usage, { source: "unavailable" });
+    assert.equal(finished.usage.source, "estimated");
+    assert.ok(finished.usage.source === "estimated" && finished.usage.inputTokens > 0);
     assert.ok(Number.isFinite(finished.requestDurationMs));
     assert.ok((finished.requestDurationMs ?? 0) > 0);
     assert.equal(finished.decodeDurationMs, undefined);
@@ -267,7 +268,7 @@ test("多块流式调用仍只记录一次调用开始与结束，且取消使�
     assert.deepEqual(metricsStore.records.map(record => record.recordType), ["call_started", "call_finished"]);
     const finished = metricsStore.records[1];
     assert.ok(finished?.recordType === "call_finished");
-    assert.deepEqual(finished.usage, { source: "unavailable" });
+    assert.equal(finished.usage.source, "estimated");
 
     const cancelling = new AbortController();
     const cancelStore = new CaptureMetricsStore();

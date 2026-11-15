@@ -53,7 +53,8 @@ export type BrowserSessionInputKind =
     | "interrupt"
     | "respond"
     | "resume"
-    | "queue_control";
+    | "queue_control"
+    | "compact";
 
 /** 输入账本中的受理状态。 */
 export type BrowserSessionInputStatus = "pending" | "applied" | "cleared";
@@ -97,8 +98,8 @@ export interface BrowserMessagePosition {
     readonly order: number;
 }
 
-/** 工具授权或沙箱访问中的单个外部文件/目录条目。 */
-export interface BrowserToolGrantExtraFile {
+/** 权限边界中的单个外部文件/目录条目。 */
+export interface BrowserPermissionExtraFile {
     /** @pattern \S */
     readonly canonicalPath: string;
     readonly access: "read" | "write";
@@ -107,7 +108,7 @@ export interface BrowserToolGrantExtraFile {
 
 /** 沙箱权限审阅摘要。 */
 export interface BrowserSandboxReview {
-    readonly extraFiles: readonly BrowserToolGrantExtraFile[];
+    readonly extraFiles: readonly BrowserPermissionExtraFile[];
     readonly network: "none" | "all_outbound";
     readonly networkNotice?: string;
 }
@@ -492,6 +493,23 @@ export interface BrowserActivityHistoryMarker {
     readonly source: "activity";
 }
 
+/**
+ * Goal 普通消息续接的可用性投影。
+ *
+ * @remarks
+ * 只有宿主确认手动创建、当前 Run 已结算终态且没有待恢复 Worker 记录的 Goal 才可续接。
+ * 不可用时 `reason` 说明拒绝依据；浏览器不得自行推断来源或当前 Run 是否结算。
+ *
+ * @example
+ * ```ts
+ * if (goal.continuation?.available === true) showComposer();
+ * ```
+ */
+export interface BrowserGoalContinuation {
+    readonly available: boolean;
+    readonly reason?: "not_web_created" | "run_not_terminal" | "run_settling";
+}
+
 /** 初始读取和分页使用的窄 Goal 状态。 */
 export interface BrowserGoalSessionState {
     /** @pattern \S */
@@ -509,6 +527,7 @@ export interface BrowserGoalSessionState {
     readonly currentRunTerminalDetail?: BrowserSessionRunTerminalDetail;
     readonly currentPlanRoute?: BrowserPlanRoute;
     readonly execution?: BrowserGoalExecution;
+    readonly continuation?: BrowserGoalContinuation;
     readonly pendingSteers?: readonly BrowserPendingSteer[];
     readonly pendingMessages?: readonly BrowserPendingMessage[];
     readonly queue?: BrowserQueueState;
@@ -937,7 +956,9 @@ export type BrowserSessionInputErrorCode =
     | "QUEUED_MESSAGE_NOT_FOUND"
     | "RUN_NOT_FOUND"
     | "RUN_NOT_RUNNING"
+    | "CONTINUATION_UNAVAILABLE"
     | "RUN_CONTROL_UNAVAILABLE"
+    | "CONTEXT_COMPACTION_UNAVAILABLE"
     | "input_admission_failed"
     | "session_unavailable";
 
@@ -1027,6 +1048,8 @@ export type BrowserSessionInputCommand =
         readonly inputId: string;
         /** @pattern \S */
         readonly content: string;
+        /** @pattern \S */
+        readonly runId: string;
     }
     | {
         readonly kind: "steer";
@@ -1081,6 +1104,13 @@ export type BrowserSessionInputCommand =
         readonly queueRevision: number;
         /** @pattern \S */
         readonly messageId?: string;
+    }
+    | {
+        readonly kind: "compact";
+        /** @pattern \S */
+        readonly inputId: string;
+        /** @pattern \S */
+        readonly runId: string;
     };
 
 /** 一条输入受理／拒绝的公开结果。 */
@@ -1212,7 +1242,13 @@ export interface BrowserCreateSessionCommand {
     readonly modelId?: string;
 }
 
-/** 创建 Session 的 wire 结果。 */
+/**
+ * 创建 Session 的 wire 结果。
+ *
+ * @remarks
+ * `execution_unavailable` 表示本机执行通道不可用且可重试，`create_failed` 只用于未分类
+ * 的内部创建失败；两者不互换，其余错误码保持既有含义。
+ */
 export type BrowserCreateSessionResult =
     | {
         readonly ok: true;
@@ -1235,6 +1271,7 @@ export type BrowserCreateSessionResult =
             | "invalid_goal_input"
             | "goal_unreadable"
             | "service_shutting_down"
+            | "execution_unavailable"
             | "create_failed";
     };
 
@@ -1266,7 +1303,7 @@ export interface BrowserActionReviewCommand {
 /** 重新计算出的实际能力范围。 */
 export interface BrowserActionCapability {
     readonly network: "none" | "all_outbound";
-    readonly extraFiles: readonly BrowserToolGrantExtraFile[];
+    readonly extraFiles: readonly BrowserPermissionExtraFile[];
     readonly targetPaths: readonly string[];
 }
 
@@ -1642,19 +1679,155 @@ export type BrowserModelPreferenceResult =
     }
     | { readonly ok: false; readonly error: string };
 
-/** 授权摘要条目。 */
-export interface BrowserToolGrantSummary {
+/**
+ * 工作区权限档位的 wire 形状。
+ *
+ * @remarks
+ * `sandbox` 决定内核强制的文件与网络边界；`approvals` 与 `reviewer` 只决定越界 Action
+ * 的裁决方式；`writableRoots` 列出自工作区树之外额外允许读写的工作区外根目录。
+ *
+ * @example
+ * ```ts
+ * const profile: BrowserPermissionProfile = {
+ *     sandbox: "workspace-write",
+ *     approvals: "on-request",
+ *     reviewer: "user",
+ *     writableRoots: [],
+ * };
+ * ```
+ */
+export interface BrowserPermissionProfile {
+    readonly sandbox: "read-only" | "workspace-write" | "danger-full-access";
+    readonly approvals: "on-request" | "never";
+    readonly reviewer: "user" | "auto_review";
+    /** 工作区树之外额外允许读写的工作区外根目录，元素为绝对路径。 */
+    readonly writableRoots: readonly string[];
+}
+
+/**
+ * 变更当前工作区权限档位的命令。
+ *
+ * @remarks
+ * 工作区身份由服务端会话绑定决定，请求体不携带 `workspaceId`；`expectedRevision`
+ * 必须是客户端读取到的当前版本，并发提交由服务端返回当前档位而不是静默覆盖。
+ *
+ * @example
+ * ```ts
+ * const command: BrowserPermissionProfileCommand = { profile, expectedRevision: 3 };
+ * ```
+ */
+export interface BrowserPermissionProfileCommand {
+    readonly profile: BrowserPermissionProfile;
+    /** @asType integer
+     * @maximum 9007199254740991
+     * @minimum 0 */
+    readonly expectedRevision: number;
+}
+
+/**
+ * 权限档位查询或设置结果。
+ *
+ * @remarks
+ * 成功时返回当前完整档位与版本；版本冲突时 `error` 为 `conflict`，并附带冲突时刻的
+ * `profile` 与 `revision`，调用方可直接展示而不必再次读取。
+ */
+export type BrowserPermissionProfileResult =
+    | {
+        readonly ok: true;
+        readonly profile: BrowserPermissionProfile;
+        /** @asType integer
+         * @maximum 9007199254740991 */
+        readonly revision: number;
+    }
+    | {
+        readonly ok: false;
+        readonly error: "permissions_unavailable" | "conflict" | "service_shutting_down";
+        /** 冲突时当前已持久化的档位。 */
+        readonly profile?: BrowserPermissionProfile;
+        /** 冲突时当前已持久化的版本。
+         * @asType integer
+         * @maximum 9007199254740991 */
+        readonly revision?: number;
+    };
+
+/**
+ * 一条边界越界豁免。
+ *
+ * @remarks
+ * 只描述越过权限边界后仍持续放行的文件与网络范围；Tool 级授权已退役，因此不包含
+ * 工具身份、输入摘要或目标路径。撤销后同一越界重新进入裁决。
+ *
+ * @example
+ * ```ts
+ * const exemption: BrowserPermissionExemptionSummary = {
+ *     id: "grant-1",
+ *     scope: "goal",
+ *     network: "none",
+ *     extraFiles: [],
+ *     status: "active",
+ * };
+ * ```
+ */
+export interface BrowserPermissionExemptionSummary {
     /** @pattern \S */
-    readonly grantId: string;
+    readonly id: string;
     readonly scope: "goal" | "workspace";
-    /** @pattern \S */
-    readonly toolId: string;
+    readonly network: "none" | "all_outbound";
+    readonly extraFiles: readonly BrowserPermissionExtraFile[];
     readonly status: "pending" | "active" | "revoked";
-    readonly kind?: "tool" | "sandbox";
-    readonly targetPath?: string;
-    readonly command?: string;
-    readonly network?: "none" | "all_outbound";
-    readonly extraFiles?: readonly BrowserToolGrantExtraFile[];
+}
+
+/**
+ * 边界豁免查询或撤销结果。
+ *
+ * @remarks
+ * 成功时返回当前 Goal/Run 下仍可见的豁免列表；撤销后同样返回更新后的列表。
+ */
+export type BrowserPermissionExemptionResult =
+    | {
+        readonly ok: true;
+        /** @pattern \S */
+        readonly goalId: string;
+        /** @pattern \S */
+        readonly runId: string;
+        readonly exemptions: readonly BrowserPermissionExemptionSummary[];
+    }
+    | {
+        readonly ok: false;
+        readonly error:
+            | "goal_not_found"
+            | "stale_run"
+            | "permissions_unavailable"
+            | "exemption_failed"
+            | "service_shutting_down";
+    };
+
+/**
+ * 撤销边界豁免请求体；`exemptionId` 只来自路径。
+ *
+ * @example
+ * ```ts
+ * const body: BrowserPermissionExemptionRevokeBody = { runId: "run-1" };
+ * ```
+ */
+export interface BrowserPermissionExemptionRevokeBody {
+    /** @pattern \S */
+    readonly runId: string;
+}
+
+/**
+ * 撤销边界豁免命令。
+ *
+ * @example
+ * ```ts
+ * const command: BrowserPermissionExemptionRevokeCommand = { runId: "run-1", exemptionId: "grant-1" };
+ * ```
+ */
+export interface BrowserPermissionExemptionRevokeCommand {
+    /** @pattern \S */
+    readonly runId: string;
+    /** @pattern \S */
+    readonly exemptionId: string;
 }
 
 /** Action 完整输入查询结果。 */
@@ -1678,75 +1851,6 @@ export type BrowserActionDetailsResult =
             | "stale_run"
             | "action_not_waiting"
             | "action_details_unavailable";
-    };
-
-/** 工具授权查询或撤销结果。 */
-export type BrowserToolGrantResult =
-    | {
-        readonly ok: true;
-        /** @pattern \S */
-        readonly goalId: string;
-        /** @pattern \S */
-        readonly runId: string;
-        readonly grants: readonly BrowserToolGrantSummary[];
-    }
-    | {
-        readonly ok: false;
-        readonly error:
-            | "goal_not_found"
-            | "stale_run"
-            | "permissions_unavailable"
-            | "grant_failed"
-            | "service_shutting_down";
-    };
-
-/** 撤销工具授权请求体；`grantId` 只来自路径。 */
-export interface BrowserToolGrantRevokeBody {
-    /** @pattern \S */
-    readonly runId: string;
-    readonly scope: "goal" | "workspace";
-    readonly kind?: "tool" | "sandbox";
-}
-
-/** 撤销工具授权命令。 */
-export interface BrowserToolGrantRevokeCommand {
-    /** @pattern \S */
-    readonly runId: string;
-    /** @pattern \S */
-    readonly grantId: string;
-    readonly scope: "goal" | "workspace";
-    readonly kind?: "tool" | "sandbox";
-}
-
-/** 项目权限模式。 */
-export type BrowserPermissionMode = "default" | "yolo";
-
-/** 变更权限模式命令。 */
-export interface BrowserPermissionModeCommand {
-    readonly mode: BrowserPermissionMode;
-    /** @asType integer
-     * @maximum 9007199254740991
-     * @minimum 0 */
-    readonly expectedRevision: number;
-}
-
-/** 权限模式变更结果。 */
-export type BrowserPermissionModeResult =
-    | {
-        readonly ok: true;
-        readonly mode: BrowserPermissionMode;
-        /** @asType integer
-         * @maximum 9007199254740991 */
-        readonly revision: number;
-        /** @pattern \S */
-        readonly workspaceId: string;
-    }
-    | {
-        readonly ok: false;
-        readonly error: "permissions_unavailable" | "conflict" | "service_shutting_down";
-        /** @asType integer
-         * @maximum 9007199254740991 */
-        readonly actualRevision?: number;
     };
 
 /** 当前工作区上下文视图。 */
@@ -2090,14 +2194,83 @@ export interface RunSessionMetrics extends SessionMetricsValues {
     readonly runId: string;
 }
 
-/** 整个 Goal 会话的模型指标聚合快照。 */
+/**
+ * 当前工作窗口的容量。
+ *
+ * @remarks
+ * 容量来自当前模型标称窗口或用户配置，与模型调用是否进行中或失败无关。
+ *
+ * @example
+ * ```ts
+ * const capacity: SessionMetricsContextCapacity = {
+ *     capacityTokens: 1_000_000,
+ *     source: "model",
+ * };
+ * ```
+ */
+export interface SessionMetricsContextCapacity {
+    /** 容量基数（Token）；必须为正的安全整数。
+     * @asType integer
+     * @maximum 9007199254740991
+     * @minimum 1 */
+    readonly capacityTokens: number;
+    /** 容量基数来源：模型标称窗口或用户配置。 */
+    readonly source: "model" | "configured";
+}
+
+/**
+ * 当前工作窗口的占用结算。
+ *
+ * @remarks
+ * 仅当当前 Run 最近一次模型调用已成功结算且使用当前模型时提供占用，不回退到
+ * 更早调用，也不累加历史调用。`usedPercent` 以 `capacityTokens` 为基数；`source`
+ * 说明基数来自模型标称窗口还是用户配置。无适用结算时，快照仍可单独提供窗口容量。
+ *
+ * @example
+ * ```ts
+ * const usage: SessionMetricsContextUsage = {
+ *     usedPercent: 0.4,
+ *     capacityTokens: 1_000_000,
+ *     source: "model",
+ *     estimated: false,
+ * };
+ * ```
+ */
+export interface SessionMetricsContextUsage {
+    /** 已用比例（0–1）；超过容量时截断为 1。 */
+    readonly usedPercent: number;
+    /** 容量基数（Token）；必须为正的安全整数。 */
+    readonly capacityTokens: number;
+    /** 容量基数来源：模型标称窗口或用户配置。 */
+    readonly source: "model" | "configured";
+    /** 占用是否来自本地估算而不是供应商上报。 */
+    readonly estimated: boolean;
+}
+
+/**
+ * 整个 Goal 会话的模型指标聚合快照。
+ *
+ * @remarks
+ * `contextCapacity` 独立于模型调用状态；`contextUsage` 仅在当前 Run 最近一次
+ * 模型调用成功结算且使用当前模型时提供，调用进行中或失败时为 `null`，不回退到
+ * 更早用量。缺少用量时仍保留已知容量。
+ *
+ * @example
+ * ```ts
+ * const capacity = snapshot.contextCapacity;
+ * const usage = snapshot.contextUsage;
+ * ```
+ */
 export interface SessionMetricsSnapshot extends SessionMetricsValues {
     /** @pattern \S */
     readonly goalId: string;
     /** @asType integer
      * @maximum 9007199254740991 */
     readonly roundCount: number;
-    readonly contextRemainingPercent?: number | null;
+    /** 当前工作窗口容量；模型配置或用户设置无法解析时为 `null`。 */
+    readonly contextCapacity: SessionMetricsContextCapacity | null;
+    /** 当前工作窗口占用；没有当前模型的已结算成功调用时为 `null`。 */
+    readonly contextUsage?: SessionMetricsContextUsage | null;
     readonly runs: readonly RunSessionMetrics[];
 }
 
@@ -2668,7 +2841,7 @@ export type BrowserControlScope =
  *
  * @remarks
  * `intentId` 是客户端控制身份，不写入 Goal Snapshot；`session_input` 复用其
- * `input.inputId` 作为同一身份。`permission_mode` 是 workspace 作用域，其余命令
+ * `input.inputId` 作为同一身份。`permission_profile` 是 workspace 作用域，其余命令
  * 必须携带目标 `goalId`。
  */
 export type BrowserControlIntentCommand =
@@ -2717,17 +2890,17 @@ export type BrowserControlIntentCommand =
         readonly persistAsDefault: boolean;
     }
     | {
-        readonly kind: "permission_mode";
+        readonly kind: "permission_profile";
         /** @pattern \S */
         readonly intentId: string;
-        readonly mode: BrowserPermissionMode;
+        readonly profile: BrowserPermissionProfile;
         /** @asType integer
          * @maximum 9007199254740991
          * @minimum 0 */
         readonly expectedRevision: number;
     }
     | {
-        readonly kind: "grant_revoke";
+        readonly kind: "exemption_revoke";
         /** @pattern \S */
         readonly intentId: string;
         /** @pattern \S */
@@ -2735,9 +2908,7 @@ export type BrowserControlIntentCommand =
         /** @pattern \S */
         readonly runId: string;
         /** @pattern \S */
-        readonly grantId: string;
-        readonly scope: "goal" | "workspace";
-        readonly grantKind?: "tool" | "sandbox";
+        readonly exemptionId: string;
     }
     | {
         readonly kind: "goal_archive";
@@ -2781,8 +2952,8 @@ export type BrowserControlIntentResult =
     | { readonly kind: "session_input"; readonly result: BrowserSessionInputResult }
     | { readonly kind: "plan_mode"; readonly result: BrowserGoalPlanModeResult }
     | { readonly kind: "model_selection"; readonly result: BrowserModelSelectionResult }
-    | { readonly kind: "permission_mode"; readonly result: BrowserPermissionModeResult }
-    | { readonly kind: "grant_revoke"; readonly result: BrowserToolGrantResult }
+    | { readonly kind: "permission_profile"; readonly result: BrowserPermissionProfileResult }
+    | { readonly kind: "exemption_revoke"; readonly result: BrowserPermissionExemptionResult }
     | { readonly kind: "goal_archive"; readonly result: BrowserGoalArchiveResult }
     | { readonly kind: "goal_delete"; readonly result: BrowserGoalDeleteResult }
     | { readonly kind: "action_review"; readonly result: BrowserActionReviewResult };

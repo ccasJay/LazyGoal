@@ -290,12 +290,41 @@ test("nativeResponseMessage 从完整块派生 Assistant 历史并保留续接",
         continuation,
     });
 
+    assert.ok(!("blocks" in message));
     assert.equal(message.content, "读取文件");
     assert.equal(message.reasoning, "需要先查看实现");
     assert.deepEqual(message.toolCalls, [{ callId: "call-1", toolId: "read_file", argumentsJson: '{"path":"a.ts"}' }]);
     assert.equal(message.continuation?.parts?.[0]?.thoughtSignature, "opaque-signature");
     assert.ok(isModelAssistantMessage(message));
-    assert.equal(nativeResponseMessage(textResponse("无调用")).toolCalls, undefined);
+    const withoutCall = nativeResponseMessage(textResponse("无调用"));
+    assert.ok(!("blocks" in withoutCall));
+    assert.equal(withoutCall.toolCalls, undefined);
+});
+
+test("nativeResponseMessage persists OpenAI-compatible content once as ordered blocks", () => {
+    const continuation = {
+        identity: {
+            provider: "openai-compatible" as const,
+            endpoint: "https://gateway.example/v1",
+            model: "model",
+            protocol: "openai-chat" as const,
+        },
+    };
+    const response = blockResponse(
+        { type: "text", text: "Checking" },
+        { type: "reasoning", source: "reasoning_content", text: "Summary" },
+        { type: "reasoning", source: "thought", text: "Extension" },
+        { type: "tool_call", callId: "native-call", toolId: "read_file", argumentsJson: "{\"path\":\"README.md\"}" },
+    );
+    const message = nativeResponseMessage({ ...response, continuation });
+
+    assert.ok("blocks" in message);
+    if (!("blocks" in message)) return;
+    assert.deepEqual(message.blocks, response.blocks);
+    assert.deepEqual(message.continuation, continuation);
+    assert.equal("content" in message, false);
+    assert.equal("toolCalls" in message, false);
+    assert.ok(isModelAssistantMessage(message));
 });
 
 test("normalizeRequestThinkGoal 去除空白并拒绝空白目标", () => {

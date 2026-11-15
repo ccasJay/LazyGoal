@@ -50,9 +50,9 @@ test("control intent returns a receipt with the client intent identity", async (
 
 test("control intent reports an unavailable command as a rejected receipt", async () => {
     const response = await postControl(createApi(), {
-        kind: "permission_mode",
+        kind: "permission_profile",
         intentId: "intent-permission-1",
-        mode: "yolo",
+        profile: { sandbox: "workspace-write", approvals: "on-request", reviewer: "auto_review", writableRoots: [] },
         expectedRevision: 1,
     });
 
@@ -69,7 +69,7 @@ test("session input intent must reuse its input identity", async () => {
         kind: "session_input",
         intentId: "intent-input-1",
         goalId: "goal-1",
-        input: { kind: "message", inputId: "input-1", content: "continue" },
+        input: { kind: "message", inputId: "input-1", content: "continue", runId: "run-1" },
     });
 
     assert.equal(response.status, 400);

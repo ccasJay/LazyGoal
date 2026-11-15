@@ -1,12 +1,14 @@
 import { ExecutionAbortedError, ModelRequestFailure, TransientModelRequestFailure } from "../../execution-control/src/index";
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
     computeActionRecoveryRef,
     createGoal,
     createRun,
     createStepExecutor,
-    createToolGrantMatcher,
     GoalCoordinator,
     InlineScheduler,
     Runner,
@@ -22,6 +24,7 @@ import {
     type ToolRegistry,
 } from "../../tool-core/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
+import { PERMISSION_PRESETS, type PermissionProfile } from "../../permission/src/index";
 import { bindMessagesToRun, currentProtocols, InMemoryTrajectoryStore, messageOutline, trajectoryStoreFor, testUserMessage, testAssistantMessage } from "./current-fixtures";
 import type {
     AgentDecision,
@@ -38,7 +41,6 @@ import type {
     StepExecutionInput,
     StepExecutor,
     ToolPolicy,
-    ToolGrant,
     TraceRecord,
 } from "../src/index";
 import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
@@ -619,7 +621,6 @@ test("Worker Goal 不会因 Profile 暴露默认工具而越过冻结的 Tool ID
                 authorization: {
                     workspace: { mode: "shared", projectRoot: "/project", executionRoot: "/project" },
                     toolIds: [],
-                    sandbox: { extraFiles: [], network: "none" },
                 },
             },
         },
@@ -2127,74 +2128,6 @@ test("Runner 按 Registry、输入校验与 Policy 顺序处理 Action", async (
     });
 });
 
-test("Runner 在 Policy 要求审批时允许匹配的 workspace Grant 放行同一操作", async () => {
-    const store = new InMemoryGoalStore();
-    const runProfile: AgentProfile = { ...profile, toolIds: ["bash"] };
-    const initial = createInitialGoal("run-grant-match", "goal-grant-match", runProfile);
-    await store.save(initial);
-    const inputBinding = createTestBinding("test.bash", objectInputSchema({ command: { type: "string" } }));
-    const action = {
-        actionId: "action-grant-match",
-        toolId: "bash",
-        input: { command: "git status --short" },
-    };
-    const matcher = await createToolGrantMatcher("bash", action.input);
-    const grant: ToolGrant = {
-        id: "grant-1",
-        scope: "workspace",
-        workspaceId: "workspace-1",
-        source: { goalId: "goal-old", runId: "run-old", actionId: "action-old", approvalInputId: "input-1" },
-        matcher,
-        status: "active",
-    };
-    let executorCalls = 0;
-    let toolCalls = 0;
-    let lookupCount = 0;
-    const result = await new Runner({
-        store,
-        trajectoryStore: trajectoryStoreFor(store),
-        executor: createStepExecutor(async () => {
-            executorCalls += 1;
-            return executorCalls === 1
-                ? { kind: "tool_call", action }
-                : { kind: "complete", completionEvidence: [], summary: "完成" };
-        }, async () => ({ kind: "accept" })),
-        toolRegistry: {
-            get() {
-                return createTestToolRegistration({
-                    definition: {
-                        id: "bash",
-                        description: "执行命令",
-                        inputBinding,
-                        isReadOnly: false,
-                    },
-                    replayPolicy: "safe",
-                    validate: () => ({ ok: true }),
-                    async execute() {
-                        toolCalls += 1;
-                        return { kind: "success", output: {}, summary: "已执行" };
-                    },
-                });
-            },
-        },
-        toolPolicy: { evaluate: () => "require_approval" },
-        toolGrantLookup: {
-            async findActiveMatching(query) {
-                lookupCount += 1;
-                assert.equal(query.workspaceId, "workspace-1");
-                assert.equal(query.goalId, initial.id);
-                assert.equal(query.matcher.kind, "exact_input");
-                return grant;
-            },
-        },
-        workspaceId: "workspace-1",
-    }).run(createRef(initial));
-
-    const state = requireSuccessfulState(result);
-    assert.equal(state.status, "completed");
-    assert.equal(lookupCount, 1);
-    assert.equal(toolCalls, 1);
-});
 
 test("Runner 按先暂存后执行再观察的顺序完成自动 Action 周期", async () => {
     const events: string[] = [];
@@ -2347,74 +2280,42 @@ test("Runner 保留 Agent 选择的 Bash 命令，不按命令文本改写", asy
     });
 });
 
-test("require_approval 会保存等待中的 Action 且不调用 Tool", async () => {
-    const initial = createInitialGoal(
-        "run-action-approval",
-        "goal-1",
-        { ...profile, toolIds: ["read_file"] },
-    );
+
+async function createBoundaryApprovalHarness() {
+    const workspaceRoot = await mkdtemp(join(tmpdir(), "lg-approval-reprepare-"));
     const store = new InMemoryGoalStore();
-    await store.save(initial);
-    let toolCalls = 0;
-    const tool = createRunnerTool(async () => {
-        toolCalls += 1;
-        return { kind: "success", output: "不应执行", summary: "不应执行" };
-    });
-    const executor = new SequenceDecisionExecutor([{
-        kind: "tool_call",
-        action: {
-            actionId: "action-approval",
-            toolId: "read_file",
-            input: { path: "README.md" },
-        },
-    }]);
-
-    const result = await new Runner({
-        trajectoryStore: trajectoryStoreFor(store),
-        store,
-        executor,
-        toolRegistry: { get: () => registerTool(tool) },
-        toolPolicy: { evaluate: () => "require_approval" },
-    }).run(createRef(initial, "run-action-approval"));
-
-    const state = requireSuccessfulState(result);
-    assert.equal(state.status, "waiting");
-    assert.equal(state.stepCount, 0);
-    const { executionUnitId, ...approvalPendingAction } = state.pendingAction!;
-    assert.match(executionUnitId ?? "", /^execution-unit-/);
-    assert.deepEqual(approvalPendingAction, {
-        action: {
-            actionId: "action-approval",
-            toolId: "read_file",
-            input: { path: "README.md" },
-        },
-        status: "awaiting_approval",
-    });
-    assert.equal(toolCalls, 0);
-    assert.equal(executor.receivedGoals.length, 1);
-});
-
-test("Runner 批准后为同一 canonical Action 重新 prepare 且不重复评估 Policy", async () => {
+    const trajectory = new InMemoryTrajectoryStore();
     const initial = createInitialGoal(
         "run-approval-reprepare",
         "goal-1",
-        { ...profile, toolIds: ["read_file"] },
+        { ...profile, toolIds: ["bash"] },
     );
-    const store = new InMemoryGoalStore();
-    const trajectory = new InMemoryTrajectoryStore();
     await store.save(initial);
     const action = {
         actionId: "action-approval-reprepare",
-        toolId: "read_file",
-        input: { path: "README.md" },
-    } as const;
+        toolId: "bash",
+        input: {
+            command: "curl http://127.0.0.1:8080",
+            sandboxAccess: { network: { targets: ["127.0.0.1"], purpose: "本地测试" } },
+        },
+    };
     let toolCalls = 0;
     let policyCalls = 0;
-    const tool = createRunnerTool(async ({ actionId }) => {
-        toolCalls += 1;
-        assert.equal(actionId, action.actionId);
-        return { kind: "success", output: "文件内容", summary: "读取完成" };
-    });
+    const tool: TestTool = {
+        definition: {
+            id: "bash",
+            description: "执行命令",
+            inputBinding: createTestBinding("test.bash", TEST_INPUT_SCHEMA),
+            isReadOnly: false,
+        },
+        replayPolicy: "manual",
+        validate: () => ({ ok: true }),
+        async execute({ actionId }) {
+            toolCalls += 1;
+            assert.equal(actionId, action.actionId);
+            return { kind: "success", output: "已执行", summary: "命令执行完成" };
+        },
+    };
     const counted = countPrepareCalls(registerTool(tool));
     const executor = new SequenceDecisionExecutor([
         { kind: "tool_call", action },
@@ -2425,80 +2326,87 @@ test("Runner 批准后为同一 canonical Action 重新 prepare 且不重复评�
         trajectoryStore: trajectory,
         executor,
         toolRegistry: { get: () => counted.registration },
+        workspaceRoot,
+        workspaceId: "ws-approval-reprepare",
+        permissionProfileStore: {
+            async get(workspaceId: string) {
+                return { workspaceId, profile: PERMISSION_PRESETS.ask, revision: 1 };
+            },
+            async update(workspaceId: string, next: PermissionProfile, expectedRevision: number) {
+                return { workspaceId, profile: next, revision: expectedRevision + 1 };
+            },
+        },
         toolPolicy: {
             evaluate: ({ action: evaluatedAction }) => {
                 policyCalls += 1;
                 assert.deepEqual(evaluatedAction, action);
-                return "require_approval";
+                return "allow";
             },
         },
     });
-
-    const waiting = requireSuccessfulState(
-        await runner.run(createRef(initial, "run-approval-reprepare")),
-    );
-    assert.equal(waiting.status, "waiting");
-    assert.equal(counted.prepareCalls(), 1);
-    const { executionUnitId: reprepareExecutionUnitId, ...repreparePendingAction } = waiting.pendingAction!;
-    assert.match(reprepareExecutionUnitId ?? "", /^execution-unit-/);
-    assert.deepEqual(repreparePendingAction, {
-        action,
-        status: "awaiting_approval",
-    });
-    assert.equal(policyCalls, 1);
-    assert.equal(toolCalls, 0);
-
-    const coordinator = new GoalCoordinator({
+    return {
+        workspaceRoot,
         store,
-        trajectoryStore: trajectory,
-        scheduler: new InlineScheduler(runner),
-    });
-    const resumed = await coordinator.resume({
-        ref: createRef(initial, "run-approval-reprepare"),
-        action: { kind: "approve_action", actionId: action.actionId },
-    });
-    if (!resumed.ok) {
-        assert.fail(`expected approval to resume execution: ${resumed.error.message}`);
+        trajectory,
+        initial,
+        action,
+        runner,
+        counted,
+        toolCalls: () => toolCalls,
+        policyCalls: () => policyCalls,
+    };
+}
+
+test("Runner 批准后为同一 canonical Action 重新 prepare 且不重复评估 Policy", async () => {
+    const harness = await createBoundaryApprovalHarness();
+    try {
+        const waiting = requireSuccessfulState(
+            await harness.runner.run(createRef(harness.initial, "run-approval-reprepare")),
+        );
+        assert.equal(waiting.status, "waiting");
+        assert.equal(harness.counted.prepareCalls(), 1);
+        const { executionUnitId: reprepareExecutionUnitId, ...repreparePendingAction } = waiting.pendingAction!;
+        assert.match(reprepareExecutionUnitId ?? "", /^execution-unit-/);
+        assert.deepEqual(repreparePendingAction, {
+            action: harness.action,
+            status: "awaiting_approval",
+            approvalKind: "sandbox",
+            effectiveSandboxScope: { extraFiles: [], network: "all_outbound" },
+        });
+        assert.equal(harness.policyCalls(), 1);
+        assert.equal(harness.toolCalls(), 0);
+
+        const coordinator = new GoalCoordinator({
+            store: harness.store,
+            trajectoryStore: harness.trajectory,
+            scheduler: new InlineScheduler(harness.runner),
+        });
+        const resumed = await coordinator.resume({
+            ref: createRef(harness.initial, "run-approval-reprepare"),
+            action: { kind: "approve_action", actionId: harness.action.actionId },
+        });
+        if (!resumed.ok) {
+            assert.fail(`expected approval to resume execution: ${resumed.error.message}`);
+        }
+
+        assert.equal(resumed.kind, "terminal");
+        assert.equal(resumed.goal.state.run.status, "completed");
+        assert.equal(resumed.goal.state.run.stepCount, 2);
+        assert.equal(resumed.goal.state.run.pendingAction, undefined);
+        assert.equal(harness.counted.prepareCalls(), 2);
+        assert.equal(harness.policyCalls(), 1);
+        assert.equal(harness.toolCalls(), 1);
+
+        const approvalIndex = harness.trajectory.events.findIndex(
+            (event) => event.eventType === "action_approved",
+        );
+        const toolStartedIndex = harness.trajectory.events.findIndex(
+            (event) => event.eventType === "tool_started",
+        );
+        assert.ok(approvalIndex >= 0 && approvalIndex < toolStartedIndex);
+    } finally {
+        await rm(harness.workspaceRoot, { recursive: true, force: true });
     }
-
-    assert.equal(resumed.kind, "terminal");
-    assert.equal(resumed.goal.state.run.status, "completed");
-    assert.equal(resumed.goal.state.run.stepCount, 2);
-    assert.equal(resumed.goal.state.run.pendingAction, undefined);
-    assert.equal(counted.prepareCalls(), 2);
-    assert.equal(policyCalls, 1);
-    assert.equal(toolCalls, 1);
-
-    const actionEvents = trajectory.events.filter((event) =>
-        event.eventType === "action_staged"
-        || event.eventType === "tool_started"
-        || event.eventType === "tool_finished"
-        || event.eventType === "observation_recorded"
-        || (
-            event.eventType === "decision_received"
-            && event.payload.decision.kind === "tool_call"
-        ),
-    );
-    assert.deepEqual(actionEvents.map((event) =>
-        event.eventType === "decision_received"
-            ? event.payload.decision.kind === "tool_call"
-                ? event.payload.decision.action.actionId
-                : undefined
-            : event.actionId,
-    ), [
-        action.actionId,
-        action.actionId,
-        action.actionId,
-        action.actionId,
-        action.actionId,
-    ]);
-    const approvalIndex = trajectory.events.findIndex(
-        (event) => event.eventType === "action_approved",
-    );
-    const toolStartedIndex = trajectory.events.findIndex(
-        (event) => event.eventType === "tool_started",
-    );
-    assert.ok(approvalIndex >= 0 && approvalIndex < toolStartedIndex);
 });
 
 test("Runner 只接受匹配的瞬时授权并且批准本身不重复计 Step", async () => {

@@ -321,14 +321,26 @@ async function executeGoalCreation(message: Extract<ParentMessage, { readonly ki
     }
 }
 
+async function readAssignedSnapshot(goalId: string): Promise<Goal | undefined> {
+    // Web 可以在等待期间提交模型选择。联机执行命令以 Supervisor 的快照为准，离线时沿用本地日志。
+    const snapshot = await requestStore({ kind: "store-read", requestId: randomUUID(), goalId });
+    return snapshot === undefined ? undefined : goalSnapshotCodec.decode(snapshot);
+}
+
+async function bindGoalModel(currentRuntime: Awaited<ReturnType<typeof ensureRuntime>>, selection: GoalModelSelection): Promise<void> {
+    if (selection.profileId !== undefined) await currentRuntime.refreshProviderProfiles();
+    currentRuntime.alignModelBinding(selection);
+}
+
 async function executeAdvance(message: Extract<ParentMessage, { readonly kind: "advance" }>): Promise<void> {
     let progress: WorkerProgress;
     try {
         const currentRuntime = await ensureRuntime();
-        const goal = await currentRuntime.store.restore(message.goalId);
+        const goal = await readAssignedSnapshot(message.goalId);
         if (goal === undefined || goal.state.run.id !== message.runId) {
             progress = { kind: "rejected", code: "RUN_ID_MISMATCH", message: "Assigned Run identity changed" };
         } else {
+            await bindGoalModel(currentRuntime, goal.state.modelSelection);
             const result = await currentRuntime.commands.advance({ goalId: message.goalId, runId: message.runId });
             if (!result.ok) {
                 progress = { kind: "rejected", code: result.error.code, message: "Goal could not advance" };
@@ -362,12 +374,13 @@ async function executePermissionResponse(message: Extract<ParentMessage, { reado
             throw new Error("Permission Trigger target is invalid");
         }
         const currentRuntime = await ensureRuntime();
-        const goal = await currentRuntime.store.restore(goalId);
+        const goal = await readAssignedSnapshot(goalId);
         const actionId = goal?.state.run.pendingAction?.action.actionId;
         if (goal === undefined || goal.state.run.id !== assignedRunId || goal.state.run.status !== "waiting"
             || goal.state.run.pendingAction?.status !== "awaiting_approval" || actionId === undefined) {
             throw new Error("Permission Trigger no longer matches the current Action wait");
         }
+        await bindGoalModel(currentRuntime, goal.state.modelSelection);
         const result = await currentRuntime.commands.resume({
             ref: { goalId: goal.id, runId: goal.state.run.id },
             action: trigger.payload.decision === "approve"
@@ -398,13 +411,14 @@ async function executeInteractionResponse(message: Extract<ParentMessage, { read
             throw new Error("Interaction Trigger belongs to another Goal");
         }
         const currentRuntime = await ensureRuntime();
-        const goal = await currentRuntime.store.restore(goalId);
+        const goal = await readAssignedSnapshot(goalId);
         const localId = goal?.state.run.pendingAction?.action.actionId
             ?? goal?.state.run.pendingInteraction?.requestId;
         if (goal === undefined || goal.state.run.id !== assignedRunId || goal.state.run.status !== "waiting"
             || (payload.interactionRequestId !== undefined && localId !== payload.interactionRequestId)) {
             throw new Error("Interaction Trigger is stale for the current Goal wait");
         }
+        await bindGoalModel(currentRuntime, goal.state.modelSelection);
         const result = await currentRuntime.commands.resume({
             ref: { goalId, runId: goal.state.run.id },
             action: payload.answer,
@@ -427,6 +441,7 @@ async function cancelAssignedGoal(message: Extract<ParentMessage, { readonly kin
     if (assignedGoalId !== message.goalId || assignedRunId !== message.runId) {
         return { kind: "rejected", code: "WORKER_GOAL_MISMATCH", message: "Worker does not own the cancellation target" };
     }
+    const advance = activeAdvance;
     try {
         const currentRuntime = await ensureRuntime();
         let goal = await currentRuntime.store.restore(message.goalId);
@@ -441,18 +456,19 @@ async function cancelAssignedGoal(message: Extract<ParentMessage, { readonly kin
             }
         }
         if (goal.state.run.status === "completed" || goal.state.run.status === "failed" || goal.state.run.status === "cancelled") {
+            await advance;
             return { kind: "terminal", status: goal.state.run.status };
         }
         const interrupted = await currentRuntime.commands.interrupt({ goalId: message.goalId, runId: message.runId }, message.interruptId);
         if (!interrupted.ok) {
             goal = await currentRuntime.store.restore(message.goalId);
             if (goal?.state.run.id === message.runId && (goal.state.run.status === "completed" || goal.state.run.status === "failed" || goal.state.run.status === "cancelled")) {
+                await advance;
                 return { kind: "terminal", status: goal.state.run.status };
             }
             return { kind: "rejected", code: interrupted.error, message: "Goal interruption was not accepted" };
         }
-        const advance = activeAdvance;
-        if (advance !== undefined) await advance;
+        await advance;
         if (latestProgress?.goalId === message.goalId && latestProgress.result.kind === "terminal") return latestProgress.result;
         goal = await currentRuntime.store.restore(message.goalId);
         if (goal?.state.run.id === message.runId && goal.state.run.status === "cancelled"

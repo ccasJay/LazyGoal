@@ -8,6 +8,18 @@ export type {
     RuntimeCompositionOptions,
 } from "./composition";
 export { createExecutionComponents } from "./execution-composition";
+export {
+    DEFAULT_TRIGGER_NAME_TIMEOUT_MS,
+    MAX_TRIGGER_NAME_LENGTH,
+    deriveTriggerName,
+    summarizeTriggerName,
+} from "./trigger-name";
+export type { TriggerNameSummaryOptions } from "./trigger-name";
+export {
+    WorkerExecutionUnavailableError,
+    WorkerGoalCreationRejectedError,
+} from "./worker-execution-error";
+export type { WorkerExecutionFailureKind } from "./worker-execution-error";
 export { SupervisorWorkerProcess } from "./worker-process";
 export type { SupervisorWorkerProcessOptions, WorkerGoalCreationRequest, WorkerProgress } from "./worker-process";
 export { WorkerScheduler } from "./worker-scheduler";

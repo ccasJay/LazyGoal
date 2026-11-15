@@ -382,7 +382,14 @@ function createStageMockApi() {
       return;
     }
     if (request.url === "/api/goals/goal-stage-1?view=state" && request.method === "GET") {
-      json(response, { goal: stateEnvelope() });
+      json(response, {
+        goal: stateEnvelope(),
+        session: {
+          goalId: session.goalId, runId: session.currentRunId, runStatus: session.runStatus, mode: "plan",
+          commitRevision: 2, queueRevision: 0, queuePaused: false, pendingMessageCount: 0,
+          pendingSteerCount: 0, executionOwner: true, needsRecovery: false, messages: { count: 0, recent: [] },
+        },
+      });
       return;
     }
     if (request.url?.startsWith("/api/goals/goal-stage-1/activity") && request.method === "GET") {

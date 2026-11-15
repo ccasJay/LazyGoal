@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import type { ModelAssistantMessage, NativeConversationIdentity } from "../../model-contracts/src/index";
+import type { ModelLegacyAssistantMessage, NativeConversationIdentity } from "../../model-contracts/src/index";
+import { readModelToolCalls } from "../../model-contracts/src/index";
 import {
     allocateImmutableEvent,
     type TrajectoryEvent,
@@ -18,7 +19,7 @@ const identity: NativeConversationIdentity = {
 };
 const projector = new TrajectoryEventProjector({ previewLimit: 100 });
 
-function message(toolId: string, args: Record<string, unknown>): ModelAssistantMessage {
+function message(toolId: string, args: Record<string, unknown>): ModelLegacyAssistantMessage {
     return {
         role: "assistant",
         content: "Calling",
@@ -110,7 +111,7 @@ test("修订后的下一模型请求说明实际执行参数与原请求差异�
     // 原生调用保持原始身份与参数，不把新参数冒充原始调用。
     const assistant = exchange.messages[0]!;
     assert.equal(assistant.role, "assistant");
-    assert.deepEqual(assistant.toolCalls?.[0]?.argumentsJson, JSON.stringify({ path: "a.txt", content: "original" }));
+    assert.deepEqual(readModelToolCalls(assistant)[0]?.argumentsJson, JSON.stringify({ path: "a.txt", content: "original" }));
 
     // 真实结果只出现一次。
     const toolMessages = exchange.messages.filter((entry) => entry.role === "tool");

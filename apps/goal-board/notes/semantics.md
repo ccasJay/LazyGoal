@@ -23,12 +23,14 @@
 | 交互提交状态 | 从控制意图派生的展示阶段（编辑、提交中、待核验、已受理、失效）；冻结身份只用于核验与原身份重试，不再维护第二份状态机。 | [Goal Board](../README.md) | [interaction-state.ts](../src/interaction-state.ts)、[控制 reducer](../src/control/reducer.ts) |
 | 控制 reducer | 页面唯一的 `ControlState`：权威快照、意图生命周期、工具活动、独立资源与失效作用域。 | [Goal Board](../README.md) | [reducer.ts](../src/control/reducer.ts)、[模块说明](./overview.md#控制-reducer) |
 | 控制意图生命周期 | `pending → accepted → applied` 或 `rejected`／`unknown`；同一 `intentId` 保留冻结载荷，重复登记不改写。 | [Goal Board](../README.md) | [reducer.ts](../src/control/reducer.ts)、[控制命令 DTO](../../../packages/web-contracts/src/control.ts) |
-| 统一核验 | 结果不明时按 `inputId` 收据、权限 revision、`grantId`、Goal 状态、模型选择与 `pendingAction` 重新核对；只有 `not_applied` 允许原身份重试。 | [Goal Board](../README.md) | [verify.ts](../src/control/verify.ts) |
-| 权威控制快照 | `state_sync.snapshot` 直接替换会话控制状态；页面不再因同步事件完整重读 session／activity。 | [Goal Board](../README.md) | [useGoalSession](../src/hooks/useGoalSession.ts)、[useRunStream](../src/hooks/useRunStream.ts) |
-| 定向失效与读取 | `state_committed.changed` 与 `stream_fault.resync` 只触发声明范围的读取；普通控制事实不触发 HTTP 重读。 | [Goal Board](../README.md) | [事件路由](../src/control/event-routing.ts)、[useRunStream](../src/hooks/useRunStream.ts) |
-| 审批会话 | 由 `pendingAction`、最近预检与 `respond` 提交派生的 `unreviewed`／`reviewing`／`reviewed`／`submitting`／`accepted`／`settled`／`invalidated`／`unknown`。 | [Goal Board](../README.md) | [审批会话 selector](../src/control/approval-session.ts) |
+| 统一核验 | 结果不明时按 `inputId` 收据、权限档位三轴与 revision、边界豁免 `id`、Goal 状态、模型选择与 `pendingAction` 重新核对；只有 `not_applied` 允许原身份重试。 | [Goal Board](../README.md) | [verify.ts](../src/control/verify.ts) |
+| 权限档位入口 | 工作区级三轴档位选择：按钮显示当前档位，展开后展示 Sandbox／Approvals／Reviewer 真实取值；提交携带 `expectedRevision`，冲突展示服务端当前档位与 revision 并保留重试。 | [Goal Board](../README.md) | [PermissionControl](../src/components/PermissionControl.tsx)、[档位映射](../src/permission-profile.ts) |
+| 边界豁免 | 越界后持续放行的网络与文件范围；展示 `network`、`extraFiles` 的路径与读写方向、作用域与状态。撤销后同一越界重新进入裁决，Tool 级授权不再展示。 | [Goal Board](../README.md) | [usePermissions](../src/hooks/usePermissions.ts)、[Goal details 面板](../src/panels.tsx) |
+| 权威控制快照 | `state_sync.snapshot` 与窄 HTTP 共用控制快照，按视图代次、连接与同 Goal 修订接纳。 | [Goal Board](../README.md) | [useGoalSession](../src/hooks/useGoalSession.ts)、[useRunStream](../src/hooks/useRunStream.ts) |
+| 定向失效与读取 | `state_committed.changed` 与 `stream_fault.resync` 只触发声明范围的读取；需要确认等待或终态时只读窄状态。 | [Goal Board](../README.md) | [事件路由](../src/control/event-routing.ts)、[useRunStream](../src/hooks/useRunStream.ts) |
+| 审批会话 | 由 `pendingAction`、同一视图与等待的预检及 `respond` 提交派生的 `unreviewed`／`reviewing`／`reviewed`／`submitting`／`accepted`／`settled`／`invalidated`／`unknown`。 | [Goal Board](../README.md) | [审批会话 selector](../src/control/approval-session.ts) |
 | 工具活动生命周期 | 以 `actionId` + `executionUnitId` 聚合尝试；工具返回停在 `result_pending`，Observation 提交后进入 `observed_committed`。 | [Goal Board](../README.md) | [工具活动 selector](../src/control/tool-activity.ts) |
-| 模型选择原子化 | 一次 `model_selection` 完成模型切换与可选默认偏好；部分失败以子结果报告，重试复用同一意图身份。 | [Goal Board](../README.md) | [模型选择结果](../src/control/model-selection.ts)、[useModelSelection](../src/hooks/useModelSelection.ts) |
+| 模型选择原子化 | 安全等待和终态续接复用 `model_selection`，一次提交模型切换与可选默认偏好；部分失败以子结果报告，重试复用同一意图身份。 | [Goal Board](../README.md) | [模型选择结果](../src/control/model-selection.ts)、[useModelSelection](../src/hooks/useModelSelection.ts) |
 | 交互决定摘要 | 当前页面暂存已受理的非权限决定摘要；工具／沙箱授权及修订授权不保留在输入区，刷新后清空。 | [Goal Board](../README.md) | [GoalSession](../src/components/GoalSession.tsx)、[交互提交](../src/interaction-panel.tsx) |
 | 交互详情读取 | 按当前 Goal／Run／交互引用读取完整问题、任务范围或 Action 输入；失败保留等待并禁用依赖完整范围的决定。 | [浏览器服务边界](../../../packages/browser/README.md) | [交互详情路由](../../../packages/browser/src/browser-goal-routes.ts) |
 | 提案阶段路线 | 批准前显示 Plan Run 的完整候选阶段及各自验收条件。 | [Goal Board](../README.md) | [任务审批视图](../src/interaction-panel.tsx) |
@@ -49,11 +51,14 @@
 | 观察释放 | 卸载视图或切换 Goal 只回收浏览器本地的订阅、请求与合并帧；不发送 Interrupt，不撤销已受理输入，也不关闭宿主 Runtime。 | [Goal Board](../README.md) | [观察恢复语义](../src/session-stream-recovery.ts) |
 | GoalSessionContext | 局部持有 Goal 窄状态、固定 Activity 页、按需完整会话及视图状态。 | [Goal Board](../README.md) | [上下文契约](../src/context/GoalSessionContext.tsx) |
 | RunControlContext | 隔离支持的命令分发、控制意图状态与原子单飞防重锁；不持有普通消息队列。 | [Goal Board](../README.md) | [模块说明](./overview.md) |
+| `/compact` 命令 | 续接输入框识别的无参 Slash 命令；只提交一次 `compact` 会话输入，不写入对话，失败时展示稳定原因。 | [Goal Board](../README.md) | [输入分发](../src/types.ts)、[运行命令](../src/hooks/useRunCommands.ts) |
 | New Goal 草稿 | 仅保存在页面状态的未提交首个意图；提交结果不明时保留原身份，受理成功后由服务端 Goal 与 Trigger 收据接管。 | [Goal Board](../README.md) | [MessageComposer](../src/components/MessageComposer.tsx) |
-| 新 Goal 输入 | 输入框只创建 Goal 并提交首个意图；已有 Goal 不提供普通续聊、Steer 或队列操作。 | [Goal Board](../README.md) | [输入区](../src/components/MessageComposer.tsx)、[会话视图](../src/components/GoalSession.tsx) |
+| 新 Goal 输入 | 输入框只创建 Goal 并提交首个意图；Steer 与队列操作仍不提供。 | [Goal Board](../README.md) | [输入区](../src/components/MessageComposer.tsx)、[会话视图](../src/components/GoalSession.tsx) |
+| 终态续接输入 | 仅在宿主投影 `continuation.available` 时出现在 Activity：手动创建、当前 Run 已结算终态且连接已确认。提交绑定该终态 Run；结果不明按原 `inputId` 核验，不自动重发；非手动来源或运行中的 Goal 不显示输入框。 | [Goal Board](../README.md) | [输入区](../src/components/MessageComposer.tsx)、[会话视图](../src/components/GoalSession.tsx) |
 | Worker 状态与恢复 | 已运行 Goal 显示所属 Worker；只有 Supervisor 明确记录的待恢复 Worker 退出可继续，恢复运行中检查点要求承认未知外部效果。 | [Goal Board](../README.md) | [会话视图](../src/components/GoalSession.tsx)、[Trigger 浏览器端口](../../goal-server/src/browser-session-port.ts) |
 | 会话渐进加载 | 固定水位 Activity 页支持更早与更新方向翻页；打开时自动预取更早页至 300 项预算，超出后滚动到顶部续取；最多缓存 3 页，阅读锚点按可见项稳定身份及项内偏移恢复。 | [Goal Board](../README.md) | [Activity 窗口](../src/activity-page-window.ts)、[SessionTimeline](../src/components/SessionTimeline.tsx) |
 | 会话输出消费 | 页面消费同一条 Goal SSE：保存不明的候选保持待核验；正式 Activity 以同一展示 key 替换候选；确定作废后立即移除临时正文并保留有限身份标记以忽略迟到片段。 | [Goal Board](../README.md) | [会话输出归约](../src/session-output-consumer.ts) |
+| UI 验收工具 | 基于 Playwright 与独立 Fixture 模拟服务的确定性页面启动、截图、诊断、视觉回归与声明式交互流程。Fixture 支持有状态命令副作用、流式正文与工具事件推送；流程按步骤断言，连续观察模式按间隔录制画面与页面事实。 | [Goal Board](../README.md) | [ui-harness.md](./ui-harness.md) |
 | 不确定提交核验 | 受理结果不明时保留原 `inputId` 与冻结载荷，由统一核验按收据或资源身份结算；只有未应用允许原身份重试。 | [Goal Board](../README.md) | [控制核验](../src/control/verify.ts)、[运行命令](../src/hooks/useRunCommands.ts) |
 | 渲染错误边界 | 会话与轨迹视图的渲染异常被边界捕获，显示错误卡与重载入口，不整页白屏。 | [Goal Board](../README.md) | [SessionBoundary](../src/components/error-boundary.tsx) |
 | liveText 帧合并 | 打字机增量按帧合并后提交渲染，跟随滚动以帧节流，流结束不丢字。 | [Goal Board](../README.md) | [live-text-batch](../src/live-text-batch.ts) |

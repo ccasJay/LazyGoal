@@ -18,13 +18,34 @@ export type {
     BrowserModelInputSummary,
 };
 
-const system = (call: ModelInputRecord) => call.messages.filter(message => message.role === "system").map(message => message.content).join("\n");
+const system = (call: ModelInputRecord) => call.messages.flatMap(message => message.role === "system" ? [message.content] : []).join("\n");
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const messageKey = (message: ModelInputMessage) => JSON.stringify([
     message.role, message.source, message.content,
     message.role === "assistant" ? [message.reasoning, message.toolCalls, message.continuation] : null,
     message.role === "tool" ? [message.callId, message.toolId] : null,
 ]);
+const messagePreview = (message: ModelInputMessage) => message.role === "assistant"
+    ? message.toolCalls === undefined ? message.content : JSON.stringify(message)
+    : message.content;
+
+function projectModelInputMessage(message: ModelInputMessage): BrowserModelInputDetail["call"]["messages"][number] {
+    if (message.role === "assistant") {
+        return {
+            role: "assistant",
+            content: message.content,
+            source: message.source,
+            ...(message.reasoning === undefined ? {} : { reasoning: message.reasoning }),
+            ...(message.toolCalls === undefined ? {} : { toolCalls: message.toolCalls }),
+            ...(message.continuation === undefined ? {} : { continuation: message.continuation }),
+        };
+    }
+    if (message.role === "tool") return {
+        role: "tool", content: message.content, source: message.source,
+        callId: message.callId, toolId: message.toolId,
+    };
+    return { role: message.role, content: message.content, source: message.source };
+}
 const validId = (value: string | null) => value !== null && /^[A-Za-z0-9_-]{1,256}$/.test(value);
 
 /**
@@ -78,7 +99,7 @@ export function createBrowserModelInputRoutes(
                 if (!call) return context.json({ error: "model_input_not_recorded" }, 404);
                 const previous = calls[index - 1];
                 const detail: BrowserModelInputDetail = {
-                    call,
+                    call: { ...call, messages: call.messages.map(projectModelInputMessage) },
                     previousCallId: previous?.callId ?? null,
                     previousSystem: previous ? system(previous) : null,
                     systemVersion: hash(system(call)),
@@ -108,10 +129,8 @@ export function createBrowserModelInputRoutes(
                         role: message.role,
                         source: message.source,
                         index: message.index,
-                        preview: (message.role === "tool" || message.role === "assistant" && message.toolCalls !== undefined
-                            ? JSON.stringify(message) : message.content).slice(0, 700),
-                        truncated: (message.role === "tool" || message.role === "assistant" && message.toolCalls !== undefined
-                            ? JSON.stringify(message) : message.content).length > 700,
+                        preview: messagePreview(message).slice(0, 700),
+                        truncated: messagePreview(message).length > 700,
                     })),
                     omittedMessageCount: Math.max(0, added.length - 10),
                 };

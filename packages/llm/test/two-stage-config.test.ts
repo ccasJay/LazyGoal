@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { loadRuntimeConfig, readLLMConfig } from "../../config/src/index";
 import { LLMConfigurationError } from "../../llm-core/src/index";
 import { createLlmAdapter, createLlmStageAdapters } from "../src/index";
-import { OpenAICompatible } from "../../llm-openai/src/index";
+import { OpenAICompatible, StructuredOutputModeOpenAICompatible } from "../../llm-openai/src/index";
 import { Gemini } from "../../llm-google/src/index";
 import { PiAiAdapter } from "../../llm-pi-ai/src/index";
 
@@ -76,7 +76,7 @@ test("two_stage 阶段绑定为同一模型创建 prompt_only Think 与 strict D
         LLM_STRUCTURED_OUTPUT_MODE: "two_stage",
     });
     const openaiAdapter = createLlmAdapter(openaiConfig);
-    assert.ok(openaiAdapter instanceof OpenAICompatible);
+    assert.ok(openaiAdapter instanceof StructuredOutputModeOpenAICompatible);
     assert.equal(openaiAdapter.structuredOutputMode, "strict");
 
     const geminiConfig = readLLMConfig({
@@ -90,6 +90,7 @@ test("two_stage 阶段绑定为同一模型创建 prompt_only Think 与 strict D
     assert.equal(geminiAdapter.structuredOutputMode, "strict");
 
     const openaiStages = createLlmStageAdapters(openaiConfig);
+    assert.ok(openaiStages.thinkAdapter instanceof StructuredOutputModeOpenAICompatible);
     assert.equal(openaiStages.thinkAdapter.structuredOutputMode, "prompt_only");
     assert.equal(openaiStages.decideAdapter.structuredOutputMode, "strict");
     const googleStages = createLlmStageAdapters(geminiConfig);
@@ -106,9 +107,9 @@ test("two_stage 阶段绑定为同一模型创建 prompt_only Think 与 strict D
         LLM_STRUCTURED_OUTPUT_MODE: "two_stage",
     });
     const compatibleStages = createLlmStageAdapters(compatibleConfig);
-    assert.equal(compatibleStages.thinkAdapter.structuredOutputMode, "prompt_only");
+    assert.equal(compatibleStages.thinkAdapter, compatibleStages.decideAdapter);
+    assert.equal(compatibleStages.thinkAdapter.structuredOutputMode, undefined);
     assert.ok(compatibleStages.decideAdapter instanceof OpenAICompatible);
-    assert.equal(compatibleStages.decideAdapter.structuredOutputMode, "strict");
 });
 
 test("loadRuntimeConfig 支持两阶段配置", async () => {

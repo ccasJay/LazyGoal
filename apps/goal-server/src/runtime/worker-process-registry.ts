@@ -1,8 +1,12 @@
 import { createHash, randomBytes } from "node:crypto";
-import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { WorkerProgress } from "./worker-process";
+import { WorkerExecutionUnavailableError } from "./worker-execution-error";
+
+const SOCKET_FILE_PREFIX = "lgw-";
+const SOCKET_FILE_SUFFIX = ".sock";
 
 /**
  * 可重新认证 Worker 进程所需的私有注册信息。
@@ -55,9 +59,167 @@ function registrationFile(dataDirectory: string, workerId: string): string {
     return join(registryDirectory(dataDirectory), `${createHash("sha256").update(workerId).digest("hex")}.json`);
 }
 
-function socketFor(dataDirectory: string, workerId: string): string {
+/**
+ * Worker 本地通道无法生成可用的 socket 路径。
+ *
+ * @remarks
+ * `reason` 为 `length` 表示所有可用根下的路径都超出平台上限；为 `root` 表示没有任何
+ * 可复用的私有根或目录根。`pathLength` 与实际平台上限只用于服务端诊断，不包含路径本身。
+ *
+ * @example
+ * ```ts
+ * throw new WorkerSocketPathError("length", 124, 103);
+ * ```
+ */
+export class WorkerSocketPathError extends Error {
+    readonly code = "WORKER_SOCKET_PATH_UNUSABLE" as const;
+
+    /**
+     * @param reason - 失败类别：长度超限或没有可用根。
+     * @param pathLength - 已尝试的最小候选路径字节长度。
+     * @param limit - 当前平台的 socket 路径可用字节上限。
+     */
+    constructor(
+        readonly reason: "length" | "root",
+        readonly pathLength: number,
+        readonly limit: number,
+    ) {
+        super(reason === "length"
+            ? `Worker socket path is ${pathLength} bytes, exceeding the ${limit}-byte platform limit`
+            : `No usable Worker socket root exists for a ${pathLength}-byte path within the ${limit}-byte platform limit`);
+        this.name = "WorkerSocketPathError";
+    }
+}
+
+/**
+ * Worker socket 路径解析的测试与平台覆盖项。
+ *
+ * @remarks
+ * 默认在 POSIX 上先尝试仅当前用户可访问的 `/tmp/lazygoal-<uid>`，再回退到
+ * `os.tmpdir()`；覆盖项用于在不修改 `TMPDIR` 的前提下验证回退、属主与长度行为。
+ *
+ * @example
+ * ```ts
+ * const options: WorkerSocketPathOptions = { privateRoots: ["/tmp/lazygoal-501"], fallbackRoots: ["/tmp"], limit: 103 };
+ * ```
+ */
+export interface WorkerSocketPathOptions {
+    /** 优先尝试的私有根；必须由期望用户拥有、不是符号链接且仅本人可访问。 */
+    readonly privateRoots?: readonly string[];
+    /** 私有根不可用时依次尝试的目录根；只要求是已存在的目录。 */
+    readonly fallbackRoots?: readonly string[];
+    /** 覆盖平台可用字节上限。 */
+    readonly limit?: number;
+    /** 私有根的期望属主；省略时使用当前进程用户。 */
+    readonly expectedUid?: number;
+}
+
+/**
+ * 解析当前平台的 socket 路径可用字节上限。
+ *
+ * @param platform - 目标平台；省略时使用当前进程平台。
+ * @returns `sun_path` 可用字节数，已为结尾 NUL 预留空间。
+ * @example
+ * ```ts
+ * const limit = workerSocketPathLimit("darwin");
+ * ```
+ */
+export function workerSocketPathLimit(platform: NodeJS.Platform = process.platform): number {
+    if (platform === "darwin") return 103;
+    if (platform === "linux") return 107;
+    return 100;
+}
+
+/**
+ * 为一次 Worker 注册解析可用的 Unix socket 路径。
+ *
+ * @remarks
+ * 路径由固定摘要命名，因此需要缩短的是根目录而不是文件名。解析按可用根顺序返回
+ * 第一个字节长度不超限的候选，不会静默截断。POSIX 默认先创建仅当前用户可访问的短
+ * 私有根，再回退到平台临时目录；私有根已存在但不是目录、是符号链接、属主不符或不
+ * 具有仅本人权限时跳过。所有根都不可用或候选都超限时抛出 {@link WorkerSocketPathError}。
+ *
+ * @param dataDirectory - 当前 LazyGoal 数据目录；参与 Worker 身份的摘要计算。
+ * @param workerId - 新 Worker 的稳定逻辑身份。
+ * @param options - 根目录、长度上限与期望属主的覆盖项。
+ * @returns 未超过当前平台上限的 socket 路径。
+ * @throws WorkerSocketPathError 当没有可用根或所有候选路径超限时抛出。
+ * @example
+ * ```ts
+ * const socketPath = await resolveWorkerSocketPath(dataDirectory, workerId);
+ * ```
+ */
+export async function resolveWorkerSocketPath(
+    dataDirectory: string,
+    workerId: string,
+    options?: WorkerSocketPathOptions,
+): Promise<string> {
+    const limit = options?.limit ?? workerSocketPathLimit();
+    const uid = options?.expectedUid ?? process.getuid?.();
+    const privateRoots = options?.privateRoots ?? defaultPrivateRoots(uid);
+    const fallbackRoots = options?.fallbackRoots ?? [tmpdir()];
+    const fileName = socketFileName(dataDirectory, workerId);
+    let shortest: number | undefined;
+    let usableRootSeen = false;
+    const consider = (candidate: string): number => {
+        const length = Buffer.byteLength(candidate);
+        shortest = shortest === undefined ? length : Math.min(shortest, length);
+        return length;
+    };
+    for (const root of privateRoots) {
+        const candidate = join(root, fileName);
+        if (consider(candidate) > limit) continue;
+        if (!await preparePrivateRoot(root, uid)) continue;
+        usableRootSeen = true;
+        return candidate;
+    }
+    for (const root of fallbackRoots) {
+        const candidate = join(root, fileName);
+        const fits = consider(candidate) <= limit;
+        if (!await isDirectory(root)) continue;
+        usableRootSeen = true;
+        if (fits) return candidate;
+    }
+    throw new WorkerSocketPathError(usableRootSeen ? "length" : "root", shortest ?? Buffer.byteLength(join(tmpdir(), fileName)), limit);
+}
+
+function socketFileName(dataDirectory: string, workerId: string): string {
     const digest = createHash("sha256").update(`${resolve(dataDirectory)}\0${workerId}`).digest("hex").slice(0, 32);
-    return join(tmpdir(), `lgw-${digest}.sock`);
+    return `${SOCKET_FILE_PREFIX}${digest}${SOCKET_FILE_SUFFIX}`;
+}
+
+function defaultPrivateRoots(uid: number | undefined): readonly string[] {
+    return process.platform === "win32" || uid === undefined ? [] : [join("/tmp", `lazygoal-${uid}`)];
+}
+
+async function preparePrivateRoot(root: string, uid: number | undefined): Promise<boolean> {
+    if (uid === undefined) return false;
+    try {
+        await mkdir(root, { mode: 0o700 });
+    } catch (error) {
+        if (!isAlreadyExists(error)) throw error;
+    }
+    let stats: Awaited<ReturnType<typeof lstat>>;
+    try {
+        stats = await lstat(root);
+    } catch (error) {
+        if (isMissing(error)) return false;
+        throw error;
+    }
+    return stats.isDirectory() && stats.uid === uid && (stats.mode & 0o777) === 0o700;
+}
+
+async function isDirectory(root: string): Promise<boolean> {
+    try {
+        return (await lstat(root)).isDirectory();
+    } catch (error) {
+        if (isMissing(error)) return false;
+        throw error;
+    }
+}
+
+function isAlreadyExists(error: unknown): boolean {
+    return typeof error === "object" && error !== null && "code" in error && error.code === "EEXIST";
 }
 
 /**
@@ -78,11 +240,17 @@ export async function createWorkerProcessRegistration(
 ): Promise<WorkerProcessRegistration> {
     if (!workerId.trim() || !generation.trim()) throw new Error("Worker identity is required");
     const directory = registryDirectory(dataDirectory);
-    await mkdir(directory, { recursive: true, mode: 0o700 });
+    let socketPath: string;
+    try {
+        await mkdir(directory, { recursive: true, mode: 0o700 });
+        socketPath = await resolveWorkerSocketPath(dataDirectory, workerId);
+    } catch (error) {
+        throw registrationError(error);
+    }
     const registration: WorkerProcessRegistration = {
         workerId,
         generation,
-        socketPath: socketFor(dataDirectory, workerId),
+        socketPath,
         journalPath: join(directory, `${createHash("sha256").update(workerId).digest("hex")}.journal.json`),
         secret: randomBytes(32).toString("hex"),
         cwd: workspace.executionRoot,
@@ -92,14 +260,20 @@ export async function createWorkerProcessRegistration(
     };
     const path = registrationFile(dataDirectory, workerId);
     const temporary = `${path}.${randomBytes(8).toString("hex")}.tmp`;
-    await writeFile(temporary, JSON.stringify(registration), { mode: 0o600, flag: "wx" });
     try {
+        await writeFile(temporary, JSON.stringify(registration), { mode: 0o600, flag: "wx" });
         await rename(temporary, path);
     } catch (error) {
-        await rm(temporary, { force: true });
-        throw error;
+        await rm(temporary, { force: true }).catch(() => undefined);
+        throw registrationError(error);
     }
     return registration;
+}
+
+function registrationError(error: unknown): WorkerExecutionUnavailableError {
+    return error instanceof WorkerExecutionUnavailableError
+        ? error
+        : new WorkerExecutionUnavailableError("registration", error instanceof Error ? error.message : "Worker registration failed");
 }
 
 /**

@@ -13,8 +13,8 @@ import {
  *
  * @remarks
  * 默认只输出审计结果；只有传入 `--apply` 才删除完全孤立的 Run 清单。混合了
- * 已提交与孤立调用的 Run 不会被部分改写。共享的 `messages/` 正文不在此命令内
- * 删除。
+ * 已提交与孤立调用的 Run 不会被部分改写。清单只含 `model-inputs.jsonl`，同目录的
+ * 轨迹、指标与 Trace 以及同 Goal 共享的 `blobs/` 正文不被删除。
  *
  * @example
  * ```sh
@@ -39,9 +39,10 @@ async function main(): Promise<void> {
     }
 
     const workspace = resolve(values.workspace);
-    const goalStore = new JsonFileGoalStore(join(workspace, "goals"));
-    const trajectoryStore = new JsonFileTrajectoryStore(join(workspace, "trajectories"));
-    const modelInputStore = new JsonFileModelInputStore(join(workspace, "model-inputs"));
+    const goalsDirectory = join(workspace, "goals");
+    const goalStore = new JsonFileGoalStore(goalsDirectory);
+    const trajectoryStore = new JsonFileTrajectoryStore(goalsDirectory);
+    const modelInputStore = new JsonFileModelInputStore(goalsDirectory);
     const goalIds = values.goal === undefined
         ? (await goalStore.listHistory()).entries.map((entry) => entry.goalId)
         : [values.goal];

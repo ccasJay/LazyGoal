@@ -26,7 +26,7 @@ import {
 } from "../../tools/src/index";
 import { InMemoryGoalStore, JsonFileSandboxGrantStore } from "../../storage/src/index";
 import { resolveEffectiveSandboxScope } from "../../sandbox/src/index";
-import type { PermissionMode, ProjectPermissionModeStore } from "../../permission/src/index";
+import { PERMISSION_PRESETS, type PermissionProfile, type ProjectPermissionProfileStore } from "../../permission/src/index";
 import { BaseTestStepExecutor, currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
 
 class FakeStepExecutor extends BaseTestStepExecutor {
@@ -47,13 +47,13 @@ class FakeStepExecutor extends BaseTestStepExecutor {
     }
 }
 
-function createMockModeStore(mode: PermissionMode): ProjectPermissionModeStore {
+function createMockProfileStore(profile: PermissionProfile): ProjectPermissionProfileStore {
     return {
         async get(workspaceId: string) {
-            return { workspaceId, mode, revision: 1 };
+            return { workspaceId, profile, revision: 1 };
         },
-        async set(workspaceId: string, nextMode: PermissionMode, expectedRevision: number) {
-            return { workspaceId, mode: nextMode, revision: expectedRevision + 1 };
+        async update(workspaceId: string, nextProfile: PermissionProfile, expectedRevision: number) {
+            return { workspaceId, profile: nextProfile, revision: expectedRevision + 1 };
         },
     };
 }
@@ -102,7 +102,7 @@ test("WebSearchTool 与 WebFetchTool 正确派生 all_outbound 网络能力", as
     }
 });
 
-test("Default 模式下 web_search 触发沙箱审批挂起且后端不被提前调用", async () => {
+test("workspace-write 档位下 web_search 触发沙箱审批挂起且后端不被提前调用", async () => {
     const tmpDir = await mkdtemp(join(tmpdir(), "lg-web-perm-"));
     try {
         const store = new InMemoryGoalStore();
@@ -134,7 +134,7 @@ test("Default 模式下 web_search 触发沙箱审批挂起且后端不被提前
             toolRegistry: registry,
             workspaceRoot: tmpDir,
             workspaceId: "ws-1",
-            permissionModeStore: createMockModeStore("default"),
+            permissionProfileStore: createMockProfileStore(PERMISSION_PRESETS.ask),
             sandboxPlanResolver: async ({ action, effectiveScope }) => {
                 if (effectiveScope === undefined) return undefined;
                 return {
@@ -195,7 +195,7 @@ test("单次审批后恢复执行：携带核准沙箱网络计划成功调用�
             toolRegistry: registry,
             workspaceRoot: tmpDir,
             workspaceId: "ws-1",
-            permissionModeStore: createMockModeStore("default"),
+            permissionProfileStore: createMockProfileStore(PERMISSION_PRESETS.ask),
             sandboxPlanResolver: async ({ action, effectiveScope }) => {
                 if (effectiveScope === undefined) return undefined;
                 return {
@@ -262,7 +262,7 @@ test("单次审批后恢复执行：携带核准沙箱网络计划成功调用�
     }
 });
 
-test("YOLO 模式下无匹配 Sandbox Grant 时仍对网络请求强制审批", async () => {
+test("workspace-write 档位下无匹配 Sandbox Grant 时仍对网络请求强制审批", async () => {
     const tmpDir = await mkdtemp(join(tmpdir(), "lg-web-perm-"));
     try {
         const store = new InMemoryGoalStore();
@@ -294,7 +294,7 @@ test("YOLO 模式下无匹配 Sandbox Grant 时仍对网络请求强制审批", 
             toolRegistry: registry,
             workspaceRoot: tmpDir,
             workspaceId: "ws-1",
-            permissionModeStore: createMockModeStore("yolo"),
+            permissionProfileStore: createMockProfileStore(PERMISSION_PRESETS.ask),
         });
 
         const goal = createTestGoal("goal-web-yolo", "run-web-yolo");

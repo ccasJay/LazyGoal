@@ -18,8 +18,8 @@ var require_BrowserActionReviewResult_validator = __commonJS({
     var schema13 = { "type": "object", "properties": { "actionId": { "type": "string", "pattern": "\\S" }, "toolId": { "type": "string", "pattern": "\\S" }, "originalInput": {}, "finalInput": {}, "changed": { "type": "boolean" }, "scope": { "$ref": "#/definitions/BrowserActionReviewScope" }, "availableScopes": { "type": "array", "items": { "$ref": "#/definitions/BrowserActionReviewScope" } }, "capability": { "$ref": "#/definitions/BrowserActionCapability" }, "requiresSandboxApproval": { "type": "boolean" }, "reviewRef": { "type": "string", "pattern": "\\S" } }, "required": ["actionId", "toolId", "originalInput", "finalInput", "changed", "scope", "availableScopes", "capability", "requiresSandboxApproval", "reviewRef"], "additionalProperties": false, "description": "\u53EA\u8BFB\u5BA1\u6279\u9884\u68C0\u8FD4\u56DE\u7684\u53EF\u5BA1\u9605\u5185\u5BB9\u3002" };
     var schema14 = { "type": "string", "enum": ["action", "goal", "workspace"], "description": "Action \u5BA1\u9605\u53EF\u7533\u8BF7\u7684\u6388\u6743\u671F\u9650\u3002" };
     var func2 = Object.prototype.hasOwnProperty;
-    var schema16 = { "type": "object", "properties": { "network": { "type": "string", "enum": ["none", "all_outbound"] }, "extraFiles": { "type": "array", "items": { "$ref": "#/definitions/BrowserToolGrantExtraFile" } }, "targetPaths": { "type": "array", "items": { "type": "string" } } }, "required": ["network", "extraFiles", "targetPaths"], "additionalProperties": false, "description": "\u91CD\u65B0\u8BA1\u7B97\u51FA\u7684\u5B9E\u9645\u80FD\u529B\u8303\u56F4\u3002" };
-    var schema17 = { "type": "object", "properties": { "canonicalPath": { "type": "string", "pattern": "\\S" }, "access": { "type": "string", "enum": ["read", "write"] }, "kind": { "type": "string", "enum": ["file", "directory_tree"] } }, "required": ["canonicalPath", "access", "kind"], "additionalProperties": false, "description": "\u5DE5\u5177\u6388\u6743\u6216\u6C99\u7BB1\u8BBF\u95EE\u4E2D\u7684\u5355\u4E2A\u5916\u90E8\u6587\u4EF6/\u76EE\u5F55\u6761\u76EE\u3002" };
+    var schema16 = { "type": "object", "properties": { "network": { "type": "string", "enum": ["none", "all_outbound"] }, "extraFiles": { "type": "array", "items": { "$ref": "#/definitions/BrowserPermissionExtraFile" } }, "targetPaths": { "type": "array", "items": { "type": "string" } } }, "required": ["network", "extraFiles", "targetPaths"], "additionalProperties": false, "description": "\u91CD\u65B0\u8BA1\u7B97\u51FA\u7684\u5B9E\u9645\u80FD\u529B\u8303\u56F4\u3002" };
+    var schema17 = { "type": "object", "properties": { "canonicalPath": { "type": "string", "pattern": "\\S" }, "access": { "type": "string", "enum": ["read", "write"] }, "kind": { "type": "string", "enum": ["file", "directory_tree"] } }, "required": ["canonicalPath", "access", "kind"], "additionalProperties": false, "description": "\u6743\u9650\u8FB9\u754C\u4E2D\u7684\u5355\u4E2A\u5916\u90E8\u6587\u4EF6/\u76EE\u5F55\u6761\u76EE\u3002" };
     function validate13(data, { instancePath = "", parentData, parentDataProperty, rootData = data } = {}) {
       let vErrors = null;
       let errors = 0;
@@ -91,7 +91,7 @@ var require_BrowserActionReviewResult_validator = __commonJS({
               let data2 = data1[i0];
               if (data2 && typeof data2 == "object" && !Array.isArray(data2)) {
                 if (data2.canonicalPath === void 0) {
-                  const err6 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserToolGrantExtraFile/required", keyword: "required", params: { missingProperty: "canonicalPath" }, message: "must have required property 'canonicalPath'" };
+                  const err6 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserPermissionExtraFile/required", keyword: "required", params: { missingProperty: "canonicalPath" }, message: "must have required property 'canonicalPath'" };
                   if (vErrors === null) {
                     vErrors = [err6];
                   } else {
@@ -100,7 +100,7 @@ var require_BrowserActionReviewResult_validator = __commonJS({
                   errors++;
                 }
                 if (data2.access === void 0) {
-                  const err7 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserToolGrantExtraFile/required", keyword: "required", params: { missingProperty: "access" }, message: "must have required property 'access'" };
+                  const err7 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserPermissionExtraFile/required", keyword: "required", params: { missingProperty: "access" }, message: "must have required property 'access'" };
                   if (vErrors === null) {
                     vErrors = [err7];
                   } else {
@@ -109,7 +109,7 @@ var require_BrowserActionReviewResult_validator = __commonJS({
                   errors++;
                 }
                 if (data2.kind === void 0) {
-                  const err8 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserToolGrantExtraFile/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
+                  const err8 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserPermissionExtraFile/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
                   if (vErrors === null) {
                     vErrors = [err8];
                   } else {
@@ -119,7 +119,7 @@ var require_BrowserActionReviewResult_validator = __commonJS({
                 }
                 for (const key1 in data2) {
                   if (!(key1 === "canonicalPath" || key1 === "access" || key1 === "kind")) {
-                    const err9 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserToolGrantExtraFile/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key1 }, message: "must NOT have additional properties" };
+                    const err9 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserPermissionExtraFile/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key1 }, message: "must NOT have additional properties" };
                     if (vErrors === null) {
                       vErrors = [err9];
                     } else {
@@ -132,7 +132,7 @@ var require_BrowserActionReviewResult_validator = __commonJS({
                   let data3 = data2.canonicalPath;
                   if (typeof data3 === "string") {
                     if (!pattern0.test(data3)) {
-                      const err10 = { instancePath: instancePath + "/extraFiles/" + i0 + "/canonicalPath", schemaPath: "#/definitions/BrowserToolGrantExtraFile/properties/canonicalPath/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+                      const err10 = { instancePath: instancePath + "/extraFiles/" + i0 + "/canonicalPath", schemaPath: "#/definitions/BrowserPermissionExtraFile/properties/canonicalPath/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
                       if (vErrors === null) {
                         vErrors = [err10];
                       } else {
@@ -141,7 +141,7 @@ var require_BrowserActionReviewResult_validator = __commonJS({
                       errors++;
                     }
                   } else {
-                    const err11 = { instancePath: instancePath + "/extraFiles/" + i0 + "/canonicalPath", schemaPath: "#/definitions/BrowserToolGrantExtraFile/properties/canonicalPath/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    const err11 = { instancePath: instancePath + "/extraFiles/" + i0 + "/canonicalPath", schemaPath: "#/definitions/BrowserPermissionExtraFile/properties/canonicalPath/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                     if (vErrors === null) {
                       vErrors = [err11];
                     } else {
@@ -153,7 +153,7 @@ var require_BrowserActionReviewResult_validator = __commonJS({
                 if (data2.access !== void 0) {
                   let data4 = data2.access;
                   if (typeof data4 !== "string") {
-                    const err12 = { instancePath: instancePath + "/extraFiles/" + i0 + "/access", schemaPath: "#/definitions/BrowserToolGrantExtraFile/properties/access/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    const err12 = { instancePath: instancePath + "/extraFiles/" + i0 + "/access", schemaPath: "#/definitions/BrowserPermissionExtraFile/properties/access/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                     if (vErrors === null) {
                       vErrors = [err12];
                     } else {
@@ -162,7 +162,7 @@ var require_BrowserActionReviewResult_validator = __commonJS({
                     errors++;
                   }
                   if (!(data4 === "read" || data4 === "write")) {
-                    const err13 = { instancePath: instancePath + "/extraFiles/" + i0 + "/access", schemaPath: "#/definitions/BrowserToolGrantExtraFile/properties/access/enum", keyword: "enum", params: { allowedValues: schema17.properties.access.enum }, message: "must be equal to one of the allowed values" };
+                    const err13 = { instancePath: instancePath + "/extraFiles/" + i0 + "/access", schemaPath: "#/definitions/BrowserPermissionExtraFile/properties/access/enum", keyword: "enum", params: { allowedValues: schema17.properties.access.enum }, message: "must be equal to one of the allowed values" };
                     if (vErrors === null) {
                       vErrors = [err13];
                     } else {
@@ -174,7 +174,7 @@ var require_BrowserActionReviewResult_validator = __commonJS({
                 if (data2.kind !== void 0) {
                   let data5 = data2.kind;
                   if (typeof data5 !== "string") {
-                    const err14 = { instancePath: instancePath + "/extraFiles/" + i0 + "/kind", schemaPath: "#/definitions/BrowserToolGrantExtraFile/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+                    const err14 = { instancePath: instancePath + "/extraFiles/" + i0 + "/kind", schemaPath: "#/definitions/BrowserPermissionExtraFile/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
                     if (vErrors === null) {
                       vErrors = [err14];
                     } else {
@@ -183,7 +183,7 @@ var require_BrowserActionReviewResult_validator = __commonJS({
                     errors++;
                   }
                   if (!(data5 === "file" || data5 === "directory_tree")) {
-                    const err15 = { instancePath: instancePath + "/extraFiles/" + i0 + "/kind", schemaPath: "#/definitions/BrowserToolGrantExtraFile/properties/kind/enum", keyword: "enum", params: { allowedValues: schema17.properties.kind.enum }, message: "must be equal to one of the allowed values" };
+                    const err15 = { instancePath: instancePath + "/extraFiles/" + i0 + "/kind", schemaPath: "#/definitions/BrowserPermissionExtraFile/properties/kind/enum", keyword: "enum", params: { allowedValues: schema17.properties.kind.enum }, message: "must be equal to one of the allowed values" };
                     if (vErrors === null) {
                       vErrors = [err15];
                     } else {
@@ -193,7 +193,7 @@ var require_BrowserActionReviewResult_validator = __commonJS({
                   }
                 }
               } else {
-                const err16 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserToolGrantExtraFile/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+                const err16 = { instancePath: instancePath + "/extraFiles/" + i0, schemaPath: "#/definitions/BrowserPermissionExtraFile/type", keyword: "type", params: { type: "object" }, message: "must be object" };
                 if (vErrors === null) {
                   vErrors = [err16];
                 } else {

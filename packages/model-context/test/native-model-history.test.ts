@@ -4,7 +4,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { ModelAssistantMessage, NativeConversationIdentity } from "../../model-contracts/src/index";
+import {
+    readModelAssistantReasoning,
+    readModelAssistantText,
+    readModelMessageText,
+    readModelToolCalls,
+    type ModelBlockAssistantMessage,
+    type ModelLegacyAssistantMessage,
+    type NativeConversationIdentity,
+} from "../../model-contracts/src/index";
 import { allocateImmutableEvent, createGoal, Runner, GoalCoordinator, InlineScheduler, type TrajectoryEvent, type TrajectoryEventPayload } from "../../runtime/src/index";
 import { createToolRegistration, InMemoryToolRegistry } from "../../tool-core/src/index";
 import { JsonFileGoalStore, JsonFileTrajectoryStore, InMemoryGoalStore } from "../../storage/src/index";
@@ -46,7 +54,7 @@ const initial = () => {
         },
     };
 };
-function message(toolId = "read_file", args: Record<string, unknown> = {}, signature = "signature"): ModelAssistantMessage {
+function message(toolId = "read_file", args: Record<string, unknown> = {}, signature = "signature"): ModelLegacyAssistantMessage {
     return { role: "assistant", content: "Checking", reasoning: "Summary", toolCalls: [{ callId: "provider-call", toolId, argumentsJson: JSON.stringify(args) }],
         continuation: { identity, parts: [{ text: "Checking" }, { functionCall: { name: toolId, args }, thoughtSignature: signature }] } };
 }
@@ -100,7 +108,7 @@ test("settled Think within unfinished step returns once through its native call"
     add({ type: "think_completed", requestId: "think-1", stepOrdinal: 1, goal: "Inspect", output: "Think output" });
     const exchanges = collectNativeModelExchanges(events, identity, projector).get("unit-1")!;
     assert.equal(exchanges.length, 1);
-    assert.deepEqual(JSON.parse(exchanges[0]!.messages[1]!.content), { kind: "think_completed", output: "Think output" });
+    assert.deepEqual(JSON.parse(readModelMessageText(exchanges[0]!.messages[1]!)), { kind: "think_completed", output: "Think output" });
 });
 
 for (const kind of ["wait", "ask_user", "task_proposal", "complete", "fail"] as const) test(`system ${kind} returns an accepted-state acknowledgement`, () => {
@@ -111,7 +119,7 @@ for (const kind of ["wait", "ask_user", "task_proposal", "complete", "fail"] as 
         : kind === "fail" ? { type: "run_failed", error: "Failed" } as any
         : { type: "run_waiting", reason: "agent_wait" });
     const exchange = collectNativeModelExchanges(events, identity, projector).get("unit-1")![0]!;
-    assert.equal(JSON.parse(exchange.messages[1]!.content).kind, "decision_accepted");
+    assert.equal(JSON.parse(readModelMessageText(exchange.messages[1]!)).kind, "decision_accepted");
 });
 
 test("lookup result closes its system call", () => {
@@ -121,7 +129,7 @@ test("lookup result closes its system call", () => {
     add({ type: "context_lookup_requested", lookupId: "lookup", request: { need: "historical_execution", question: "Find" } } as any);
     add({ type: "context_lookup_not_found", lookupId: "lookup", result: { status: "not_found", lookupId: "lookup" } });
     const exchange = collectNativeModelExchanges(events, identity, projector).get("unit-1")![0]!;
-    const result = JSON.parse(exchange.messages[1]!.content).result;
+    const result = JSON.parse(readModelMessageText(exchange.messages[1]!)).result;
     assert.equal(result.status, "not_found");
     assert.equal(result.sourceScope, "goal_history");
     assert.match(result.limitations, /does not prove/);
@@ -134,6 +142,57 @@ test("provider/model/endpoint changes and a semantic interlude terminate the nat
     }
     add({ type: "model_context_frame", stage: "decide", nativeIdentity: null, epochNumber: 0, conversationPosition: 0, sections: [] }, "semantic-step");
     assert.equal(collectNativeModelExchanges(events, identity, projector).size, 0);
+});
+
+test("OpenAI-compatible history replays only a committed same-identity shared block exchange", () => {
+    const compatibleIdentity: NativeConversationIdentity = {
+        provider: "openai-compatible",
+        endpoint: "https://gateway.example/v1",
+        model: "model-a",
+        protocol: "openai-chat",
+    };
+    const message: ModelBlockAssistantMessage = {
+        role: "assistant",
+        blocks: [
+            { index: 0, type: "text", format: "plain", text: "Read the file." },
+            { index: 1, type: "reasoning", source: "reasoning_content", text: "Preserve this opaque continuation." },
+            { index: 2, type: "reasoning", source: "thought", text: "Do not send this extension." },
+            { index: 3, type: "tool_call", callId: "compatible-call", toolId: "read_file", argumentsJson: '{"path":"README.md"}' },
+        ],
+        continuation: { identity: compatibleIdentity },
+    };
+    const makeEvents = (settled: boolean): TrajectoryEvent[] => {
+        const events: TrajectoryEvent[] = [];
+        const add = (payload: TrajectoryEventPayload): void => {
+            events.push(allocateImmutableEvent({
+                goalId: "compatible-goal", runId: "compatible-run", phase: "executing",
+                executionUnitId: "compatible-unit", eventType: payload.type, payload,
+            } as never, events.length + 1));
+        };
+        const action = { actionId: "runtime-action", toolId: "read_file", input: { path: "README.md" } };
+        add({ type: "model_response_received", stage: "decide", modelCallId: "model-call", epochNumber: 0,
+            conversationPosition: 0, message });
+        add({ type: "decision_received", decision: { kind: "tool_call", action } });
+        if (settled) add({ type: "observation_recorded", actionId: action.actionId,
+            observation: { kind: "success", output: "README contents", summary: "Read README" } });
+        return events;
+    };
+
+    const committed = collectNativeModelExchanges(makeEvents(true), compatibleIdentity, projector).get("compatible-unit")![0]!;
+    const assistant = committed.messages[0]!;
+    assert.equal(assistant.role, "assistant");
+    if (assistant.role !== "assistant" || !("blocks" in assistant)) throw new Error("Expected shared-block assistant history");
+    assert.deepEqual(assistant.blocks, message.blocks);
+    assert.deepEqual(readModelToolCalls(assistant), [{ callId: "compatible-call", toolId: "read_file", argumentsJson: '{"path":"README.md"}' }]);
+    assert.equal(readModelAssistantText(assistant), "Read the file.");
+    assert.equal(readModelAssistantReasoning(assistant, "reasoning_content"), "Preserve this opaque continuation.");
+    assert.equal(readModelAssistantReasoning(assistant, "thought"), "Do not send this extension.");
+    const tool = committed.messages[1]!;
+    assert.equal(tool.role, "tool");
+    if (tool.role === "tool") assert.equal(tool.callId, "compatible-call");
+
+    assert.equal(collectNativeModelExchanges(makeEvents(true), { ...compatibleIdentity, model: "model-b" }, projector).size, 0);
+    assert.equal(collectNativeModelExchanges(makeEvents(false), compatibleIdentity, projector).size, 0);
 });
 
 async function assembledRequest(fixture: ReturnType<typeof actionFixture>, budget = 100000, boundary = fixture.events.length) {
@@ -155,14 +214,14 @@ test("assembler uses only committed exchanges, strips duplicate Hot payload, and
     assert.equal(tail.request.messages.some(message => message.role === "tool"), false);
     const large = await assembledRequest(actionFixture("success", "s".repeat(1000000)), 100000);
     assert.equal(large.request.messages.some(message => message.role === "tool" || message.role === "assistant" && message.continuation !== undefined), false);
-    const warm = JSON.parse(large.request.messages.at(-1)!.content).trajectoryContext.warm;
+    const warm = JSON.parse(readModelMessageText(large.request.messages.at(-1)!)).trajectoryContext.warm;
     assert.ok(warm.some((entry: { evidenceSequences: number[] }) => entry.evidenceSequences.includes(fixture.events.at(-1)!.sequence)));
     assert.equal(JSON.stringify(warm).includes("thoughtSignature"), false);
 });
 
 test("native Decide accepts multiple calls as an ordered batch", async () => {
     const adapter: LLMAdapter = { structuredOutputMode: "strict", nativeConversationIdentity: identity, async generate() {
-        const call = message("read_file", { path: "README.md" }).toolCalls![0]!;
+        const call = readModelToolCalls(message("read_file", { path: "README.md" }))[0]!;
         return blockResponse(
             { type: "tool_call", ...call },
             { type: "tool_call", ...call, callId: "provider-call-2" },
@@ -200,9 +259,9 @@ const responseFor = (toolId: string, args: Record<string, unknown>, callId = "pr
     const saved = message(toolId, args);
     return {
         ...blockResponse(
-            { type: "text", text: saved.content },
-            { type: "reasoning", text: saved.reasoning! },
-            { type: "tool_call", ...saved.toolCalls![0]!, callId },
+            { type: "text", text: readModelAssistantText(saved) },
+            { type: "reasoning", text: readModelAssistantReasoning(saved)! },
+            { type: "tool_call", ...readModelToolCalls(saved)[0]!, callId },
         ),
         ...(saved.continuation === undefined ? {} : { continuation: saved.continuation }),
     };
@@ -275,7 +334,7 @@ test("Runner restores a settled Think before final decision and sends its output
         const tools = request.messages.filter(message => message.role === "tool");
         assert.equal(tools.length, 1);
         assert.equal(JSON.parse(tools[0]!.content).output, "Think output");
-        assert.equal(request.messages.filter(message => message.role === "assistant" && message.content === "Think output").length, 0);
+        assert.equal(request.messages.filter(message => message.role === "assistant" && readModelMessageText(message) === "Think output").length, 0);
         return responseFor("system_wait_for_input", { reason: "Await user", memoryPatch: null }, "wait-call");
     });
     const result = await new Runner({ store, trajectoryStore: trajectory, executor: executorFor(resumed, trajectory, thinkAdapter) })
@@ -322,9 +381,9 @@ test("approval waiting restores the same native call ID and executes the approve
     const trajectory = createInMemoryTrajectoryStore();
     await store.save(initial());
     let executed = 0;
-    const registry = new InMemoryToolRegistry([createTestToolRegistration({ definition: { id: "read_file", description: "Read", isReadOnly: true, inputBinding: createTestBinding("test.read_file", objectInputSchema()) }, replayPolicy: "safe", validate: () => ({ ok: true }),
+    const registry = new InMemoryToolRegistry([createTestToolRegistration({ definition: { id: "read_file", description: "Read", isReadOnly: true, inputBinding: createTestBinding("test.read_file", objectInputSchema()) }, replayPolicy: "safe", validate: () => ({ ok: true }), resolveSandboxAccess: () => ({ files: [{ path: ".git/index", access: "write", kind: "file", purpose: "审批覆盖一次越界写入" }] }),
         async execute() { executed++; return { kind: "success", output: "Read", summary: "Observed" }; } })]);
-    const waiting = await new Runner({ store, trajectoryStore: trajectory, executor: executorFor(nativeAdapter(async () => responseFor("read_file", {})), trajectory), toolRegistry: registry, toolPolicy: { evaluate: () => "require_approval" } })
+    const waiting = await new Runner({ store, trajectoryStore: trajectory, workspaceRoot: tmpdir(), executor: executorFor(nativeAdapter(async () => responseFor("read_file", {})), trajectory), toolRegistry: registry })
         .run({ goalId: "native-goal", runId: "native-run" });
     assert.equal(waiting.ok, true);
     if (!waiting.ok) return;
@@ -338,7 +397,7 @@ test("approval waiting restores the same native call ID and executes the approve
         assert.equal(JSON.parse(results[0]!.content).actionId, pending.action.actionId);
         return responseFor("system_wait_for_input", { reason: "Await user", memoryPatch: null }, "wait-call");
     });
-    const runner = new Runner({ store, trajectoryStore: trajectory, executor: executorFor(resumed, trajectory), toolRegistry: registry, toolPolicy: { evaluate: () => "allow" } });
+    const runner = new Runner({ store, trajectoryStore: trajectory, workspaceRoot: tmpdir(), executor: executorFor(resumed, trajectory), toolRegistry: registry });
     const coordinator = new GoalCoordinator({ store, trajectoryStore: trajectory, scheduler: new InlineScheduler(runner) });
     const result = await coordinator.resume({ ref: { goalId: "native-goal", runId: "native-run" }, action: { kind: "approve_action", actionId: pending.action.actionId } });
     assert.equal(result.ok, true);
@@ -351,7 +410,7 @@ test("已保留原生交换只含一次动作参数，Hot 投影不再重复包�
 
     const plan = await assembledRequest(fixtureWithArgs);
     const lastUserMessage = plan.request.messages.at(-1)!;
-    const workingContextPayload = JSON.parse(lastUserMessage.content);
+    const workingContextPayload = JSON.parse(readModelMessageText(lastUserMessage));
     const hotUnits = workingContextPayload.trajectoryContext.hot;
     assert.equal(hotUnits.length, 1);
     const events = hotUnits[0].events;

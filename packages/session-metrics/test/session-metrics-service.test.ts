@@ -12,7 +12,11 @@ import type {
     ModelCallMetricRecord,
 } from "../../runtime/src/model-call-metrics";
 import { JsonFileMetricsStore } from "../../storage/src/index";
-import { SessionMetricsProjectionError, SessionMetricsService } from "../src/index";
+import {
+    SessionMetricsProjectionError,
+    SessionMetricsService,
+    type SessionMetricsContextCapacityResolver,
+} from "../src/index";
 
 const profile = {
     id: "metrics-profile",
@@ -80,7 +84,11 @@ function finish(
     };
 }
 
-function serviceFor(recordsByRun: ReadonlyMap<string, readonly ModelCallMetricRecord[]>, goal = goalWithRuns()) {
+function serviceFor(
+    recordsByRun: ReadonlyMap<string, readonly ModelCallMetricRecord[]>,
+    goal = goalWithRuns(),
+    resolveCapacity?: SessionMetricsContextCapacityResolver,
+) {
     const goals = { async restore(goalId: string) { return goalId === goal.id ? goal : undefined; } };
     const metrics: MetricsStore = {
         async append() {},
@@ -103,7 +111,7 @@ function serviceFor(recordsByRun: ReadonlyMap<string, readonly ModelCallMetricRe
         },
         async readCoverage() { return coverage; },
     };
-    return new SessionMetricsService(goals, metrics, coverageStore);
+    return new SessionMetricsService(goals, metrics, coverageStore, resolveCapacity);
 }
 
 test("SessionMetricsService combines active and completed Run snapshots with deduplicated facts", async () => {
@@ -222,7 +230,7 @@ test("SessionMetricsService derives cache hit rate and end-to-end output rate fr
     assert.equal(snapshot.tokensPerSecond, 90 / 5.5);
 });
 
-test("SessionMetricsService reports context left only for the latest confirmed call on the selected model", async () => {
+test("SessionMetricsService reports context capacity independently from settled model usage", async () => {
     const base = goalWithRuns();
     const goal = {
         ...base,
@@ -231,26 +239,64 @@ test("SessionMetricsService reports context left only for the latest confirmed c
             modelSelection: { ...base.state.modelSelection, modelId: "current-model", contextWindowTokens: 200 },
         },
     };
+    const resolveCapacity: SessionMetricsContextCapacityResolver = (current) => {
+        const window = current.state.modelSelection.contextWindowTokens;
+        return window === undefined
+            ? undefined
+            : { capacityTokens: window, thresholdPercent: 80, source: "model" };
+    };
     const current = [
         start(goal.id, "run-current", "first", "current-model"),
         finish(goal.id, "run-current", "first", { source: "provider_reported", inputTokens: 100, outputTokens: 20 }),
     ];
-    const confirmed = await serviceFor(new Map([["run-current", current]]), goal).read(goal.id);
-    assert.equal(confirmed?.contextRemainingPercent, 0.4);
+    const confirmed = await serviceFor(new Map([["run-current", current]]), goal, resolveCapacity).read(goal.id);
+    assert.deepEqual(confirmed?.contextCapacity, { capacityTokens: 200, source: "model" });
+    assert.equal(confirmed?.contextUsage?.usedPercent, 0.6);
+    assert.equal(confirmed?.contextUsage?.capacityTokens, 200);
+    assert.equal(confirmed?.contextUsage?.source, "model");
+    assert.equal(confirmed?.contextUsage?.estimated, false);
+
+    const estimated = await serviceFor(new Map([["run-current", [
+        ...current,
+        start(goal.id, "run-current", "estimate", "current-model"),
+        finish(goal.id, "run-current", "estimate", { source: "estimated", inputTokens: 60 }),
+    ]]]), goal, resolveCapacity).read(goal.id);
+    assert.deepEqual(estimated?.contextCapacity, { capacityTokens: 200, source: "model" });
+    assert.equal(estimated?.contextUsage?.usedPercent, 0.3);
+    assert.equal(estimated?.contextUsage?.estimated, true);
+
+    const configured = await serviceFor(new Map([["run-current", current]]), goal, () =>
+        ({ capacityTokens: 400, thresholdPercent: 70, source: "configured" })).read(goal.id);
+    assert.deepEqual(configured?.contextCapacity, { capacityTokens: 400, source: "configured" });
+    assert.equal(configured?.contextUsage?.usedPercent, 0.3);
+    assert.equal(configured?.contextUsage?.source, "configured");
 
     const switched = await serviceFor(new Map([["run-current", [
         ...current,
         start(goal.id, "run-current", "next", "other-model"),
         finish(goal.id, "run-current", "next", { source: "provider_reported", inputTokens: 50, outputTokens: 10 }),
-    ]]]), goal).read(goal.id);
-    assert.equal(switched?.contextRemainingPercent, null);
+    ]]]), goal, resolveCapacity).read(goal.id);
+    assert.deepEqual(switched?.contextCapacity, { capacityTokens: 200, source: "model" });
+    assert.equal(switched?.contextUsage, null);
+
+    const pending = await serviceFor(new Map([["run-current", [
+        ...current,
+        start(goal.id, "run-current", "pending", "current-model"),
+    ]]]), goal, resolveCapacity).read(goal.id);
+    assert.deepEqual(pending?.contextCapacity, { capacityTokens: 200, source: "model" });
+    assert.equal(pending?.contextUsage, null);
 
     const unavailable = await serviceFor(new Map([["run-current", [
         ...current,
         start(goal.id, "run-current", "next", "current-model"),
         finish(goal.id, "run-current", "next", { source: "unavailable" }),
-    ]]]), goal).read(goal.id);
-    assert.equal(unavailable?.contextRemainingPercent, null);
+    ]]]), goal, resolveCapacity).read(goal.id);
+    assert.deepEqual(unavailable?.contextCapacity, { capacityTokens: 200, source: "model" });
+    assert.equal(unavailable?.contextUsage, null);
+
+    const noCapacity = await serviceFor(new Map([["run-current", current]]), goal).read(goal.id);
+    assert.equal(noCapacity?.contextCapacity, null);
+    assert.equal(noCapacity?.contextUsage, null);
 });
 
 test("SessionMetricsService returns unavailable efficiency values when no call qualifies", async () => {

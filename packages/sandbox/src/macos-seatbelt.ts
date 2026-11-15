@@ -1,7 +1,9 @@
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
+
+import type { SandboxMode } from "./capability";
 
 /** macOS 系统固定的 sandbox-exec 可执行文件路径。 */
 export const SANDBOX_EXEC_PATH = "/usr/bin/sandbox-exec";
@@ -11,6 +13,8 @@ export const SANDBOX_EXEC_PATH = "/usr/bin/sandbox-exec";
  *
  * @remarks
  * 规范化的路径必须是已经解析真实符号链接的绝对路径。
+ * `sandboxMode` 只决定文件系统边界；出站网络始终由 `network` 独立决定。
+ * 三档都拒绝写入工作区 `.lazygoal`，`danger-full-access` 还拒绝写入用户主目录 `.lazygoal`。
  *
  * @example
  * ```ts
@@ -18,6 +22,7 @@ export const SANDBOX_EXEC_PATH = "/usr/bin/sandbox-exec";
  *     canonicalWorkspaceRoot: "/Users/user/project",
  *     privateTmpDir: "/tmp/lazygoal-sandbox-123",
  *     protectedPaths: ["/Users/user/project/.git"],
+ *     sandboxMode: "workspace-write",
  * };
  * ```
  */
@@ -32,6 +37,15 @@ export interface SeatbeltPolicyOptions {
     readonly extraReadPaths?: readonly string[];
     /** 额外允许写入的文件或目录规范化路径。 */
     readonly extraWritePaths?: readonly string[];
+    /**
+     * 文件系统边界档位，缺省为 `"workspace-write"`。
+     *
+     * @remarks
+     * `"workspace-write"` 允许工作区与 `extraWritePaths` 写入；`"read-only"` 取消这两处写权限，
+     * 仅保留 `/dev` 与私有临时目录可写；`"danger-full-access"` 放行整机读写，但仍拒绝写入
+     * 工作区与用户主目录下的 `.lazygoal` 以及 `protectedPaths`。
+     */
+    readonly sandboxMode?: SandboxMode;
     /** 网络策略：默认为 "none"（完全断网），"all_outbound" 放行任意目标出站连接（含回环）。 */
     readonly network?: "none" | "all_outbound";
 }
@@ -57,6 +71,8 @@ export function isSeatbeltSupported(): boolean {
  *
  * @remarks
  * 用于准确报告当前操作系统平台与运行环境的沙箱能力，防止向用户或上层虚假声明受 Seatbelt 保护。
+ * `isProtected` 为 `false` 表示文件与网络边界均未被平台强制，具体原因由 `description` 给出；
+ * 该状态不区分档位，也不表示审批或规则裁决失效。
  *
  * @example
  * ```ts
@@ -67,7 +83,7 @@ export function isSeatbeltSupported(): boolean {
 export interface SandboxProtectionStatus {
     /** 当前生效的沙箱后端技术标识。 */
     readonly backend: "macos_seatbelt" | "unsupported";
-    /** 当前是否处于 Seatbelt 保护下。 */
+    /** 平台是否具备 Seatbelt 强制能力；为 false 时文件与网络边界均未强制。 */
     readonly isProtected: boolean;
     /** 面向展示或诊断的状态可读说明。 */
     readonly description: string;
@@ -101,8 +117,8 @@ export function getSandboxProtectionStatus(
         backend: "unsupported",
         isProtected: false,
         description: platform === "darwin"
-            ? "macOS Seatbelt 不可用"
-            : `当前平台 (${platform}) 未启用 Seatbelt 沙箱保护`,
+            ? "macOS sandbox-exec 不可用；文件与网络边界未强制"
+            : `当前平台 (${platform}) 未启用 Seatbelt 沙箱保护；文件与网络边界未强制`,
     };
 }
 
@@ -192,7 +208,32 @@ function expandPathVariants(p: string): string[] {
 }
 
 /**
+ * 将路径集合展开为去重的 Seatbelt 路径匹配子句，保持首次出现顺序。
+ */
+function renderPathClauses(paths: readonly string[]): string {
+    const seen = new Set<string>();
+    const clauses: string[] = [];
+
+    for (const path of paths) {
+        for (const variant of expandPathVariants(path)) {
+            if (seen.has(variant)) continue;
+            seen.add(variant);
+            clauses.push(`    (subpath "${variant}")\n    (literal "${variant}")`);
+        }
+    }
+
+    return clauses.join("\n");
+}
+
+/**
  * 为受限命令生成 macOS Seatbelt (sbpl) 策略文本。
+ *
+ * @remarks
+ * 默认生成 `workspace-write` 策略：工作区与 `extraWritePaths` 可写，其余路径只读。
+ * `read-only` 取消工作区与 `extraWritePaths` 的写权限，只保留 `/dev` 与私有临时目录可写；
+ * `danger-full-access` 放行整机读写，但仍拒绝写入工作区与用户主目录下的 `.lazygoal`
+ * 以及 `protectedPaths`。三档都按 `network` 决定是否放行出站网络。
+ * 相同输入与当前用户主目录产生完全一致的策略文本。
  *
  * @param options - 策略构建参数。
  * @returns 符合 Scheme 语法的 Seatbelt 策略文本。
@@ -202,6 +243,7 @@ function expandPathVariants(p: string): string[] {
  * const policy = buildSeatbeltPolicy({
  *     canonicalWorkspaceRoot: "/workspace/project",
  *     privateTmpDir: "/tmp/sandbox-1",
+ *     sandboxMode: "read-only",
  * });
  * ```
  */
@@ -212,47 +254,64 @@ export function buildSeatbeltPolicy(options: SeatbeltPolicyOptions): string {
         protectedPaths = [],
         extraReadPaths = [],
         extraWritePaths = [],
+        sandboxMode = "workspace-write",
         network = "none",
     } = options;
 
     const workspaceVariants = expandPathVariants(canonicalWorkspaceRoot);
     const tmpVariants = expandPathVariants(privateTmpDir);
+    const fullAccess = sandboxMode === "danger-full-access";
 
-    const workspaceReadClauses = workspaceVariants
-        .map((p) => `    (subpath "${p}")\n    (literal "${p}")`)
-        .join("\n");
+    const workspaceReadClauses = renderPathClauses(workspaceVariants);
+    const tmpReadClauses = renderPathClauses(tmpVariants);
+    const extraReadClauses = renderPathClauses([...extraReadPaths, ...extraWritePaths]);
 
-    const tmpReadClauses = tmpVariants
-        .map((p) => `    (subpath "${p}")\n    (literal "${p}")`)
-        .join("\n");
+    const workspaceWriteClauses = renderPathClauses(workspaceVariants);
+    const tmpWriteClauses = renderPathClauses(tmpVariants);
+    const extraWriteClauses = renderPathClauses(extraWritePaths);
 
-    const allReadPaths = Array.from(new Set([...extraReadPaths, ...extraWritePaths]));
-    const extraReadClauses = allReadPaths
-        .flatMap(expandPathVariants)
-        .map((p) => `    (subpath "${p}")\n    (literal "${p}")`)
-        .join("\n");
+    const writablePathClauses = sandboxMode === "read-only"
+        ? tmpWriteClauses
+        : [workspaceWriteClauses, tmpWriteClauses, extraWriteClauses]
+            .filter((clauses) => clauses !== "")
+            .join("\n");
 
-    const workspaceWriteClauses = workspaceVariants
-        .map((p) => `    (subpath "${p}")\n    (literal "${p}")`)
-        .join("\n");
+    const workspaceLazygoalPaths = workspaceVariants.map((p) => `${p}/.lazygoal`);
+    const deniedWritePaths = fullAccess
+        ? [...workspaceLazygoalPaths, join(homedir(), ".lazygoal"), ...protectedPaths]
+        : [...workspaceLazygoalPaths, ...protectedPaths];
+    const deniedWriteClauses = renderPathClauses(deniedWritePaths);
 
-    const tmpWriteClauses = tmpVariants
-        .map((p) => `    (subpath "${p}")\n    (literal "${p}")`)
-        .join("\n");
+    const fileReadSection = fullAccess
+        ? "(allow file-read*)"
+        : `(allow file-read*
+    (subpath "/bin")
+    (subpath "/sbin")
+    (subpath "/usr")
+    (subpath "/System")
+    (subpath "/Library")
+    (subpath "/opt")
+    (subpath "/private/etc")
+    (subpath "/etc")
+    (subpath "/dev")
+${[workspaceReadClauses, tmpReadClauses, extraReadClauses]
+        .filter((clauses) => clauses !== "")
+        .join("\n")}
+)`;
 
-    const extraWriteClauses = extraWritePaths
-        .flatMap(expandPathVariants)
-        .map((p) => `    (subpath "${p}")\n    (literal "${p}")`)
-        .join("\n");
-
-    const lazygoalDenyClauses = workspaceVariants
-        .map((p) => `    (subpath "${p}/.lazygoal")\n    (literal "${p}/.lazygoal")`)
-        .join("\n");
-
-    const protectedDenyClauses = protectedPaths
-        .flatMap(expandPathVariants)
-        .map((p) => `    (subpath "${p}")\n    (literal "${p}")`)
-        .join("\n");
+    const fileWriteSection = fullAccess
+        ? "(allow file-write*)"
+        : `(allow file-write-data
+    (literal "/dev/null")
+    (literal "/dev/zero")
+    (literal "/dev/tty")
+    (literal "/dev/stdout")
+    (literal "/dev/stderr")
+    (literal "/dev/stdin")
+)
+(allow file-write*
+${writablePathClauses}
+)`;
 
     const networkClause = network === "all_outbound"
         ? "(allow network-outbound)\n"
@@ -265,36 +324,10 @@ export function buildSeatbeltPolicy(options: SeatbeltPolicyOptions): string {
 (allow process-fork)
 (allow signal (target self))
 (allow file-read-metadata)
-(allow file-read*
-    (subpath "/bin")
-    (subpath "/sbin")
-    (subpath "/usr")
-    (subpath "/System")
-    (subpath "/Library")
-    (subpath "/opt")
-    (subpath "/private/etc")
-    (subpath "/etc")
-    (subpath "/dev")
-${workspaceReadClauses}
-${tmpReadClauses}
-${extraReadClauses}
-)
-(allow file-write-data
-    (literal "/dev/null")
-    (literal "/dev/zero")
-    (literal "/dev/tty")
-    (literal "/dev/stdout")
-    (literal "/dev/stderr")
-    (literal "/dev/stdin")
-)
-(allow file-write*
-${workspaceWriteClauses}
-${tmpWriteClauses}
-${extraWriteClauses}
-)
+${fileReadSection}
+${fileWriteSection}
 (deny file-write*
-${lazygoalDenyClauses}
-${protectedDenyClauses}
+${deniedWriteClauses}
 )
 ${networkClause}`;
 }

@@ -1,5 +1,6 @@
 import {
     isModelAssistantMessage,
+    readModelToolCalls,
     type ModelAssistantMessage,
     type NativeConversationIdentity,
 } from "../../model-contracts/src/index";
@@ -273,8 +274,10 @@ export type TrajectoryEventPayload =
         readonly type: "context_epoch_advanced";
         readonly closedEpoch: EpochRange;
         readonly openedEpoch: ModelContextEpochState;
-        readonly reason: "conversation_pruned" | "input_threshold" | "task_approved";
+        readonly reason: "conversation_pruned" | "input_threshold" | "task_approved" | "threshold_compaction" | "context_window_recovery" | "command_compaction";
         readonly memoryRevisionEventId?: string;
+        /** 一轮提炼产物；省略表示本次切换不是由 Compact 产生。 */
+        readonly compaction?: ContextEpochCompaction;
     }
     | {
         readonly type: "context_epoch_closed";
@@ -513,6 +516,37 @@ export interface EpochRange {
     readonly conversationStartIndex: number;
     readonly conversationEndIndexExclusive: number;
     readonly closedThroughSequence: number;
+}
+
+/**
+ * 一个 Epoch 的阈值提炼产物。
+ *
+ * @remarks
+ * 正文只记录仍影响接续的已验证发现、未解决问题与关键决策理由；来源范围指向被移出
+ * 工作窗口的已提交事件，供恢复时核验。正文不进入 Goal 快照。
+ *
+ * @example
+ * ```ts
+ * const compaction: ContextEpochCompaction = {
+ *     body: "已验证：改用原生 dialog。",
+ *     sourceRunId: "run-1",
+ *     firstSequence: 1,
+ *     lastSequence: 12,
+ *     eventIds: ["event-1", "event-12"],
+ * };
+ * ```
+ */
+export interface ContextEpochCompaction {
+    /** 保留接续所需信息的压缩正文。 */
+    readonly body: string;
+    /** 被提炼历史的来源 Run。 */
+    readonly sourceRunId: string;
+    /** 来源范围的首个已提交序号。 */
+    readonly firstSequence: number;
+    /** 来源范围的末个已提交序号。 */
+    readonly lastSequence: number;
+    /** 来源范围内的代表事件身份，用于恢复核验。 */
+    readonly eventIds: readonly string[];
 }
 
 interface TrajectoryEventMetadata {
@@ -1313,11 +1347,12 @@ function assertPayload(payload: unknown, eventType: unknown): void {
             || !isModelAssistantMessage(payload.message) || payload.message.continuation === undefined) {
             throw new TrajectoryProtocolError("model_response_received contains invalid native response data");
         }
-        if (payload.stage === "decide" && payload.message.toolCalls?.length !== 1
-            || payload.stage === "think" && (payload.message.toolCalls?.length ?? 0) !== 0) {
+        const toolCalls = readModelToolCalls(payload.message);
+        if (payload.stage === "decide" && toolCalls.length !== 1
+            || payload.stage === "think" && toolCalls.length !== 0) {
             throw new TrajectoryProtocolError("model_response_received tool calls disagree with stage");
         }
-        for (const call of payload.message.toolCalls ?? []) {
+        for (const call of toolCalls) {
             let argumentsValue: unknown;
             try { argumentsValue = JSON.parse(call.argumentsJson); }
             catch { throw new TrajectoryProtocolError("model_response_received contains invalid tool argument JSON"); }
@@ -1328,7 +1363,7 @@ function assertPayload(payload: unknown, eventType: unknown): void {
     }
     if (eventType === "model_context_frame") {
         if (payload.nativeIdentity !== undefined && payload.nativeIdentity !== null
-            && !isModelAssistantMessage({ role: "assistant", content: "", continuation: {
+            && !isModelAssistantMessage({ role: "assistant", blocks: [], continuation: {
                 identity: payload.nativeIdentity,
                 ...(isRecord(payload.nativeIdentity) && payload.nativeIdentity.protocol === "gemini-content" ? { parts: [] } : {}),
             } })) throw new TrajectoryProtocolError("model_context_frame.nativeIdentity is invalid");
@@ -1544,20 +1579,37 @@ function assertPayload(payload: unknown, eventType: unknown): void {
     }
     if (eventType === "context_epoch_advanced") {
         if (Object.keys(payload).some((key) => ![
-            "type", "closedEpoch", "openedEpoch", "reason", "memoryRevisionEventId",
+            "type", "closedEpoch", "openedEpoch", "reason", "memoryRevisionEventId", "compaction",
         ].includes(key))) {
             throw new TrajectoryProtocolError("context_epoch_advanced contains unknown fields");
         }
         if (!isRecord(payload.closedEpoch) || !isRecord(payload.openedEpoch)
             || (payload.reason !== "conversation_pruned"
                 && payload.reason !== "input_threshold"
-                && payload.reason !== "task_approved")) {
+                && payload.reason !== "task_approved"
+                && payload.reason !== "threshold_compaction"
+                && payload.reason !== "context_window_recovery"
+                && payload.reason !== "command_compaction")) {
             throw new TrajectoryProtocolError("context_epoch_advanced payload is invalid");
         }
         assertEpochRange(payload.closedEpoch);
         assertEpochState(payload.openedEpoch);
         if (payload.memoryRevisionEventId !== undefined) {
             assertNonEmptyString(payload.memoryRevisionEventId, "memoryRevisionEventId");
+        }
+        if (payload.compaction !== undefined) {
+            assertEpochCompaction(payload.compaction);
+            if (payload.reason !== "threshold_compaction"
+                && payload.reason !== "context_window_recovery"
+                && payload.reason !== "command_compaction") {
+                throw new TrajectoryProtocolError("context_epoch_advanced compaction requires a compaction reason");
+            }
+        }
+        if ((payload.reason === "threshold_compaction"
+            || payload.reason === "context_window_recovery"
+            || payload.reason === "command_compaction")
+            && payload.compaction === undefined) {
+            throw new TrajectoryProtocolError("context_epoch_advanced compaction reason requires a compaction payload");
         }
     }
     if (eventType === "context_epoch_closed") {
@@ -1708,6 +1760,32 @@ function assertEpochState(value: Record<string, unknown>): void {
         || !Number.isSafeInteger(value.conversationStartIndex) || (value.conversationStartIndex as number) < 0
         || !Number.isSafeInteger(value.openedAtSequence) || (value.openedAtSequence as number) < 0) {
         throw new TrajectoryProtocolError("Epoch state is invalid");
+    }
+    if (value.compactionSourceRunId !== undefined) {
+        assertNonEmptyString(value.compactionSourceRunId, "Epoch compactionSourceRunId");
+    }
+}
+
+function assertEpochCompaction(value: unknown): void {
+    if (!isRecord(value)) {
+        throw new TrajectoryProtocolError("context_epoch_advanced.compaction must be an object");
+    }
+    if (Object.keys(value).some((key) => ![
+        "body", "sourceRunId", "firstSequence", "lastSequence", "eventIds",
+    ].includes(key))) {
+        throw new TrajectoryProtocolError("context_epoch_advanced.compaction contains unknown fields");
+    }
+    assertNonEmptyString(value.body, "context_epoch_advanced.compaction.body");
+    assertNonEmptyString(value.sourceRunId, "context_epoch_advanced.compaction.sourceRunId");
+    if (!Number.isSafeInteger(value.firstSequence) || (value.firstSequence as number) < 0
+        || !Number.isSafeInteger(value.lastSequence) || (value.lastSequence as number) < (value.firstSequence as number)) {
+        throw new TrajectoryProtocolError("context_epoch_advanced.compaction source range is invalid");
+    }
+    if (!Array.isArray(value.eventIds) || value.eventIds.length === 0) {
+        throw new TrajectoryProtocolError("context_epoch_advanced.compaction.eventIds must be a non-empty array");
+    }
+    for (const [index, eventId] of (value.eventIds as unknown[]).entries()) {
+        assertNonEmptyString(eventId, `context_epoch_advanced.compaction.eventIds[${index}]`);
     }
 }
 

@@ -170,6 +170,11 @@
   .project-view .topbar.session-topbar .stream-state { display: none; }
 }
 @media (max-width: 760px) { .project-view .topbar .session-workspace { max-width: 120px; } }
+@media (max-width: 560px) {
+  .project-view .topbar.session-topbar { height: auto; min-height: 44px; flex-wrap: wrap; padding-block: 4px; }
+  .project-view .topbar.session-topbar .topbar-identity { flex: 1 0 100%; min-height: 36px; }
+  .project-view .topbar.session-topbar .header-actions { flex: 1 1 100%; justify-content: flex-end; min-height: 36px; }
+}
 .project-view .session-intro { padding: 9px 18px; color: var(--accent-ink); text-align: center; font-size: var(--font-size-xs); }
 .project-view .topbar h1 { font-size: var(--font-size-title); font-weight: 600; letter-spacing: -.3px; }
 .project-view .topbar .breadcrumb button { color: var(--muted); padding: 0; font-size: var(--font-size-xs); }

@@ -1,0 +1,45 @@
+Context Epoch Compaction: structured@1; trajectory-layered@1; bm25-lite@1
+
+You are compacting the working window of one long-running Goal. You do not continue the task, call tools, or propose actions. You only rewrite the history that is about to leave the window.
+
+## What to preserve
+
+Preserve only information that still changes how the next step must be decided:
+
+- Requirements and constraints the user still expects to hold.
+- Verified findings, including how they were verified, so they are not re-verified.
+- Unresolved problems, open questions and known failures, with enough detail to resume them.
+- Decisions that are still binding, and the reason each one was made.
+- Durable facts about the workspace, files, commands or protocols that cost effort to establish.
+
+Drop narration, dead ends that no longer constrain the task, tool output that has been superseded, and restatement of the current task state, which is supplied separately.
+
+## How to write it
+
+- Write short factual lines grouped by the categories above. Use `- ` bullets.
+- Keep source references inline and verbatim where they are cheap: file paths, command names, identifiers, error codes, sequence numbers.
+- Attribute each claim to what actually established it (a command, a file read, a user statement) instead of asserting it bare.
+- Never invent a fact, identifier, file path, command result or citation that is not present in the supplied history.
+- If the history does not establish something the next step needs, say it is unverified instead of guessing.
+
+## Output
+
+Return only the compacted text. No preamble, no headings outside the categories, no code fences, no closing remarks. The text must be strictly shorter than the history it replaces.
+
+## Goal intent
+
+{{ intent }}
+
+{% if objective %}
+## Approved task objective
+
+{{ objective }}
+{% endif %}
+
+## History leaving the window
+
+{{ evictedTranscript }}
+
+## Most recent interactions that stay in the window
+
+{{ recentTranscript }}

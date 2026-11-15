@@ -1,10 +1,9 @@
-import { encodePathSegment } from "./path-segment";
 import { deepFreeze } from "../../contracts/src/index";
 import {
     readFile,
     unlink,
 } from "node:fs/promises";
-import { join } from "node:path";
+import { retrievalIndexPath } from "./goal-workspace-layout";
 
 import {
     CONTEXT_RETRIEVAL_INDEX_VERSION,
@@ -69,14 +68,14 @@ export const contextRetrievalIndexSidecarCodec: ContextRetrievalIndexSidecarCode
  * 基于 JSON 文件的 Retrieval Index Sidecar Store。
  *
  * @remarks
- * 文件位于 `<directory>/<base64url(goalId)>/<base64url(runId)>/retrieval-v1.json`。
+ * 文件位于 `<directory>/<base64url(goalId)>/indexes/retrieval/<base64url(runId)>.json`。
  * 保存使用同目录临时文件、fsync 和 rename，目录为 `0700`、文件为 `0600`。缺失、
  * 损坏、版本/摘要失配或领先 Snapshot 的缓存统一返回 `undefined`；不会修改
  * Goal、Trajectory 或 Working Memory。
  *
  * @example
  * ```ts
- * const store = new JsonFileContextRetrievalIndexStore("~/.lazygoal/workspaces/<workspace-id>/context-sidecars");
+ * const store = new JsonFileContextRetrievalIndexStore("~/.lazygoal/workspaces/<workspace-id>/goals");
  * const sidecar = await store.restore("goal-1", "run-1", {
  *     committedThroughSequence: 42,
  *     indexVersion: CONTEXT_RETRIEVAL_INDEX_VERSION,
@@ -84,7 +83,7 @@ export const contextRetrievalIndexSidecarCodec: ContextRetrievalIndexSidecarCode
  * ```
  */
 export class JsonFileContextRetrievalIndexStore implements TrajectoryRetrievalIndexStore {
-    /** @param directory - Sidecar 根目录；保存时按需创建。 */
+    /** @param directory - 工作区 Goal 存储根目录；保存时按需创建索引目录。 */
     constructor(private readonly directory: string) {}
 
     /** @inheritdoc */
@@ -147,12 +146,7 @@ export class JsonFileContextRetrievalIndexStore implements TrajectoryRetrievalIn
     /** @inheritdoc */
     async save(sidecar: ContextRetrievalIndexSidecar): Promise<void> {
         const validated = contextRetrievalIndexSidecarCodec.encode(sidecar);
-        const filePath = join(
-            this.directory,
-            this.encodeIdentifier(validated.goalId),
-            this.encodeIdentifier(validated.runId),
-            "retrieval-v1.json",
-        );
+        const filePath = this.filePath(validated.goalId, validated.runId);
 
         await atomicWriteJson({
             path: filePath,
@@ -175,17 +169,7 @@ export class JsonFileContextRetrievalIndexStore implements TrajectoryRetrievalIn
     }
 
     private filePath(goalId: string, runId: string): string {
-        return join(
-            this.directory,
-            this.encodeIdentifier(goalId),
-            this.encodeIdentifier(runId),
-            "retrieval-v1.json",
-        );
-    }
-
-    private encodeIdentifier(value: string): string {
-        this.assertIdentifier(value, "sidecar identifier");
-        return encodePathSegment(value);
+        return retrievalIndexPath(this.directory, goalId, runId);
     }
 
     private assertIdentifier(value: string, field: string): void {

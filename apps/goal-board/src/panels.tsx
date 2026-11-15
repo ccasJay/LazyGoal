@@ -6,7 +6,7 @@ import { Check, Circle, Clock3, Shield, Trash2, X } from "lucide-react";
 import type {
   BrowserGoalSession,
   BrowserGoalSessionState,
-  BrowserToolGrantSummary,
+  BrowserPermissionExemptionSummary,
 } from "../../../packages/web-contracts/src/index";
 import {
   ActionInteractionRegion,
@@ -15,27 +15,32 @@ import {
   type AcceptedDecisionSummary,
 } from "./interaction-panel";
 import type { ControlIntents } from "./hooks/useControlIntents";
+import {
+  permissionExemptionStatusLabel,
+  permissionExtraFileLabel,
+  permissionNetworkLabel,
+} from "./permission-profile";
 
 type SessionTab = "Activity" | "Plan" | "Details";
 
 export function GoalDetails({
   session,
   tab,
-  grants,
-  grantsLoading,
-  grantsError,
-  revokingGrantId,
-  onRevokeGrant,
+  exemptions,
+  exemptionsLoading,
+  exemptionsError,
+  revokingExemptionId,
+  onRevokeExemption,
   onDelete,
   deleteBusy = false,
 }: {
   session: BrowserGoalSession;
   tab: Exclude<SessionTab, "Activity">;
-  grants: readonly BrowserToolGrantSummary[];
-  grantsLoading: boolean;
-  grantsError: string | null;
-  revokingGrantId: string | null;
-  onRevokeGrant: (grant: BrowserToolGrantSummary) => void;
+  exemptions: readonly BrowserPermissionExemptionSummary[];
+  exemptionsLoading: boolean;
+  exemptionsError: string | null;
+  revokingExemptionId: string | null;
+  onRevokeExemption: (exemption: BrowserPermissionExemptionSummary) => void;
   onDelete?: () => void;
   deleteBusy?: boolean;
 }) {
@@ -110,28 +115,35 @@ export function GoalDetails({
           <dd>{session.messages.length}</dd>
         </div>
       </dl>
-      <section className="grant-panel" aria-labelledby="grant-panel-title">
+      <section className="exemption-panel" aria-labelledby="exemption-panel-title">
         <div className="panel-heading">
-          <h3 id="grant-panel-title">Tool permissions</h3>
-          <span>{grants.length}</span>
+          <h3 id="exemption-panel-title">Permission exemptions</h3>
+          <span>{exemptions.length}</span>
         </div>
-        <p className="grant-intro">Permissions granted for this Goal and this project.</p>
-        {grantsLoading ? <div className="panel-empty">Loading permissions…</div>
-          : grantsError ? <div className="grant-error" role="alert">{grantsError}</div>
-            : grants.length === 0 ? <div className="panel-empty">No ongoing permissions.</div>
-              : <ul className="grant-list">{grants.map((grant) => (
-                <li key={grant.grantId}>
-                  <div className="grant-copy">
-                    <strong><Shield size={13} /> {grant.toolId}</strong>
-                    <span>{grant.scope === "goal" ? "This Goal" : "This project"}, {grant.status}</span>
-                    {grant.targetPath && <code>{grant.targetPath}</code>}
+        <p className="exemption-intro">
+          Out-of-boundary access that stays allowed for this Goal and this project.
+        </p>
+        {exemptionsLoading ? <div className="panel-empty">Loading exemptions…</div>
+          : exemptionsError ? <div className="exemption-error" role="alert">{exemptionsError}</div>
+            : exemptions.length === 0 ? <div className="panel-empty">No out-of-boundary access is allowed right now.</div>
+              : <ul className="exemption-list">{exemptions.map((exemption) => (
+                <li key={exemption.id}>
+                  <div className="exemption-copy">
+                    <strong><Shield size={13} aria-hidden="true" /> {permissionNetworkLabel(exemption.network)}</strong>
+                    <span>
+                      {`${exemption.scope === "goal" ? "This Goal" : "This Project"}, ${permissionExemptionStatusLabel(exemption.status)}`}
+                    </span>
+                    {exemption.extraFiles.map((file) => (
+                      <code key={`${file.access}:${file.canonicalPath}`}>{permissionExtraFileLabel(file)}</code>
+                    ))}
                   </div>
-                  {grant.status === "active" && <Button variant="ghost" size="sm"
-                    className="grant-revoke"
-                    disabled={revokingGrantId !== null}
-                    aria-label={`Revoke ${grant.toolId} permission`}
-                    onClick={() => onRevokeGrant(grant)}
-                  >{revokingGrantId === grant.grantId ? "Revoking…" : "Revoke"}</Button>}
+                  {exemption.status === "active" && <Button variant="ghost" size="sm"
+                    type="button"
+                    className="exemption-revoke"
+                    disabled={revokingExemptionId !== null}
+                    aria-label={`Revoke ${exemption.scope === "goal" ? "Goal" : "project"} permission exemption`}
+                    onClick={() => onRevokeExemption(exemption)}
+                  >{revokingExemptionId === exemption.id ? "Revoking…" : "Revoke"}</Button>}
                 </li>
               ))}</ul>}
       </section>
@@ -153,11 +165,11 @@ export function GoalDetails({
  * 只按窄状态 DTO 中已提交的类型化交互视图分派具体请求视图，不读取历史正文、阶段或步骤；
  * 没有等待时不渲染。停止按钮由各区域独立提供，普通消息的排队输入由外层外壳负责。
  *
- * @param props - 当前等待状态、提交忙碌态和决定完成通知。
+ * @param props - 当前等待状态、提交忙碌态、暂停状态和决定完成通知。
  * @returns 对应问题、任务审批或 Action 审批视图；没有交互等待时返回 `null`。
  * @example
  * ```tsx
- * <WaitingInteraction session={goalState} busy={false} stopping={false}
+ * <WaitingInteraction session={goalState} busy={false} stopping={false} stopOutcomeUnknown={false}
  *   onInterrupt={interrupt} onRefreshSession={refresh} onDecisionAccepted={recordDecision} />
  * ```
  */
@@ -165,6 +177,7 @@ export function WaitingInteraction({
   session,
   busy,
   stopping,
+  stopOutcomeUnknown,
   control,
   onInterrupt,
   onRefreshSession,
@@ -173,6 +186,7 @@ export function WaitingInteraction({
   session: BrowserGoalSessionState;
   busy: boolean;
   stopping: boolean;
+  stopOutcomeUnknown: boolean;
   control: ControlIntents;
   onInterrupt: () => Promise<void>;
   onRefreshSession: () => Promise<void>;
@@ -180,7 +194,7 @@ export function WaitingInteraction({
 }) {
   const view = session.interaction;
   if (view === undefined) return null;
-  const chrome = { label: view.kind, busy, stopping };
+  const chrome = { label: view.kind, busy, stopping, stopOutcomeUnknown };
   switch (view.kind) {
     case "question":
       return (

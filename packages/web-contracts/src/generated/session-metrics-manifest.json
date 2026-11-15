@@ -3,8 +3,8 @@
   "version": 1,
   "schemaDialect": "http://json-schema.org/draft-07/schema#",
   "source": {
-    "path": "packages/web-contracts/src/wire.ts#SessionMetricsSnapshot,MetricsCoverage,RunSessionMetrics",
-    "sha256": "eeccb9554c1de40012a0bda51fffa23515b52f68180be033f8780de34212e86d"
+    "path": "packages/web-contracts/src/wire.ts#SessionMetricsSnapshot,MetricsCoverage,RunSessionMetrics,SessionMetricsContextCapacity,SessionMetricsContextUsage",
+    "sha256": "b911ef98d960380da51084697c63032f37943025b2a56819a4ec6605b72d963e"
   },
   "generator": {
     "name": "ts-json-schema-generator",

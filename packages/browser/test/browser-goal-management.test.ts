@@ -15,7 +15,7 @@ function port(): BrowserGoalApiPort {
             : archived ? { ok: true } : { ok: false, error: "goal_not_terminal" },
         deleteGoal: async (goalId) => goalId === "terminal" ? { ok: true }
             : { ok: false, error: "goal_not_terminal" },
-        revokeToolGrant: async () => ({ ok: false as const, error: "service_shutting_down" as const }),
+        revokePermissionExemption: async () => ({ ok: false as const, error: "service_shutting_down" as const }),
     };
 }
 
@@ -30,34 +30,33 @@ test("Goal 管理路由校验输入并区分成功、缺失与非终态", async 
     assert.equal((await archive("terminal", { archived: "yes" })).status, 400);
     assert.equal((await routes.request("/api/goals/terminal", { method: "DELETE" })).status, 200);
     assert.equal((await routes.request("/api/goals/running", { method: "DELETE" })).status, 409);
-    const revoke = await routes.request("/api/goals/terminal/grants/grant-1", {
+    const revoke = await routes.request("/api/goals/terminal/exemptions/exemption-1", {
         method: "DELETE",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ runId: "run-1", scope: "goal" }),
+        body: JSON.stringify({ runId: "run-1" }),
     });
     assert.equal(revoke.status, 503);
     assert.deepEqual(await revoke.json(), { error: "service_shutting_down" });
 });
 
-test("授权撤销只从路径读取 grantId 并剥离请求体同名字段", async () => {
-    let calls = 0;
+test("豁免撤销只从路径读取 exemptionId 并剥离请求体同名字段", async () => {
+    let received: { readonly runId: string; readonly exemptionId: string } | undefined;
     const api = port();
     const routes = createBrowserGoalRoutes({
         ...api,
-        revokeToolGrant: async () => {
-            calls += 1;
+        revokePermissionExemption: async (_goalId, command) => {
+            received = command;
             return { ok: false, error: "service_shutting_down" };
         },
     });
-    const revoke = (body: unknown) => routes.request("/api/goals/terminal/grants/grant-1", {
+    const revoke = (body: unknown) => routes.request("/api/goals/terminal/exemptions/exemption-1", {
         method: "DELETE",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
     });
-    assert.equal((await revoke({ runId: "run-1", scope: "goal", grantId: "grant-1" })).status, 503);
-    assert.equal(calls, 1);
-    assert.equal((await revoke({ runId: "run-1", scope: "goal" })).status, 503);
-    assert.equal(calls, 2);
-    assert.equal((await revoke({ runId: "run-1", scope: "goal", kind: "unknown" })).status, 400);
-    assert.equal(calls, 2);
+    assert.equal((await revoke({ runId: "run-1", exemptionId: "body-value" })).status, 503);
+    assert.deepEqual(received, { runId: "run-1", exemptionId: "exemption-1" });
+    assert.equal((await revoke({})).status, 400);
+    assert.equal((await revoke({ runId: "" })).status, 400);
+    assert.equal((await revoke({ runId: 1 })).status, 400);
 });

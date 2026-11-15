@@ -7,6 +7,7 @@ import {
     JsonFileGoalContextIndexStore,
     type GoalContextIndexStore,
 } from "../src/goal-context-index-store";
+import { goalContextIndexPath, goalIndexesDirectory } from "../src/index";
 import type { GoalContextIndexSnapshot } from "../../context-retrieval/src/goal-context-index";
 
 function createDummySnapshot(goalId: string, digest = "digest-abc-123"): GoalContextIndexSnapshot {
@@ -53,9 +54,8 @@ test("JsonFileGoalContextIndexStore 原子保存与成功读取", async () => {
 
         await store.save(snapshot);
 
-        // 验证文件路径格式：<tempDir>/<base64url(goalId)>/goal-index.json
-        const encodedGoalId = Buffer.from(goalId).toString("base64url");
-        const filePath = join(tempDir, encodedGoalId, "goal-index.json");
+        // 验证文件路径格式：<tempDir>/<base64url(goalId)>/indexes/goal-index.json
+        const filePath = goalContextIndexPath(tempDir, goalId);
         const fileContent = await readFile(filePath, "utf8");
         const rawJson = JSON.parse(fileContent);
         assert.equal(rawJson.goalId, goalId);
@@ -82,8 +82,7 @@ test("损坏文件或无效 JSON 自动降级返回 undefined，不抛出崩溃�
         await store.save(snapshot);
 
         // 人为破坏文件内容为非法 JSON
-        const encodedGoalId = Buffer.from(goalId).toString("base64url");
-        const filePath = join(tempDir, encodedGoalId, "goal-index.json");
+        const filePath = goalContextIndexPath(tempDir, goalId);
         await writeFile(filePath, "{ invalid json content ...", "utf8");
 
         const restored = await store.restore(goalId);
@@ -161,7 +160,8 @@ test("JsonFileGoalContextIndexStore 以 0700 目录与 0600 文件保存索引",
 
         const goalDirectory = join(directory, Buffer.from(goalId).toString("base64url"));
         assert.equal((await stat(goalDirectory)).mode & 0o777, 0o700);
-        assert.equal((await stat(join(goalDirectory, "goal-index.json"))).mode & 0o777, 0o600);
+        assert.equal((await stat(goalIndexesDirectory(directory, goalId))).mode & 0o777, 0o700);
+        assert.equal((await stat(goalContextIndexPath(directory, goalId))).mode & 0o777, 0o600);
     } finally {
         await rm(parent, { recursive: true, force: true });
     }

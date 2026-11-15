@@ -2,6 +2,7 @@
 
 const { spawnSync } = require("node:child_process");
 const { resolve } = require("node:path");
+const { resolveWebProxyEnvironment } = require("./web-proxy.cjs");
 
 const argv = process.argv.slice(2);
 const isBrowserCommand = argv.length === 0 || (argv.length === 1 && argv[0] === "web");
@@ -78,9 +79,16 @@ const source = isContextEval ? resolve(__dirname, "../benchmarks/context-cli.ts"
 const tsxLoader = require.resolve("tsx/esm", { paths: [__dirname] });
 
 const nodeArgs = ["--disable-warning=ExperimentalWarning", "--import", tsxLoader];
-const nodeEnv = isBrowserCommand && process.allowedNodeEnvironmentFlags.has("--use-env-proxy")
-    ? { ...process["env"], NODE_USE_ENV_PROXY: "1" }
-    : process["env"];
+let nodeEnv = process["env"];
+if (isBrowserCommand) {
+    try {
+        nodeEnv = resolveWebProxyEnvironment(nodeEnv);
+    } catch (error) {
+        console.error(error.message);
+        process.exitCode = 1;
+        return;
+    }
+}
 
 const result = spawnSync(
     process.execPath,

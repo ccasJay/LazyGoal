@@ -14,7 +14,7 @@ import { InMemoryExecutionStreamPublisher } from "../../execution-stream/src/ind
 import {
     createBrowserGoalRoutes,
     createBrowserSessionFeed,
-    readBrowserGoalSessionState,
+    readBrowserControlSnapshot,
     type BrowserGoalEvent,
 } from "../src/index";
 
@@ -60,7 +60,7 @@ function openFeed(store: GoalStore, publisher: InMemoryExecutionStreamPublisher,
         goalId,
         sessionId: "s1",
         detach: () => undefined,
-    } as never, stream, (target) => readBrowserGoalSessionState(target, store, undefined));
+    } as never, stream, (target) => readBrowserControlSnapshot(target, store, () => false));
 }
 
 test("内部句柄与真实 SSE 对同一受控会话输出一致公开语义", async () => {
@@ -249,7 +249,7 @@ test("state_sync 携带可直接应用的完整控制快照且每次同步只读
     });
     const feed = createBrowserSessionFeed({ goalId: goal.id, sessionId: "s1", detach: () => undefined } as never, stream, async (target) => {
         goalReads += 1;
-        return readBrowserGoalSessionState(target, store, goal.id);
+        return readBrowserControlSnapshot(target, store, () => true);
     });
     const iterator = feed.events[Symbol.asyncIterator]();
     const first = await iterator.next();
@@ -290,7 +290,7 @@ test("快照无法与 Runtime 状态对齐时省略，不拼接不同提交的�
         goalId: goal.id,
         readState: async () => ({
             goalId: goal.id,
-            runId: "run-other",
+            runId: goal.state.run.id,
             runStatus: "running",
             mode: "normal",
             commitRevision: 3,
@@ -302,7 +302,7 @@ test("快照无法与 Runtime 状态对齐时省略，不拼接不同提交的�
             executionOwner: true,
             messages: { count: 0, recent: [] },
         }),
-    }), (target) => readBrowserGoalSessionState(target, store, goal.id));
+    }), (target) => readBrowserControlSnapshot(target, store, () => true));
     const iterator = feed.events[Symbol.asyncIterator]();
     const first = await iterator.next();
     assert.equal(first.value?.type, "state_sync");

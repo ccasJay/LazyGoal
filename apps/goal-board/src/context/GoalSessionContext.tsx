@@ -5,7 +5,7 @@ import type {
   BrowserGoalSession,
   BrowserGoalSessionState,
   BrowserModelCatalog,
-  BrowserToolGrantSummary,
+  BrowserPermissionExemptionSummary,
   BrowserWorkspaceContext,
 } from "../../../../packages/web-contracts/src/index";
 import type { MetricsState, ModelPickerTarget, SessionTab } from "../types";
@@ -63,10 +63,10 @@ export interface GoalSessionContextValue {
   readonly setFollow: (follow: boolean | ((current: boolean) => boolean)) => void;
   readonly goalInfoOpen: boolean;
   readonly setGoalInfoOpen: (open: boolean | ((current: boolean) => boolean)) => void;
-  readonly toolGrants: readonly BrowserToolGrantSummary[];
-  readonly toolGrantsLoading: boolean;
-  readonly toolGrantsError: string | null;
-  readonly revokingGrantId: string | null;
+  readonly exemptions: readonly BrowserPermissionExemptionSummary[];
+  readonly exemptionsLoading: boolean;
+  readonly exemptionsError: string | null;
+  readonly revokingExemptionId: string | null;
   readonly liveText: string;
   /** 当前连接按首次出现顺序排列的未提交正文块。 */
   readonly livePreviews: readonly LiveTextBlock[];

@@ -13,6 +13,7 @@ import {
 import { BrowserApiError } from "../api";
 import type { ControlIntents } from "./useControlIntents";
 import { pendingIntentOfKind } from "../control/reducer";
+import { hasBlockingStopIntent } from "../workbench-actions";
 
 /**
  * 首次 Goal 提交、Run 控制与结果不明核验的命令入口。
@@ -53,7 +54,8 @@ export function useRunCommands({
     setDraftGoalBusy(false);
   }, []);
   const commandBusy = control.state.intents.some((entry) => entry.phase === "pending"
-    && (entry.intent.kind === "create_session" || entry.intent.kind === "session_input" || entry.intent.kind === "plan_mode"));
+    && (entry.intent.kind === "create_session" || entry.intent.kind === "session_input"
+      || entry.intent.kind === "plan_mode" || entry.intent.kind === "model_selection"));
   const pendingSessionInput = pendingIntentOfKind(control.state, "session_input");
   const stoppingRunId = pendingSessionInput?.input.kind === "interrupt" ? pendingSessionInput.input.runId : null;
 
@@ -73,6 +75,10 @@ export function useRunCommands({
         onOpenModelPicker({ kind: "draft" });
         setCommandError(null);
         return true;
+      }
+      if (dispatched.kind === "compact") {
+        setCommandError("Open a Goal before compacting its working window.");
+        return false;
       }
       const intent = dispatched.content.trim();
       if (!intent || commandBusy) return false;
@@ -99,9 +105,7 @@ export function useRunCommands({
         return true;
       }
       if (receipt.status === "rejected") {
-        setCommandError(receipt.error === "goal_busy"
-          ? errorMessage(new BrowserApiError(receipt.error, 409, receipt.refresh === true))
-          : "The Goal could not be created.");
+        setCommandError(errorMessage(new BrowserApiError(receipt.error, 0, receipt.refresh === true)));
         if (receipt.error === "goal_busy") {
           setDraftGoalBusy(true);
           void onRefreshGoals();
@@ -184,7 +188,9 @@ export function useRunCommands({
         return false;
       }
       if (receipt.status === "unknown") {
-        setCommandError("The message result is still unknown. Verify it again before retrying.");
+        setCommandError(entry.intent.input.kind === "interrupt"
+          ? null
+          : "The request result is still unknown. Verify it again before retrying.");
         return false;
       }
       setCommandError(null);
@@ -200,7 +206,8 @@ export function useRunCommands({
   }, [control.discard]);
 
   const interruptCurrentRun = useCallback(async (): Promise<void> => {
-    if (!session || !["running", "waiting"].includes(session.runStatus) || stoppingRunId !== null) return;
+    if (!session || !["running", "waiting"].includes(session.runStatus)
+      || hasBlockingStopIntent(control.currentState().intents, session.goalId, session.currentRunId)) return;
     setCommandError(null);
     const receipt = await submitInput(session.goalId, {
       kind: "interrupt",
@@ -213,11 +220,10 @@ export function useRunCommands({
       return;
     }
     if (receipt.status === "unknown") {
-      setCommandError("The stop result is unknown. Reload before trying again.");
       return;
     }
     await onRefreshSession();
-  }, [session, stoppingRunId, submitInput, onRefreshSession, setCommandError]);
+  }, [session, control.currentState, submitInput, onRefreshSession, setCommandError]);
 
   const submitResume = useCallback(async (acknowledgeUnknownEffects = false) => {
     if (!session || commandBusy) return;
@@ -241,6 +247,63 @@ export function useRunCommands({
     await onRefreshSession();
   }, [session, sessionState?.commitRevision, commandBusy, submitInput, onRefreshSession, setCommandError]);
 
+  /**
+   * 向已结算终态的手动 Goal 提交一条普通消息。
+   *
+   * @remarks 提交绑定当前终态 Run 身份；结果不明时保留原身份供按 `inputId` 核验，
+   * 不生成第二个 Run。非手动来源或未结算 Goal 由后端拒绝。
+   */
+  const submitContinuation = useCallback(async (content: string): Promise<boolean> => {
+    if (!session || commandBusy) return false;
+    if (!session.continuation?.available) return false;
+    const text = content.trim();
+    if (text.length === 0) return false;
+    setCommandError(null);
+    const receipt = await submitInput(session.goalId, {
+      kind: "message",
+      inputId: crypto.randomUUID(),
+      runId: session.currentRunId,
+      content: text,
+    });
+    if (receipt.status === "rejected") {
+      setCommandError(receipt.error);
+      if (receipt.refresh === true) await onRefreshSession();
+      return false;
+    }
+    if (receipt.status === "unknown") {
+      setCommandError("The message result is unknown. Verify it with the same identity before retrying.");
+      return false;
+    }
+    await onRefreshSession();
+    return true;
+  }, [session, commandBusy, submitInput, onRefreshSession, setCommandError]);
+
+  /**
+   * 请求整理当前 Goal 的工作窗口。
+   *
+   * @remarks 命令不写入对话，也不创建业务 Run；无法切换窗口时展示稳定原因。
+   */
+  const compactSession = useCallback(async (): Promise<boolean> => {
+    if (!session || commandBusy) return false;
+    setCommandError(null);
+    const receipt = await submitInput(session.goalId, {
+      kind: "compact",
+      inputId: crypto.randomUUID(),
+      runId: session.currentRunId,
+    });
+    if (receipt.status === "rejected") {
+      setCommandError(errorMessage(new BrowserApiError(receipt.error, 0, receipt.refresh === true)));
+      if (receipt.refresh === true) await onRefreshSession();
+      return false;
+    }
+    if (receipt.status === "unknown") {
+      setCommandError("The compaction result is unknown. Verify it before retrying.");
+      return false;
+    }
+    await onRefreshSession();
+    return true;
+  }, [session, commandBusy, submitInput, onRefreshSession, setCommandError]);
+
   return {
     commandBusy,
     commandError,
@@ -248,10 +311,11 @@ export function useRunCommands({
     setCommandError,
     stoppingRunId,
     submitDraftMessage,
+    compactSession,
     interruptCurrentRun,
     submitResume,
-    onInterrupt: interruptCurrentRun,
     onSubmitResume: submitResume,
+    onSubmitContinuation: submitContinuation,
     verifyIntent,
     retryIntent,
     discardIntent,

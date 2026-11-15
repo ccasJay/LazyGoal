@@ -5,7 +5,9 @@ import {
     createGoal,
     DEFAULT_GOAL_MODEL_SELECTION,
     DefaultGoalModelSelectionCoordinator,
+    GoalCoordinator,
     isSafeWaitingPointForModelSwitching,
+    transition,
     type AgentProfile,
     type Goal,
     type GoalModelSelection,
@@ -53,6 +55,27 @@ class FakeGoalStore implements GoalStore {
         }
         this.savedGoals.push(structuredClone(goal));
         this.goal = structuredClone(goal);
+    }
+}
+
+function deferred() {
+    let resolve!: () => void;
+    const promise = new Promise<void>((done) => { resolve = done; });
+    return { promise, resolve };
+}
+
+class GateSaveGoalStore extends FakeGoalStore {
+    readonly entered = deferred();
+    readonly release = deferred();
+    private blockNextSave = true;
+
+    override async save(goal: Goal): Promise<void> {
+        if (this.blockNextSave) {
+            this.blockNextSave = false;
+            this.entered.resolve();
+            await this.release.promise;
+        }
+        await super.save(goal);
     }
 }
 
@@ -176,6 +199,125 @@ test("GoalModelSelectionCoordinator: 三类安全等待点允许更新并保存�
     }
 });
 
+test("ask_user 决定在排队等待换模提交后保留最新模型选择", async () => {
+    const created = createBaseTestGoal("run-model-switch-resume-race");
+    const started = transition(created.state.run, { kind: "start" });
+    assert.equal(started.ok, true);
+    if (!started.ok) return;
+    const waiting = transition(started.state, {
+        kind: "stage_interaction",
+        interaction: {
+            kind: "ask_user",
+            requestId: "ask-model-switch-race",
+            mode: "execution",
+            questions: [{
+                id: "continue",
+                header: "继续执行",
+                question: "是否继续？",
+                options: [{ id: "yes", label: "是" }, { id: "no", label: "否" }],
+                multiSelect: false,
+            }],
+        },
+    });
+    assert.equal(waiting.ok, true);
+    if (!waiting.ok) return;
+    const goal: Goal = {
+        ...created,
+        state: { ...created.state, run: waiting.state },
+    };
+    const store = new GateSaveGoalStore(goal);
+    const modelCoordinator = new DefaultGoalModelSelectionCoordinator({ store });
+    const goalCoordinator = new GoalCoordinator({
+        store,
+        scheduler: {
+            async schedule() {
+                return {
+                    ok: false as const,
+                    error: { code: "RUN_NOT_FOUND" as const, message: "test scheduler stop" },
+                };
+            },
+        },
+    });
+    const ref = { goalId: goal.id, runId: goal.state.run.id };
+
+    const changingModel = modelCoordinator.updateModelSelection({ ref, selection: targetSelection });
+    await store.entered.promise;
+    const answering = goalCoordinator.resume({
+        ref,
+        action: { kind: "skip_question", requestId: "ask-model-switch-race" },
+    });
+    store.release.resolve();
+
+    const changed = await changingModel;
+    assert.equal(changed.ok, true);
+    const resumed = await answering;
+    assert.equal(resumed.ok, false);
+    const latest = await store.restore(goal.id);
+    assert.deepEqual(latest?.state.modelSelection, targetSelection);
+    assert.equal(latest?.state.run.status, "running");
+    assert.equal(latest?.state.messages.at(-1)?.content, "The user did not answer this question and asked to continue the current task without an answer to it.");
+});
+
+test("同一 ask_user 等待只接受一次并发决定", async () => {
+    const created = createBaseTestGoal("run-two-resume-decisions");
+    const started = transition(created.state.run, { kind: "start" });
+    assert.equal(started.ok, true);
+    if (!started.ok) return;
+    const waiting = transition(started.state, {
+        kind: "stage_interaction",
+        interaction: {
+            kind: "ask_user",
+            requestId: "ask-two-resume-decisions",
+            mode: "execution",
+            questions: [{
+                id: "continue",
+                header: "继续执行",
+                question: "是否继续？",
+                options: [{ id: "yes", label: "是" }, { id: "no", label: "否" }],
+                multiSelect: false,
+            }],
+        },
+    });
+    assert.equal(waiting.ok, true);
+    if (!waiting.ok) return;
+    const goal: Goal = {
+        ...created,
+        state: { ...created.state, run: waiting.state },
+    };
+    const store = new FakeGoalStore(goal);
+    let schedules = 0;
+    const coordinator = new GoalCoordinator({
+        store,
+        scheduler: {
+            async schedule() {
+                schedules += 1;
+                return {
+                    ok: false as const,
+                    error: { code: "RUN_NOT_FOUND" as const, message: "test scheduler stop" },
+                };
+            },
+        },
+    });
+    const ref = { goalId: goal.id, runId: goal.state.run.id };
+
+    const results = await Promise.all([
+        coordinator.resume({
+            ref,
+            action: { kind: "skip_question", requestId: "ask-two-resume-decisions" },
+        }),
+        coordinator.resume({
+            ref,
+            action: { kind: "skip_question", requestId: "ask-two-resume-decisions" },
+        }),
+    ]);
+
+    assert.equal(schedules, 1);
+    assert.equal(store.savedGoals.length, 1);
+    assert.equal(store.goal?.state.run.status, "running");
+    assert.equal(store.goal?.state.messages.filter((message) => message.source.kind === "interaction_response").length, 1);
+    assert.equal(results.filter((result) => result.ok === false && result.error.code === "GOAL_NOT_WAITING").length, 1);
+});
+
 test("GoalModelSelectionCoordinator: 运行中、Action 审批点与取消态严格拒绝换模", async () => {
     // 1. active executing 阶段
     const activeGoal: Goal = {
@@ -231,7 +373,7 @@ test("GoalModelSelectionCoordinator: 运行中、Action 审批点与取消态严
         assert.equal(resApproval.error.code, "GOAL_NOT_WAITING");
     }
 
-    // 3. 终态允许预选下一 Run，取消态拒绝
+    // 3. 终态允许预选下一 Run，未结算的中断拒绝。
     for (const status of ["completed", "failed", "cancelled"] as const) {
         const terminalGoal: Goal = {
             ...createBaseTestGoal(),
@@ -243,16 +385,20 @@ test("GoalModelSelectionCoordinator: 运行中、Action 审批点与取消态严
                 },
             },
         };
-        assert.equal(isSafeWaitingPointForModelSwitching(terminalGoal), status !== "cancelled");
+        assert.equal(isSafeWaitingPointForModelSwitching(terminalGoal), true);
         store.goal = terminalGoal;
         const res = await coordinator.updateModelSelection({
             ref: { goalId: terminalGoal.id, runId: terminalGoal.state.run.id },
             selection: targetSelection,
         });
-        assert.equal(res.ok, status !== "cancelled");
+        assert.equal(res.ok, true);
         if (res.ok) assert.deepEqual(res.goal.state.modelSelection, targetSelection);
-        else assert.equal(res.error.code, "GOAL_NOT_WAITING");
     }
+    const goal = store.goal!;
+    const stopping = { ...goal, state: { ...goal.state, run: { ...goal.state.run,
+        interruption: { requestId: "interrupt-1", status: "requested" as const },
+    } } };
+    assert.equal(isSafeWaitingPointForModelSwitching(stopping), false);
 });
 
 test("GoalModelSelectionCoordinator: Goal 不存在与 Run 不匹配明确失败且无副作用", async () => {

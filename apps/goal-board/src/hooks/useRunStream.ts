@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { BrowserActivityPage, BrowserControlScope, BrowserControlSnapshot, BrowserGoalActivityEvent, BrowserGoalEvent, BrowserGoalSessionState } from "../../../../packages/web-contracts/src/index";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { BrowserActivityPage, BrowserControlScope, BrowserGoalActivityEvent } from "../../../../packages/web-contracts/src/index";
 import { browserApi } from "../api";
 import { createTextBatcher } from "../live-text-batch";
 import type { LiveTextBlock, OrderedGoalEvent } from "../live-timeline";
@@ -10,12 +10,9 @@ import {
   reconcileCandidatePresentation,
 } from "../session-output-consumer";
 import { readScopesForEvent } from "../control/event-routing";
-import {
-  INITIAL_STREAM_RECOVERY_STATE,
-  reduceStreamRecovery,
-  releaseObservation,
-  type StreamRecoveryState,
-} from "../session-stream-recovery";
+import { releaseObservation } from "../session-stream-recovery";
+import type { GoalView } from "../control/types";
+import type { ControlIntents } from "./useControlIntents";
 import {
   applyTextDelta,
   createLivePreviewState,
@@ -25,33 +22,25 @@ import {
 } from "../streaming-render";
 
 export function useRunStream({
-  selectedGoalId,
-  session,
+  control,
   activityPage,
-  sessionLoading,
-  onRefresh,
-  onControlSnapshot,
-  onControlEvent,
+  onSessionConfirmed,
   onReadScopes,
 }: {
-  selectedGoalId: string | null;
-  session: BrowserGoalSessionState | null;
+  control: ControlIntents;
   activityPage: BrowserActivityPage | null;
-  sessionLoading: boolean;
-  onRefresh: () => Promise<void>;
-  onControlSnapshot: (snapshot: BrowserControlSnapshot) => void;
-  onControlEvent: (event: BrowserGoalEvent) => void;
-  onReadScopes: (scopes: readonly BrowserControlScope[]) => Promise<void>;
+  onSessionConfirmed: () => void;
+  onReadScopes: (view: GoalView, scopes: readonly BrowserControlScope[], signal: AbortSignal) => Promise<void>;
 }) {
+  const { currentState, ownsView, applyEvent, disconnect } = control;
+  const { view, snapshot, connection } = control.state;
+  const selectedGoalId = view?.goalId ?? null;
+  const session = snapshot?.goal ?? null;
+  const hasSession = session !== null;
   const [outputDisplay, setOutputDisplay] = useState(EMPTY_SESSION_OUTPUT_DISPLAY);
   const [liveEvents, setLiveEvents] = useState<OrderedGoalEvent[]>([]);
   const [progressEntries, setProgressEntries] = useState<readonly ExecutionProgressEntry[]>([]);
-  const [streamConnected, setStreamConnected] = useState(false);
-  const [recovery, setRecovery] = useState<StreamRecoveryState>(INITIAL_STREAM_RECOVERY_STATE);
   const [livePreview, setLivePreview] = useState<LivePreviewState>(createLivePreviewState());
-  const onRefreshRef = useRef(onRefresh);
-  const onControlSnapshotRef = useRef(onControlSnapshot);
-  const onControlEventRef = useRef(onControlEvent);
   const onReadScopesRef = useRef(onReadScopes);
   const liveText = latestSource(livePreview, session?.currentRunId ?? "")?.content ?? "";
   const liveActivity = outputDisplay.liveActivity || null;
@@ -127,36 +116,25 @@ export function useRunStream({
   }
   const textBatcher = textBatcherRef.current;
 
-  useEffect(() => {
-    onRefreshRef.current = onRefresh;
-  }, [onRefresh]);
-
-  useEffect(() => {
-    onControlSnapshotRef.current = onControlSnapshot;
-  }, [onControlSnapshot]);
-
-  useEffect(() => {
-    onControlEventRef.current = onControlEvent;
+  useLayoutEffect(() => {
     onReadScopesRef.current = onReadScopes;
-  }, [onControlEvent, onReadScopes]);
+  }, [onReadScopes]);
 
-  useEffect(() => {
-    if (selectedGoalId === null) {
-      setLiveText("");
-      setOutputDisplay(EMPTY_SESSION_OUTPUT_DISPLAY);
-      setLiveEvents([]);
-      setProgressEntries([]);
-      setStreamConnected(false);
-      setRecovery(INITIAL_STREAM_RECOVERY_STATE);
-    }
-  }, [selectedGoalId]);
+  useLayoutEffect(() => {
+    textBatcher.clear();
+    sourceRef.current = null;
+    setLivePreview(createLivePreviewState());
+    setOutputDisplay(EMPTY_SESSION_OUTPUT_DISPLAY);
+    setLiveEvents([]);
+    setProgressEntries([]);
+  }, [textBatcher, view]);
 
   // 新的 Run 重置实时顺序；不同 Run 的临时节点不共享排序。
   useEffect(() => {
     liveOrderRef.current = 0;
     sourceOrdersRef.current.clear();
     sourceRef.current = null;
-  }, [selectedGoalId, session?.currentRunId]);
+  }, [view, session?.currentRunId]);
 
   // Run 到达终态后，临时正文、进度与实时工具节点由已提交历史接管。
   const runIsTerminal = session !== null
@@ -180,30 +158,10 @@ export function useRunStream({
   }, [session?.currentRunId]);
 
   useEffect(() => {
-    if (
-      selectedGoalId === null
-      || session === null
-      || session.goalId !== selectedGoalId
-      || sessionLoading
-    ) return;
-
+    if (view === null || !hasSession) return;
     const controller = new AbortController();
-    let active = true;
-    setOutputDisplay(EMPTY_SESSION_OUTPUT_DISPLAY);
-    setLiveEvents([]);
-    setProgressEntries([]);
-    setStreamConnected(false);
-    setRecovery(INITIAL_STREAM_RECOVERY_STATE);
-
-    const refreshLatest = async () => {
-      await onRefreshRef.current();
-    };
-
-    /** 按事件声明的范围定向读取；空范围只更新本地控制状态。 */
-    const readScopes = async (scopes: readonly BrowserControlScope[]): Promise<void> => {
-      if (scopes.length === 0) return;
-      await onReadScopesRef.current(scopes);
-    };
+    const active = () => ownsView(view) && !controller.signal.aborted;
+    let connectionReads: AbortController | undefined;
 
     const delay = () =>
       new Promise<void>((resolve) => {
@@ -219,59 +177,52 @@ export function useRunStream({
       });
 
     const listen = async () => {
-      while (active && !controller.signal.aborted) {
+      while (active()) {
+        const reads = new AbortController();
+        connectionReads = reads;
+        let resetLiveContent = false;
+        const resetAfterSync = () => {
+          if (!active() || reads.signal.aborted || resetLiveContent || !currentState().connection.synced) return;
+          resetLiveContent = true;
+          setProgressEntries([]);
+          textBatcher.clear();
+          sourceRef.current = null;
+          liveOrderRef.current = 0;
+          sourceOrdersRef.current.clear();
+          setLivePreview(createLivePreviewState());
+          setOutputDisplay((current) => ({ ...current, liveText: "" }));
+        };
+        const readScopes = (scopes: readonly BrowserControlScope[]) => {
+          if (scopes.length === 0 || reads.signal.aborted) return;
+          void onReadScopesRef.current(view, scopes, reads.signal).then(resetAfterSync);
+        };
         try {
-          // 一次连接先消费权威同步，再把后续事件当作当前状态。
-          let synced = false;
-          for await (const event of browserApi.events(selectedGoalId, controller.signal)) {
-            if (!active) return;
-            setStreamConnected(true);
-            setRecovery((current) => reduceStreamRecovery(current, { kind: "connected" }));
-            onControlEventRef.current(event);
+          for await (const event of browserApi.events(view.goalId, controller.signal)) {
+            if (!active()) return;
+            if (event.goalId !== view.goalId) continue;
+            const before = currentState();
+            const matchesRun = !("runId" in event) || event.runId === before.snapshot?.session.runId;
+            const changed = applyEvent(view, event);
             if (event.type === "state_sync") {
-              if (!synced) {
-                synced = true;
-                setProgressEntries([]);
-                // 重建连接后的权威同步：丢弃断线期间保留的临时正文与来源索引。
-                textBatcher.clear();
-                sourceRef.current = null;
-                liveOrderRef.current = 0;
-                sourceOrdersRef.current.clear();
-                setLivePreview(createLivePreviewState());
-                setOutputDisplay((current) => ({
-                  ...current,
-                  liveText: "",
-                }));
-              }
-              setRecovery((current) => reduceStreamRecovery(current, { kind: "state_sync" }));
-              // 权威快照直接替换控制状态；只有无法组装时才回倒完整读取。
-              if (event.snapshot === undefined) {
-                await refreshLatest();
-              } else {
-                onControlSnapshotRef.current(event.snapshot);
-              }
+              const after = currentState();
+              if (after.snapshot !== before.snapshot) onSessionConfirmed();
+              if (changed && !after.connection.synced) readScopes(["session"]);
+              resetAfterSync();
               continue;
             }
-            if (!synced) {
-              synced = true;
-              await refreshLatest();
-            }
-            if (event.type === "input_result") {
-              await readScopes(readScopesForEvent(event));
+            if (event.type === "input_result" || event.type === "state_committed" || event.type === "stream_fault") {
+              readScopes(readScopesForEvent(event));
               continue;
             }
-            if (event.type === "state_committed"
-              || event.type === "run_status_changed"
-              || event.type === "run_result"
-              || event.type === "interaction_opened"
-              || event.type === "interaction_settled"
-              || event.type === "tool_activity"
-              || event.type === "stream_fault"
-              || event.type === "closed") {
-              if (event.type === "interaction_opened") {
+            if (event.type === "closed") break;
+            if (!matchesRun) continue;
+            if (event.type === "run_status_changed" || event.type === "run_result"
+              || event.type === "interaction_opened" || event.type === "interaction_settled" || event.type === "tool_activity") {
+              if (event.type === "interaction_opened"
+                && before.snapshot?.goal.interaction?.interactionId === event.interactionId) {
                 setOutputDisplay((current) => ({ ...current, liveActivity: "Waiting for your answer" }));
               }
-              await readScopes(readScopesForEvent(event));
+              if (changed || currentState().connection.staleScopes.includes("session")) readScopes(readScopesForEvent(event));
               continue;
             }
             if (event.type === "message_committed") {
@@ -283,7 +234,7 @@ export function useRunStream({
                 sourceRef.current = null;
               }
               setOutputDisplay((current) => applySessionOutputEvent(current, event) ?? current);
-              await readScopes(readScopesForEvent(event));
+              readScopes(readScopesForEvent(event));
               continue;
             }
             if (event.type === "activity"
@@ -351,31 +302,28 @@ export function useRunStream({
                 break;
             }
           }
-          if (active && !controller.signal.aborted) {
-            // 单纯断开不是执行失败或取消：保留最后确认的正式内容与当前草稿，只标记可能过期。
-            setStreamConnected(false);
-            setRecovery((current) => reduceStreamRecovery(current, { kind: "disconnected" }));
-            await delay();
-          }
         } catch {
-          if (!active || controller.signal.aborted) return;
-          setStreamConnected(false);
-          setRecovery((current) => reduceStreamRecovery(current, { kind: "failed" }));
-          await delay();
+          // 读取异常与正常断开都交由同一重连路径处理。
+        } finally {
+          reads.abort();
         }
+        if (!active()) return;
+        disconnect(view);
+        await delay();
       }
     };
 
     void listen();
     return () => {
-      // 释放观察只回收浏览器本地资源：不发送 Interrupt，不撤销已受理输入，也不关闭宿主 Runtime。
       const release = releaseObservation();
-      active = false;
-      if (release.abortLocalReads) controller.abort();
+      if (release.abortLocalReads) {
+        controller.abort();
+        connectionReads?.abort();
+      }
       if (release.cancelPendingFrames) textBatcher.dispose();
     };
-    // 订阅按 Goal 建立：后继 Run 不重建执行订阅，跨 Run 只换权威读取的水位。
-  }, [selectedGoalId, session?.goalId, sessionLoading]);
+  }, [applyEvent, closeSource, currentState, disconnect, hasSession, nextLiveOrder,
+    onSessionConfirmed, openSource, ownsView, setLiveText, textBatcher, view]);
 
   return {
     liveText,
@@ -385,8 +333,8 @@ export function useRunStream({
     candidatePresentation: outputDisplay,
     liveEvents,
     progressEntries,
-    streamConnected,
-    stateStale: recovery.stale,
-    streamSynced: recovery.synced,
+    streamConnected: connection.connected,
+    stateStale: connection.stale || connection.staleScopes.includes("session"),
+    streamSynced: connection.synced,
   };
 }

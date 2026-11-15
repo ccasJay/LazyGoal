@@ -88,6 +88,23 @@ export interface UnavailableModelCallUsage {
 }
 
 /**
+ * 供应商未上报用量时的本地 Token 估算。
+ *
+ * @remarks
+ * 估算只由当次请求的固定内容得出，不代表供应商实际计量；投影层必须将其标记为
+ * 估算值，且不能与供应商上报值混为同一精度。
+ *
+ * @example
+ * ```ts
+ * const usage: EstimatedModelCallUsage = { source: "estimated", inputTokens: 1200 };
+ * ```
+ */
+export interface EstimatedModelCallUsage {
+    readonly source: "estimated";
+    readonly inputTokens: number;
+}
+
+/**
  * 模型调用结束事实。
  *
  * @example
@@ -107,7 +124,7 @@ export interface UnavailableModelCallUsage {
 export interface ModelCallFinishedMetricRecord extends ModelCallMetricIdentity {
     readonly recordType: "call_finished";
     readonly outcome: "completed" | "failed" | "cancelled";
-    readonly usage: ProviderReportedModelCallUsage | UnavailableModelCallUsage;
+    readonly usage: ProviderReportedModelCallUsage | EstimatedModelCallUsage | UnavailableModelCallUsage;
     /**
      * 应用观察到的适配器请求端到端耗时，单位为毫秒；涵盖流式/非流式请求直到完整响应消费结束。
      * 失败调用可以记录已观测耗时；无法测得有效正时长时省略。

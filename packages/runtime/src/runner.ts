@@ -94,15 +94,18 @@ import { TransientToolExecutionFailure } from "../../tool-core/src/index";
 import type { ToolPolicy } from "./tool";
 import { resolveAuthorizedToolDefinitions } from "./tool";
 import {
-    isSeatbeltSupported,
-    isEffectiveSandboxScopeWithin,
     resolveEffectiveSandboxScope,
     type DerivedSandboxAccess,
     type EffectiveSandboxScope,
     type SandboxAccessRequest,
     type SandboxExecutionPlan,
 } from "../../sandbox/src/index";
-import { evaluateSandboxAuthorization } from "../../permission/src/index";
+import {
+    DEFAULT_PERMISSION_PROFILE,
+    evaluatePermissionBoundary,
+    isDestructiveCommand,
+    type PermissionProfile,
+} from "../../permission/src/index";
 
 /**
  * 沙箱执行计划解析器接口。
@@ -121,6 +124,7 @@ export type SandboxPlanResolver = (query: {
     readonly effectiveScope?: EffectiveSandboxScope | undefined;
 }) => Promise<SandboxExecutionPlan | undefined> | SandboxExecutionPlan | undefined;
 import {
+    ContextWindowRejectedError,
     ExecutionAbortedError,
     isExecutionAbortedError,
     throwIfAborted,
@@ -159,6 +163,7 @@ import {
 } from "./run-stage";
 import {
     acceptRunPlanStage,
+    reopenRunPlanStage,
     reviseRunPlanExecution,
     reviseRunPlanRoute,
     updateRunPlanStage,
@@ -175,6 +180,9 @@ import {
 } from "./tool-input-diagnostic";
 import {
     TrajectoryAppendError,
+    TrajectoryCommitMarkerError,
+    allocateDiagnosticTraceRecord,
+    trajectoryWatermark,
     type DiagnosticTraceSink,
     type TrajectoryEvent,
     type TrajectoryEventDraft,
@@ -209,15 +217,18 @@ import {
     selectLatestConversationStart,
     toEpochRange,
 } from "./context-epoch";
+import {
+    evaluateCompactionBody,
+    renderCompactionTranscript,
+    selectCompactionWindow,
+    type ContextCompactionInput,
+} from "./context-compaction";
 import { withGoalMutationGate } from "./goal-mutation-gate";
 import { RunRecoveryReader } from "./run-recovery-reader";
 import {
     createSandboxGrantMatcher,
-    createToolGrantMatcher,
-    type PermissionMode,
-    type ProjectPermissionModeStore,
+    type ProjectPermissionProfileStore,
     type SandboxGrantLookup,
-    type ToolGrantLookup,
 } from "./tool-grant";
 
 const EMPTY_TOOL_REGISTRY: ToolRegistry = {
@@ -313,11 +324,67 @@ export type InterruptRunResult =
     | { readonly ok: false; readonly error: "RUN_NOT_FOUND" | "RUN_NOT_RUNNING" | "INTERRUPT_CONFLICT" };
 
 class StageExecutionFailure extends Error {
-    constructor(readonly original: unknown) {
+    constructor(
+        readonly original: unknown,
+        /** 包装前已被采纳的已提交 Goal，用于失败收尾保留阶段中途提交的事实。 */
+        readonly committedGoal?: Goal,
+    ) {
         super(original instanceof Error ? original.message : String(original));
         this.name = "StageExecutionFailure";
     }
 }
+
+/** 触发一轮上下文提炼的来源。 */
+type ContextCompactionTrigger = "threshold" | "context_window" | "command";
+
+/** 一轮提炼的内部结论；`goal` 只在确实提交新 Epoch 时携带。 */
+type ContextCompactionStep =
+    | { readonly kind: "compacted"; readonly goal: Goal }
+    | {
+        readonly kind: "skipped";
+        readonly reason:
+            | "unsupported"
+            | "not_running"
+            | "pending"
+            | "capacity_unavailable"
+            | "below_threshold"
+            | "no_window"
+            | "empty"
+            | "invalid"
+            | "not_reduced"
+            | "failed"
+            | "source_unavailable";
+    };
+
+/**
+ * 用户命令触发的上下文整理结果。
+ *
+ * @remarks
+ * `compacted` 携带新 Epoch 的序号与窗口起点；`unavailable` 用稳定原因说明为何本次
+ * 没有推进窗口，调用方据此生成面向用户的反馈。
+ *
+ * @example
+ * ```ts
+ * const outcome = await runner.compactContextNow({ goalId: "goal-1", runId: "run-1" });
+ * if (outcome.kind === "unavailable") console.log(outcome.reason);
+ * ```
+ */
+export type ContextCompactionCommandOutcome =
+    | {
+        readonly kind: "compacted";
+        readonly epochNumber: number;
+        readonly conversationStartIndex: number;
+    }
+    | {
+        readonly kind: "unavailable";
+        readonly reason:
+            | "unsupported"
+            | "goal_not_found"
+            | "run_mismatch"
+            | "not_at_safe_boundary"
+            | "empty_window"
+            | "not_reduced";
+    };
 
 class StageCheckpointFailure extends Error {
     constructor(readonly original: unknown) {
@@ -623,8 +690,63 @@ interface PreparedToolAction {
     stream?(control?: ExecutionControl, plan?: SandboxExecutionPlan): AsyncIterable<ToolStreamEvent>;
 }
 
+/**
+ * 一次待执行 Action 的权限判定结果。
+ *
+ * @remarks
+ * 三种结果都携带派生出的 `effectiveSandboxScope`：`allow` 直接暂存并执行，
+ * `approval` 暂存为等待人工裁决，`deny` 只向模型回灌失败 Observation，不执行 Tool。
+ */
+type ActionAuthorization =
+    | { readonly kind: "allow"; readonly effectiveSandboxScope: EffectiveSandboxScope }
+    | {
+        readonly kind: "approval";
+        readonly approvalKind: "sandbox";
+        readonly effectiveSandboxScope: EffectiveSandboxScope;
+        readonly reason: string;
+    }
+    | {
+        readonly kind: "deny";
+        readonly effectiveSandboxScope: EffectiveSandboxScope;
+        readonly reason: string;
+    };
+
 function isPlanRunAwaitingTaskApproval(goal: Goal): boolean {
     return goal.state.run.mode === "plan" && goal.state.run.approvedTask === undefined;
+}
+
+function resolveCommittedProgramCallRevision(
+    events: readonly TrajectoryEvent[],
+    program: Pick<NonNullable<RunState["pendingProgram"]>, "programId" | "executionUnitId">,
+    callIndex: number,
+    actionId: string,
+): ProgramCallRevision | undefined {
+    let latestDecision: Extract<TrajectoryEvent, { readonly eventType: "action_revised" }> | undefined;
+    const executionUnitId = `${program.executionUnitId}:call:${callIndex}`;
+    for (const event of events) {
+        if (
+            event.actionId !== actionId
+            || (event.programId !== program.programId || event.callIndex !== callIndex)
+                && event.executionUnitId !== executionUnitId
+        ) {
+            continue;
+        }
+        if (event.eventType === "action_revised") {
+            latestDecision = event;
+        } else if (
+            event.eventType === "action_approved"
+            || event.eventType === "action_rejected"
+        ) {
+            latestDecision = undefined;
+        }
+    }
+    if (latestDecision === undefined) return undefined;
+    return {
+        reviewRef: latestDecision.payload.reviewRef,
+        originalInput: latestDecision.payload.originalInput,
+        finalInput: latestDecision.payload.finalInput,
+        source: latestDecision.payload.revisionSource ?? "user",
+    };
 }
 
 function prepareToolAction(
@@ -958,13 +1080,13 @@ export interface RunnerDependencies {
      */
     readonly toolRegistry?: ToolRegistry;
     /**
-     * Tool 执行前的策略边界；省略时使用允许策略。返回
-     * `require_approval` 时 Runner 保存等待中的 Action，由 Coordinator 接收
-     * 用户批准或拒绝。
+     * Tool 执行前的策略边界；省略时使用允许策略。
+     *
+     * @remarks
+     * Policy 只决定 Tool 自身是否可用于该 Action，不再产生审批等待；越界裁决由
+     * 工作区权限档位的边界判定负责。
      */
     readonly toolPolicy?: ToolPolicy;
-    /** 读取会话或 Workspace 级持续 Tool 授权；缺省时所有受 Policy 门控的 Action 仍需审批。 */
-    readonly toolGrantLookup?: ToolGrantLookup;
     /** 读取会话或 Workspace 级持续 Sandbox 授权；缺省时所有越界沙箱能力仍需审批。 */
     readonly sandboxGrantLookup?: SandboxGrantLookup;
     /** 用于隔离 Workspace 授权的稳定身份；必须与授权账本位置一致。 */
@@ -975,6 +1097,21 @@ export interface RunnerDependencies {
     readonly trajectoryStore?: TrajectoryStore;
     /** 可选诊断记录边界；诊断故障不得改变 Snapshot 或 Domain Event 语义。 */
     readonly traceSink?: DiagnosticTraceSink;
+    /**
+     * 可选的阈值压缩调度。
+     *
+     * @remarks
+     * 省略时不调度压缩。`readOccupancy` 返回当次已结算的工作窗口占用与容量；
+     * `compact` 只执行一次提炼调用。Runtime 负责候选选择、有效性判断与提交边界。
+     */
+    readonly contextCompaction?: {
+        readonly readOccupancy: (goal: Goal) => Promise<{
+            readonly occupiedTokens: number;
+            readonly capacityTokens: number;
+            readonly thresholdPercent: number;
+        } | null>;
+        readonly compact: (input: ContextCompactionInput) => Promise<string | undefined>;
+    };
     /** structured@1 Patch 接受时使用的 Working Memory 限制。 */
     readonly workingMemoryLimits?: WorkingMemoryLimitsInput;
     /**
@@ -995,8 +1132,13 @@ export interface RunnerDependencies {
      * Runner 在受限 Action 获准执行前调用此解析器以生成或验证沙箱执行计划。
      */
     readonly sandboxPlanResolver?: SandboxPlanResolver;
-    /** 可选的项目权限执行模式存储端口。 */
-    readonly permissionModeStore?: ProjectPermissionModeStore;
+    /**
+     * 当前工作区的权限档位存储；省略或缺少 `workspaceId` 时使用默认档位。
+     *
+     * @remarks
+     * 每个待判定 Action 都在决策期重新读取档位；读取失败向上抛出，不回退默认档位。
+     */
+    readonly permissionProfileStore?: ProjectPermissionProfileStore;
 }
 
 /**
@@ -1032,7 +1174,6 @@ class RunExecutor {
     private readonly executor: StepExecutor;
     private readonly toolRegistry: ToolRegistry;
     private readonly toolPolicy: ToolPolicy;
-    private readonly toolGrantLookup: ToolGrantLookup | undefined;
     private readonly sandboxGrantLookup: SandboxGrantLookup | undefined;
     private readonly workspaceId: string | undefined;
     private readonly workspaceRoot: string | undefined;
@@ -1043,9 +1184,19 @@ class RunExecutor {
     private readonly contextLookupPort: ContextLookupPort | undefined;
     private readonly executionStream: ExecutionStreamPublisher | undefined;
     private readonly traceSink: DiagnosticTraceSink | undefined;
+    private readonly contextCompaction: RunnerDependencies["contextCompaction"];
     private readonly sandboxPlanResolver: SandboxPlanResolver | undefined;
-    private readonly permissionModeStore: ProjectPermissionModeStore | undefined;
+    private readonly permissionProfileStore: ProjectPermissionProfileStore | undefined;
     private readonly activeRunControllers = new Map<string, AbortController>();
+    /** 当前 Run 的瞬时导航投影；Goal 字段已定义时优先使用 Goal 上的增量结果。 */
+    private navigationProjection:
+        | {
+            readonly goalId: string;
+            readonly runId: string;
+            readonly stages: readonly RunStageState[];
+            readonly notes: readonly RuntimeContextNote[];
+        }
+        | undefined;
 
     /** @param dependencies - GoalStore、Executor 与可选 Tool 边界依赖。 */
     constructor(dependencies: RunnerDependencies) {
@@ -1059,9 +1210,8 @@ class RunExecutor {
         this.executor = dependencies.executor;
         this.toolRegistry = dependencies.toolRegistry ?? EMPTY_TOOL_REGISTRY;
         this.toolPolicy = dependencies.toolPolicy ?? ALLOW_ALL_TOOL_POLICY;
-        this.toolGrantLookup = dependencies.toolGrantLookup;
         this.sandboxGrantLookup = dependencies.sandboxGrantLookup;
-        this.permissionModeStore = dependencies.permissionModeStore;
+        this.permissionProfileStore = dependencies.permissionProfileStore;
         this.workspaceId = dependencies.workspaceId;
         this.workspaceRoot = dependencies.workspaceRoot;
         this.sandboxPlanResolver = dependencies.sandboxPlanResolver;
@@ -1071,6 +1221,7 @@ class RunExecutor {
         this.contextLookupPort = dependencies.contextLookupPort;
         this.executionStream = dependencies.executionStream;
         this.traceSink = dependencies.traceSink;
+        this.contextCompaction = dependencies.contextCompaction;
         this.checkpointCommitter = dependencies.checkpointCommitter
             ?? new TrajectoryCheckpointCommitter({
                 store: dependencies.store,
@@ -1250,7 +1401,7 @@ class RunExecutor {
             return this.runNotFound(ref);
         }
 
-        if (goal.state.run.interruption !== undefined && options.authorizedActionId === undefined) {
+        if (goal.state.run.interruption !== undefined) {
             return this.resumeInterruptedRun(goal, control);
         }
 
@@ -1533,58 +1684,62 @@ class RunExecutor {
     }
 
     private async resumeInterruptedRun(goal: Goal, control?: ExecutionControl): Promise<RunnerResult> {
-        const interruption = goal.state.run.interruption;
-        if (interruption === undefined) return { ok: true, state: goal.state.run };
-        if (interruption.status === "finished" || goal.state.run.status === "cancelled") {
-            return { ok: true, state: goal.state.run };
-        }
-        if (interruption.status === "requested") {
-            const pending = goal.state.run.pendingAction;
-            const program = goal.state.run.pendingProgram;
-            const unknownActions = [
-                ...(pending?.status === "approved" && (pending.attemptsStarted ?? 0) > 0 ? [pending.action] : []),
-                ...(program === undefined ? [] : [program.action]),
-            ].filter((action, index, actions) => actions.findIndex((candidate) => candidate.actionId === action.actionId) === index);
-            if (unknownActions.length === 0) return this.cancelInterruptedRun(goal, control);
-            const attempt = pending?.attemptsStarted ?? Math.max(1, program?.nextCallIndex ?? 1);
-            const nextInterruption: RunInterruption = {
-                ...interruption,
-                interruptedActions: unknownActions,
-                outcomeUnknown: true,
-            };
-            const nextGoalWithRun = this.withRun(goal, {
-                ...goal.state.run,
-                interruption: nextInterruption,
-            });
-            const facts: TrajectoryEventDraft[] = unknownActions.flatMap((action) => {
-                const unknownObservation: ToolObservation = {
-                    kind: "failure",
-                    code: "TOOL_INTERRUPTED_OUTCOME_UNKNOWN",
-                    message: `Tool ${action.toolId} was interrupted; its external effect is unknown. The operation was not replayed.`,
-                    retryable: false,
-                    details: { actionId: action.actionId, requestId: interruption.requestId, outcome: "unknown" },
+        return withGoalMutationGate(this.store, goal.id, async () => {
+            const latest = await this.restore({ goalId: goal.id, runId: goal.state.run.id }, control);
+            if (latest === undefined) return { ok: true, state: goal.state.run };
+            const interruption = latest.state.run.interruption;
+            if (interruption === undefined) return { ok: true, state: latest.state.run };
+            if (interruption.status === "finished" || latest.state.run.status === "cancelled") {
+                return { ok: true, state: latest.state.run };
+            }
+            if (interruption.status === "requested") {
+                const pending = latest.state.run.pendingAction;
+                const program = latest.state.run.pendingProgram;
+                const unknownActions = [
+                    ...(pending?.status === "approved" && (pending.attemptsStarted ?? 0) > 0 ? [pending.action] : []),
+                    ...(program === undefined ? [] : [program.action]),
+                ].filter((action, index, actions) => actions.findIndex((candidate) => candidate.actionId === action.actionId) === index);
+                if (unknownActions.length === 0) return this.cancelInterruptedRun(latest, control);
+                const attempt = pending?.attemptsStarted ?? Math.max(1, program?.nextCallIndex ?? 1);
+                const nextInterruption: RunInterruption = {
+                    ...interruption,
+                    interruptedActions: unknownActions,
+                    outcomeUnknown: true,
                 };
-                return [
-                    {
-                        goalId: goal.id, runId: goal.state.run.id, phase: "executing", actionId: action.actionId,
-                        eventType: "tool_attempt_failed",
-                        payload: { type: "tool_attempt_failed", actionId: action.actionId, attempt, reason: "outcome_unknown" },
-                    },
-                    {
-                        goalId: goal.id, runId: goal.state.run.id, phase: "executing", actionId: action.actionId,
-                        eventType: "observation_recorded",
-                        payload: { type: "observation_recorded", actionId: action.actionId, observation: unknownObservation },
-                    },
-                    {
-                        goalId: goal.id, runId: goal.state.run.id, phase: "executing", actionId: action.actionId,
-                        eventType: "run_interrupted_action_unknown",
-                        payload: { type: "run_interrupted_action_unknown", requestId: interruption.requestId, actionId: action.actionId, toolId: action.toolId },
-                    },
-                ];
-            });
-            return this.cancelInterruptedRun(nextGoalWithRun, control, facts);
-        }
-        return this.cancelInterruptedRun(goal, control);
+                const nextGoalWithRun = this.withRun(latest, {
+                    ...latest.state.run,
+                    interruption: nextInterruption,
+                });
+                const facts: TrajectoryEventDraft[] = unknownActions.flatMap((action) => {
+                    const unknownObservation: ToolObservation = {
+                        kind: "failure",
+                        code: "TOOL_INTERRUPTED_OUTCOME_UNKNOWN",
+                        message: `Tool ${action.toolId} was interrupted; its external effect is unknown. The operation was not replayed.`,
+                        retryable: false,
+                        details: { actionId: action.actionId, requestId: interruption.requestId, outcome: "unknown" },
+                    };
+                    return [
+                        {
+                            goalId: latest.id, runId: latest.state.run.id, phase: "executing", actionId: action.actionId,
+                            eventType: "tool_attempt_failed",
+                            payload: { type: "tool_attempt_failed", actionId: action.actionId, attempt, reason: "outcome_unknown" },
+                        },
+                        {
+                            goalId: latest.id, runId: latest.state.run.id, phase: "executing", actionId: action.actionId,
+                            eventType: "observation_recorded",
+                            payload: { type: "observation_recorded", actionId: action.actionId, observation: unknownObservation },
+                        },
+                        {
+                            goalId: latest.id, runId: latest.state.run.id, phase: "executing", actionId: action.actionId,
+                            eventType: "run_interrupted_action_unknown",
+                            payload: { type: "run_interrupted_action_unknown", requestId: interruption.requestId, actionId: action.actionId, toolId: action.toolId },
+                        },
+                    ];
+                });
+                return this.cancelInterruptedRun(nextGoalWithRun, control, facts);
+            }
+            return this.cancelInterruptedRun(latest, control);
+        });
     }
 
     private async cancelInterruptedRun(goal: Goal, control?: ExecutionControl, interruptedFacts: readonly TrajectoryEventDraft[] = []): Promise<RunnerResult> {
@@ -1792,22 +1947,261 @@ class RunExecutor {
 
     /**
      * 恢复并填充运行时 Goal 的历史阶段和 notes，用于支持模型请求中的工作导航投影。
+     *
+     * @remarks
+     * 每个 `(goalId, runId)` 只读取自身 Snapshot 提交边界内的事实；读取失败或非零
+     * 水位缺少提交边界时抛出 `RunNavigationRecoveryError`，停止本次依赖该导航的模型推进。
      */
+    /**
+     * 在完成交互与已结算执行单元的边界上按阈值执行一轮提炼。
+     *
+     * @remarks
+     * 占用严格超过阈值才触发；正文无效、未缩减或提炼失败时保持旧窗口并继续执行。
+     * 提交点唯一：把压缩正文与来源范围写入 Epoch 切换事件，并在同一提交中保存新 Epoch。
+     */
+    private async maybeCompactContext(goal: Goal, control?: ExecutionControl): Promise<Goal> {
+        const step = await this.compactContext(goal, "threshold", control);
+        return step.kind === "compacted" ? step.goal : goal;
+    }
+
+    /**
+     * 在工作窗口边界执行一轮提炼并提交新 Epoch。
+     *
+     * @remarks
+     * `threshold` 只在占用严格超过阈值时触发；`context_window` 与 `command` 忽略占用阈值，
+     * 但沿用同一套候选选择、有效性与提交规则。超窗恢复由供应商拒绝产生且尚未产生任何模型
+     * 输出，因此允许在待修复的模型阶段内切换窗口；其它触发仍要求没有待处理执行事实。
+     * 提交点唯一：把压缩正文与来源范围写入 Epoch 切换事件，并在同一提交中保存新 Epoch。
+     */
+    private async compactContext(
+        goal: Goal,
+        trigger: ContextCompactionTrigger,
+        control?: ExecutionControl,
+    ): Promise<ContextCompactionStep> {
+        const scheduler = this.contextCompaction;
+        if (scheduler === undefined) return { kind: "skipped", reason: "unsupported" };
+        const status = goal.state.run.status;
+        const ended = status === "completed" || status === "failed" || status === "cancelled";
+        if (status !== "running" && status !== "waiting" && !(trigger === "command" && ended)) {
+            return { kind: "skipped", reason: "not_running" };
+        }
+        if (goal.state.run.pendingAction !== undefined
+            || goal.state.run.pendingActionBatch !== undefined
+            || goal.state.run.pendingInteraction !== undefined
+            || goal.state.run.pendingThink !== undefined
+            || goal.state.run.pendingProgram !== undefined
+            || (goal.state.run.pendingModelRepair !== undefined && trigger !== "context_window")) {
+            return { kind: "skipped", reason: "pending" };
+        }
+        if (trigger === "threshold") {
+            const occupancy = await scheduler.readOccupancy(goal);
+            if (occupancy === null) return { kind: "skipped", reason: "capacity_unavailable" };
+            if (occupancy.occupiedTokens * 100 <= occupancy.thresholdPercent * occupancy.capacityTokens) {
+                return { kind: "skipped", reason: "below_threshold" };
+            }
+        }
+
+        const epoch = goal.state.run.contextEpoch;
+        const window = selectCompactionWindow(goal.state.messages, epoch.conversationStartIndex);
+        if (window === undefined) return { kind: "skipped", reason: "no_window" };
+        const evictedTranscript = renderCompactionTranscript(window.evicted);
+        if (evictedTranscript.length === 0) return { kind: "skipped", reason: "empty" };
+
+        let body: string | undefined;
+        try {
+            body = await scheduler.compact({
+                intent: goal.definition.intent,
+                ...(goal.state.run.approvedTask === undefined
+                    ? {}
+                    : { objective: goal.state.run.approvedTask.objective }),
+                evictedTranscript,
+                recentTranscript: renderCompactionTranscript(window.retained),
+                evictedCharacters: evictedTranscript.length,
+            });
+        } catch (error) {
+            if (isExecutionAbortedError(error)) throw error;
+            await this.recordCompactionFailure(goal, error);
+            return { kind: "skipped", reason: "failed" };
+        }
+        throwIfAborted(control);
+        const result = evaluateCompactionBody(body, evictedTranscript.length);
+        if (result.kind !== "compacted") return { kind: "skipped", reason: result.reason };
+
+        const openedAtSequence = goal.state.run.committedThroughSequence + 1;
+        const source = await this.readCompactionSource(goal, epoch.openedAtSequence, control);
+        if (source === undefined) return { kind: "skipped", reason: "source_unavailable" };
+        const nextEpoch = advanceContextEpoch(
+            epoch,
+            goal.state.messages,
+            window.retainedStartIndex,
+            openedAtSequence,
+            { sourceRunId: goal.state.run.id },
+        );
+        const closedEpoch = toEpochRange(
+            epoch,
+            goal.state.messages.length,
+            goal.state.run.committedThroughSequence,
+        );
+        const nextGoal = this.withRun(goal, {
+            ...goal.state.run,
+            contextEpoch: nextEpoch,
+        });
+        const reason = trigger === "threshold"
+            ? "threshold_compaction" as const
+            : trigger === "context_window"
+                ? "context_window_recovery" as const
+                : "command_compaction" as const;
+        const committed = await this.commitDecision(nextGoal, [{
+            goalId: goal.id,
+            runId: goal.state.run.id,
+            phase: "executing",
+            eventType: "context_epoch_advanced",
+            payload: {
+                type: "context_epoch_advanced",
+                closedEpoch,
+                openedEpoch: nextEpoch,
+                reason,
+                compaction: {
+                    body: result.body,
+                    sourceRunId: goal.state.run.id,
+                    firstSequence: source.firstSequence,
+                    lastSequence: source.lastSequence,
+                    eventIds: source.eventIds,
+                },
+            },
+        }], undefined, control);
+        return { kind: "compacted", goal: committed };
+    }
+
+    /**
+     * 按用户命令整理当前 Goal 的工作窗口。
+     *
+     * @remarks
+     * 绑定 Goal 的当前 Epoch，不创建业务 Run，也不写入对话。已进入终态的 Run 仍可追加
+     * 上下文事件，保留原终态与 Step 计数；正在等待外部动作且无法切换时返回稳定原因。
+     *
+     * @param ref - 目标 Goal 与 Run 的关联键。
+     * @returns 整理结果与原因；不会抛出可预期的不满足边界条件。
+     * @example
+     * ```ts
+     * const outcome = await runner.compactContextNow({ goalId: "goal-1", runId: "run-1" });
+     * ```
+     */
+    async compactContextNow(ref: RunRef, control?: ExecutionControl): Promise<ContextCompactionCommandOutcome> {
+        throwIfAborted(control);
+        const goal = await this.store.restore(ref.goalId);
+        if (goal === undefined) return { kind: "unavailable", reason: "goal_not_found" };
+        if (goal.state.run.id !== ref.runId) return { kind: "unavailable", reason: "run_mismatch" };
+        const step = await this.compactContext(goal, "command", control);
+        if (step.kind === "compacted") {
+            const epoch = step.goal.state.run.contextEpoch;
+            return {
+                kind: "compacted",
+                epochNumber: epoch.number,
+                conversationStartIndex: epoch.conversationStartIndex,
+            };
+        }
+        return {
+            kind: "unavailable",
+            reason: step.reason === "unsupported"
+                ? "unsupported"
+                : step.reason === "not_running"
+                    ? "not_at_safe_boundary"
+                    : step.reason === "pending"
+                        ? "not_at_safe_boundary"
+                        : step.reason === "no_window" || step.reason === "empty"
+                            ? "empty_window"
+                            : "not_reduced",
+        };
+    }
+
+    /**
+     * 在供应商明确以超窗拒绝后执行一次工作窗口整理。
+     *
+     * @remarks
+     * 只在 Epoch 确实推进时返回新 Goal；提炼端口缺失、候选不足、正文无效或提交未推进时
+     * 返回 `undefined`，由调用方按恢复失败结束本次 Run。
+     */
+    private async recoverContextWindow(goal: Goal, control?: ExecutionControl): Promise<Goal | undefined> {
+        const step = await this.compactContext(goal, "context_window", control);
+        return step.kind === "compacted" ? step.goal : undefined;
+    }
+
+    /** 构造一次已用尽超窗恢复机会的稳定执行错误。 */
+    private contextWindowExceeded(goal: Goal): RunnerExecutionError {
+        return new RunnerExecutionError(
+            "CONTEXT_WINDOW_EXCEEDED",
+            "Provider rejected the retried request because it still exceeds the model context window",
+            undefined,
+            goal,
+        );
+    }
+
+    /**
+     * 读取被移出历史对应的已提交事件范围。
+     *
+     * @remarks
+     * 当前 Epoch 的 `openedAtSequence` 与提交边界定义被移出范围；代表事件身份只用于
+     * 恢复时核验，不参与正文。没有可读的 Trajectory 时不提交压缩。
+     */
+    private async readCompactionSource(
+        goal: Goal,
+        firstSequence: number,
+        control?: ExecutionControl,
+    ): Promise<{ readonly firstSequence: number; readonly lastSequence: number; readonly eventIds: readonly string[] } | undefined> {
+        const store = this.trajectoryStore;
+        if (store === undefined) return undefined;
+        const lastSequence = goal.state.run.committedThroughSequence;
+        if (lastSequence < firstSequence) return undefined;
+        const committed = await store.readWithBoundary(
+            { goalId: goal.id, runId: goal.state.run.id },
+            lastSequence,
+        );
+        const inRange = committed.committed.filter((event) =>
+            event.sequence >= firstSequence && event.sequence <= lastSequence);
+        if (inRange.length === 0) return undefined;
+        throwIfAborted(control);
+        return Object.freeze({
+            firstSequence: inRange[0]!.sequence,
+            lastSequence: inRange[inRange.length - 1]!.sequence,
+            eventIds: Object.freeze([inRange[0]!.eventId, inRange[inRange.length - 1]!.eventId]
+                .filter((id, index, ids) => ids.indexOf(id) === index)),
+        });
+    }
+
+    /** @returns 提炼失败的诊断已尽力写入后的 Promise；诊断故障不改变执行结果。 */
+    private async recordCompactionFailure(goal: Goal, error: unknown): Promise<void> {
+        if (this.traceSink === undefined) return;
+        try {
+            await this.traceSink.append(allocateDiagnosticTraceRecord({
+                goalId: goal.id,
+                runId: goal.state.run.id,
+                kind: "context_compaction_failed",
+                payload: {
+                    message: error instanceof Error ? error.message : String(error),
+                },
+            }));
+        } catch {
+            // 诊断失败不得改变执行结果。
+        }
+    }
+
     private async populateHistoricalContext(goal: Goal, control?: ExecutionControl): Promise<Goal> {
         if (goal.state.historicalStages !== undefined && goal.state.notes !== undefined) {
             return goal;
         }
 
+        const cached = this.navigationProjection;
+        if (cached !== undefined && cached.goalId === goal.id && cached.runId === goal.state.run.id) {
+            return this.withNavigationProjection(goal, cached.stages, cached.notes);
+        }
+
         const trajectoryStore = this.trajectoryStore;
         if (trajectoryStore === undefined) {
-            return {
-                ...goal,
-                state: {
-                    ...goal.state,
-                    historicalStages: goal.state.historicalStages ?? Object.freeze([]),
-                    notes: goal.state.notes ?? Object.freeze([]),
-                },
-            };
+            const stages = Object.freeze([]) as readonly RunStageState[];
+            const notes = Object.freeze([]) as readonly RuntimeContextNote[];
+            this.navigationProjection = { goalId: goal.id, runId: goal.state.run.id, stages, notes };
+            return this.withNavigationProjection(goal, stages, notes);
         }
 
         const runIds = [
@@ -1820,12 +2214,11 @@ class RunExecutor {
 
         for (const runId of runIds) {
             throwIfAborted(control);
-            let events: readonly TrajectoryEvent[] = [];
-            try {
-                events = await trajectoryStore.read({ goalId: goal.id, runId });
-            } catch {
-                events = [];
-            }
+            const events = await this.recoveryReader.readNavigationHistory(
+                { goalId: goal.id, runId },
+                trajectoryWatermark(goal, runId),
+                control,
+            );
 
             const stagesByStageId = new Map<string, RunStageState>();
             for (const event of events) {
@@ -1876,16 +2269,28 @@ class RunExecutor {
             }
         }
 
-        if (stagesList.length === 0 && notesMap.size === 0) {
+        const stages = Object.freeze(stagesList);
+        const notes = Object.freeze([...notesMap.values()]);
+        this.navigationProjection = { goalId: goal.id, runId: goal.state.run.id, stages, notes };
+        return this.withNavigationProjection(goal, stages, notes);
+    }
+
+    private withNavigationProjection(
+        goal: Goal,
+        stages: readonly RunStageState[],
+        notes: readonly RuntimeContextNote[],
+    ): Goal {
+        const historicalStages = goal.state.historicalStages ?? stages;
+        const projectedNotes = goal.state.notes ?? notes;
+        if (historicalStages.length === 0 && projectedNotes.length === 0) {
             return goal;
         }
-
         return {
             ...goal,
             state: {
                 ...goal.state,
-                historicalStages: goal.state.historicalStages ?? Object.freeze(stagesList),
-                notes: goal.state.notes ?? Object.freeze([...notesMap.values()]),
+                historicalStages,
+                notes: projectedNotes,
             },
         };
     }
@@ -3150,6 +3555,8 @@ class RunExecutor {
             throw new RunnerExecutionError("INVALID_AGENT_DECISION", "Pending model repair stage does not match the requested stage");
         }
         let feedback = await this.readRepairFeedback(currentGoal, pending, control);
+        // 同一阶段的连续模型调用最多消耗一次超窗整理，避免反复压缩退化为无界重试。
+        let contextRecoveryUsed = false;
         while (true) {
             throwIfAborted(control);
             const started = await this.appendRepairAttempt(
@@ -3164,7 +3571,33 @@ class RunExecutor {
             pending = started.pending;
             try {
                 const value = await this.executeModelStage(
-                    () => operation(currentGoal, feedback),
+                    async () => {
+                        try {
+                            return await operation(currentGoal, feedback);
+                        } catch (error) {
+                            if (!(error instanceof ContextWindowRejectedError)) throw error;
+                            if (contextRecoveryUsed) throw this.contextWindowExceeded(currentGoal);
+                            contextRecoveryUsed = true;
+                            const recovered = await this.recoverContextWindow(currentGoal, control);
+                            if (recovered === undefined) {
+                                throw new RunnerExecutionError(
+                                    "CONTEXT_WINDOW_RECOVERY_FAILED",
+                                    "Provider rejected the request because it exceeds the context window, and the working window could not be compacted",
+                                    undefined,
+                                    currentGoal,
+                                );
+                            }
+                            currentGoal = recovered;
+                            try {
+                                return await operation(currentGoal, feedback);
+                            } catch (retryError) {
+                                if (retryError instanceof ContextWindowRejectedError) {
+                                    throw this.contextWindowExceeded(currentGoal);
+                                }
+                                throw retryError;
+                            }
+                        }
+                    },
                     control,
                     async (attempt, error) => {
                         currentGoal = await this.recordModelRequestFailure(currentGoal, input, stage, attempt, error, control);
@@ -3185,7 +3618,12 @@ class RunExecutor {
                 if (isExecutionAbortedError(error)) throw error;
                 if (error instanceof StageCheckpointFailure) throw error;
                 if (error instanceof StaleStageRequestError) throw error;
-                if (!(error instanceof ModelStageFeedbackError)) throw new StageExecutionFailure(error);
+                if (!(error instanceof ModelStageFeedbackError)) {
+                    throw new StageExecutionFailure(
+                        error,
+                        error instanceof RunnerExecutionError && error.committedGoal !== undefined ? error.committedGoal : undefined,
+                    );
+                }
                 if (error.feedback.stage !== stage
                     || error.feedback.goalId !== currentGoal.id
                     || error.feedback.runId !== currentGoal.state.run.id
@@ -4204,7 +4642,7 @@ class RunExecutor {
         initialPreparedAction?: PreparedToolAction,
         initialSandboxPlan?: SandboxExecutionPlan,
     ): Promise<RunnerResult> {
-        let goal = await this.populateHistoricalContext(initialGoal, control);
+        let goal = initialGoal;
         let transientAuthorization = authorizedActionId;
         let transientSandboxPlan = initialSandboxPlan;
         let contextLookupResult = initialContextLookupResult;
@@ -4309,6 +4747,7 @@ class RunExecutor {
 
                 if (validated.registration.kind === "program") {
                     const executionUnitId = await this.findProgramExecutionUnit(goal, validated.action.actionId, control);
+                    // 审批等待检查点已经消费该批次项；此处只接手已暂存的程序。
                     goal = await this.beginProgram(goal, validated.action, executionUnitId, undefined, control);
                     transientAuthorization = undefined;
                     continue;
@@ -4373,6 +4812,9 @@ class RunExecutor {
                 );
                 return { ok: true, state: checkpoint.state.run };
             }
+
+            goal = await this.populateHistoricalContext(goal, control);
+            goal = await this.maybeCompactContext(goal, control);
 
             const executionUnitId = goal.state.run.pendingThink?.executionUnitId
                 ?? goal.state.run.pendingModelRepair?.executionUnitId
@@ -4555,7 +4997,9 @@ class RunExecutor {
                                                 message: "Return one declared tool call, or a non-empty text answer.",
                                             }],
                                             constraints: ["A text-only answer is accepted as an assistant message but does not advance the task. Continue the original task with one declared tool call."],
-                                        }), "A text-only answer does not advance the task.", undefined, result.text, result.modelContextFrame?.modelCallId);
+                                        }), "A text-only answer does not advance the task.", undefined,
+                                        result.modelContextFrame?.nativeIdentity?.provider === "openai-compatible" ? undefined : result.text,
+                                        result.modelContextFrame?.modelCallId);
                                     }
                                     const queue = result.kind === "batch" ? result.decisions.slice(1) : [];
                                     if (result.kind === "batch" && result.decisions.some(decision => decision.kind !== "tool_call")) {
@@ -4788,6 +5232,9 @@ class RunExecutor {
                     if (error instanceof StageCheckpointFailure) {
                         throw error.original;
                     }
+                    if (error instanceof TrajectoryCommitMarkerError) {
+                        throw error;
+                    }
                     if (error instanceof StaleStageRequestError) throw error;
 
                     throwIfAborted(control);
@@ -4800,6 +5247,12 @@ class RunExecutor {
                         return this.invalidContextLookup(error.message);
                     }
                     if (error instanceof StageExecutionFailure) {
+                        if (error.original instanceof TrajectoryCommitMarkerError) {
+                            throw error.original;
+                        }
+                        if (error.committedGoal !== undefined) {
+                            goal = error.committedGoal;
+                        }
                         const stageError = toStableExecutionError(error.original);
                         if (stageError !== undefined) {
                             return this.stopWithExecutionError(goal, stageError, control);
@@ -5365,14 +5818,26 @@ class RunExecutor {
                             ), control);
                         }
                         const authorization = await this.authorizeToolAction(goal, validated, control);
-                        if (authorization.requiresApproval) {
+                        if (authorization.kind === "deny") {
+                            goal = (await this.settleDeniedToolAction({
+                                goal,
+                                prepared: validated,
+                                executionUnitId,
+                                reason: authorization.reason,
+                                control,
+                                batchPatch: this.pendingBatchPatch(goal, decidedBatch, consumedFromBatch),
+                                acceptedPatch,
+                                extraFacts: contextNoteDrafts,
+                            })).goal;
+                            continue;
+                        }
+                        if (authorization.kind === "approval") {
                             const stagedRun = this.applyTransition(goal.state.run, {
                                 kind: "stage_action",
                                 action: validated.action,
                                 executionUnitId,
                                 status: "awaiting_approval",
-                                ...(authorization.approvalKind === undefined
-                                    ? {} : { approvalKind: authorization.approvalKind }),
+                                approvalKind: authorization.approvalKind,
                             });
                             Object.assign(stagedRun, this.pendingBatchPatch(goal, decidedBatch, consumedFromBatch));
                             goal = await this.commitDecision(this.withRun(goal, stagedRun), [{
@@ -5385,38 +5850,52 @@ class RunExecutor {
                                     type: "action_staged",
                                     action: validated.action,
                                     approvalStatus: "awaiting_approval",
-                                    ...(authorization.approvalKind === undefined
-                                        ? {} : { approvalKind: authorization.approvalKind }),
+                                    approvalKind: authorization.approvalKind,
                                 },
                             }, ...contextNoteDrafts], acceptedPatch, control);
                             continue;
                         }
-                        goal = await this.beginProgram(goal, validated.action, executionUnitId, acceptedPatch, control, contextNoteDrafts);
+                        goal = await this.beginProgram(
+                            goal,
+                            validated.action,
+                            executionUnitId,
+                            acceptedPatch,
+                            control,
+                            contextNoteDrafts,
+                            { decided: decidedBatch, consumed: consumedFromBatch },
+                        );
                         continue;
                     }
 
-                    let authorization;
-                    try {
-                        authorization = await this.authorizeToolAction(goal, validated, control);
-                    } catch (error) {
-                        if (isExecutionAbortedError(error)) throw error;
-                        throwIfAborted(control);
-                        return this.stopWithExecutionError(goal, new RunnerExecutionError(
-                            "TOOL_EXECUTION_ERROR",
-                            error instanceof Error ? error.message : String(error),
-                        ), control);
-                    }
-                    const { requiresApproval, effectiveSandboxScope, approvalKind } = authorization;
+                    const authorization = await this.authorizeToolAction(goal, validated, control);
+                    const { effectiveSandboxScope } = authorization;
 
-                    if (requiresApproval) {
+                    if (authorization.kind === "deny") {
+                        goal = (await this.settleDeniedToolAction({
+                            goal,
+                            prepared: validated,
+                            executionUnitId,
+                            reason: authorization.reason,
+                            control,
+                            batchPatch: this.pendingBatchPatch(goal, decidedBatch, consumedFromBatch),
+                            acceptedPatch,
+                            extraFacts: contextNoteDrafts,
+                        })).goal;
+                        contextLookupResult = undefined;
+                        contextLookupChainCount = 0;
+                        continue;
+                    }
+
+                    if (authorization.kind === "approval") {
                         throwIfAborted(control);
                         const hasCustomSandboxScope = effectiveSandboxScope.extraFiles.length > 0 || effectiveSandboxScope.network !== "none";
+                        const approvalKind = authorization.approvalKind;
                         const stagedRun = this.applyTransition(goal.state.run, {
                             kind: "stage_action",
                             action: validated.action,
                             executionUnitId,
                             status: "awaiting_approval",
-                            ...(approvalKind === undefined ? {} : { approvalKind }),
+                            approvalKind,
                             ...(hasCustomSandboxScope ? { effectiveSandboxScope } : {}),
                         });
                         Object.assign(stagedRun, this.pendingBatchPatch(goal, decidedBatch, consumedFromBatch));
@@ -5435,7 +5914,7 @@ class RunExecutor {
                                     type: "action_staged",
                                     action: validated.action,
                                     approvalStatus: "awaiting_approval",
-                                    ...(approvalKind === undefined ? {} : { approvalKind }),
+                                    approvalKind,
                                     ...(hasCustomSandboxScope ? { effectiveSandboxScope } : {}),
                                 },
                             }, ...contextNoteDrafts],
@@ -5925,11 +6404,19 @@ class RunExecutor {
 
                     if (reviewed.kind === "reject") {
                         const rejectedStage = rejectCurrentRunStage(goal.state.run.currentStage, reviewed.feedback, undefined, true);
-                        const nextRun = this.applyTransition(goal.state.run, {
+                        // 已接受的末阶段与路线游标必须在同一检查点一起重开。
+                        const rejectedPlanRoute = goal.state.run.planRoute !== undefined
+                            && goal.state.run.currentStage.status === "accepted"
+                            ? reopenRunPlanStage(goal.state.run.planRoute, rejectedStage.stageId)
+                            : goal.state.run.planRoute;
+                        const transitionedRun = this.applyTransition(goal.state.run, {
                             kind: "stage_settle",
                             stage: rejectedStage,
                             decision: normalized.decision,
                         });
+                        const nextRun = rejectedPlanRoute === undefined
+                            ? transitionedRun
+                            : { ...transitionedRun, planRoute: rejectedPlanRoute };
                         // 被审查拒绝的完成候选不提交其公开正文。
                         const nextGoal = this.withRun(goalBeforeProcessText ?? goal, nextRun);
                         goal = await this.commitDecision(
@@ -6147,6 +6634,10 @@ class RunExecutor {
         acceptedPatch?: AcceptedMemoryPatchInput,
         control?: ExecutionControl,
         contextNoteDrafts: readonly TrajectoryEventDraft[] = [],
+        batch?: {
+            readonly decided: PendingActionBatch | undefined;
+            readonly consumed: boolean;
+        },
     ): Promise<Goal> {
         if (this.trajectoryStore === undefined || goal.state.run.pendingProgram !== undefined) {
             throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "PTC requires a fresh program and Trajectory store");
@@ -6166,12 +6657,18 @@ class RunExecutor {
         };
         const {
             pendingAction: _pendingAction,
+            pendingActionBatch: _pendingActionBatch,
             pendingModelRepair: _pendingModelRepair,
             pendingThink: _pendingThink,
             ...runForProgram
         } = goal.state.run;
+        // 程序开始与消费批次队首共用同一检查点，恢复时剩余 Action 仍按原顺序继续。
+        const nextBatch = batch === undefined
+            ? goal.state.run.pendingActionBatch
+            : this.pendingBatchPatch(goal, batch.decided, batch.consumed).pendingActionBatch;
         return this.commitDecision(this.withRun(goal, {
             ...runForProgram,
+            ...(nextBatch === undefined ? {} : { pendingActionBatch: nextBatch }),
             pendingProgram,
         }), [{
             goalId: goal.id,
@@ -6218,8 +6715,9 @@ class RunExecutor {
         if (program.pendingStop !== undefined) {
             const pending = goal.state.run.pendingAction;
             if (pending?.status === "approved") {
+                const executionAction = resolveActionExecutionAction(pending);
                 const prepared = prepareToolAction(
-                    goal, pending.action, this.toolRegistry, this.toolPolicy, false, control,
+                    goal, executionAction, this.toolRegistry, this.toolPolicy, false, control,
                     undefined, this.traceSink,
                 );
                 const callIndex = program.nextCallIndex;
@@ -6227,14 +6725,28 @@ class RunExecutor {
                 if (this.sandboxPlanResolver !== undefined && this.workspaceRoot !== undefined) {
                     plan = await this.sandboxPlanResolver({
                         workspaceRoot: this.workspaceRoot,
-                        action: pending.action,
+                        action: executionAction,
                         effectiveScope: pending.effectiveSandboxScope,
                     });
                 }
-                const outcome = await this.executeToolAndObserve(
-                    goal, prepared, `${program.executionUnitId}:call:${callIndex}`,
-                    control, plan, { programId: program.programId, callIndex },
-                );
+                let outcome: { readonly kind: "observed"; readonly goal: Goal }
+                    | { readonly kind: "stopped"; readonly result: RunnerResult };
+                try {
+                    outcome = await this.executeToolAndObserve(
+                        goal, prepared, `${program.executionUnitId}:call:${callIndex}`,
+                        control, plan, { programId: program.programId, callIndex },
+                    );
+                } catch (error) {
+                    if (error instanceof ProgramResourceError) {
+                        return this.stopProgram(
+                            goal,
+                            program.pendingStop.code,
+                            program.pendingStop.message,
+                            control,
+                        );
+                    }
+                    throw error;
+                }
                 if (outcome.kind === "stopped") {
                     const latest = await this.restore({ goalId: goal.id, runId: goal.state.run.id }, control);
                     if (latest === undefined) throw new Error("PTC_REPLAY_MISMATCH");
@@ -6308,22 +6820,17 @@ class RunExecutor {
                 || staged[0]!.sequence >= result.sequence) {
                 throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "PTC_REPLAY_MISMATCH");
             }
-            const revised = committed.find((event) => event.eventType === "action_revised"
-                && event.actionId === actionId
-                && event.programId === program.programId
-                && event.callIndex === index);
+            const revision = resolveCommittedProgramCallRevision(
+                committed,
+                program,
+                index,
+                actionId,
+            );
             committedResultBytes += Buffer.byteLength(JSON.stringify(
                 createProgramCallEnvelope(
                     result.payload.observation,
                     0,
-                    revised?.eventType === "action_revised"
-                        ? {
-                            reviewRef: revised.payload.reviewRef,
-                            originalInput: revised.payload.originalInput,
-                            finalInput: revised.payload.finalInput,
-                            source: revised.payload.revisionSource ?? "user",
-                        }
-                        : undefined,
+                    revision,
                 ),
             ));
         }
@@ -6416,18 +6923,12 @@ class RunExecutor {
                             throw new Error("PTC_REPLAY_MISMATCH");
                         }
                         // 已结算子调用只返回保存结果；修订说明与首次执行保持一致。
-                        const revised = committed.find((event) => event.eventType === "action_revised"
-                            && event.actionId === actionId
-                            && event.programId === program.programId
-                            && event.callIndex === callIndex);
-                        const revision = revised?.eventType === "action_revised"
-                            ? {
-                                reviewRef: revised.payload.reviewRef,
-                                originalInput: revised.payload.originalInput,
-                                finalInput: revised.payload.finalInput,
-                                source: revised.payload.revisionSource ?? "user",
-                            }
-                            : undefined;
+                        const revision = resolveCommittedProgramCallRevision(
+                            committed,
+                            program,
+                            callIndex,
+                            actionId,
+                        );
                         return createProgramCallEnvelope(
                             result.payload.observation,
                             result.sequence,
@@ -6444,14 +6945,31 @@ class RunExecutor {
                     }
                     if (pending === undefined) {
                         const authorization = await this.authorizeToolAction(goal, prepared, toolControl);
+                        if (authorization.kind === "deny") {
+                            const denied = await this.settleDeniedToolAction({
+                                goal,
+                                prepared,
+                                executionUnitId: childExecutionUnitId,
+                                reason: authorization.reason,
+                                control: toolControl,
+                                program: { programId: program.programId, callIndex },
+                            });
+                            goal = denied.goal;
+                            return createProgramCallEnvelope(
+                                denied.observation,
+                                denied.sourceSequence ?? 0,
+                                undefined,
+                            );
+                        }
+                        const awaitingApproval = authorization.kind === "approval";
                         const hasCustomScope = authorization.effectiveSandboxScope.extraFiles.length > 0
                             || authorization.effectiveSandboxScope.network !== "none";
                         const stagedRun = this.applyTransition(goal.state.run, {
                             kind: "stage_action",
                             action: prepared.action,
                             executionUnitId: childExecutionUnitId,
-                            status: authorization.requiresApproval ? "awaiting_approval" : "approved",
-                            ...(authorization.approvalKind === undefined ? {} : { approvalKind: authorization.approvalKind }),
+                            status: awaitingApproval ? "awaiting_approval" : "approved",
+                            ...(authorization.kind === "approval" ? { approvalKind: authorization.approvalKind } : {}),
                             ...(hasCustomScope ? { effectiveSandboxScope: authorization.effectiveSandboxScope } : {}),
                         });
                         goal = await this.commitDecision(this.withRun(goal, stagedRun), [{
@@ -6466,13 +6984,13 @@ class RunExecutor {
                             payload: {
                                 type: "action_staged",
                                 action: prepared.action,
-                                approvalStatus: authorization.requiresApproval ? "awaiting_approval" : "approved",
-                                ...(authorization.approvalKind === undefined ? {} : { approvalKind: authorization.approvalKind }),
+                                approvalStatus: awaitingApproval ? "awaiting_approval" : "approved",
+                                ...(authorization.kind === "approval" ? { approvalKind: authorization.approvalKind } : {}),
                                 ...(hasCustomScope ? { effectiveSandboxScope: authorization.effectiveSandboxScope } : {}),
                             },
                         }], undefined, toolControl);
                         pending = goal.state.run.pendingAction;
-                        if (authorization.requiresApproval) throw new ProgramWaitingError();
+                        if (awaitingApproval) throw new ProgramWaitingError();
                     }
                     if (pending?.status !== "approved") throw new ProgramWaitingError();
                     const childExecutionAction = resolveActionExecutionAction(pending);
@@ -6676,37 +7194,97 @@ class RunExecutor {
         }], undefined, control);
     }
 
+    /**
+     * 判定一次待执行 Action 是否越过当前工作区权限边界。
+     *
+     * @remarks
+     * 每个待判定 Action 都在决策期重新读取工作区档位。边界内的 Action 直接放行；
+     * 越界 Action 在已有匹配的边界豁免时放行，否则按档位的 `approvals` 与 `reviewer`
+     * 得到人工裁决或拒绝。档位读取失败向上抛出，不回退默认档位。
+     *
+     * @param goal - 当前已提交的 Goal。
+     * @param validated - 已校验并 canonical 化的待执行 Action。
+     * @param control - 共享取消控制。
+     * @returns 放行、等待审批或拒绝的判定结果及其实际能力范围。
+     * @throws 档位读取失败、能力范围解析失败或取消时抛出。
+     */
     private async authorizeToolAction(
         goal: Goal,
         validated: PreparedToolAction,
         control?: ExecutionControl,
-    ): Promise<{
-        readonly requiresApproval: boolean;
-        readonly approvalKind?: "sandbox";
-        readonly effectiveSandboxScope: EffectiveSandboxScope;
-    }> {
+    ): Promise<ActionAuthorization> {
         throwIfAborted(control);
-        let projectMode: PermissionMode = "default";
-        if (this.permissionModeStore !== undefined && this.workspaceId !== undefined) {
-            projectMode = (await this.permissionModeStore.get(this.workspaceId)).mode;
+        const profile = await this.readPermissionProfile();
+        throwIfAborted(control);
+        let effectiveSandboxScope: EffectiveSandboxScope;
+        try {
+            effectiveSandboxScope = await this.deriveEffectiveSandboxScope(validated, control);
+        } catch (error) {
+            if (isExecutionAbortedError(error)) throw error;
+            throwIfAborted(control);
+            // 能力申请本身被沙箱拒绝（例如 `.lazygoal` 内部状态）时按拒绝边界处理，
+            // 不把权限拒绝降级为执行错误。
+            return {
+                kind: "deny",
+                effectiveSandboxScope: { extraFiles: [], network: "none" },
+                reason: error instanceof Error ? error.message : String(error),
+            };
         }
-        let grantMatched = false;
-        if (validated.policy === "require_approval"
-            && this.toolGrantLookup !== undefined
-            && this.workspaceId !== undefined) {
-            const matcher = await createToolGrantMatcher(
-                validated.action.toolId,
-                validated.action.input,
-                this.workspaceRoot,
-            );
-            grantMatched = await this.toolGrantLookup.findActiveMatching({
-                workspaceId: this.workspaceId,
-                goalId: goal.id,
-                matcher,
-            }) !== undefined;
+        throwIfAborted(control);
+
+        // 权限边界以工作区根目录为基准；未绑定工作区时没有可判定的边界。
+        if (this.workspaceRoot === undefined) {
+            return { kind: "allow", effectiveSandboxScope };
         }
+
+        const action = validated.action;
+        const decision = evaluatePermissionBoundary({
+            profile,
+            request: {
+                toolId: action.toolId,
+                effectiveScope: effectiveSandboxScope,
+                workspaceRoot: this.workspaceRoot,
+                ...(action.toolId === "bash"
+                    && isRecord(action.input)
+                    && typeof action.input.command === "string"
+                    ? { destructiveCommand: isDestructiveCommand(action.input.command) }
+                    : {}),
+            },
+        });
+
+        if (decision.kind === "allow") {
+            return { kind: "allow", effectiveSandboxScope };
+        }
+
+        if (decision.kind === "deny") {
+            return { kind: "deny", effectiveSandboxScope, reason: decision.reason };
+        }
+
+        if (await this.hasMatchingSandboxGrant(goal, action, effectiveSandboxScope)) {
+            return { kind: "allow", effectiveSandboxScope };
+        }
+
+        return {
+            kind: "approval",
+            approvalKind: "sandbox",
+            effectiveSandboxScope,
+            reason: decision.reason,
+        };
+    }
+
+    private async readPermissionProfile(): Promise<PermissionProfile> {
+        if (this.permissionProfileStore === undefined || this.workspaceId === undefined) {
+            return DEFAULT_PERMISSION_PROFILE;
+        }
+        const current = await this.permissionProfileStore.get(this.workspaceId);
+        return current.profile;
+    }
+
+    private async deriveEffectiveSandboxScope(
+        validated: PreparedToolAction,
+        control?: ExecutionControl,
+    ): Promise<EffectiveSandboxScope> {
         const rawInput = validated.action.input;
-        let effectiveSandboxScope: EffectiveSandboxScope = { extraFiles: [], network: "none" };
         let sandboxAccessRequest: SandboxAccessRequest | undefined;
         if (typeof validated.resolveSandboxAccess === "function") {
             const derived = await validated.resolveSandboxAccess(control);
@@ -6716,48 +7294,163 @@ class RunExecutor {
         } else if (isRecord(rawInput) && isRecord(rawInput.sandboxAccess)) {
             sandboxAccessRequest = rawInput.sandboxAccess as SandboxAccessRequest;
         }
-        if (this.workspaceRoot !== undefined && sandboxAccessRequest !== undefined) {
-            effectiveSandboxScope = await resolveEffectiveSandboxScope(
-                this.workspaceRoot,
-                sandboxAccessRequest,
-            );
+
+        if (this.workspaceRoot === undefined || sandboxAccessRequest === undefined) {
+            return { extraFiles: [], network: "none" };
         }
-        const goalSandboxCeiling = goal.definition.triggerContext?.authorization.sandbox;
-        if (goalSandboxCeiling !== undefined
-            && !isEffectiveSandboxScopeWithin(effectiveSandboxScope, goalSandboxCeiling)) {
-            throw new RunnerExecutionError(
-                "TOOL_NOT_AUTHORIZED",
-                `Action "${validated.action.actionId}" exceeds the frozen Goal sandbox authorization`,
-            );
+
+        return resolveEffectiveSandboxScope(this.workspaceRoot, sandboxAccessRequest);
+    }
+
+    private async hasMatchingSandboxGrant(
+        goal: Goal,
+        action: ToolCallAction,
+        effectiveSandboxScope: EffectiveSandboxScope,
+    ): Promise<boolean> {
+        if (this.sandboxGrantLookup === undefined || this.workspaceId === undefined) {
+            return false;
         }
-        const sandboxDecision = evaluateSandboxAuthorization({
-            isSeatbeltSupported: isSeatbeltSupported(),
-            workspaceRoot: this.workspaceRoot,
-            effectiveScope: effectiveSandboxScope,
-        });
-        let sandboxGrantMatched = false;
-        if (sandboxDecision.decision === "approval_required"
-            && this.sandboxGrantLookup !== undefined
-            && this.workspaceId !== undefined) {
-            const matcher = createSandboxGrantMatcher(
-                validated.action.toolId,
-                validated.action.input,
-                effectiveSandboxScope,
-            );
-            sandboxGrantMatched = await this.sandboxGrantLookup.findActiveMatching({
-                workspaceId: this.workspaceId,
-                goalId: goal.id,
-                matcher,
-            }) !== undefined;
-        }
-        const requiresSandboxApproval = sandboxDecision.decision === "approval_required"
-            && !sandboxGrantMatched;
-        const requiresToolApproval = validated.policy !== "allow"
-            && !grantMatched && projectMode !== "yolo";
-        return {
-            requiresApproval: requiresSandboxApproval || requiresToolApproval,
-            ...(requiresSandboxApproval ? { approvalKind: "sandbox" as const } : {}),
+        const matcher = createSandboxGrantMatcher(
+            action.toolId,
+            action.input,
             effectiveSandboxScope,
+        );
+        return await this.sandboxGrantLookup.findActiveMatching({
+            workspaceId: this.workspaceId,
+            goalId: goal.id,
+            matcher,
+        }) !== undefined;
+    }
+
+    /**
+     * 以一次失败 Observation 结算被权限边界拒绝的 Action。
+     *
+     * @remarks
+     * 拒绝发生在 Tool 执行之前：调用本方法的路径不会调用 Tool，也不产生
+     * `tool_started`、`tool_attempt_started` 或 `tool_finished`。`action_staged` 与
+     * `observation_recorded` 在同一提交写入，Observation 的 `code` 为
+     * `TOOL_NOT_AUTHORIZED`，Run 保持 running，模型在下一步读取该反馈。
+     *
+     * @param input - 被拒绝的 Action、实际拒绝依据与同一提交的附加内容。
+     * @returns 结算后的 Goal、失败 Observation 与它在 Trajectory 中的序号。
+     * @throws 提交失败、PTC 结果额度超限或取消时抛出。
+     */
+    private async settleDeniedToolAction(input: {
+        readonly goal: Goal;
+        readonly prepared: PreparedToolAction;
+        readonly executionUnitId: string;
+        readonly reason: string;
+        readonly control?: ExecutionControl | undefined;
+        readonly program?: { readonly programId: string; readonly callIndex: number } | undefined;
+        readonly batchPatch?: { readonly pendingActionBatch?: PendingActionBatch | undefined } | undefined;
+        readonly acceptedPatch?: AcceptedMemoryPatchInput | undefined;
+        readonly extraFacts?: readonly TrajectoryEventDraft[] | undefined;
+    }): Promise<{
+        readonly goal: Goal;
+        readonly observation: ToolObservation;
+        readonly sourceSequence?: number;
+    }> {
+        const actionId = input.prepared.action.actionId;
+        const association = input.program === undefined
+            ? {}
+            : { programId: input.program.programId, callIndex: input.program.callIndex };
+        const observation: ToolObservation = {
+            kind: "failure",
+            code: "TOOL_NOT_AUTHORIZED",
+            message: input.reason,
+            retryable: false,
+        };
+
+        let programResultBytes = 0;
+        if (input.program !== undefined) {
+            const current = input.goal.state.run.pendingProgram;
+            if (current === undefined) throw new Error("PTC_REPLAY_MISMATCH");
+            programResultBytes = Buffer.byteLength(JSON.stringify(
+                createProgramCallEnvelope(observation, 0, undefined),
+            ));
+            if (programResultBytes > 16 * 1024 * 1024) throw new ProgramResourceError("PTC_FRAME_LIMIT");
+            if (current.resultBytes + programResultBytes > 256 * 1024 * 1024) {
+                throw new ProgramResourceError("PTC_LOG_LIMIT");
+            }
+        }
+
+        throwIfAborted(input.control);
+        const settleFact: TrajectoryEventDraft = {
+            goalId: input.goal.id,
+            runId: input.goal.state.run.id,
+            phase: "executing",
+            executionUnitId: input.executionUnitId,
+            actionId,
+            ...association,
+            eventType: "observation_recorded",
+            payload: { type: "observation_recorded", actionId, observation },
+        };
+        const stagedFact: TrajectoryEventDraft = {
+            goalId: input.goal.id,
+            runId: input.goal.state.run.id,
+            phase: "executing",
+            executionUnitId: input.executionUnitId,
+            actionId,
+            ...association,
+            eventType: "action_staged",
+            payload: {
+                type: "action_staged",
+                action: input.prepared.action,
+                approvalStatus: "approved",
+            },
+        };
+
+        const committed = await this.checkpointCommitter.commit(input.goal, {
+            facts: [stagedFact, settleFact, ...(input.extraFacts ?? [])],
+            ...(input.acceptedPatch === undefined ? {} : { acceptedPatch: input.acceptedPatch }),
+            prepare: (latest) => {
+                if (latest === undefined || latest.state.run.id !== input.goal.state.run.id) {
+                    throw new RunnerExecutionError(
+                        "TOOL_EXECUTION_ERROR",
+                        "Run disappeared before Observation commit",
+                    );
+                }
+                const staged = this.applyTransition(latest.state.run, {
+                    kind: "stage_action",
+                    action: input.prepared.action,
+                    executionUnitId: input.executionUnitId,
+                    status: "approved",
+                });
+                if (input.program === undefined) {
+                    const settled = this.applyTransition(staged, {
+                        kind: "observe_action",
+                        actionId,
+                        observation,
+                    });
+                    if (input.batchPatch !== undefined) Object.assign(settled, input.batchPatch);
+                    return this.withRun(latest, settled);
+                }
+
+                const { pendingAction: _pendingAction, ...run } = staged;
+                const current = run.pendingProgram;
+                if (current?.programId !== input.program.programId
+                    || current.nextCallIndex !== input.program.callIndex) {
+                    throw new RunnerExecutionError("TOOL_EXECUTION_ERROR", "PTC_REPLAY_MISMATCH");
+                }
+                return this.withRun(latest, {
+                    ...run,
+                    pendingProgram: {
+                        ...current,
+                        nextCallIndex: current.nextCallIndex + 1,
+                        resultBytes: current.resultBytes + programResultBytes,
+                    },
+                });
+            },
+            ...(input.control === undefined ? {} : { control: input.control }),
+        });
+        this.publishCommittedEvents(committed);
+        this.publishCheckpointCommitted(committed, [stagedFact, settleFact]);
+        const sourceSequence = committed.events.find((event) =>
+            event.eventType === "observation_recorded" && event.actionId === actionId)?.sequence;
+        return {
+            goal: committed.goal,
+            observation,
+            ...(sourceSequence === undefined ? {} : { sourceSequence }),
         };
     }
 
@@ -6910,6 +7603,28 @@ export class Runner {
         control?: ExecutionControl,
     ): Promise<RunnerResult> {
         return this.executor.runUntilBlocked(ref, options, control);
+    }
+
+    /**
+     * 按用户命令整理当前 Goal 的工作窗口。
+     *
+     * @remarks
+     * 绑定 Goal 的当前 Epoch，不创建业务 Run，也不写入对话。已进入终态的 Run 仍可追加
+     * 上下文事件，保留原终态与 Step 计数；无法推进窗口时返回带原因的稳定结果。
+     *
+     * @param ref - 目标 Goal 与 Run 的关联键。
+     * @param control - 当前调用的取消控制。
+     * @returns 整理结果与原因。
+     * @example
+     * ```ts
+     * const outcome = await runner.compactContextNow({ goalId: "goal-1", runId: "run-1" });
+     * ```
+     */
+    compactContextNow(
+        ref: RunRef,
+        control?: ExecutionControl,
+    ): Promise<ContextCompactionCommandOutcome> {
+        return this.executor.compactContextNow(ref, control);
     }
 
     /**

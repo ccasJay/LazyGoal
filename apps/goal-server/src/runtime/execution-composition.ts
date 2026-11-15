@@ -7,6 +7,7 @@ import {
     TrajectoryCheckpointCommitter,
     launch,
     type AgentProfileRegistry,
+    type ContextCompactionCommandOutcome,
     type ContextLookupPort,
     type DiagnosticTraceSink,
     type GoalCoordinatorDependencies,
@@ -14,10 +15,10 @@ import {
     type LaunchRequest,
     type LaunchResult,
     type RunnerDependencies,
+    type RunRef,
     type SandboxGrantStore,
     type SandboxPlanResolver,
     type StepExecutor,
-    type ToolGrantStore,
     type ToolPolicy,
     type TrajectoryCheckpointCommitterPort,
     type TrajectoryStore,
@@ -25,7 +26,7 @@ import {
 import type { ToolRegistry } from "../../../../packages/tool-core/src/index";
 import type { ExecutionStreamPublisher } from "../../../../packages/execution-stream/src/index";
 import type { WorkingMemoryLimitsInput } from "../../../../packages/working-memory/src/index";
-import type { ProjectPermissionModeStore } from "../../../../packages/permission/src/index";
+import type { ProjectPermissionProfileStore } from "../../../../packages/permission/src/index";
 
 /** 与既有 Launcher 调用共享的中止控制类型；由 Runtime 入口签名派生。 */
 type ExecutionControl = NonNullable<Parameters<typeof launch>[2]>;
@@ -38,7 +39,7 @@ type ExecutionControl = NonNullable<Parameters<typeof launch>[2]>;
  * 组合 Launcher、Runner、InlineScheduler、共享提交器与 Coordinator，不解析
  * 环境、不创建模型供应商、默认文件存储或默认工具，也不接管这些依赖的所有权。
  * 相同依赖只注入一次：`store`、`trajectoryStore`、`checkpointCommitter` 与
- * `toolGrantStore`/`sandboxGrantStore` 由 Launcher、Runner 和 Coordinator 共用。
+ * `sandboxGrantStore` 由 Launcher、Runner 和 Coordinator 共用。
  *
  * @example
  * ```ts
@@ -62,11 +63,10 @@ export interface ExecutionComponentDependencies {
     /** Tool 执行前的策略边界；省略时由 Runtime 使用允许策略。 */
     readonly toolPolicy?: ToolPolicy;
     /** 会话或 Workspace 级持续 Tool 授权账本；同时作为 Runner 的授权查询。 */
-    readonly toolGrantStore?: ToolGrantStore;
     /** Sandbox 持续授权账本；同时作为 Runner 的授权查询。 */
     readonly sandboxGrantStore?: SandboxGrantStore;
-    /** 项目权限执行模式存储。 */
-    readonly permissionModeStore?: ProjectPermissionModeStore;
+    /** 项目权限档位存储；Runner 与 Coordinator 共用同一实例。 */
+    readonly permissionProfileStore?: ProjectPermissionProfileStore;
     /** 用于隔离 Workspace 授权的稳定身份。 */
     readonly workspaceId?: string;
     /** 文件授权身份解析使用的 Workspace 根目录。 */
@@ -89,6 +89,8 @@ export interface ExecutionComponentDependencies {
     readonly sandboxPlanResolver?: SandboxPlanResolver;
     /** 每次合法 launch 或后继 Run 生成 runId；省略时使用随机 UUID。 */
     readonly runIdGenerator?: () => string;
+    /** 阈值压缩调度；省略时不调度压缩。 */
+    readonly contextCompaction?: RunnerDependencies["contextCompaction"];
 }
 
 /**
@@ -111,16 +113,17 @@ export type ExecutionCommands = Pick<
     GoalCoordinator,
     | "advance"
     | "resume"
+    | "resumeForSession"
+    | "scheduleAuthorizedAction"
     | "continue"
+    | "commitContinuation"
     | "steer"
     | "interrupt"
     | "enterPlanMode"
     | "listGrants"
     | "revokeGrant"
-    | "listToolGrants"
-    | "revokeToolGrant"
-    | "getPermissionMode"
-    | "setPermissionMode"
+    | "getPermissionProfile"
+    | "setPermissionProfile"
     | "reviewActionApproval"
 > & {
     /**
@@ -148,6 +151,8 @@ export type ExecutionCommands = Pick<
 export interface ExecutionComponents {
     /** 调用方需要的执行与控制命令。 */
     readonly commands: ExecutionCommands;
+    /** 用户命令触发的上下文整理；供会话层在安全边界调用。 */
+    readonly compactContext: (ref: RunRef, control?: ExecutionControl) => Promise<ContextCompactionCommandOutcome>;
 }
 
 /**
@@ -197,6 +202,7 @@ export function createExecutionComponents(
     }));
 
     return {
+        compactContext: (ref, control) => runner.compactContextNow(ref, control),
         commands: {
             launch: (request, control) => launch(
                 request,
@@ -217,19 +223,23 @@ export function createExecutionComponents(
             ),
             advance: (ref, control) => coordinator.advance(ref, control),
             resume: (request, control) => coordinator.resume(request, control),
+            resumeForSession: (request, sessionInput, control) =>
+                coordinator.resumeForSession(request, sessionInput, control),
+            scheduleAuthorizedAction: (ref, authorizedActionId, control) =>
+                coordinator.scheduleAuthorizedAction(ref, authorizedActionId, control),
             continue: (ref, content, control, continuation, queueBinding) =>
                 coordinator.continue(ref, content, control, continuation, queueBinding),
+            commitContinuation: (ref, content, inputId, control) =>
+                coordinator.commitContinuation(ref, content, inputId, control),
             steer: (ref, messageId, content, ledger) => coordinator.steer(ref, messageId, content, ledger),
             interrupt: (ref, requestId, ledger) => coordinator.interrupt(ref, requestId, ledger),
             enterPlanMode: (ref, control) => coordinator.enterPlanMode(ref, control),
             listGrants: (ref) => coordinator.listGrants(ref),
             revokeGrant: (request) => coordinator.revokeGrant(request),
-            listToolGrants: (ref) => coordinator.listToolGrants(ref),
-            revokeToolGrant: (request) => coordinator.revokeToolGrant(request),
             reviewActionApproval: (request, control) => coordinator.reviewActionApproval(request, control),
-            getPermissionMode: (workspaceId) => coordinator.getPermissionMode(workspaceId),
-            setPermissionMode: (mode, expectedRevision, workspaceId) =>
-                coordinator.setPermissionMode(mode, expectedRevision, workspaceId),
+            getPermissionProfile: () => coordinator.getPermissionProfile(),
+            setPermissionProfile: (profile, expectedRevision) =>
+                coordinator.setPermissionProfile(profile, expectedRevision),
         },
     };
 }
@@ -243,13 +253,12 @@ function collectRunnerDependencies(
         executor: dependencies.executor,
         ...(dependencies.toolRegistry === undefined ? {} : { toolRegistry: dependencies.toolRegistry }),
         ...(dependencies.toolPolicy === undefined ? {} : { toolPolicy: dependencies.toolPolicy }),
-        ...(dependencies.toolGrantStore === undefined ? {} : { toolGrantLookup: dependencies.toolGrantStore }),
         ...(dependencies.sandboxGrantStore === undefined
             ? {}
             : { sandboxGrantLookup: dependencies.sandboxGrantStore }),
-        ...(dependencies.permissionModeStore === undefined
+        ...(dependencies.permissionProfileStore === undefined
             ? {}
-            : { permissionModeStore: dependencies.permissionModeStore }),
+            : { permissionProfileStore: dependencies.permissionProfileStore }),
         ...(dependencies.workspaceId === undefined ? {} : { workspaceId: dependencies.workspaceId }),
         ...(dependencies.workspaceRoot === undefined ? {} : { workspaceRoot: dependencies.workspaceRoot }),
         ...(dependencies.trajectoryStore === undefined ? {} : { trajectoryStore: dependencies.trajectoryStore }),
@@ -268,6 +277,9 @@ function collectRunnerDependencies(
         ...(dependencies.sandboxPlanResolver === undefined
             ? {}
             : { sandboxPlanResolver: dependencies.sandboxPlanResolver }),
+        ...(dependencies.contextCompaction === undefined
+            ? {}
+            : { contextCompaction: dependencies.contextCompaction }),
     };
 }
 
@@ -284,11 +296,10 @@ function collectCoordinatorDependencies(options: {
         scheduler: new InlineScheduler(options.runner),
         runIdGenerator: options.runIdGenerator,
         ...(dependencies.toolRegistry === undefined ? {} : { toolRegistry: dependencies.toolRegistry }),
-        ...(dependencies.toolGrantStore === undefined ? {} : { toolGrantStore: dependencies.toolGrantStore }),
         ...(dependencies.sandboxGrantStore === undefined ? {} : { sandboxGrantStore: dependencies.sandboxGrantStore }),
-        ...(dependencies.permissionModeStore === undefined
+        ...(dependencies.permissionProfileStore === undefined
             ? {}
-            : { permissionModeStore: dependencies.permissionModeStore }),
+            : { permissionProfileStore: dependencies.permissionProfileStore }),
         ...(dependencies.workspaceId === undefined ? {} : { workspaceId: dependencies.workspaceId }),
         ...(dependencies.workspaceRoot === undefined ? {} : { workspaceRoot: dependencies.workspaceRoot }),
         ...(dependencies.trajectoryStore === undefined ? {} : { trajectoryStore: dependencies.trajectoryStore }),

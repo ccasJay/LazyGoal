@@ -48,8 +48,10 @@ test("Goal 列表在旧版本快照不可读时仍返回可读 Goal 并上报不
         }));
 
         // 旧版本快照：JSON 合法但不符合当前快照协议。
+        const legacyDirectory = join(dataDirectory, "goals", Buffer.from("legacy-goal", "utf8").toString("base64url"));
+        await mkdir(legacyDirectory, { recursive: true });
         await writeFile(
-            join(dataDirectory, "goals", `${Buffer.from("legacy-goal", "utf8").toString("base64url")}.json`),
+            join(legacyDirectory, "snapshot.json"),
             JSON.stringify({ id: "legacy-goal", state: { messages: [] } }),
             "utf8",
         );

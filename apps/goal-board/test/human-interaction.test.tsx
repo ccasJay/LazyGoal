@@ -198,7 +198,7 @@ test("核验确认未保存后回到可编辑并保留原决定身份", async ()
       receipt: { intentId: "input-frozen", status: "unknown" },
       verification: "not_applied",
     },
-  ], { runId: "run-1", requestId: "ask-1" }, () => "unused");
+  ], { goalId: "goal-1", runId: "run-1", requestId: "ask-1" }, () => "unused");
   assert.equal(submission.phase, "editing");
   assert.equal(submission.frozen?.inputId, "input-frozen");
   assert.equal(submission.error, null);

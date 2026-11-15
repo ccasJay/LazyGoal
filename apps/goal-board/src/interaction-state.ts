@@ -259,12 +259,13 @@ export function isInvalidatingInteractionCode(code: string): boolean {
  */
 export function selectInteractionSubmission(
   intents: readonly ControlIntentState[],
-  view: { readonly runId: string; readonly requestId?: string; readonly actionId?: string },
+  view: { readonly goalId: string; readonly runId: string; readonly requestId?: string; readonly actionId?: string },
   errorText: (code: string) => string,
 ): InteractionSubmissionState {
   const requestId = view.requestId ?? view.actionId ?? "";
   const entry = [...intents].reverse().find((candidate) => candidate.intent.kind === "session_input"
     && candidate.intent.input.kind === "respond"
+    && candidate.intent.goalId === view.goalId && candidate.intent.input.runId === view.runId
     && candidate.intent.input.requestId === requestId);
   if (entry === undefined || entry.intent.kind !== "session_input" || entry.intent.input.kind !== "respond") {
     return createInteractionSubmissionState();

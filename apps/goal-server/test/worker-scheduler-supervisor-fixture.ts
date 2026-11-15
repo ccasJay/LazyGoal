@@ -9,6 +9,8 @@ import { TriggerStore } from "../../../packages/storage/src/trigger-store";
 import { resumeUnroutedWorkTriggers } from "../src/runtime/trigger-admission";
 import { WorkerScheduler } from "../src/runtime/worker-scheduler";
 
+const unusedContinuation = async () => ({ ok: false as const, code: "RUN_NOT_FOUND", message: "continuation is not wired in this test" });
+
 const required = (name: string): string => {
     const value = process.env[name];
     if (value === undefined) throw new Error(`Missing ${name}`);
@@ -27,13 +29,21 @@ const admissionAdapter: LLMAdapter = {
         return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({ kind: "accept", workspaceMode: "shared" }) }] };
     },
 };
-const permissionAdapter: LLMAdapter = {
-    structuredOutputMode: "prompt_only",
-    async generate() { throw new Error("Waiting Goals must not call a model"); },
-};
+const permissionProfileReader = async () => ({
+    workspaceId: "test-workspace",
+    profile: {
+        sandbox: "workspace-write" as const,
+        approvals: "on-request" as const,
+        reviewer: "user" as const,
+        writableRoots: [],
+    },
+    revision: 0,
+});
 const createRecoveredGoal = async (intent: string, reservedGoalId: string | undefined) => {
     const goal = createGoal({ ...currentProtocols, id: reservedGoalId ?? `goal-${intent}`, runId: `run-${intent}`, intent,
-        promptBundleVersion: 1, profile: { id: "default", systemPrompt: "", instructions: [], toolIds: [] } });
+        promptBundleVersion: 1,
+        modelSelection: { provider: "openai", modelId: "gpt-4o-mini", inputEstimator: { kind: "character-v1" } },
+        profile: { id: "default", systemPrompt: "", instructions: [], toolIds: [] } });
     const started = transition(goal.state.run, { kind: "start" });
     if (!started.ok) throw new Error("Could not prepare the recovered test Goal");
     const waiting = transition(started.state, { kind: "decision", decision: { kind: "wait", reason: "Supervisor input" } });
@@ -41,7 +51,7 @@ const createRecoveredGoal = async (intent: string, reservedGoalId: string | unde
     return {
         goal: { ...goal, state: { ...goal.state, run: waiting.state } },
         authorization: { workspace: { mode: "shared" as const, projectRoot: workspace, executionRoot: workspace },
-            toolIds: [], sandbox: { extraFiles: [], network: "none" as const } },
+            toolIds: [] },
     };
 };
 const scheduler = new WorkerScheduler({
@@ -51,7 +61,8 @@ const scheduler = new WorkerScheduler({
     cwd: workspace,
     dataDirectory,
     env: { LAZYGOAL_HOME: home, LLM_PROVIDER: "openai", LLM_MODEL: "gpt-4o-mini", LLM_API_KEY: "test" },
-    permissionAdapter,
+    readPermissionProfile: permissionProfileReader,
+    commitContinuation: unusedContinuation,
 });
 
 void (async () => {

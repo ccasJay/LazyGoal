@@ -6,6 +6,7 @@
 | --- | --- | --- | --- |
 | AgentDecision 生成绑定校验 | Runtime 使用同源生成绑定校验非工具决策；工具输入由实际 Tool 绑定准备。 | [模型协议契约](../README.md) | [决策校验](../src/model-output/decision-validation.ts) |
 | ModelConversation | 有序模型对话消息协议。 | [模型协议契约](../README.md) | [模块说明](./overview.md) |
+| ModelContentBlock | OpenAI-compatible Goal 的正文、reasoning 与工具调用共享有序词表；block-only assistant 消息是该路径的唯一内容权威。 | [模型协议契约](../README.md) | [消息协议](../src/model-conversation.ts) |
 | Context Lookup 声明 | 历史检索能力不等于工作区文件读取或证据授权。 | [模型协议契约](../README.md) | [工具声明](../src/model-output/tool-declaration.ts) |
 | Run 阶段控制声明 | 阶段新建、修订与候选提交的系统工具声明。 | [模型协议契约](../README.md) | [工具声明](../src/model-output/tool-declaration.ts) |
 | Plan Run 路线候选 | 随单一 `task_proposal` 一并审批的有序阶段目标与验收条件；不携带 Runtime 状态。 | [模型协议契约](../README.md) | [TS 契约类型](../src/model-output/schema-types.ts) |
@@ -17,4 +18,3 @@
 | 模型生成绑定 | Catalog 从 TS 单源生成的 Schema、校验器与 `ContractBinding` 集合。 | [模型协议契约](../README.md) | [生成绑定装配](../src/model-output/generated-bindings.ts) |
 | Trigger 准入判断 | Supervisor 模型输出接受或忽略决定；接受时只选择 shared/worktree 策略，工作意图保持为原始 material。 | [模型协议契约](../README.md) | [准入契约](../src/trigger-admission.ts) |
 | Supervisor 权限判断 | 对单个 Worker Action 输出 approve/reject；Provider wire 结果仍由消费端核验字段组合，不授予持续权限。 | [模型协议契约](../README.md) | [权限判断契约](../src/trigger-permission-decision.ts) |
-| Trigger 名称摘要 | 为 work Trigger 生成封闭的简短名称输出；消费方拒绝空名称，原始 material 仍是工作来源。 | [模型协议契约](../README.md) | [名称摘要契约](../src/trigger-name-summary.ts) |

@@ -10,7 +10,7 @@
 | 跨字段不变量 | 结构解析后执行的 Plan Route、Activity、交互、Provider 与指标关系检查。 | [Web 传输契约](../README.md) | [不变量目录](../src/invariants) |
 | UTF-16 文本上限 | wire 文本按 UTF-16 code unit 计数的唯一实现。 | [Web 传输契约](../README.md) | [utf16.ts](../src/invariants/utf16.ts) |
 | BrowserGoalList | Goal 列表响应信封：可读取摘要与无法读取的历史 Goal 数量。 | [Web 传输契约](../README.md) | [Session DTO](../src/session.ts) |
-| BrowserGoalSessionState | 只含当前 Run 状态的窄会话 DTO；消息、步骤和阶段历史明确由 Activity 提供。 | [Web 传输契约](../README.md) | [Session DTO](../src/session.ts) |
+| BrowserGoalSessionState | 只含当前 Run 状态的窄会话 DTO；消息、步骤和阶段历史明确由 Activity 提供。`continuation` 由后端投影普通消息续接可用性，浏览器不得自行推断来源或结算状态。 | [Web 传输契约](../README.md) | [Session DTO](../src/session.ts) |
 | BrowserSessionInputCommand | 会话输入 wire 命令；恢复可携带未知副作用确认，队列删除与 Steer 来源转换绑定客户端读取的队列修订。具体 Web 入口可限制支持的命令子集。 | [Web 传输契约](../README.md) | [输入命令 DTO](../src/session-input.ts)、[Goal Server Trigger 端口](../../../apps/goal-server/src/browser-session-port.ts) |
 | BrowserActivityPage | 固定水位的白名单 Activity 页；含最多 100 个原子项、双向 cursor 和未加载首尾范围。 | [Web 传输契约](../README.md) | [Activity DTO](../src/activity.ts) |
 | BrowserActivityMessageItem.purpose | 必填的助手消息用途：过程、最终答复或公开通知；用户消息省略。 | [Web 传输契约](../README.md) | [Activity DTO](../src/activity.ts) |
@@ -32,7 +32,7 @@
 | BrowserControlScope | 投影失效分类：`session`、`activity`、`trajectory`、`metrics`、`goals`、`grants`、`permission`、`model`。 | [Web 传输契约](../README.md) | [Wire 类型](../src/wire.ts) |
 | BrowserControlSnapshot | `state_sync` 携带的权威控制快照：同一 Run 的 Goal 控制投影与窄会话状态。 | [Web 传输契约](../README.md) | [Wire 类型](../src/wire.ts) |
 | BrowserControlEvent / BrowserContentEvent | 控制事实与内容事实的判别子集；`state_sync`、`input_result` 属于控制事实。 | [Web 传输契约](../README.md) | [Event DTO](../src/events.ts)、[Wire 类型](../src/wire.ts) |
-| SessionMetricsSnapshot | 会话指标响应 DTO；`tokensPerSecond` 的端到端计时语义归属指标投影模块。 | [Web 传输契约](../README.md) | [指标 DTO](../src/metrics.ts) |
+| SessionMetricsSnapshot | 会话指标响应 DTO；Context 容量与已结算用量分开表达，端到端计时语义归属指标投影模块。 | [Web 传输契约](../README.md) | [指标 DTO](../src/metrics.ts)、[指标投影模块](../../session-metrics/notes/overview.md) |
 | HealthzResponse | Goal Server `/healthz` 的固定存活响应 DTO，不包含业务或诊断状态。 | [Web 传输契约](../README.md) | [Wire 类型](../src/wire.ts) |
 | BrowserCreateGoalCommand | 创建 Goal 的 Web 命令。 | [Web 传输契约](../README.md) | [模块说明](./overview.md) |
 | Provider model query | 未保存连接参数与仅含模型 ID/名称的响应；TS 类型驱动 Schema 生成、校验和未知字段提取。 | [Web 传输契约](../README.md) | [Provider DTO](../src/provider-settings.ts)、[生成绑定](../src/generated/provider-models-binding.ts) |

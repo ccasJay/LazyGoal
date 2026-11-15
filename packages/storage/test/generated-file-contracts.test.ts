@@ -8,16 +8,18 @@ import { createGoal } from "../../runtime/src/index";
 import { currentProtocols } from "../../runtime/test/current-fixtures";
 import {
     GoalSnapshotProtocolError,
+    goalSnapshotPath,
     JsonFileGoalStore,
     JsonFileMetricsStore,
     JsonFileModelInputStore,
     JsonFileModelPreferenceStore,
     JsonFileProcessSessionStore,
-    JsonFileProjectPermissionModeStore,
+    JsonFileProjectPermissionProfileStore,
     JsonFileSandboxGrantStore,
-    JsonFileToolGrantStore,
     goalSnapshotCodec,
     ModelCallMetricStoreProtocolError,
+    runMetricsPath,
+    runModelInputsPath,
 } from "../src/index";
 
 function goal() {
@@ -48,27 +50,6 @@ test("Snapshot 生成绑定拒绝未知字段，语义校验拒绝空身份", ()
     );
 });
 
-test("Tool Grant 账本拒绝未知字段和错误版本", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "lazygoal-generated-grant-"));
-    try {
-        const store = new JsonFileToolGrantStore(directory);
-        await store.stage({
-            scope: "workspace",
-            workspaceId: "workspace-1",
-            source: { goalId: "goal-1", runId: "run-1", actionId: "action-1", approvalInputId: "input-1" },
-            matcher: { kind: "exact_input", toolId: "bash", version: 1, digest: `sha256:${"a".repeat(64)}` },
-        });
-        const path = join(directory, "tool-grants.json");
-        const ledger = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
-        await writeFile(path, JSON.stringify({ ...ledger, extra: true }), "utf8");
-        await assert.rejects(store.list({ workspaceId: "workspace-1", goalId: "goal-1" }));
-        await writeFile(path, JSON.stringify({ ...ledger, version: 2 }), "utf8");
-        await assert.rejects(store.list({ workspaceId: "workspace-1", goalId: "goal-1" }));
-    } finally {
-        await rm(directory, { recursive: true, force: true });
-    }
-});
-
 test("Sandbox Grant 账本拒绝未知字段和错误版本", async () => {
     const directory = await mkdtemp(join(tmpdir(), "lazygoal-generated-sandbox-grant-"));
     try {
@@ -95,7 +76,7 @@ test("Sandbox Grant 账本拒绝未知字段和错误版本", async () => {
     }
 });
 
-test("模型偏好和权限模式文件拒绝未知字段", async () => {
+test("模型偏好和权限档位文件拒绝未知字段", async () => {
     const preferenceDirectory = await mkdtemp(join(tmpdir(), "lazygoal-generated-preference-"));
     const permissionDirectory = await mkdtemp(join(tmpdir(), "lazygoal-generated-permission-"));
     try {
@@ -110,13 +91,22 @@ test("模型偏好和权限模式文件拒绝未知字段", async () => {
         );
 
         await writeFile(
-            join(permissionDirectory, "permission-mode.json"),
-            JSON.stringify({ version: 1, workspaceId: "ws-1", mode: "default", revision: 0, extra: true }),
+            join(permissionDirectory, "permission-profile.json"),
+            JSON.stringify({
+                version: 1,
+                workspaceId: "ws-1",
+                sandbox: "workspace-write",
+                approvals: "on-request",
+                reviewer: "user",
+                writableRoots: [],
+                revision: 0,
+                extra: true,
+            }),
             "utf8",
         );
         await assert.rejects(
-            new JsonFileProjectPermissionModeStore(permissionDirectory).get("ws-1"),
-            /结构损坏/,
+            new JsonFileProjectPermissionProfileStore(permissionDirectory).get("ws-1"),
+            /structurally invalid/,
         );
     } finally {
         await rm(preferenceDirectory, { recursive: true, force: true });
@@ -137,11 +127,7 @@ test("指标、进程会话和模型输入文件拒绝未知字段或非法时�
             callId: "call-1",
             occurredAt: new Date().toISOString(),
         });
-        const metricPath = join(
-            metricsDirectory,
-            Buffer.from("goal-1").toString("base64url"),
-            `${Buffer.from("run-1").toString("base64url")}.jsonl`,
-        );
+        const metricPath = runMetricsPath(metricsDirectory, "goal-1", "run-1");
         await writeFile(
             metricPath,
             `${JSON.stringify({
@@ -185,12 +171,7 @@ test("指标、进程会话和模型输入文件拒绝未知字段或非法时�
             occurredAt: new Date().toISOString(),
             messages: [],
         });
-        const inputPath = join(
-            inputDirectory,
-            Buffer.from("goal-1").toString("base64url"),
-            Buffer.from("run-1").toString("base64url"),
-            "requests.jsonl",
-        );
+        const inputPath = runModelInputsPath(inputDirectory, "goal-1", "run-1");
         const manifest = JSON.parse(await readFile(inputPath, "utf8")) as Record<string, unknown>;
         await writeFile(inputPath, `${JSON.stringify({ ...manifest, extra: true })}\n`, "utf8");
         await assert.rejects(inputs.read("goal-1", "run-1"), /Invalid model input manifest/);
@@ -206,7 +187,7 @@ test("Snapshot 文件存储实际消费生成绑定", async () => {
     try {
         const store = new JsonFileGoalStore(directory);
         await store.save(goal());
-        const path = join(directory, `${Buffer.from("goal-generated-binding").toString("base64url")}.json`);
+        const path = goalSnapshotPath(directory, "goal-generated-binding");
         const snapshot = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
         await writeFile(path, JSON.stringify({ ...snapshot, extra: true }), "utf8");
         await assert.rejects(store.restore("goal-generated-binding"), GoalSnapshotProtocolError);

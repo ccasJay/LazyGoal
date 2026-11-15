@@ -1,26 +1,23 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { OpenAICompatible } from "../../llm-openai/src/index";
+import { StructuredOutputModeOpenAICompatible } from "../../llm-openai/src/index";
 import { Gemini } from "../../llm-google/src/index";
 import type { LLMRequest, LLMResponse } from "../../llm-core/src/index";
 import { readAssistantText, readReasoningText, readToolCalls } from "../../llm-core/src/index";
+import { nativeResponseMessage } from "../../model-response/src/index";
 
 const tools = [{ id: "read_file", description: "Read", parametersSchema: { type: "object", properties: {}, required: [], additionalProperties: false } }];
 const firstRequest: LLMRequest = { messages: [{ role: "user", content: "Read" }], tools, toolChoice: "required", structuredOutput: { name: "unused", schema: { type: "object" } } };
 
 function nextRequest(first: LLMResponse): LLMRequest {
-    const reasoning = readReasoningText(first);
     const toolCalls = readToolCalls(first);
-    return { messages: [firstRequest.messages[0]!, {
-        role: "assistant", content: readAssistantText(first), toolCalls,
-        ...(reasoning === undefined ? {} : { reasoning }), continuation: first.continuation!,
-    }, {
+    return { messages: [firstRequest.messages[0]!, nativeResponseMessage(first), {
         role: "tool", callId: toolCalls[0]!.callId, toolId: "read_file", content: '{"observation":{"kind":"success","output":"file"}}',
     }, { role: "user", content: "Continue" }], tools, toolChoice: "required" };
 }
 
 test("OpenAI two-turn dialogue preserves call IDs and supported reasoning extension without top-level JSON constraints", async () => {
-    const adapter = new OpenAICompatible({ apiKey: "test-key", model: "test", baseURL: "https://gateway.test/v1/", structuredOutputMode: "strict" });
+    const adapter = new StructuredOutputModeOpenAICompatible({ apiKey: "test-key", model: "test", baseURL: "https://gateway.test/v1/" }, "strict");
     const requests: any[] = [];
     (adapter as any).client = { chat: { completions: { create: async (request: unknown) => {
         requests.push(request);
@@ -37,7 +34,7 @@ test("OpenAI two-turn dialogue preserves call IDs and supported reasoning extens
     assert.equal(requests[1].messages[2].role, "tool");
     assert.equal(requests[1].messages[2].tool_call_id, "native-id");
     assert.equal(JSON.stringify(first.continuation).includes("test-key"), false);
-    const other = new OpenAICompatible({ apiKey: "test", baseURL: "https://other.test/v1", model: "test", structuredOutputMode: "strict" });
+    const other = new StructuredOutputModeOpenAICompatible({ apiKey: "test", baseURL: "https://other.test/v1", model: "test" }, "strict");
     await assert.rejects(other.generate(nextRequest(first)), /another provider/);
 });
 

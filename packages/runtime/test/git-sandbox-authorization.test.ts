@@ -39,6 +39,7 @@ import {
     isSeatbeltSupported,
     type SandboxExecutionPlan,
 } from "../../sandbox/src/index";
+import { PERMISSION_PRESETS, type PermissionProfile } from "../../permission/src/index";
 import { BaseTestStepExecutor, currentProtocols, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
 
 function runGit(cwd: string, args: readonly string[]): string {
@@ -95,7 +96,7 @@ const profile: AgentProfile = {
     toolIds: [GIT_ADD_TOOL_ID],
 };
 
-test("真实 Runtime 与 Seatbelt：YOLO 下 Git 元数据需审批，批准范围只授予 Git Tool", {
+test("真实 Runtime 与 Seatbelt：workspace-write 下 Git 元数据需审批，批准范围只授予 Git Tool", {
     skip: process.platform !== "darwin" || !isSeatbeltSupported(),
 }, async () => {
     assert.equal(process.platform, "darwin", "This acceptance check requires the macOS Seatbelt kernel.");
@@ -140,12 +141,12 @@ test("真实 Runtime 与 Seatbelt：YOLO 下 Git 元数据需审批，批准范�
             toolPolicy: { evaluate: () => "allow" },
             workspaceRoot: canonicalWorkspace,
             workspaceId: "ws-git-sandbox",
-            permissionModeStore: {
+            permissionProfileStore: {
                 async get(workspaceId: string) {
-                    return { workspaceId, mode: "yolo" as const, revision: 1 };
+                    return { workspaceId, profile: PERMISSION_PRESETS.ask, revision: 1 };
                 },
-                async set(workspaceId: string, mode: "default" | "yolo", expectedRevision: number) {
-                    return { workspaceId, mode, revision: expectedRevision + 1 };
+                async update(workspaceId: string, profile: PermissionProfile, expectedRevision: number) {
+                    return { workspaceId, profile, revision: expectedRevision + 1 };
                 },
             },
             sandboxPlanResolver: async ({ workspaceRoot, action, effectiveScope }) => effectiveScope === undefined
@@ -281,12 +282,12 @@ test("真实 Runtime 与 Seatbelt：YOLO 下 Git 元数据需审批，批准范�
             toolPolicy: { evaluate: () => "allow" },
             workspaceRoot: canonicalWorkspace,
             workspaceId: "ws-git-worktree",
-            permissionModeStore: {
+            permissionProfileStore: {
                 async get(workspaceId: string) {
-                    return { workspaceId, mode: "yolo" as const, revision: 1 };
+                    return { workspaceId, profile: PERMISSION_PRESETS.ask, revision: 1 };
                 },
-                async set(workspaceId: string, mode: "default" | "yolo", expectedRevision: number) {
-                    return { workspaceId, mode, revision: expectedRevision + 1 };
+                async update(workspaceId: string, profile: PermissionProfile, expectedRevision: number) {
+                    return { workspaceId, profile, revision: expectedRevision + 1 };
                 },
             },
             sandboxPlanResolver: async ({ workspaceRoot, action, effectiveScope }) => effectiveScope === undefined
@@ -355,12 +356,12 @@ test("真实 Runtime 与 Seatbelt：YOLO 下 Git 元数据需审批，批准范�
             toolPolicy: { evaluate: () => "allow" },
             workspaceRoot: canonicalWorkspace,
             workspaceId: "ws-git-worktree-remove",
-            permissionModeStore: {
+            permissionProfileStore: {
                 async get(workspaceId: string) {
-                    return { workspaceId, mode: "yolo" as const, revision: 1 };
+                    return { workspaceId, profile: PERMISSION_PRESETS.ask, revision: 1 };
                 },
-                async set(workspaceId: string, mode: "default" | "yolo", expectedRevision: number) {
-                    return { workspaceId, mode, revision: expectedRevision + 1 };
+                async update(workspaceId: string, profile: PermissionProfile, expectedRevision: number) {
+                    return { workspaceId, profile, revision: expectedRevision + 1 };
                 },
             },
             sandboxPlanResolver: async ({ workspaceRoot, action, effectiveScope }) => effectiveScope === undefined
@@ -486,12 +487,12 @@ test("真实 Seatbelt：linked worktree 的 Git 授权不能被 Bash 或受管�
             toolPolicy: { evaluate: () => "allow" },
             workspaceRoot: canonicalWorkspace,
             workspaceId: "ws-linked-git-sandbox",
-            permissionModeStore: {
+            permissionProfileStore: {
                 async get(workspaceId: string) {
-                    return { workspaceId, mode: "yolo" as const, revision: 1 };
+                    return { workspaceId, profile: PERMISSION_PRESETS.ask, revision: 1 };
                 },
-                async set(workspaceId: string, mode: "default" | "yolo", expectedRevision: number) {
-                    return { workspaceId, mode, revision: expectedRevision + 1 };
+                async update(workspaceId: string, profile: PermissionProfile, expectedRevision: number) {
+                    return { workspaceId, profile, revision: expectedRevision + 1 };
                 },
             },
             sandboxPlanResolver: async ({ workspaceRoot, action: approvedAction, effectiveScope }) => effectiveScope === undefined

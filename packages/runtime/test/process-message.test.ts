@@ -1,3 +1,10 @@
+import { after as afterAllTests } from "node:test";
+import { mkdtemp as createBoundaryWorkspace, rm as removeBoundaryWorkspace } from "node:fs/promises";
+import { tmpdir as boundaryTmpdir } from "node:os";
+import { join as joinBoundaryPath } from "node:path";
+
+const boundaryWorkspaceRoot = await createBoundaryWorkspace(joinBoundaryPath(boundaryTmpdir(), "lazygoal-permission-boundary-"));
+afterAllTests(async () => { await removeBoundaryWorkspace(boundaryWorkspaceRoot, { recursive: true, force: true }); });
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
@@ -25,7 +32,7 @@ import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index
 import { DropOldestContextCompactor } from "../../context-budget/src/index";
 import type { LLMAdapter, LLMRequest, LLMResponse } from "../../llm-core/src/index";
 import type { NativeConversationIdentity } from "../../model-contracts/src/index";
-import { currentProtocols, messageOutline, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
+import { currentProtocols, messageOutline, trajectoryStoreFor, withBoundaryCrossingTools, withDiscoveredProfileTools } from "./current-fixtures";
 import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
@@ -146,8 +153,12 @@ function createHarness(options: {
         trajectoryStore,
         executor,
         checkpointCommitter: committer,
-        toolRegistry: registry,
-        toolPolicy: { evaluate: () => (options.requireApproval === true ? "require_approval" : "allow") },
+        workspaceRoot: boundaryWorkspaceRoot,
+        toolRegistry: options.requireApproval === true
+            ? withBoundaryCrossingTools(registry, [readTool.id], {
+                network: { targets: ["127.0.0.1"], purpose: "读取测试资源" },
+            })
+            : registry,
     });
     return { runner, store, trajectoryStore, requests };
 }
@@ -270,7 +281,7 @@ test("工具失败时已提交过程说明保留且不变成成功证据", async
     assert.ok(lastStep !== undefined);
 });
 
-test("工具审批等待时已提交过程说明保留，等待点不被当作已完成", async () => {
+test("越界工具审批等待时已提交过程说明保留，等待点不被当作已完成", async () => {
     const harness = createHarness({
         respond: () => nativeResponse(
             { type: "text", text: "先检查配置" },

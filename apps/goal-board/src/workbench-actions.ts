@@ -24,6 +24,7 @@ export type WorkbenchUnavailableReason =
   | "run-not-running"
   | "interaction-pending"
   | "stop-in-progress"
+  | "stop-outcome-unknown"
   | "recovery-unavailable";
 
 /**
@@ -61,13 +62,14 @@ export type WorkbenchActions = Readonly<Record<WorkbenchActionId, WorkbenchActio
  *
  * @remarks
  * `connected` 与 `stale` 来自连接观察，`busy` 来自在途控制意图，`sessionUnreadable`
- * 表示会话读取失败。派生只读这些值，不缓存结果，也不修改任何控制状态。
+ * 表示会话读取失败，`stopOutcomeUnknown` 表示当前 Run 的暂停结果需要核验。派生只读这些值，
+ * 不缓存结果，也不修改任何控制状态。
  *
  * @example
  * ```ts
  * const actions = selectWorkbenchActions({
  *   session, busy: false, connected: true, stale: false,
- *   sessionUnreadable: false, canSendText: true, stopping: false,
+ *   sessionUnreadable: false, canSendText: true, stopping: false, stopOutcomeUnknown: false,
  * });
  * ```
  */
@@ -86,6 +88,8 @@ export interface WorkbenchActionContext {
   readonly canSendText: boolean;
   /** 当前 Run 是否已受理停止请求。 */
   readonly stopping: boolean;
+  /** 当前 Run 是否已有结果不明的停止请求。 */
+  readonly stopOutcomeUnknown: boolean;
 }
 
 /**
@@ -93,7 +97,8 @@ export interface WorkbenchActionContext {
  *
  * @remarks
  * 需要最新状态的新决定在连接重建或状态过期时不可用；停止既有 Run 属于安全操作，
- * 不受这两项限制。返回结果只描述本次渲染，不构成授权。
+ * 不受这两项限制，但同一 Run 存在尚未结算的暂停请求时不可重复提交。返回结果只描述本次渲染，
+ * 不构成授权。
  *
  * @param context - 当前会话、连接与在途命令事实。
  * @returns 按身份索引的四个动作。
@@ -118,7 +123,8 @@ export function selectWorkbenchActions(context: WorkbenchActionContext): Workben
     stop: action("stop", "Pause Run", "run",
       sharedReason(context)
       ?? (runStatus !== "running" && runStatus !== "waiting" ? "run-not-running"
-        : context.stopping ? "stop-in-progress" : undefined)),
+        : context.stopOutcomeUnknown ? "stop-outcome-unknown"
+          : context.stopping ? "stop-in-progress" : undefined)),
     resume: action("resume", "Resume Run", "run",
       liveReason
       ?? (context.session?.execution?.state === "recoverable" ? undefined : "recovery-unavailable")),
@@ -146,8 +152,61 @@ export function workbenchReasonText(reason: WorkbenchUnavailableReason): string 
     case "run-not-running": return "This action needs a running Run.";
     case "interaction-pending": return "Finish the current stop request first.";
     case "stop-in-progress": return "This Run is already stopping.";
+    case "stop-outcome-unknown": return "Verify or discard the previous stop request before sending another one.";
     case "recovery-unavailable": return "This Run is not recoverable in this process.";
   }
+}
+
+/**
+ * 判断当前 Goal／Run 是否有尚未结算的暂停命令。
+ *
+ * @remarks
+ * 未知结果仍可能已被 Runtime 接受；在核验、同身份重试或放弃之前，不得新建另一个暂停命令。
+ * 已应用和已拒绝的命令不再阻止新的暂停操作。
+ *
+ * @param intents - 页面当前保留的控制意图。
+ * @param goalId - 当前 Goal 的稳定标识。
+ * @param runId - 当前 Run 的稳定标识。
+ * @returns 是否存在阶段为 `pending`、`accepted` 或 `unknown` 的暂停命令。
+ * @example
+ * ```ts
+ * const blocked = hasBlockingStopIntent(intents, "goal-1", "run-1");
+ * ```
+ */
+export function hasBlockingStopIntent(
+  intents: readonly ControlIntentState[],
+  goalId: string,
+  runId: string,
+): boolean {
+  return intents.some((entry) => entry.intent.kind === "session_input"
+    && entry.intent.goalId === goalId
+    && entry.intent.input.kind === "interrupt"
+    && entry.intent.input.runId === runId
+    && (entry.phase === "pending" || entry.phase === "accepted" || entry.phase === "unknown"));
+}
+
+/**
+ * 判断当前 Goal／Run 是否有结果不明的暂停命令。
+ *
+ * @param intents - 页面当前保留的控制意图。
+ * @param goalId - 当前 Goal 的稳定标识。
+ * @param runId - 当前 Run 的稳定标识。
+ * @returns 是否需要核验该 Run 的既有暂停命令。
+ * @example
+ * ```ts
+ * const needsReview = hasUnknownStopIntent(intents, "goal-1", "run-1");
+ * ```
+ */
+export function hasUnknownStopIntent(
+  intents: readonly ControlIntentState[],
+  goalId: string,
+  runId: string,
+): boolean {
+  return intents.some((entry) => entry.phase === "unknown"
+    && entry.intent.kind === "session_input"
+    && entry.intent.goalId === goalId
+    && entry.intent.input.kind === "interrupt"
+    && entry.intent.input.runId === runId);
 }
 
 /**
@@ -175,21 +234,23 @@ export interface UnverifiedWorkbenchAction {
  *
  * @remarks
  * 只投影 `unknown` 阶段且属于工作台动作的会话输入；应答、队列控制与其他命令由各自
- * 所有者展示。返回顺序沿用意图提交顺序。
+ * 所有者展示。仅返回指定 Goal 的结果，顺序沿用意图提交顺序。
  *
  * @param intents - 当前控制意图列表。
+ * @param goalId - 当前会话所属 Goal 的稳定标识。
  * @returns 结果不明的动作列表；没有时为数组。
  * @example
  * ```ts
- * const unresolved = selectUnverifiedWorkbenchActions(state.intents);
+ * const unresolved = selectUnverifiedWorkbenchActions(state.intents, "goal-1");
  * ```
  */
 export function selectUnverifiedWorkbenchActions(
   intents: readonly ControlIntentState[],
+  goalId: string,
 ): readonly UnverifiedWorkbenchAction[] {
   const unresolved: UnverifiedWorkbenchAction[] = [];
   for (const entry of intents) {
-    if (entry.phase !== "unknown" || entry.intent.kind !== "session_input") continue;
+    if (entry.phase !== "unknown" || entry.intent.kind !== "session_input" || entry.intent.goalId !== goalId) continue;
     const mapped = unverifiedActionOf(entry.intent.input.kind);
     if (mapped !== undefined) unresolved.push({ intentId: entry.intent.intentId, ...mapped });
   }
@@ -197,7 +258,7 @@ export function selectUnverifiedWorkbenchActions(
 }
 
 function unverifiedActionOf(
-  kind: "message" | "steer" | "interrupt" | "respond" | "resume" | "queue_control",
+  kind: "message" | "steer" | "interrupt" | "respond" | "resume" | "queue_control" | "compact",
 ): { readonly actionId: WorkbenchActionId; readonly label: string } | undefined {
   switch (kind) {
     case "message": return { actionId: "send_message", label: "Message" };

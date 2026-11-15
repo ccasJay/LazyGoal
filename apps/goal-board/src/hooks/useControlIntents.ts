@@ -1,13 +1,17 @@
-import { useCallback, useReducer, useRef } from "react";
+import { useCallback, useState, useRef } from "react";
 import type {
   BrowserControlIntentCommand,
   BrowserControlReceipt,
   BrowserControlScope,
+  BrowserControlSnapshot,
   BrowserGoalEvent,
 } from "../../../../packages/web-contracts/src/index";
 import { browserApi } from "../api";
 import {
+  acceptControlSnapshot,
   applyControlEvent,
+  disconnectControlStream,
+  selectControlGoal,
   beginControlIntent,
   createControlState,
   discardControlIntent,
@@ -16,40 +20,8 @@ import {
   settleControlIntent,
   verifyControlIntent as verifyIntentState,
 } from "../control/reducer";
-import type { ControlResources, ControlState } from "../control/types";
+import type { ControlResources, ControlState, GoalView } from "../control/types";
 import { verifyControlIntent, type ControlVerification } from "../control/verify";
-
-interface ControlAction {
-  readonly kind: "begin" | "receipt" | "event" | "verification" | "discard" | "fresh" | "resources";
-  readonly intent?: BrowserControlIntentCommand;
-  readonly receipt?: BrowserControlReceipt;
-  readonly event?: BrowserGoalEvent;
-  readonly intentId?: string;
-  readonly verification?: ControlVerification;
-  readonly scopes?: readonly BrowserControlScope[];
-  readonly resources?: Partial<ControlResources>;
-}
-
-function reduce(state: ControlState, action: ControlAction): ControlState {
-  switch (action.kind) {
-    case "begin":
-      return action.intent === undefined ? state : beginControlIntent(state, action.intent);
-    case "receipt":
-      return action.receipt === undefined ? state : settleControlIntent(state, action.receipt);
-    case "event":
-      return action.event === undefined ? state : applyControlEvent(state, action.event);
-    case "verification":
-      return action.intentId === undefined || action.verification === undefined
-        ? state
-        : verifyIntentState(state, action.intentId, action.verification);
-    case "discard":
-      return action.intentId === undefined ? state : discardControlIntent(state, action.intentId);
-    case "fresh":
-      return action.scopes === undefined ? state : markControlScopesFresh(state, action.scopes);
-    case "resources":
-      return action.resources === undefined ? state : mergeControlResources(state, action.resources);
-  }
-}
 
 /**
  * 页面侧唯一控制状态与命令入口。
@@ -66,43 +38,60 @@ function reduce(state: ControlState, action: ControlAction): ControlState {
  * ```
  */
 export function useControlIntents() {
-  const [state, dispatch] = useReducer(reduce, undefined, createControlState);
+  const [state, setState] = useState(createControlState);
   const stateRef = useRef(state);
-  stateRef.current = state;
+  const update = useCallback((reduce: (current: ControlState) => ControlState): boolean => {
+    const next = reduce(stateRef.current);
+    if (next === stateRef.current) return false;
+    stateRef.current = next;
+    setState(next);
+    return true;
+  }, []);
+
+  const ownsView = useCallback((view: GoalView): boolean => stateRef.current.view === view, []);
+  const currentState = useCallback((): ControlState => stateRef.current, []);
+  const selectGoal = useCallback((goalId: string | null): void => {
+    update((current) => selectControlGoal(current, goalId));
+  }, [update]);
+  const acceptSnapshot = useCallback((view: GoalView, snapshot: BrowserControlSnapshot): boolean =>
+    update((current) => current.view === view ? acceptControlSnapshot(current, snapshot) : current), [update]);
+  const disconnect = useCallback((view: GoalView): void => {
+    update((current) => current.view === view ? disconnectControlStream(current) : current);
+  }, [update]);
 
   const submit = useCallback(async (intent: BrowserControlIntentCommand): Promise<BrowserControlReceipt> => {
-    dispatch({ kind: "begin", intent });
+    update((current) => beginControlIntent(current, intent));
     const receipt = await browserApi.submitControl(intent);
-    dispatch({ kind: "receipt", receipt });
+    update((current) => settleControlIntent(current, receipt));
     return receipt;
-  }, []);
+  }, [update]);
 
   const verify = useCallback(async (intentId: string): Promise<ControlVerification> => {
     const entry = stateRef.current.intents.find((candidate) => candidate.intent.intentId === intentId);
     if (entry === undefined) return "unknown";
     const verification = await verifyControlIntent(entry.intent);
-    dispatch({ kind: "verification", intentId, verification });
+    update((current) => verifyIntentState(current, intentId, verification));
     return verification;
-  }, []);
+  }, [update]);
 
   /** 放弃一条结果不明的本地意图；不撤回已受理的输入。 */
   const discard = useCallback((intentId: string): void => {
-    dispatch({ kind: "discard", intentId });
-  }, []);
+    update((current) => discardControlIntent(current, intentId));
+  }, [update]);
 
-  const applyEvent = useCallback((event: BrowserGoalEvent): void => {
-    dispatch({ kind: "event", event });
-  }, []);
+  const applyEvent = useCallback((view: GoalView, event: BrowserGoalEvent): boolean => {
+    return update((current) => current.view === view ? applyControlEvent(current, event) : current);
+  }, [update]);
 
-  const markFresh = useCallback((scopes: readonly BrowserControlScope[]): void => {
-    dispatch({ kind: "fresh", scopes });
-  }, []);
+  const markFresh = useCallback((view: GoalView, scopes: readonly BrowserControlScope[]): void => {
+    update((current) => current.view === view ? markControlScopesFresh(current, scopes) : current);
+  }, [update]);
 
   const mergeResources = useCallback((resources: Partial<ControlResources>): void => {
-    dispatch({ kind: "resources", resources });
-  }, []);
+    update((current) => mergeControlResources(current, resources));
+  }, [update]);
 
-  return { state, submit, verify, discard, applyEvent, markFresh, mergeResources };
+  return { state, currentState, ownsView, selectGoal, acceptSnapshot, disconnect, submit, verify, discard, applyEvent, markFresh, mergeResources };
 }
 
 /** 页面共享的控制状态与命令入口。 */

@@ -19,7 +19,7 @@ const session = {
   messages: { count: 0, recent: [] },
 } as const;
 
-test("已由 reducer 应用的控制事实不触发 HTTP 重读", () => {
+test("实时内容与工具进度无需重读，等待与终态仅刷新窄状态", () => {
   const controlEvents: readonly BrowserGoalEvent[] = [
     { type: "state_sync", goalId: "goal-1", state: session },
     { type: "run_status_changed", goalId: "goal-1", runId: "run-1", status: "waiting" },
@@ -41,7 +41,8 @@ test("已由 reducer 应用的控制事实不触发 HTTP 重读", () => {
     },
   ];
   for (const event of controlEvents) {
-    assert.deepEqual(readScopesForEvent(event), [], event.type);
+    const needsState = ["run_status_changed", "run_result", "interaction_opened", "interaction_settled"].includes(event.type);
+    assert.deepEqual(readScopesForEvent(event), needsState ? ["session"] : [], event.type);
   }
 });
 

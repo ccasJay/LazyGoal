@@ -29,7 +29,7 @@ import type {
     DiagnosticTraceSink,
     ModelCallMetricsRecorder,
 } from "../../runtime/src/index";
-import { createDefaultModelContextBudgetPolicy, type ModelCapabilities } from "../../context-budget/src/index";
+import { createDefaultModelContextBudgetPolicy, CharacterModelInputEstimator, type ModelCapabilities } from "../../context-budget/src/index";
 import {
     callModel,
     recordLlmDiagnosticTrace,
@@ -90,6 +90,14 @@ export interface LLMStepExecutorDependencies {
     readonly modelCapabilities?: ModelCapabilities;
     /** 可替换的模型执行绑定提供者；每次 Decide 或 Think 阶段开始时读取当前绑定。 */
     readonly bindingProvider?: ModelExecutionBindingProvider;
+    /**
+     * 发送模型调用前校验 Epoch 工作窗口；不可确定容量时抛出配置错误。
+     *
+     * @remarks
+     * 在编号模型输入、写入指标与调用 Adapter 之前执行，因此被拒绝的请求不产生任何
+     * 调用副作用。
+     */
+    readonly assertEpochCapacity?: (goal: Goal) => void;
 }
 
 /**
@@ -114,6 +122,7 @@ export class LLMStepExecutor implements StepExecutor {
     private readonly metricsRecorder: ModelCallMetricsRecorder | undefined;
     private readonly trajectoryContextAssembler: TrajectoryModelContextAssembler | undefined;
     private readonly modelCapabilities: ModelCapabilities | undefined;
+    private readonly assertEpochCapacity: ((goal: Goal) => void) | undefined;
     /**
      * 每个执行单元当前仍然有效的候选预览身份。
      *
@@ -130,6 +139,7 @@ export class LLMStepExecutor implements StepExecutor {
         this.traceSink = dependencies.traceSink;
         this.modelInputStore = dependencies.modelInputStore;
         this.metricsRecorder = dependencies.metricsRecorder;
+        this.assertEpochCapacity = dependencies.assertEpochCapacity;
         this.trajectoryContextAssembler = dependencies.trajectoryContextAssembler;
         this.modelCapabilities = dependencies.modelCapabilities;
         if (dependencies.bindingProvider !== undefined) {
@@ -398,6 +408,18 @@ export class LLMStepExecutor implements StepExecutor {
             throw error;
         }
 
+        if (classified.kind === "batch" && adapter.nativeConversationIdentity?.provider === "openai-compatible") {
+            const error = new LLMResponseProtocolError("OpenAI-compatible Decide requires one tool call per response", {
+                issues: [{
+                    code: "multiple_tool_calls",
+                    path: ["toolCalls"],
+                    message: "Return exactly one declared tool call, not multiple calls.",
+                }],
+            });
+            await recordLlmError(this.traceSink, traceIdentity(goal), error, Date.now() - startedAt, "response_parse", callId);
+            throw error;
+        }
+
         if (classified.kind === "assistant_message") {
             return {
                 kind: "assistant_message",
@@ -484,12 +506,20 @@ export class LLMStepExecutor implements StepExecutor {
         stageOutputs: readonly string[],
     ): Promise<{ readonly response: LLMResponse; readonly startedAt: number; readonly callId: string }> {
         const { goal, control } = input;
+        this.assertEpochCapacity?.(goal);
         return callModel({
             adapter,
             ...(this.traceSink === undefined ? {} : { traceSink: this.traceSink }),
             ...(this.modelInputStore === undefined ? {} : { modelInputStore: this.modelInputStore }),
             ...(this.metricsRecorder === undefined ? {} : { metricsRecorder: this.metricsRecorder }),
             ...(input.executionStream === undefined ? {} : { executionStream: input.executionStream }),
+            estimateInputTokens: (request) => {
+                const estimator = this.modelCapabilities?.tokenEstimator;
+                if (estimator?.unit === "token") return estimator.estimate(request);
+                // 没有 tokenizer 时按 ASCII 约 4 字符/token 的保守换算；仅用于缺失用量样本的估算标记。
+                const characters = new CharacterModelInputEstimator().estimate(request);
+                return Math.max(1, Math.ceil(characters / 4));
+            },
         }, {
             context: {
                 goalId: goal.id,

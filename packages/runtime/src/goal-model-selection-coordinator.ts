@@ -1,4 +1,5 @@
 import type { Goal, GoalModelSelection, RunRef } from "./domain.js";
+import { isRunEnded } from "./domain.js";
 import { throwIfAborted, type ExecutionControl } from "../../execution-control/src/index";
 import type { GoalStore } from "./goal-store.js";
 import { withGoalMutationGate } from "./goal-mutation-gate";
@@ -44,8 +45,8 @@ export type GoalModelSelectionResult =
  * Goal 模型选择协调器契约。
  *
  * @remarks
- * 负责在安全等待点或已完成、失败 Run 上将用户确认的新模型选择原子持久化到 Goal 快照中。
- * 运行中、已取消、Run 不匹配或 Action 审批等待点拒绝保存，且不引发任何副作用。
+ * 在安全等待点或已结算的终态 Run 上将新模型选择原子持久化到 Goal 快照中。
+ * 运行中、中断尚未结算、Run 不匹配或 Action 审批等待点拒绝保存。
  *
  * @example
  * ```ts
@@ -58,7 +59,7 @@ export type GoalModelSelectionResult =
  */
 export interface GoalModelSelectionCoordinator {
     /**
-     * 在匹配的安全等待点或已完成、失败 Run 上更新并持久化 Goal 的模型选择。
+     * 在匹配的安全等待点或已结算的终态 Run 上持久化 Goal 的模型选择。
      *
      * @param request - 包含目标 Goal 引用与新模型选择。
      * @param control - 可选的执行中止信号控制。
@@ -74,7 +75,7 @@ export interface GoalModelSelectionCoordinator {
  * 判断指定 Goal 是否处于允许保存模型选择的安全状态。
  *
  * @remarks
- * 等待状态要求没有 pending Action 或停止原因；已完成和失败 Run 允许为下一 Run 预选。
+ * 等待状态要求没有 pending Action 或停止原因。终态允许为下一 Run 预选，已有中断须结算。
  *
  * @param goal - 当前目标 Goal 聚合。
  * @returns 是否为安全等待点。
@@ -89,8 +90,7 @@ export interface GoalModelSelectionCoordinator {
 export function isSafeWaitingPointForModelSwitching(goal: Goal): boolean {
     const run = goal.state.run;
 
-    if (run.status === "completed" || run.status === "failed") return true;
-    if (run.status === "cancelled") return false;
+    if (isRunEnded(run.status)) return run.interruption === undefined || run.interruption.status === "finished";
 
     // 统一执行流的交互或 blocked 等待：Action 审批/恢复期间不切换模型。
     if (

@@ -51,6 +51,9 @@ function controlledWriteTool(executed: { value: string }[]): Tool {
         },
         replayPolicy: "safe",
         validate: () => ({ ok: true }),
+        resolveSandboxAccess: () => ({
+            files: [{ path: ".git/index", access: "write", kind: "file", purpose: "审批覆盖一次越界写入" }],
+        }),
         async execute({ input }) {
             executed.push({ value: (input as { readonly value: string }).value });
             return { kind: "success", output: "stored", summary: "Stored" };
@@ -261,6 +264,9 @@ function failingManualTool(executed: { value: string }[]): Tool {
         },
         replayPolicy: "manual",
         validate: () => ({ ok: true }),
+        resolveSandboxAccess: () => ({
+            files: [{ path: ".git/index", access: "write", kind: "file", purpose: "审批覆盖一次越界写入" }],
+        }),
         async execute({ input }) {
             executed.push({ value: (input as { readonly value: string }).value });
             throw new TransientToolExecutionFailure("network_unavailable", 0);

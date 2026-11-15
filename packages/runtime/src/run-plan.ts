@@ -227,6 +227,46 @@ export function acceptRunPlanStage(
 }
 
 /**
+ * 重新打开已接受的末阶段并回拨路线游标。
+ *
+ * @remarks
+ * 最终交付审查拒绝时使用：路线内容、修订和已接受阶段保持不变，只把末阶段恢复为
+ * `executing` 并清除其接受序列。调用方必须在同一检查点同步重开 `currentStage`，
+ * 使两处接受指针一起失效；历史接受事实仍保留在 Trajectory 中。
+ *
+ * @param route - 当前全部阶段均已接受的路线状态。
+ * @param stageId - 预期重开的末阶段稳定身份。
+ * @returns 游标回拨到末阶段且该阶段为 `executing` 的路线。
+ * @throws RunPlanTransitionError 当路线仍有未接受阶段、阶段身份不匹配或末阶段未接受时抛出。
+ *
+ * @example
+ * ```ts
+ * const reopened = reopenRunPlanStage(route, "stage-2");
+ * ```
+ */
+export function reopenRunPlanStage(route: RunPlanRouteState, stageId: string): RunPlanRouteState {
+    assertValidRunPlanRoute(route);
+    const lastIndex = route.stages.length - 1;
+    const last = route.stages[lastIndex];
+    if (route.nextStageIndex !== route.stages.length
+        || last === undefined
+        || last.stageId !== stageId
+        || last.status !== "accepted") {
+        throw new RunPlanTransitionError("只能重开路线中已接受的末阶段");
+    }
+    const { acceptedSequence: _acceptedSequence, ...reopened } = last;
+    const next: RunPlanRouteState = {
+        ...route,
+        nextStageIndex: lastIndex,
+        stages: route.stages.map((stage, index) => index === lastIndex
+            ? { ...reopened, status: "executing" }
+            : stage),
+    };
+    assertValidRunPlanRoute(next);
+    return next;
+}
+
+/**
  * 将一项经模型验证的阶段声明或当前阶段修订应用到获批路线。
  *
  * @remarks

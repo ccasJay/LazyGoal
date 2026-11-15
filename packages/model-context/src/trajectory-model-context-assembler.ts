@@ -234,7 +234,8 @@ export class TrajectoryModelContextAssembler {
         input: TrajectoryModelContextAssemblyInput,
     ): Promise<ModelInferenceView> {
         const snapshot = await this.loadTrajectoryFor(input);
-        const context = this.assembleContextFromCommitted(input, snapshot);
+        const compaction = await this.resolveCompaction(input, snapshot);
+        const context = this.assembleContextFromCommitted(input, snapshot, compaction);
         throwIfAborted(input.control);
         return new ModelInferenceProjector().withTrajectoryContext(
             input.view,
@@ -285,10 +286,11 @@ export class TrajectoryModelContextAssembler {
             sectionIdentities: input.sectionIdentities,
         }).map((event) => event.payload);
         throwIfAborted(input.control);
+        const compaction = await this.resolveCompaction(input, snapshot);
         const context = this.assembleContextFromCommitted({
             ...input,
             fixedInput: prepareFixedInput(frames),
-        }, snapshot);
+        }, snapshot, compaction);
         throwIfAborted(input.control);
         return Object.freeze({
             view: new ModelInferenceProjector().withTrajectoryContext(input.view, context),
@@ -312,7 +314,8 @@ export class TrajectoryModelContextAssembler {
         input: TrajectoryModelContextAssemblyInput,
     ): Promise<ModelTrajectoryContext> {
         const snapshot = await this.loadTrajectoryFor(input);
-        return this.assembleContextFromCommitted(input, snapshot);
+        const compaction = await this.resolveCompaction(input, snapshot);
+        return this.assembleContextFromCommitted(input, snapshot, compaction);
     }
 
     private async loadTrajectoryFor(
@@ -599,6 +602,7 @@ export class TrajectoryModelContextAssembler {
     private assembleContextFromCommitted(
         input: TrajectoryModelContextAssemblyInput,
         snapshot: AssemblerTrajectorySnapshot,
+        compaction?: import("../../model-view/src/index").ModelContextCompactionView,
     ): ModelTrajectoryContext {
         throwIfAborted(input.control);
         if (input.view.workingMemory === undefined) {
@@ -665,6 +669,63 @@ export class TrajectoryModelContextAssembler {
                 projectedById.get(unit.executionUnitId)!),
             warm: finalWarm.retained,
             budget,
+            ...(compaction === undefined ? {} : { compaction }),
+        });
+    }
+
+    /**
+     * 按当前 Epoch 的指针解析已提交的压缩正文。
+     *
+     * @remarks
+     * 正文不随 Goal 快照复制；指针指向的事件必须已经提交。同 Run 直接从本次快照取，
+     * 跨 Run 按已完成 Run 的提交边界读取。无法解析时报告来源错误，而不是静默丢弃接续正文。
+     */
+    private async resolveCompaction(
+        input: TrajectoryModelContextAssemblyInput,
+        snapshot: AssemblerTrajectorySnapshot,
+    ): Promise<import("../../model-view/src/index").ModelContextCompactionView | undefined> {
+        const epoch = input.view.contextEpoch;
+        if (epoch === undefined) return undefined;
+        const currentRunId = input.goal.state.run.id;
+        const sourceRunId = epoch.compactionSourceRunId ?? currentRunId;
+        let events: readonly TrajectoryEvent[];
+        if (sourceRunId === currentRunId) {
+            events = snapshot.committed;
+        } else {
+            const completed = (input.goal.state.completedRuns ?? [])
+                .find((run) => run.runId === sourceRunId);
+            if (completed === undefined) {
+                throw new ModelContextSourceError(
+                    `compaction source run ${sourceRunId} is not a completed run of this Goal`,
+                );
+            }
+            if (this.trajectoryStore === undefined) {
+                throw new ModelContextSourceError("compaction source run requires a Trajectory store");
+            }
+            const read = await this.trajectoryStore.readWithBoundary(
+                { goalId: input.goal.id, runId: sourceRunId },
+                completed.committedThroughSequence,
+            );
+            events = read.committed;
+        }
+        // Epoch 序号在一个 Goal 内唯一，且写入事件前已确定，因此可用它定位开关事件。
+        const event = events.find((candidate) => candidate.eventType === "context_epoch_advanced"
+            && candidate.payload.type === "context_epoch_advanced"
+            && candidate.payload.openedEpoch.number === epoch.epochNumber);
+        const compaction = event === undefined || event.payload.type !== "context_epoch_advanced"
+            ? undefined
+            : event.payload.compaction;
+        if (compaction === undefined) {
+            if (epoch.compactionSourceRunId === undefined) return undefined;
+            throw new ModelContextSourceError(
+                "committed compaction event referenced by the Snapshot is missing",
+            );
+        }
+        return Object.freeze({
+            body: compaction.body,
+            sourceRunId: compaction.sourceRunId,
+            firstSequence: compaction.firstSequence,
+            lastSequence: compaction.lastSequence,
         });
     }
 

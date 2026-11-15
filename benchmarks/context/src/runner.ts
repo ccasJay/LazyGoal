@@ -216,7 +216,7 @@ async function executeGroup(scenario: ContextScenario, worker: WorkerArtifact, r
         attempt: 1, status: reportedCategory === "completed" ? "completed" : reportedCategory === "cancelled" ? "cancelled" : reportedCategory === "infrastructure_error" ? "infrastructure_error" : "failed",
         durationMs: groupResult.durationMs, usage: calls.length === 0 || calls.some(call => call === null) ? null
             : { inputTokens: calls.reduce((n, call) => n + call!.inputTokens, 0), outputTokens: calls.reduce((n, call) => n + call!.outputTokens, 0), missingCalls: 0 },
-        errors: result.errors, artifactLocator: result.artifact === null ? null : { goalSnapshot: join(result.artifact.directory, "state", "Y29udGV4dA", "c2Vzc2lvbg", "goals"), trajectory: join(result.artifact.directory, "state", "Y29udGV4dA", "c2Vzc2lvbg", "trajectories"), modelInputs: join(result.artifact.directory, "state", "Y29udGV4dA", "c2Vzc2lvbg", "model-inputs") },
+        errors: result.errors, artifactLocator: result.artifact === null ? null : { goalSnapshot: join(result.artifact.directory, "state", "Y29udGV4dA", "c2Vzc2lvbg", "goals"), trajectory: join(result.artifact.directory, "state", "Y29udGV4dA", "c2Vzc2lvbg", "goals"), modelInputs: join(result.artifact.directory, "state", "Y29udGV4dA", "c2Vzc2lvbg", "goals") },
         domainResult: groupResult, worker: { ...worker.manifest }, environment: { imageId: result.imageId },
     });
     return groupResult;

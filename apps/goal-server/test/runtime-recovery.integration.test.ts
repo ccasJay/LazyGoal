@@ -74,7 +74,7 @@ class ScriptedAdapter implements LLMAdapter {
     }
 }
 
-function readFileTool(onExecute: () => void): Tool {
+function readFileTool(onExecute: () => void, options: { readonly crossBoundary?: boolean } = {}): Tool {
     return {
         definition: {
             id: "read_file",
@@ -84,6 +84,13 @@ function readFileTool(onExecute: () => void): Tool {
         },
         replayPolicy: "safe",
         validate: () => ({ ok: true }),
+        ...(options.crossBoundary === true
+            ? {
+                resolveSandboxAccess: () => ({
+                    files: [{ path: "/tmp/lazygoal-boundary-approval.txt", access: "read" as const, kind: "file" as const, purpose: "审批覆盖一次工作区外读取" }],
+                }),
+            }
+            : {}),
         async execute({ input }) {
             onExecute();
             return {
@@ -199,7 +206,7 @@ test("重建实例后恢复同一 Run：匹配交互身份、累计 Step、轨�
     let toolCalls = 0;
     const toolRegistry = new InMemoryToolRegistry([createTestToolRegistration(readFileTool(() => {
         toolCalls += 1;
-    }))]);
+    }, { crossBoundary: true }))]);
     const goalId = "goal-recovery-identity";
     let runCounter = 0;
     const runIdGenerator = (): string => `run-${++runCounter}`;
@@ -412,9 +419,13 @@ test("损坏 Snapshot 与缺失工具按既有边界 fail-closed", async () => {
     });
     try {
         const corruptedGoalId = "goal-corrupted";
-        await mkdir(runtime.goalsDirectory, { recursive: true });
+        const corruptedPath = join(
+            runtime.goalsDirectory,
+            Buffer.from(corruptedGoalId, "utf8").toString("base64url"),
+        );
+        await mkdir(corruptedPath, { recursive: true });
         await writeFile(
-            join(runtime.goalsDirectory, `${Buffer.from(corruptedGoalId, "utf8").toString("base64url")}.json`),
+            join(corruptedPath, "snapshot.json"),
             "{ not a valid snapshot",
         );
         await assert.rejects(

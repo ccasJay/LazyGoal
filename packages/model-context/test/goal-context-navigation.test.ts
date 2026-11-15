@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { readModelMessageText } from "../../llm-core/src/index";
 
 import { createGoal } from "../../runtime/src/domain";
 import type { Goal, GoalMessage, RunStageState } from "../../runtime/src/domain";
@@ -172,12 +173,12 @@ test("保留原始用户意图、有效 Profile、当前 Run 已应用用户输�
 
     const fullMessages = plan.request.messages;
     const hasOriginalUserIntent = fullMessages.some((msg) =>
-        msg.content.includes("绝对必须保留 API 字段名称为 configPath"),
+        readModelMessageText(msg).includes("绝对必须保留 API 字段名称为 configPath"),
     );
     assert.ok(hasOriginalUserIntent, "必须直接保留用户原始消息");
 
     const hasStageGap = fullMessages.some((msg) =>
-        msg.content.includes("测试覆盖率未达标"),
+        readModelMessageText(msg).includes("测试覆盖率未达标"),
     );
     assert.ok(hasStageGap, "必须保留当前阶段审查缺口");
 });
@@ -340,7 +341,7 @@ test("runtime_feedback 仍在末尾，历史数据不升级为系统指令", asy
     const messages = plan.request.messages;
     const lastMessage = messages[messages.length - 1];
     assert.ok(lastMessage);
-    assert.match(lastMessage.content, /"source":"runtime_feedback"/, "runtime_feedback 必须位于请求末尾");
+    assert.match(readModelMessageText(lastMessage), /"source":"runtime_feedback"/, "runtime_feedback 必须位于请求末尾");
 });
 
 test("跨 Run 同名阶段不被误判为当前阶段而隐藏", () => {

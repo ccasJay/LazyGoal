@@ -136,7 +136,7 @@ export interface RuntimeTrajectoryScoreInput {
  * ```ts
  * const options: PersistedTrajectoryScoreOptions = {
  *   goalSnapshotDir: "/tmp/out/runtime/goals",
- *   trajectoryDir: "/tmp/out/runtime/trajectories",
+ *   trajectoryDir: "/tmp/out/runtime/goals",
  *   goalId: "goal-1",
  *   runId: "run-1",
  *   stopReason: "end_turn",

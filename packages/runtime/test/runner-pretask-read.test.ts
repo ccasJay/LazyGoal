@@ -1,3 +1,10 @@
+import { after as afterAllTests } from "node:test";
+import { mkdtemp as createBoundaryWorkspace, rm as removeBoundaryWorkspace } from "node:fs/promises";
+import { tmpdir as boundaryTmpdir } from "node:os";
+import { join as joinBoundaryPath } from "node:path";
+
+const boundaryWorkspaceRoot = await createBoundaryWorkspace(joinBoundaryPath(boundaryTmpdir(), "lazygoal-permission-boundary-"));
+afterAllTests(async () => { await removeBoundaryWorkspace(boundaryWorkspaceRoot, { recursive: true, force: true }); });
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
@@ -20,7 +27,7 @@ import {
     type BoundToolDefinition,
 } from "../../tool-core/src/index";
 import { InMemoryGoalStore } from "../../storage/src/index";
-import { BaseTestStepExecutor, trajectoryStoreFor, withDiscoveredProfileTools } from "./current-fixtures";
+import { BaseTestStepExecutor, trajectoryStoreFor, withBoundaryCrossingTools, withDiscoveredProfileTools } from "./current-fixtures";
 import { createTestBinding, objectInputSchema, openObjectSchema, sandboxCommandSchema } from "../../tool-core/test/binding-fixtures";
 import { createTestToolRegistration } from "../../tool-core/test/helpers";
 
@@ -119,6 +126,7 @@ test("无任务只读 Action: 使用普通生命周期计 Step，并在同一次
     ]);
 
     const runner = new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store,
         executor: stepExecutor,
         toolRegistry,
@@ -193,7 +201,7 @@ test("无任务只读 Action: 使用普通生命周期计 Step，并在同一次
     assert.equal(eventTypes.includes("preparation_result" as any), false);
 });
 
-test("无任务只读 Action: require_approval 使用普通 pendingAction 恢复路径", async () => {
+test("无任务只读 Action: 越界读取的审批使用普通 pendingAction 恢复路径", async () => {
     const store = new InMemoryGoalStore();
     const trajectoryStore = trajectoryStoreFor(store);
     const stepExecutor = new QueueStepExecutor();
@@ -201,10 +209,12 @@ test("无任务只读 Action: require_approval 使用普通 pendingAction 恢复
         createTestToolRegistration(createMockTool(READ_FILE_DEFINITION)),
     ]);
     const runner = new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store,
         executor: stepExecutor,
-        toolRegistry,
-        toolPolicy: { evaluate: () => "require_approval" },
+        toolRegistry: withBoundaryCrossingTools(toolRegistry, ["read_file"], {
+            network: { targets: ["127.0.0.1"], purpose: "读取测试资源" },
+        }),
         trajectoryStore,
     });
     const coordinator = new GoalCoordinator({
@@ -252,6 +262,8 @@ test("无任务只读 Action: require_approval 使用普通 pendingAction 恢复
             input: { path: "package.json" },
         },
         status: "awaiting_approval",
+        approvalKind: "sandbox",
+        effectiveSandboxScope: { extraFiles: [], network: "all_outbound" },
     });
 
     stepExecutor.enqueue({
@@ -284,6 +296,7 @@ test("无任务只读 Action: maxSteps 统一计入前置读取", async () => {
     const trajectoryStore = trajectoryStoreFor(store);
     const stepExecutor = new QueueStepExecutor();
     const runner = new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store,
         executor: stepExecutor,
         toolRegistry: new InMemoryToolRegistry([
@@ -354,6 +367,7 @@ test("无任务只读 Action: 领域 failure 也通过普通 Observation 计 Ste
     ]);
 
     const runner = new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store,
         executor: stepExecutor,
         toolRegistry,
@@ -428,6 +442,7 @@ test("无任务只读 Action: 工具运行时异常停止为 TOOL_EXECUTION_ERRO
     ]);
 
     const runner = new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store,
         executor: stepExecutor,
         toolRegistry,
@@ -487,6 +502,7 @@ test("Plan 提案未批准时只读门先于 Tool Policy 拒绝写入", async ()
     ]);
 
     const runner = new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store,
         executor: stepExecutor,
         toolRegistry,
@@ -584,6 +600,7 @@ test("普通 Run 直接调用已授权写工具并用当前 Run Observation 完�
         };
     }, async () => ({ kind: "accept" }));
     const runner = new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store,
         executor,
         toolRegistry: new InMemoryToolRegistry([
@@ -634,7 +651,7 @@ test("普通 Run 允许无 Tool 的空证据回答，但有业务 Observation �
     const pureTrajectory = trajectoryStoreFor(pureStore);
     const pureExecutor = new QueueStepExecutor();
     pureExecutor.enqueue({ kind: "complete", summary: "无需外部工具即可回答", evidenceSequences: [] });
-    const pureRunner = new Runner({ store: pureStore, executor: pureExecutor, trajectoryStore: pureTrajectory });
+    const pureRunner = new Runner({ workspaceRoot: boundaryWorkspaceRoot, store: pureStore, executor: pureExecutor, trajectoryStore: pureTrajectory });
     const pureCoordinator = new GoalCoordinator({
         store: pureStore,
         scheduler: new InlineScheduler(pureRunner),
@@ -674,6 +691,7 @@ test("普通 Run 允许无 Tool 的空证据回答，但有业务 Observation �
         { kind: "complete", summary: "未引用工具结果", evidenceSequences: [] },
     );
     const observedRunner = new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store: observedStore,
         executor: observedExecutor,
         toolRegistry: new InMemoryToolRegistry([
@@ -724,7 +742,7 @@ test("普通 Run 继续允许 ask_user 形成可恢复等待点", async () => {
             options: [{ label: "测试" }, { label: "生产" }],
         }],
     });
-    const runner = new Runner({ store, executor, trajectoryStore });
+    const runner = new Runner({ workspaceRoot: boundaryWorkspaceRoot, store, executor, trajectoryStore });
     const coordinator = new GoalCoordinator({ store, scheduler: new InlineScheduler(runner), trajectoryStore });
     const goal = createGoal({
         id: "goal-normal-ask-user",
@@ -760,7 +778,7 @@ test("Runtime 按 Run 模式拒绝普通提案、普通 GoalPlan 更新与未批
         const trajectoryStore = trajectoryStoreFor(store);
         const executor = new QueueStepExecutor();
         executor.enqueue(decision);
-        const runner = new Runner({ store, executor, trajectoryStore });
+        const runner = new Runner({ workspaceRoot: boundaryWorkspaceRoot, store, executor, trajectoryStore });
         const coordinator = new GoalCoordinator({ store, scheduler: new InlineScheduler(runner), trajectoryStore });
         const created = createGoal({
             id,
@@ -838,6 +856,7 @@ test("YOLO 模式边界: 任务批准后 YOLO 自动放行写工具并计 Step�
     };
 
     const runner = new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store,
         executor: stepExecutor,
         toolRegistry,
@@ -944,6 +963,7 @@ test("普通只读 Action 重启恢复: 读取后的 Step 可恢复并继续推�
     ]);
 
     const runner1 = new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store,
         executor: stepExecutor1,
         toolRegistry,
@@ -996,6 +1016,7 @@ test("普通只读 Action 重启恢复: 读取后的 Step 可恢复并继续推�
     // 模拟进程重启：新建 Executor、Runner 和 Coordinator
     const stepExecutor2 = new QueueStepExecutor();
     const runner2 = new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store,
         executor: stepExecutor2,
         toolRegistry,

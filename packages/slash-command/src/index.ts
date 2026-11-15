@@ -1,3 +1,4 @@
+export { compactCommandDefinition } from "./commands/compact.js";
 export { modelCommandDefinition } from "./commands/model.js";
 export { planCommandDefinition } from "./commands/plan.js";
 export {
@@ -6,6 +7,7 @@ export {
 } from "./errors.js";
 export { createSlashCommandRegistry } from "./registry.js";
 export type {
+    CompactCommandEffect,
     ModelCommandEffect,
     SlashCommandEffect,
     SlashCommandDefinition,

@@ -4,8 +4,7 @@ import type { BrowserControlScope, BrowserGoalEvent } from "../../../../packages
  * 一条 Goal SSE 事件需要重新读取的投影作用域。
  *
  * @remarks
- * 控制事实已经在 reducer 中直接应用，不要求 HTTP 重读；只有内容事实、提交边界
- * 与流故障声明自己的失效范围。
+ * 等待与终态事实触发窄状态读取，实时活动无需重读。调用方先核对事件归属。
  *
  * @param event - Goal SSE 事件。
  * @returns 需要定向读取的作用域；空数组表示只更新本地控制状态。
@@ -30,6 +29,7 @@ export function readScopesForEvent(event: BrowserGoalEvent): readonly BrowserCon
     case "run_result":
     case "interaction_opened":
     case "interaction_settled":
+      return ["session"];
     case "tool_activity":
     case "closed":
     case "activity":

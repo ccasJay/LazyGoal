@@ -7,7 +7,7 @@ import type {
     BrowserActivityQuery,
     BrowserActivityReadResult,
 } from "../../web-contracts/src/index";
-import type { BrowserGoalSessionState } from "../../web-contracts/src/index";
+import type { BrowserGoalSessionStateEnvelope } from "../../web-contracts/src/index";
 import type { BrowserModelCatalogReadResult } from "./browser-model-catalog";
 import type {
     BrowserGoalPlanModeCommand,
@@ -16,10 +16,10 @@ import type {
     BrowserModelSelectionResult,
     BrowserActionDetailsResult,
     BrowserInteractionDetailResult,
-    BrowserToolGrantResult,
-    BrowserToolGrantRevokeCommand,
-    BrowserPermissionModeCommand,
-    BrowserPermissionModeResult,
+    BrowserPermissionExemptionResult,
+    BrowserPermissionExemptionRevokeCommand,
+    BrowserPermissionProfileCommand,
+    BrowserPermissionProfileResult,
 } from "./browser-goal-command-service";
 import type {
     BrowserGoalSessionPort,
@@ -43,11 +43,11 @@ import {
     browserGoalPlanModeCommandBinding,
     browserModelPreferenceCommandBinding,
     browserModelSelectionCommandBinding,
-    browserPermissionModeCommandBinding,
+    browserPermissionExemptionRevokeBodyBinding,
+    browserPermissionProfileCommandBinding,
     browserProviderModelQueryBinding,
     browserProviderProfileInputBinding,
     browserSessionInputCommandBinding,
-    browserToolGrantRevokeBodyBinding,
     isJsonValue,
     isRecord,
 } from "../../web-contracts/src/index";
@@ -172,13 +172,13 @@ export interface BrowserGoalApiPort {
      */
     read(goalId: string): Promise<BrowserGoalSession | undefined>;
     /**
-     * 读取不含历史消息、步骤或阶段明细的当前状态；实现必须仅从 Snapshot 投影。
+     * 读取不含历史明细的当前状态。包含会话修订时，两份投影必须来自同一 Snapshot。
      *
      * @param goalId - Goal 的稳定标识。
      * @returns 窄状态；Goal 不存在时返回 `undefined`。
      * @throws Snapshot 损坏或底层读取失败时拒绝。
      */
-    readState?(goalId: string): Promise<BrowserGoalSessionState | undefined>;
+    readState?(goalId: string): Promise<BrowserGoalSessionStateEnvelope | undefined>;
     /**
      * 读取固定消息与已提交轨迹上界内的有界 Activity 页。
      *
@@ -239,28 +239,25 @@ export interface BrowserGoalApiPort {
      * 省略时审批审阅路由返回 500 `review_unavailable`。
      */
     reviewActionApproval?(goalId: string, command: BrowserActionReviewCommand): Promise<BrowserActionReviewResult>;
-    /** 列出当前 Goal 与 workspace 的授权摘要。 */
-    listToolGrants?(goalId: string, runId: string): Promise<BrowserToolGrantResult>;
-    /** 撤销当前 Goal 或 workspace 的指定授权。 */
-    revokeToolGrant?(goalId: string, command: BrowserToolGrantRevokeCommand): Promise<BrowserToolGrantResult>;
+    /** 列出当前 Goal 与 workspace 的边界豁免摘要。 */
+    listPermissionExemptions?(goalId: string, runId: string): Promise<BrowserPermissionExemptionResult>;
+    /** 撤销当前 Goal 或 workspace 的指定边界豁免。 */
+    revokePermissionExemption?(goalId: string, command: BrowserPermissionExemptionRevokeCommand): Promise<BrowserPermissionExemptionResult>;
     /**
-     * 查询当前工作区的项目权限执行模式。
+     * 查询当前工作区的权限档位。
      *
-     * @returns 包含模式与修订号的权限事实；不可用时返回稳定拒绝码。
+     * @returns 完整档位与修订号；不可用时返回稳定拒绝码。
      * @throws 底层存储读取失败时拒绝。
      */
-    getPermissionMode?(): Promise<
-        | { readonly ok: true; readonly mode: "default" | "yolo"; readonly revision: number; readonly workspaceId: string }
-        | { readonly ok: false; readonly error: "permissions_unavailable" }
-    >;
+    getPermissionProfile?(): Promise<BrowserPermissionProfileResult>;
     /**
-     * 切换当前工作区的项目权限执行模式。
+     * 切换当前工作区的权限档位。
      *
-     * @param command - 目标模式与期望修订号。
-     * @returns 成功切换后的权限事实；冲突、关闭或不可用时返回稳定错误。
+     * @param command - 目标档位与期望修订号。
+     * @returns 成功切换后的档位；冲突、关闭或不可用时返回稳定错误。
      * @throws 底层存储写入失败时拒绝。
      */
-    setPermissionMode?(command: BrowserPermissionModeCommand): Promise<BrowserPermissionModeResult>;
+    setPermissionProfile?(command: BrowserPermissionProfileCommand): Promise<BrowserPermissionProfileResult>;
 }
 
 /**
@@ -455,8 +452,7 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
             try {
                 const state = await source.readState(goalId);
                 if (state === undefined) return context.json({ error: "goal_not_found" }, 404);
-                const session = source.session === undefined ? undefined : await source.session.readState(goalId);
-                return context.json({ goal: state, ...(session === undefined ? {} : { session }) });
+                return context.json(state);
             } catch {
                 return context.json({ error: "goal_read_failed" }, 500);
             }
@@ -637,47 +633,47 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
         } catch { return context.json({ error: "review_unavailable" }, 500); }
     });
 
-    routes.get("/api/goals/:goalId/grants", async (context) => {
-        if (source.listToolGrants === undefined) return context.json({ error: "permissions_unavailable" }, 500);
+    routes.get("/api/goals/:goalId/exemptions", async (context) => {
+        if (source.listPermissionExemptions === undefined) return context.json({ error: "permissions_unavailable" }, 500);
         const goalId = context.req.param("goalId");
         const runId = context.req.query("runId");
         if (!isWireId(goalId, MAX_GOAL_ID_LENGTH) || !isWireId(runId, 256)) {
-            return context.json({ error: "invalid_grant_request" }, 400);
+            return context.json({ error: "invalid_exemption_request" }, 400);
         }
         try {
-            const result = await source.listToolGrants(goalId, runId);
+            const result = await source.listPermissionExemptions(goalId, runId);
             if (result.ok) return context.json(result);
             const status = result.error === "goal_not_found" ? 404
                 : result.error === "service_shutting_down" ? 503
-                : result.error === "permissions_unavailable" || result.error === "grant_failed" ? 500
+                : result.error === "permissions_unavailable" || result.error === "exemption_failed" ? 500
                 : 409;
             return context.json({ error: result.error }, status);
-        } catch { return context.json({ error: "grant_failed" }, 500); }
+        } catch { return context.json({ error: "exemption_failed" }, 500); }
     });
 
-    routes.delete("/api/goals/:goalId/grants/:grantId", async (context) => {
-        if (source.revokeToolGrant === undefined) return context.json({ error: "permissions_unavailable" }, 500);
+    routes.delete("/api/goals/:goalId/exemptions/:exemptionId", async (context) => {
+        if (source.revokePermissionExemption === undefined) return context.json({ error: "permissions_unavailable" }, 500);
         const goalId = context.req.param("goalId");
-        const grantId = context.req.param("grantId");
-        const parsed = await parseGrantRevokeCommand(context.req.raw);
-        if (!isWireId(goalId, MAX_GOAL_ID_LENGTH) || !isWireId(grantId, 256) || !parsed.ok) {
-            return context.json({ error: parsed.ok ? "invalid_grant_request" : parsed.error }, 400);
+        const exemptionId = context.req.param("exemptionId");
+        const parsed = await parseExemptionRevokeCommand(context.req.raw);
+        if (!isWireId(goalId, MAX_GOAL_ID_LENGTH) || !isWireId(exemptionId, 256) || !parsed.ok) {
+            return context.json({ error: parsed.ok ? "invalid_exemption_request" : parsed.error }, 400);
         }
         try {
-            const result = await source.revokeToolGrant(goalId, { ...parsed.command, grantId });
+            const result = await source.revokePermissionExemption(goalId, { ...parsed.command, exemptionId });
             if (result.ok) return context.json(result);
             const status = result.error === "goal_not_found" ? 404
                 : result.error === "service_shutting_down" ? 503
-                : result.error === "permissions_unavailable" || result.error === "grant_failed" ? 500
+                : result.error === "permissions_unavailable" || result.error === "exemption_failed" ? 500
                 : 409;
             return context.json({ error: result.error }, status);
-        } catch { return context.json({ error: "grant_failed" }, 500); }
+        } catch { return context.json({ error: "exemption_failed" }, 500); }
     });
 
-    routes.get("/api/project/permission-mode", async (context) => {
-        if (source.getPermissionMode === undefined) return context.json({ error: "permissions_unavailable" }, 500);
+    routes.get("/api/project/permission-profile", async (context) => {
+        if (source.getPermissionProfile === undefined) return context.json({ error: "permissions_unavailable" }, 500);
         try {
-            const result = await source.getPermissionMode();
+            const result = await source.getPermissionProfile();
             if (result.ok) return context.json(result);
             return context.json({ error: result.error }, 500);
         } catch {
@@ -685,14 +681,14 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
         }
     });
 
-    routes.post("/api/project/permission-mode", async (context) => {
-        if (source.setPermissionMode === undefined) return context.json({ error: "permissions_unavailable" }, 500);
-        const parsed = await parsePermissionModeCommand(context.req.raw);
+    routes.post("/api/project/permission-profile", async (context) => {
+        if (source.setPermissionProfile === undefined) return context.json({ error: "permissions_unavailable" }, 500);
+        const parsed = await parsePermissionProfileCommand(context.req.raw);
         if (!parsed.ok) {
             return context.json({ error: parsed.error }, parsed.status);
         }
         try {
-            const result = await source.setPermissionMode(parsed.command);
+            const result = await source.setPermissionProfile(parsed.command);
             if (result.ok) return context.json(result);
             const status = result.error === "service_shutting_down" ? 503 : result.error === "conflict" ? 409 : 500;
             return context.json(result, status);
@@ -712,7 +708,8 @@ export function createBrowserGoalRoutes(source: BrowserGoalApiPort): Hono {
             const result = await session.create(parsed.command);
             if (result.ok) return context.json(result, result.existing ? 200 : 202);
             const status = result.error === "create_failed" || result.error === "goal_unreadable" ? 500
-                : result.error === "model_catalog_unavailable" || result.error === "service_shutting_down" ? 503
+                : result.error === "model_catalog_unavailable" || result.error === "service_shutting_down"
+                    || result.error === "execution_unavailable" ? 503
                     : result.error === "goal_busy" || result.error === "goal_id_conflict" || result.error === "input_conflict" ? 409
                         : result.error === "profile_not_found" ? 500
                             : 400;
@@ -1036,24 +1033,22 @@ async function dispatchControlIntent(
             if (result.ok) return acceptedControl(command.intentId, { kind: "model_selection", result });
             return rejectedControl(command.intentId, result.error);
         }
-        case "permission_mode": {
-            if (source.setPermissionMode === undefined) return rejectedControl(command.intentId, "permissions_unavailable");
-            const result = await source.setPermissionMode({
-                mode: command.mode,
+        case "permission_profile": {
+            if (source.setPermissionProfile === undefined) return rejectedControl(command.intentId, "permissions_unavailable");
+            const result = await source.setPermissionProfile({
+                profile: command.profile,
                 expectedRevision: command.expectedRevision,
             });
-            if (result.ok) return acceptedControl(command.intentId, { kind: "permission_mode", result });
+            if (result.ok) return acceptedControl(command.intentId, { kind: "permission_profile", result });
             return rejectedControl(command.intentId, result.error);
         }
-        case "grant_revoke": {
-            if (source.revokeToolGrant === undefined) return rejectedControl(command.intentId, "permissions_unavailable");
-            const result = await source.revokeToolGrant(command.goalId, {
+        case "exemption_revoke": {
+            if (source.revokePermissionExemption === undefined) return rejectedControl(command.intentId, "permissions_unavailable");
+            const result = await source.revokePermissionExemption(command.goalId, {
                 runId: command.runId,
-                grantId: command.grantId,
-                scope: command.scope,
-                ...(command.grantKind === undefined ? {} : { kind: command.grantKind }),
+                exemptionId: command.exemptionId,
             });
-            if (result.ok) return acceptedControl(command.intentId, { kind: "grant_revoke", result });
+            if (result.ok) return acceptedControl(command.intentId, { kind: "exemption_revoke", result });
             return rejectedControl(command.intentId, result.error);
         }
         case "goal_archive": {
@@ -1108,7 +1103,8 @@ function controlErrorStatus(error: string): ControlHttpStatus {
     if (error === "goal_not_found") return 404;
     if (error === "session_unavailable" || error === "service_shutting_down"
         || error === "permissions_unavailable" || error === "review_unavailable"
-        || error === "goal_management_unavailable" || error === "model_catalog_unavailable") return 503;
+        || error === "goal_management_unavailable" || error === "model_catalog_unavailable"
+        || error === "execution_unavailable") return 503;
     if (error === "invalid_control_command" || error === "intent_id_mismatch" || error === "invalid_tool_input") return 400;
     if (error === "stale_run" || error === "goal_busy" || error === "conflict"
         || error === "model_switch_not_allowed" || error === "plan_mode_busy"
@@ -1241,6 +1237,12 @@ async function parseSessionInputCommand(
             : { ok: false, error: "INVALID_INPUT", status: 400 };
     }
 
+    if (command.kind === "compact") {
+        return isWireId(command.runId, 256)
+            ? { ok: true, command }
+            : { ok: false, error: "INVALID_INPUT", status: 400 };
+    }
+
     if (command.action === "remove") {
         return command.messageId !== undefined && isWireId(command.messageId, 256)
             ? { ok: true, command }
@@ -1345,30 +1347,29 @@ async function parseActionReviewCommand(
 }
 
 
-async function parseGrantRevokeCommand(request: Request): Promise<
-    | { readonly ok: true; readonly command: Omit<BrowserToolGrantRevokeCommand, "grantId"> }
+async function parseExemptionRevokeCommand(request: Request): Promise<
+    | { readonly ok: true; readonly command: Omit<BrowserPermissionExemptionRevokeCommand, "exemptionId"> }
     | { readonly ok: false; readonly error: string }
 > {
     const parsedBody = await readJsonBody(request);
     if (!parsedBody.ok) return { ok: false, error: parsedBody.error };
-    const parsed = browserToolGrantRevokeBodyBinding.read(parsedBody.value, "strip");
+    const parsed = browserPermissionExemptionRevokeBodyBinding.read(parsedBody.value, "strip");
     if (!parsed.ok || !isWireId(parsed.data.runId, 256)) {
-        return { ok: false, error: "invalid_grant_request" };
+        return { ok: false, error: "invalid_exemption_request" };
     }
     reportWireDiagnostic(parsed.diagnostic);
-    const { runId, scope, kind } = parsed.data;
-    return { ok: true, command: { runId, scope, ...(kind === undefined ? {} : { kind }) } };
+    return { ok: true, command: { runId: parsed.data.runId } };
 }
 
-async function parsePermissionModeCommand(request: Request): Promise<
-    | { readonly ok: true; readonly command: BrowserPermissionModeCommand }
+async function parsePermissionProfileCommand(request: Request): Promise<
+    | { readonly ok: true; readonly command: BrowserPermissionProfileCommand }
     | { readonly ok: false; readonly error: string; readonly status: 400 | 413 | 415 }
 > {
     const parsedBody = await readJsonBody(request);
     if (!parsedBody.ok) return parsedBody;
-    const parsed = browserPermissionModeCommandBinding.read(parsedBody.value, "strip");
+    const parsed = browserPermissionProfileCommandBinding.read(parsedBody.value, "strip");
     if (!parsed.ok) {
-        return { ok: false, error: "invalid_permission_mode_request", status: 400 };
+        return { ok: false, error: "invalid_permission_profile_request", status: 400 };
     }
     reportWireDiagnostic(parsed.diagnostic);
     return { ok: true, command: parsed.data };

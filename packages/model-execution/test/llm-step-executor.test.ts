@@ -1,10 +1,11 @@
 import { toolResponseFixture } from "../../agent/test/tool-response-fixture";
+import { tmpdir } from "node:os";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import type { LLMAdapter } from "../../llm-core/src/index";
 import type { LLMRequest, LLMResponse, LLMStreamEvent } from "../../llm-core/src/index";
-import { readAssistantText } from "../../llm-core/src/index";
+import { readAssistantText, readModelMessageText, readModelToolCalls } from "../../llm-core/src/index";
 import { readToolCalls } from "../../llm-core/src/index";
 import { blockResponse, textResponse } from "../../llm-core/test/response-fixtures";
 import {
@@ -31,7 +32,7 @@ import {
     MutableModelBinding,
 } from "../src/index";
 import { createDefaultPromptBundleRenderer } from "../../prompt-bundle/src/index";
-import { DropOldestContextCompactor } from "../../context-budget/src/index";
+import { DropOldestContextCompactor, EpochCapacityError } from "../../context-budget/src/index";
 import { buildStepRequest } from "../../model-request/src/index";
 import { createCurrentContextAssembler, createInMemoryTrajectoryStore, currentProtocols, currentWorkingMemory } from "../../agent/test/current-fixtures";
 import { bindMessagesToRun, messageOutline, testAssistantMessage, testUserMessage } from "../../runtime/test/current-fixtures";
@@ -209,6 +210,39 @@ function createExecutor(adapter: LLMAdapter): LLMStepExecutor {
     });
 }
 
+test("Epoch 容量不可确定时不调用 Adapter 并给出配置提示", async () => {
+    let generateCalls = 0;
+    const adapter: LLMAdapter = {
+        structuredOutputMode: "strict",
+        async generate(): Promise<LLMResponse> {
+            generateCalls += 1;
+            return textResponse("never called");
+        },
+    };
+    const executor = new LLMStepExecutor({
+        adapter,
+        renderer,
+        contextCompactor,
+        trajectoryContextAssembler: createCurrentContextAssembler(),
+        assertEpochCapacity: () => {
+            throw new EpochCapacityError(
+                "The model context window is unknown; configure [context].epoch_limit_tokens",
+            );
+        },
+    });
+
+    await assert.rejects(
+        () => executor.execute({
+            goal: createTestGoal("run-capacity"),
+            authorizedTools: [],
+            workingMemory: currentWorkingMemory,
+        }),
+        (error: unknown) => error instanceof EpochCapacityError
+            && /epoch_limit_tokens/.test(error.message),
+    );
+    assert.equal(generateCalls, 0);
+});
+
 test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 AgentDecision", async () => {
     const currentGoal = createTestGoal("run-1", profile, [
         testUserMessage("已恢复的历史输入"),
@@ -254,12 +288,13 @@ test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 AgentDecisio
     );
     assert.equal(adapter.requests[0]?.messages[0]?.role, "system");
     assert.equal(adapter.requests[0]?.messages.at(-1)?.role, "user");
-    const systemContent = adapter.requests[0]?.messages[0]?.content ?? "";
+    const systemMessage = adapter.requests[0]?.messages[0];
+    const systemContent = systemMessage === undefined ? "" : readModelMessageText(systemMessage);
     assert.match(systemContent, /Global Overview:/);
     assert.match(systemContent, /Profile System Prompt:\n你是一个执行代理。/);
     assert.match(systemContent, /Profile Instructions:\n1\. 检查当前上下文/);
     assert.match(systemContent, /call exactly one declared Tool/);
-    const dynamicContent = adapter.requests[0]?.messages.slice(3, -1).map(({ content }) => content).join("\n") ?? "";
+    const dynamicContent = adapter.requests[0]?.messages.slice(3, -1).map(readModelMessageText).join("\n") ?? "";
     assert.match(
         dynamicContent,
         /Authorized business Tool definitions \(only these business Tool IDs may be requested; system tools are declared separately for this request\):\n\[\]/,
@@ -267,7 +302,7 @@ test("LLMStepExecutor 只调用一次 Adapter 并返回解析后的 AgentDecisio
     assert.match(dynamicContent, /Approved Goal Task Contract:/);
     assert.match(dynamicContent, /Objective: 完成单步执行/);
     const workingContext = JSON.parse(
-        adapter.requests[0]?.messages.at(-1)?.content ?? "",
+        readModelMessageText(adapter.requests[0]!.messages.at(-1)!),
     ) as Record<string, unknown>;
     assert.deepEqual(workingContext.phase, "executing");
     assert.equal("intent" in workingContext, false);
@@ -467,10 +502,9 @@ test("LLMStepExecutor 使用传入的授权 ToolDefinition 生成 Tool Action", 
         },
     );
     assert.equal(adapter.requests.length, 1);
-    assert.match(
-        adapter.requests[0]?.messages.find((message) => message.content.includes("Dynamic section: authorized_tools"))?.content ?? "",
-        /read_file/,
-    );
+    const authorizedToolsMessage = adapter.requests[0]?.messages.find(message =>
+        readModelMessageText(message).includes("Dynamic section: authorized_tools"));
+    assert.match(authorizedToolsMessage === undefined ? "" : readModelMessageText(authorizedToolsMessage), /read_file/);
 });
 
 test("Adapter 原始异常会原样传播且不会重试", async () => {
@@ -952,10 +986,10 @@ test("Runner 在读取请求纠错后继续取证，反馈和无效调用不进�
             if (requests.length === 1) return call("bash", { command: "ls -la" });
             if (requests.length === 2) return call("read_file", { command: "" });
             if (requests.length === 3) {
-                const feedback = request.messages.find(message => message.content.includes('"source":"runtime_feedback"'));
+                const feedback = request.messages.find(message => readModelMessageText(message).includes('"source":"runtime_feedback"'));
                 assert.ok(feedback);
-                assert.match(feedback.content, /missing_field/);
-                assert.match(feedback.content, /continue the original task/);
+                assert.match(readModelMessageText(feedback), /missing_field/);
+                assert.match(readModelMessageText(feedback), /continue the original task/);
                 assert.deepEqual(executed, ["bash"]);
                 return call("read_file", { path: "AGENTS.md" });
             }
@@ -997,7 +1031,7 @@ test("Runner 在读取请求纠错后继续取证，反馈和无效调用不进�
     assert.equal(requests.length, 5);
     assert.deepEqual(executed, ["bash", "read_file"]);
     const messages = (await store.restore(goalId))!.state.messages;
-    assert.equal(messages.some(message => /runtime_feedback|invalid-read|__lazygoal_null__/.test(message.content)), false);
+    assert.equal(messages.some(message => /runtime_feedback|invalid-read|__lazygoal_null__/.test(readModelMessageText(message))), false);
     const events = await trajectoryStore.read({ goalId, runId: "run-repair-read" });
     assert.equal(events.filter(event => event.payload.type === "model_repair_feedback_recorded").length, 1);
     assert.equal(events.filter(event => event.payload.type === "tool_started").length, 2);
@@ -1117,7 +1151,7 @@ test("Runner 把零调用正文本提交为 Assistant 消息，不推进 Step �
     assert.deepEqual(executed, [], "零调用正文不得触发工具执行");
     assert.equal(result.state.stepCount, 0, "零调用正文不得推进 Step");
     const messages = (await store.restore(goalId))!.state.messages;
-    const committed = messages.filter(message => message.role === "assistant" && message.content.startsWith("我先说明判断"));
+    const committed = messages.filter(message => message.role === "assistant" && readModelMessageText(message).startsWith("我先说明判断"));
     assert.equal(committed.length, 3, "三次尝试的正文都应已提交");
     const events = await trajectoryStore.read({ goalId, runId: "run-assistant-text" });
     const feedback = events.filter(event => event.payload.type === "model_repair_feedback_recorded");
@@ -1303,6 +1337,77 @@ test("Runner 顺序执行两调用批次后回到模型并正常终止", async (
     assert.equal(result.state.stepCount, 2);
 });
 
+test("OpenAI-compatible Decide rejects a multi-call response before execution and retries with feedback only", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectoryStore = createInMemoryTrajectoryStore();
+    const executed: string[] = [];
+    const runProfile: AgentProfile = { ...profile, toolIds: ["read_a", "read_b"] };
+    const registry = new InMemoryToolRegistry(["read_a", "read_b"].map(id => createTestToolRegistration({
+        definition: createTestToolDefinition(id, objectInputSchema({ path: { type: "string" } }), { description: id, isReadOnly: true }),
+        replayPolicy: "safe",
+        validate: () => ({ ok: true }),
+        async execute({ input }: any) {
+            executed.push(input.path);
+            return { kind: "success", output: { text: input.path }, summary: "Observed" };
+        },
+    })));
+    const identity = {
+        provider: "openai-compatible" as const,
+        endpoint: "https://gateway.example/v1",
+        model: "model",
+        protocol: "openai-chat" as const,
+    };
+    const requests: LLMRequest[] = [];
+    const adapter: LLMAdapter = {
+        nativeConversationIdentity: identity,
+        async generate(request) {
+            requests.push(request);
+            const response = requests.length === 1
+                ? blockResponse({ type: "text", format: "plain", text: "I will read a.md and b.md." })
+                : requests.length === 2
+                    ? blockResponse(
+                    { type: "tool_call", callId: "call-a", toolId: "read_a", argumentsJson: '{"path":"a.md"}' },
+                    { type: "tool_call", callId: "call-b", toolId: "read_b", argumentsJson: '{"path":"b.md"}' },
+                )
+                    : requests.length === 3
+                        ? blockResponse({ type: "tool_call", callId: "call-invalid", toolId: "read_a", argumentsJson: "{}" })
+                        : blockResponse({ type: "tool_call", callId: "wait-1", toolId: "system_wait_for_input", argumentsJson: '{"reason":"等待外部信息"}' });
+            return { ...response, continuation: { identity } };
+        },
+    };
+    const created = createTestGoal("run-openai-single-call", runProfile);
+    await store.save(created);
+    const runner = new Runner({ store, trajectoryStore, executor: createExecutor(adapter), toolRegistry: registry });
+    const result = await runner.run({ goalId, runId: "run-openai-single-call" });
+
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.state.status, "waiting");
+    assert.deepEqual(executed, []);
+    assert.equal(requests.length, 4);
+    assert.equal(requests[0]?.toolChoice, "auto");
+    assert.equal(requests[1]?.toolChoice, "auto");
+    assert.equal(requests[2]?.toolChoice, "auto");
+    assert.equal(requests[3]?.toolChoice, "auto");
+    const firstReplyMessages = requests[1]?.messages.filter(message => message.role === "assistant"
+        && readModelMessageText(message).includes("I will read a.md and b.md.")) ?? [];
+    assert.deepEqual(firstReplyMessages.map(message => ({ role: message.role, content: readModelMessageText(message).slice(-800) })), []);
+    assert.equal(requests[2]?.messages.some(message => message.role === "assistant"
+        && readModelToolCalls(message).some(call => call.callId === "call-a" || call.callId === "call-b")), false);
+    assert.equal(requests[3]?.messages.some(message => message.role === "assistant"
+        && readModelToolCalls(message).some(call => call.callId === "call-invalid")), false);
+    const parseFeedback = (request: LLMRequest | undefined, code: string) => request?.messages
+        .filter((message): message is Extract<typeof message, { readonly role: "user" }> => message.role === "user")
+        .map(message => {
+            try { return JSON.parse(message.content) as { readonly source?: string; readonly issues?: readonly { readonly code: string }[] }; }
+            catch { return undefined; }
+        })
+        .find(message => message?.source === "runtime_feedback" && message.issues?.some(issue => issue.code === code));
+    assert.ok(parseFeedback(requests[1], "no_usable_result"));
+    assert.ok(parseFeedback(requests[2], "multiple_tool_calls"));
+    assert.ok(parseFeedback(requests[3], "missing_field"));
+});
+
 test("Runner 在批次中途需要审批时停止后续执行并保留已执行结果与剩余队列", async () => {
     const store = new InMemoryGoalStore();
     const trajectoryStore = createInMemoryTrajectoryStore();
@@ -1314,7 +1419,7 @@ test("Runner 在批次中途需要审批时停止后续执行并保留已执行�
     ];
     const registry = new InMemoryToolRegistry(definitions.map(definition => createTestToolRegistration({
         definition, replayPolicy: "safe", validate: () => ({ ok: true }),
-        ...(definition.id === "write_b" ? { evaluatePolicy: () => "require_approval" as const } : {}),
+        ...(definition.id === "write_b" ? { resolveSandboxAccess: () => ({ files: [{ path: ".git/index", access: "write" as const, kind: "file" as const, purpose: "审批覆盖一次越界写入" }] }) } : {}),
         async execute({ input }: any) { executed.push((input as { path: string }).path); return { kind: "success", output: { text: "ok" }, summary: "Observed" }; },
     })));
     const requests: LLMRequest[] = [];
@@ -1341,8 +1446,7 @@ test("Runner 在批次中途需要审批时停止后续执行并保留已执行�
             currentStage: { stageId: "stage-1", revision: 1, status: "executing" as const, target: "Read and write", acceptanceCriteria: ["done"] } } },
     });
     const runner = new Runner({
-        store, trajectoryStore, executor: createExecutor(adapter), toolRegistry: registry,
-        toolPolicy: { evaluate: ({ action }) => action.toolId === "write_b" ? "require_approval" : "allow" },
+        store, trajectoryStore, workspaceRoot: tmpdir(), executor: createExecutor(adapter), toolRegistry: registry,
     });
     const result = await runner.run({ goalId, runId: "run-batch-approval" });
     assert.equal(result.ok, true);

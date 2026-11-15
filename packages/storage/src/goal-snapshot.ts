@@ -35,7 +35,7 @@ export interface GoalSnapshotProfileV1 {
 
 /** Snapshot 中冻结的 Goal 协议组合与执行策略。 */
 export interface GoalSnapshotDefinitionV1 {
-    /** Snapshot 中创建 Goal 的 Trigger 关联与冻结动作权限范围。 */
+    /** Snapshot 中创建 Goal 的 Trigger 关联与冻结的 Tool 暴露范围。 */
     readonly triggerContext?: {
         readonly triggerId: string;
         readonly authorization: {
@@ -48,10 +48,6 @@ export interface GoalSnapshotDefinitionV1 {
                 readonly baseCommit?: string;
             };
             readonly toolIds: readonly string[];
-            readonly sandbox: {
-                readonly extraFiles: readonly { readonly canonicalPath: string; readonly access: "read" | "write"; readonly kind: "file" | "directory_tree" }[];
-                readonly network: "none" | "all_outbound";
-            };
         };
     };
     readonly intent: string;
@@ -513,6 +509,8 @@ export type GoalSnapshotStopReasonV1 =
             | "INVALID_AGENT_DECISION"
             | "COMPLETION_REVIEW_INPUT_TOO_LARGE"
             | "MODEL_REQUEST_FAILED"
+            | "CONTEXT_WINDOW_EXCEEDED"
+            | "CONTEXT_WINDOW_RECOVERY_FAILED"
             | "TOOL_EXECUTION_ERROR";
         readonly message: string;
     };
@@ -523,6 +521,12 @@ export interface GoalSnapshotContextEpochV1 {
     readonly number: number;
     readonly conversationStartIndex: number;
     readonly openedAtSequence: number;
+    /**
+     * 压缩正文的来源 Run。
+     *
+     * @minLength 1
+     */
+    readonly compactionSourceRunId?: string;
 }
 
 /** Snapshot 中前序阶段结果的引用指针。 */
@@ -935,7 +939,7 @@ export interface GoalSnapshotStateV1 {
  */
 export interface GoalSnapshotSessionInputV1 {
     readonly inputId: string;
-    readonly kind: "message" | "steer" | "interrupt" | "respond" | "resume" | "queue_control";
+    readonly kind: "message" | "steer" | "interrupt" | "respond" | "resume" | "queue_control" | "compact";
     readonly digest: string;
     readonly sequence: number;
     readonly status: "pending" | "applied" | "cleared";

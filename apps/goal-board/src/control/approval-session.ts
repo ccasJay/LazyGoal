@@ -110,8 +110,15 @@ export function selectApprovalSession(state: ControlState, actionId: string): Ap
 }
 
 function latestReviewIntent(state: ControlState, actionId: string): ControlIntentState | undefined {
+  const snapshot = state.snapshot;
+  if (snapshot === null) return undefined;
+  const current = snapshot.goal.interaction;
   return [...state.intents].reverse().find((entry) =>
-    entry.intent.kind === "action_review" && entry.intent.actionId === actionId);
+    entry.intent.kind === "action_review" && entry.intent.actionId === actionId
+    && entry.intent.goalId === snapshot.goal.goalId && entry.intent.runId === snapshot.goal.currentRunId
+    && entry.reviewTarget?.view === state.view
+    && (snapshot.goal.pendingAction?.actionId !== actionId
+      || entry.reviewTarget.interactionId === current?.interactionId));
 }
 
 function latestSubmissionIntent(state: ControlState, actionId: string): ControlIntentState | undefined {
@@ -120,14 +127,16 @@ function latestSubmissionIntent(state: ControlState, actionId: string): ControlI
   return [...state.intents].reverse().find((entry) =>
     entry.intent.kind === "session_input"
     && entry.intent.input.kind === "respond"
+    && entry.intent.goalId === state.snapshot?.goal.goalId
+    && entry.intent.input.runId === state.snapshot.session.runId
     && entry.intent.input.requestId === requestId);
 }
 
 function approvalRequestId(state: ControlState, actionId: string): string | undefined {
   const interaction = state.snapshot?.session.interaction;
-  if (interaction?.actionId === actionId) return interaction.requestId;
+  if (interaction?.actionId === actionId) return interaction.requestId ?? actionId;
   const goalInteraction = state.snapshot?.goal.interaction;
-  return goalInteraction?.actionId === actionId ? goalInteraction.requestId : undefined;
+  return goalInteraction?.actionId === actionId ? goalInteraction.requestId ?? actionId : undefined;
 }
 
 function reviewOf(entry: ControlIntentState): BrowserActionReview | undefined {

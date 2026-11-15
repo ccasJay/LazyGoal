@@ -50,6 +50,7 @@ export function advanceContextEpoch(
     messages: readonly GoalMessage[],
     newStartIndex: number,
     openedAtSequence: number,
+    compaction?: { readonly sourceRunId: string },
 ): ModelContextEpochState {
     assertEpoch(current);
     if (!Array.isArray(messages)) throw new ModelContextCheckpointError("messages must be an array");
@@ -59,11 +60,17 @@ export function advanceContextEpoch(
     if (!Number.isSafeInteger(openedAtSequence) || openedAtSequence < 0) {
         throw new ModelContextCheckpointError("openedAtSequence is invalid");
     }
+    if (compaction !== undefined && compaction.sourceRunId.length === 0) {
+        throw new ModelContextCheckpointError("compaction source run must be non-empty");
+    }
     return Object.freeze({
         version: 1 as const,
         number: current.number + 1,
         conversationStartIndex: newStartIndex,
         openedAtSequence,
+        ...(compaction === undefined
+            ? {}
+            : { compactionSourceRunId: compaction.sourceRunId }),
     });
 }
 
@@ -114,6 +121,7 @@ function assertEpoch(epoch: ModelContextEpochState): void {
         || !Number.isSafeInteger(epoch.number) || epoch.number < 0
         || !Number.isSafeInteger(epoch.conversationStartIndex) || epoch.conversationStartIndex < 0
         || !Number.isSafeInteger(epoch.openedAtSequence) || epoch.openedAtSequence < 0
+        || (epoch.compactionSourceRunId !== undefined && epoch.compactionSourceRunId.length === 0)
     ) {
         throw new ModelContextCheckpointError("Epoch state is invalid");
     }

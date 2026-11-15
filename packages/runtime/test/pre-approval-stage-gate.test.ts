@@ -1,3 +1,10 @@
+import { after as afterAllTests } from "node:test";
+import { mkdtemp as createBoundaryWorkspace, rm as removeBoundaryWorkspace } from "node:fs/promises";
+import { tmpdir as boundaryTmpdir } from "node:os";
+import { join as joinBoundaryPath } from "node:path";
+
+const boundaryWorkspaceRoot = await createBoundaryWorkspace(joinBoundaryPath(boundaryTmpdir(), "lazygoal-permission-boundary-"));
+afterAllTests(async () => { await removeBoundaryWorkspace(boundaryWorkspaceRoot, { recursive: true, force: true }); });
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { InMemoryGoalStore } from "../../storage/src/index";
@@ -34,7 +41,7 @@ test("Plan pre-approval investigation uses Tool policy before any executing stag
         async think() { throw new Error("Unexpected think"); },
         async reviewCompletion() { throw new Error("Task proposal is not completion"); },
     };
-    const runner = new Runner({ store, trajectoryStore: trajectory, executor, toolRegistry: registry, toolPolicy: { evaluate: () => "allow" } });
+    const runner = new Runner({ workspaceRoot: boundaryWorkspaceRoot, store, trajectoryStore: trajectory, executor, toolRegistry: registry, toolPolicy: { evaluate: () => "allow" } });
     const result = await runner.runUntilBlocked({ goalId: initial.id, runId: initial.state.run.id });
     assert.equal(result.ok, true);
     const saved = await store.restore(initial.id);
@@ -70,7 +77,7 @@ test("Plan pre-approval Runtime rejects a forged write Tool call before any side
         async think() { throw new Error("Unexpected think"); },
         async reviewCompletion() { throw new Error("Task proposal is not completion"); },
     };
-    const runner = new Runner({ store, trajectoryStore: trajectory, executor, toolRegistry: registry, toolPolicy: { evaluate: () => "allow" } });
+    const runner = new Runner({ workspaceRoot: boundaryWorkspaceRoot, store, trajectoryStore: trajectory, executor, toolRegistry: registry, toolPolicy: { evaluate: () => "allow" } });
     const result = await runner.runUntilBlocked({ goalId: initial.id, runId: initial.state.run.id });
     assert.equal(result.ok, true);
     assert.equal(decideCalls, 2);
@@ -113,7 +120,7 @@ test("Normal Run keeps its existing write Tool access behind the current RunStag
         async think() { throw new Error("Unexpected think"); },
         async reviewCompletion() { throw new Error("Run is waiting, not completing"); },
     };
-    const runner = new Runner({ store, trajectoryStore: trajectory, executor, toolRegistry: registry, toolPolicy: { evaluate: () => "allow" } });
+    const runner = new Runner({ workspaceRoot: boundaryWorkspaceRoot, store, trajectoryStore: trajectory, executor, toolRegistry: registry, toolPolicy: { evaluate: () => "allow" } });
     const result = await runner.runUntilBlocked({ goalId: initial.id, runId: initial.state.run.id });
     assert.equal(result.ok, true);
     assert.equal(writes, 1);

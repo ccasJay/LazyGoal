@@ -80,7 +80,7 @@ test("组合根显式启动 HTTP 后可查询运行指标、接收更新并在�
             goalIdGenerator: () => "goal-metrics-integration",
             runIdGenerator: () => "run-metrics-integration",
         });
-        assert.equal(firstRoot.metricsDirectory, join(dataDirectory, "metrics"));
+        assert.equal(firstRoot.goalsDirectory, join(dataDirectory, "goals"));
 
         execution = firstRoot.launcher.launch({
             goalId: "goal-metrics-integration",

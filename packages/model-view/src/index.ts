@@ -42,6 +42,7 @@ export type {
     ModelTask,
     ModelToolCallAction,
     ModelToolDefinition,
+    ModelContextCompactionView,
     ModelTrajectoryContext,
     ModelWorkingContext,
     ModelWorkingMemory,

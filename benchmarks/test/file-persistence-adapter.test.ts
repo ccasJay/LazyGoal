@@ -89,22 +89,22 @@ test("opens isolated LazyGoal stores and an optional trace sink per namespace", 
         );
         assert.equal(await second.goalStore.restore("goal-1"), undefined);
 
-        const goalFiles = (await readdir(first.locator.goalSnapshot))
-            .filter((name) => name.endsWith(".json"));
-        const trajectoryGoalFiles = await readdir(first.locator.trajectory);
-        const traceGoalFiles = await readdir(first.locator.diagnosticTrace!);
-        assert.equal(goalFiles.length, 1);
-        assert.equal(trajectoryGoalFiles.length, 1);
-        assert.equal(traceGoalFiles.length, 1);
-
-        const traceRunFiles = await readdir(
-            join(first.locator.diagnosticTrace!, traceGoalFiles[0]!),
+        const goalDirectories = await readdir(first.locator.goalSnapshot);
+        assert.equal(goalDirectories.length, 1);
+        const encodedGoal = goalDirectories[0]!;
+        assert.ok((await readdir(join(first.locator.trajectory, encodedGoal))).includes("runs"));
+        const runDirectories = await readdir(
+            join(first.locator.diagnosticTrace!, encodedGoal, "runs"),
         );
+        assert.equal(runDirectories.length, 1);
+
         const traceContent = await readFile(
             join(
                 first.locator.diagnosticTrace!,
-                traceGoalFiles[0]!,
-                traceRunFiles[0]!,
+                encodedGoal,
+                "runs",
+                runDirectories[0]!,
+                "trace.jsonl",
             ),
             "utf8",
         );

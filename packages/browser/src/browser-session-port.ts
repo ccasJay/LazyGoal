@@ -8,6 +8,8 @@ import type {
     SessionOutputEvent,
     SessionOutputStream,
     GoalModelSelection,
+    GoalStore,
+    Goal,
     GoalSessionState,
     SessionEventSource,
     SessionGenerationEvent,
@@ -35,7 +37,41 @@ import type {
     BrowserSessionState,
     BrowserToolActivity,
 } from "../../web-contracts/src/index";
+import { projectGoalSessionState } from "../../runtime/src/index";
+import { projectBrowserGoalSessionState } from "./browser-projection";
 import { BROWSER_ACTIVITY_EVENT_TYPES, isJsonValue } from "../../web-contracts/src/index";
+
+/**
+ * 从一次 Snapshot 读取生成窄 Goal 状态与 Runtime 会话投影。
+ *
+ * @param goalId - 要读取的 Goal。
+ * @param store - 当前工作区 Snapshot 读取端口。
+ * @param ownsExecution - 同步读取宿主执行归属，仅在 Snapshot 存在时调用。
+ * @param extendGoal - 宿主补充的 Goal 控制投影字段，由调用方按自身持久事实计算。
+ * @returns 同一提交的控制快照，Goal 不存在时返回 undefined。
+ * @throws Snapshot 读取失败时拒绝。
+ * @example
+ * ```ts
+ * const snapshot = await readBrowserControlSnapshot(goalId, store, () => activeGoalId === goalId);
+ * ```
+ */
+export async function readBrowserControlSnapshot(
+    goalId: string,
+    store: Pick<GoalStore, "restore">,
+    ownsExecution: () => boolean,
+    extendGoal?: (goal: Goal) => Partial<BrowserGoalSessionState>,
+): Promise<BrowserControlSnapshot | undefined> {
+    const goal = await store.restore(goalId);
+    if (goal === undefined) return undefined;
+    const executionOwner = ownsExecution();
+    return {
+        goal: {
+            ...projectBrowserGoalSessionState(goal, executionOwner ? goalId : undefined),
+            ...(extendGoal === undefined ? {} : extendGoal(goal)),
+        },
+        session: projectSessionState(goalId, projectGoalSessionState({ goal, executionOwner })),
+    };
+}
 
 const MAX_PENDING_LIVE_EVENTS = 128;
 type ActivityBoundaryReason = "assistant_reply";
@@ -245,7 +281,7 @@ export function createBrowserGoalSessionPort(
                 feed: createBrowserSessionFeed(
                     opened.session,
                     opened.session.events(),
-                    dependencies.readGoalState,
+                    dependencies.readControlSnapshot,
                     signal,
                 ),
             };
@@ -322,7 +358,7 @@ export interface BrowserGoalSessionPortDependencies {
     /** 创建新 Goal 时使用的 Profile 身份。 */
     readonly profileId: string;
     /**
-     * 读取同一提交边界的完整 Goal 控制投影。
+     * 读取同一提交边界的同一提交的控制快照。
      *
      * @remarks
      * 每次订阅建立或重建时调用一次，用于在 `state_sync` 中携带可直接应用的
@@ -330,9 +366,9 @@ export interface BrowserGoalSessionPortDependencies {
      * 快照被省略，客户端按既有窄状态入口自行恢复。
      *
      * @param goalId - 正在订阅的 Goal 身份。
-     * @returns 完整 Goal 控制投影；Goal 不存在时返回 `undefined`。
+     * @returns 同一提交的控制快照；Goal 不存在时返回 `undefined`。
      */
-    readGoalState(goalId: string): Promise<BrowserGoalSessionState | undefined>;
+    readControlSnapshot(goalId: string): Promise<BrowserControlSnapshot | undefined>;
     /**
      * 解析创建时的完整模型选择。
      *
@@ -358,21 +394,21 @@ export interface BrowserGoalSessionPortDependencies {
  *
  * @param session - 由 `sessions.open` 返回的只读句柄。
  * @param stream - `session.events()` 返回的 Goal 范围输出流。
- * @param readGoalState - 首次同步时读取一次完整 Goal 控制投影。
+ * @param readControlSnapshot - 首次同步时读取一次同一提交的控制快照。
  * @param signal - 可选的 HTTP 断开信号。
  * @returns 有界、单消费者的安全事件流。
  * @example
  * ```ts
- * const feed = createBrowserSessionFeed(session, session.events(), readGoalState, signal);
+ * const feed = createBrowserSessionFeed(session, session.events(), readControlSnapshot, signal);
  * ```
  */
 export function createBrowserSessionFeed(
     session: Session,
     stream: SessionOutputStream,
-    readGoalState: (goalId: string) => Promise<BrowserGoalSessionState | undefined>,
+    readControlSnapshot: (goalId: string) => Promise<BrowserControlSnapshot | undefined>,
     signal?: AbortSignal,
 ): BrowserGoalLiveFeed {
-    return new BrowserSessionFeedImpl(session, stream, readGoalState, signal);
+    return new BrowserSessionFeedImpl(session, stream, readControlSnapshot, signal);
 }
 
 class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
@@ -383,7 +419,7 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
     constructor(
         private readonly session: Session,
         private readonly stream: SessionOutputStream,
-        private readonly readGoalState: (goalId: string) => Promise<BrowserGoalSessionState | undefined>,
+        private readonly readControlSnapshot: (goalId: string) => Promise<BrowserControlSnapshot | undefined>,
         private readonly signal?: AbortSignal,
     ) {
         this.onAbort = () => this.close();
@@ -433,7 +469,7 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
         switch (event.type) {
             case "state_sync": {
                 const state = projectSessionState(goalId, event.state);
-                const snapshot = await this.readControlSnapshot(goalId, state);
+                const snapshot = await this.readMatchingSnapshot(goalId, state);
                 this.push({
                     type: "state_sync",
                     goalId,
@@ -591,14 +627,16 @@ class BrowserSessionFeedImpl implements BrowserGoalLiveFeed {
      * @param state - 同一订阅的窄会话状态。
      * @returns 可直接应用的快照；无法对齐时返回 `undefined`。
      */
-    private async readControlSnapshot(
+    private async readMatchingSnapshot(
         goalId: string,
         state: BrowserSessionState,
     ): Promise<BrowserControlSnapshot | undefined> {
         try {
-            const goal = await this.readGoalState(goalId);
-            if (goal === undefined || goal.goalId !== goalId || goal.currentRunId !== state.runId) return undefined;
-            return { goal, session: state };
+            const snapshot = await this.readControlSnapshot(goalId);
+            if (snapshot?.goal.goalId !== goalId || snapshot.session.goalId !== goalId
+                || snapshot.session.runId !== state.runId || snapshot.goal.currentRunId !== state.runId
+                || snapshot.session.commitRevision !== state.commitRevision) return undefined;
+            return snapshot;
         } catch {
             return undefined;
         }

@@ -1,6 +1,14 @@
+import { after as afterAllTests } from "node:test";
+import { mkdtemp as createBoundaryWorkspace, rm as removeBoundaryWorkspace } from "node:fs/promises";
+import { tmpdir as boundaryTmpdir } from "node:os";
+import { join as joinBoundaryPath } from "node:path";
+
+const boundaryWorkspaceRoot = await createBoundaryWorkspace(joinBoundaryPath(boundaryTmpdir(), "lazygoal-permission-boundary-"));
+afterAllTests(async () => { await removeBoundaryWorkspace(boundaryWorkspaceRoot, { recursive: true, force: true }); });
 import { toolResponseFixture } from "../../agent/test/tool-response-fixture";
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { readModelMessageText } from "../../llm-core/src/index";
 import type { LLMAdapter } from "../../llm-core/src/index";
 import type { LLMRequest, LLMResponse } from "../../llm-core/src/index";
 import { textResponse } from "../../llm-core/test/response-fixtures";
@@ -14,7 +22,6 @@ import { DropOldestContextCompactor } from "../../context-budget/src/index";
 import {
     createEmptyGoalPlan,
     createGoal,
-    GoalCoordinator,
     reduceGoalPlan,
     Runner,
     type GoalStore,
@@ -194,7 +201,7 @@ function createExecutor(
 }
 
 function requestText(request: LLMRequest): string {
-    return request.messages.map((message) => message.content).join("\n");
+    return request.messages.map(readModelMessageText).join("\n");
 }
 
 function currentObservationSequence(trajectory: InMemoryTrajectoryStore): number {
@@ -234,6 +241,7 @@ test("strict 多轮 Think 与 prompt-only 直接 Decide 都携带当前分层状
         const thought = "当前没有新的 Tool Observation；下一步必须继续执行或等待。";
         const thinkAdapter = new ScriptedAdapter("prompt_only", [thought]);
         const runner = new Runner({
+            workspaceRoot: boundaryWorkspaceRoot,
             store,
             trajectoryStore: trajectory,
             executor: createExecutor(trajectory, selected, decideAdapter, thinkAdapter),
@@ -264,12 +272,12 @@ test("strict 多轮 Think 与 prompt-only 直接 Decide 都携带当前分层状
         }
 
         const firstDecide = decideAdapter.requests[0]!;
-        const workingContext = JSON.parse(firstDecide.messages.at(-1)!.content) as Record<string, unknown>;
+        const workingContext = JSON.parse(readModelMessageText(firstDecide.messages.at(-1)!)) as Record<string, unknown>;
         if (scenario.provider === "openai") {
             assert.equal(firstDecide.structuredOutput, undefined);
             assert.match(String(workingContext.responseShapeGuide), /Call exactly one declared tool/);
             assert.equal(decideAdapter.requests[1]?.messages.some((message) =>
-                message.role === "assistant" && message.content === thought,
+                message.role === "assistant" && readModelMessageText(message) === thought,
             ), true);
         } else {
             assert.equal(firstDecide.structuredOutput, undefined);
@@ -281,13 +289,13 @@ test("strict 多轮 Think 与 prompt-only 直接 Decide 都携带当前分层状
             assert.equal(thinkRequest.structuredOutput, undefined);
             assert.equal(thinkRequest.tools, undefined);
             assert.ok(thinkRequest.messages.some((message) =>
-                message.role === "user" && message.content.includes("核对完成条件与当前证据边界"),
+                message.role === "user" && readModelMessageText(message).includes("核对完成条件与当前证据边界"),
             ));
         }
     }
 });
 
-test("未批准 Plan 保留先提案 Prompt，已有工具审批规则仍允许授权业务 Tool", async () => {
+test("未批准 Plan 保留先提案 Prompt，只读业务 Tool 直接执行", async () => {
     const selected = selection("openai");
     const goal = createRunningGoal({
         id: "prompt-plan-unapproved",
@@ -327,19 +335,20 @@ test("未批准 Plan 保留先提案 Prompt，已有工具审批规则仍允许�
         }),
     ]);
     const runner = new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store,
         trajectoryStore: trajectory,
         executor: createExecutor(trajectory, selected, decideAdapter),
         toolRegistry: registry,
-        toolPolicy: { evaluate: () => "require_approval" },
     });
 
     const actionWaiting = await runner.run({ goalId: goal.id, runId: goal.state.run.id });
     assert.equal(actionWaiting.ok, true);
     if (!actionWaiting.ok) return;
     assert.equal(actionWaiting.state.status, "waiting");
-    assert.equal(actionWaiting.state.pendingAction?.status, "awaiting_approval");
-    assert.equal(toolCalls, 0);
+    assert.equal(actionWaiting.state.pendingAction, undefined);
+    assert.equal(actionWaiting.state.pendingInteraction?.kind, "task_approval");
+    assert.equal(toolCalls, 1);
 
     const initialRequest = decideAdapter.requests[0]!;
     const prompt = requestText(initialRequest);
@@ -348,26 +357,6 @@ test("未批准 Plan 保留先提案 Prompt，已有工具审批规则仍允许�
     assert.match(prompt, /inspect_file/);
     assert.ok(initialRequest.tools?.length);
 
-    const coordinator = new GoalCoordinator({
-        store,
-        trajectoryStore: trajectory,
-        toolRegistry: registry,
-        scheduler: {
-            schedule: (ref, options, control) => runner.run(ref, options, control),
-        },
-    });
-    const resumed = await coordinator.resume({
-        ref: { goalId: goal.id, runId: goal.state.run.id },
-        action: { kind: "approve_action", actionId: "plan-preproposal-read" },
-    });
-    assert.equal(resumed.ok, true);
-    if (!resumed.ok) return;
-    assert.equal(resumed.kind, "waiting", JSON.stringify(resumed));
-    if (resumed.kind !== "waiting") return;
-    assert.equal(resumed.waitingFor, "task_approval");
-    assert.equal(resumed.goal.state.run.approvedTask, undefined);
-    assert.equal(resumed.goal.state.run.pendingInteraction?.kind, "task_approval");
-    assert.equal(toolCalls, 1);
     assert.equal(decideAdapter.requests.length, 2);
     assert.match(requestText(decideAdapter.requests[1]!), /Plan Run without an approved task/);
     assert.ok(trajectory.events.some((event) => event.eventType === "observation_recorded"));
@@ -431,6 +420,7 @@ test("授权 Tool Observation 支持 GoalPlan 完成和符合条件的 Run 完�
         }),
     ]);
     const runner = new Runner({
+        workspaceRoot: boundaryWorkspaceRoot,
         store,
         trajectoryStore: trajectory,
         executor: createExecutor(trajectory, selected, decideAdapter),
@@ -478,6 +468,7 @@ test("越权 Tool 输出被拒绝，已提交未知 section 也在 Adapter 调�
         });
         const decideAdapter = new ScriptedAdapter("prompt_only", [invalidResponse, invalidResponse, invalidResponse]);
         const runner = new Runner({
+            workspaceRoot: boundaryWorkspaceRoot,
             store,
             trajectoryStore: trajectory,
             executor: createExecutor(trajectory, selected, decideAdapter),
@@ -551,6 +542,7 @@ test("越权 Tool 输出被拒绝，已提交未知 section 也在 Adapter 调�
             reason: "不应调用 Adapter",
         })]);
         const runner = new Runner({
+            workspaceRoot: boundaryWorkspaceRoot,
             store,
             trajectoryStore: trajectory,
             executor: createExecutor(trajectory, selected, decideAdapter),

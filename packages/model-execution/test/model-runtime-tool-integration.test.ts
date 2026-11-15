@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { tmpdir } from "node:os";
 import { test } from "node:test";
 
 import type { LLMAdapter, LLMRequest, LLMResponse } from "../../llm-core/src/index";
@@ -100,6 +101,9 @@ function registryWithCounting(): {
                 definition: writeTool,
                 replayPolicy: "safe",
                 validate: () => ({ ok: true }),
+                resolveSandboxAccess: () => ({
+                    files: [{ path: ".git/index", access: "write", kind: "file", purpose: "审批覆盖一次越界写入" }],
+                }),
                 execute: execute("write_file"),
             }),
         ]),
@@ -152,9 +156,9 @@ test("strict/prompt-only Model→Runtime→Tool approval resumes across Runner i
         const first = await new Runner({
             store,
             trajectoryStore,
+            workspaceRoot: tmpdir(),
             executor: executor(adapter),
             toolRegistry: registry,
-            toolPolicy: policy,
         }).run({ goalId: goal.id, runId: goal.state.run.id });
 
         assert.equal(first.ok, true);
@@ -182,9 +186,9 @@ test("strict/prompt-only Model→Runtime→Tool approval resumes across Runner i
         const resumed = await new Runner({
             store,
             trajectoryStore,
+            workspaceRoot: tmpdir(),
             executor: executor(adapter),
             toolRegistry: registry,
-            toolPolicy: policy,
         }).run(
             { goalId: goal.id, runId: goal.state.run.id },
             { authorizedActionId: actionId },

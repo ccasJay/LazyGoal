@@ -72,6 +72,42 @@ export type TriggerActionPermissionFailureReason =
 export type TriggerAdmissionFailureReason = "model-failed" | "invalid-model-result" | "invalid-work";
 
 /**
+ * Goal 的宿主创建来源。
+ *
+ * @remarks
+ * 由 Supervisor 在受理 work Trigger 时按已认证入口写入，与 Trigger 一起持久化。
+ * `web-manual` 表示宿主确认的手动 Web 创建入口；记录缺失代表非手动来源，不根据
+ * Actor、工作区或当前浏览器身份推测。
+ *
+ * @example
+ * ```ts
+ * const origin: TriggerGoalOrigin = "web-manual";
+ * ```
+ */
+export type TriggerGoalOrigin = "web-manual";
+
+/**
+ * 已结算终态 Run 上的唯一续接输入。
+ *
+ * @remarks
+ * `appliedRunId` 只在下一 Run 的 Snapshot 提交后写入；未绑定的记录表示输入已占用该终态
+ * 但提交尚未完成，恢复时按原身份补做。
+ *
+ * @example
+ * ```ts
+ * const record: TriggerGoalContinuationRecord = {
+ *     goalId: "goal-1", targetRunId: "run-1", triggerId: "input-1", appliedRunId: "run-2",
+ * };
+ * ```
+ */
+export interface TriggerGoalContinuationRecord {
+    readonly goalId: string;
+    readonly targetRunId: string;
+    readonly triggerId: string;
+    readonly appliedRunId?: string;
+}
+
+/**
  * 使用 SQLite 事务保存不可变 Trigger、路由标记和 Goal 派发状态。
  *
  * @remarks
@@ -132,6 +168,17 @@ export class TriggerStore {
                 trigger_id TEXT PRIMARY KEY REFERENCES trigger_events(id),
                 reason TEXT NOT NULL CHECK (reason IN ('model-failed', 'invalid-model-result', 'invalid-work'))
             ) STRICT;
+            CREATE TABLE IF NOT EXISTS trigger_goal_origins (
+                trigger_id TEXT PRIMARY KEY REFERENCES trigger_events(id),
+                origin TEXT NOT NULL CHECK (origin IN ('web-manual'))
+            ) STRICT;
+            CREATE TABLE IF NOT EXISTS trigger_goal_continuations (
+                goal_id TEXT NOT NULL,
+                target_run_id TEXT NOT NULL,
+                trigger_id TEXT NOT NULL UNIQUE REFERENCES trigger_events(id),
+                applied_run_id TEXT,
+                PRIMARY KEY (goal_id, target_run_id)
+            ) STRICT;
             PRAGMA foreign_keys = ON;
         `);
     }
@@ -140,19 +187,182 @@ export class TriggerStore {
      * 持久化新的不可变 Trigger。
      *
      * @param input - 已认证来源及目标授权的 Trigger；结构仍在此边界校验。
+     * @param goalOrigin - 宿主确认的 Goal 创建来源，只在同一事务内随新建 Goal 的 work Trigger 写入。
      * @returns 新写入的 Trigger。
-     * @throws Trigger 结构或身份无效、ID 已存在或 SQLite 写入失败时抛出；事务不会部分提交。
+     * @throws Trigger 结构或身份无效、创建来源不属于新 Goal 的 work Trigger、ID 已存在或 SQLite 写入失败时抛出；事务不会部分提交。
      */
-    receive(input: unknown): Trigger {
+    receive(input: unknown, goalOrigin?: TriggerGoalOrigin): Trigger {
         const trigger = normalizeTrigger(input);
+        if (goalOrigin !== undefined && (trigger.type !== "work" || "goalId" in trigger)) {
+            throw new Error("Goal origin requires a new Goal work Trigger");
+        }
         const content = canonicalJson(trigger);
         this.database.exec("BEGIN IMMEDIATE");
         try {
             const existing = this.database.prepare("SELECT 1 AS present FROM trigger_events WHERE id = ?").get(trigger.id);
             if (existing !== undefined) throw new Error("Trigger identity conflict");
             this.database.prepare("INSERT INTO trigger_events (id, content, routed) VALUES (?, ?, 0)").run(trigger.id, content);
+            if (goalOrigin !== undefined) {
+                this.database.prepare("INSERT INTO trigger_goal_origins (trigger_id, origin) VALUES (?, ?)").run(trigger.id, goalOrigin);
+            }
             this.database.exec("COMMIT");
             return trigger;
+        } catch (error) {
+            this.database.exec("ROLLBACK");
+            throw error;
+        }
+    }
+
+    /**
+     * 读取新建 Goal 的宿主创建来源。
+     *
+     * @param triggerId - 创建该 Goal 的 work Trigger 身份。
+     * @returns 已记录的来源；未记录或 Trigger 不存在时返回 `undefined`。
+     * @throws 来源记录损坏或 SQLite 读取失败时抛出。
+     * @example
+     * ```ts
+     * const origin = store.goalOrigin("trigger-1");
+     * ```
+     */
+    goalOrigin(triggerId: string): TriggerGoalOrigin | undefined {
+        const row = this.database.prepare("SELECT origin FROM trigger_goal_origins WHERE trigger_id = ?")
+            .get(triggerId) as { origin: string } | undefined;
+        if (row === undefined) return undefined;
+        if (row.origin !== "web-manual") throw new Error("Invalid stored Goal origin");
+        return row.origin;
+    }
+
+    /**
+     * 为已结算终态占用唯一的一次续接输入。
+     *
+     * @remarks
+     * `(goalId, targetRunId)` 只允许一个输入身份。相同身份的重复受理是幂等的；
+     * 不同身份争用同一终态时抛出冲突，不创建第二条记录。
+     *
+     * @param goalId - 被续接的 Goal。
+     * @param targetRunId - 必须仍为当前已结算终态的 Run。
+     * @param triggerId - 提交续接的输入身份。
+     * @returns `reserved` 表示本次写入，`existing` 表示同一身份已经占用。
+     * @throws 已有其他输入占用该终态、Trigger 不存在或 SQLite 写入失败时抛出。
+     * @example
+     * ```ts
+     * const state = store.reserveContinuation("goal-1", "run-1", "input-1");
+     * ```
+     */
+    reserveContinuation(goalId: string, targetRunId: string, triggerId: string): "reserved" | "existing" {
+        this.database.exec("BEGIN IMMEDIATE");
+        try {
+            const existing = this.database.prepare("SELECT trigger_id FROM trigger_goal_continuations WHERE goal_id = ? AND target_run_id = ?")
+                .get(goalId, targetRunId) as { trigger_id: string } | undefined;
+            let state: "reserved" | "existing";
+            if (existing !== undefined) {
+                if (existing.trigger_id !== triggerId) throw new Error("Goal terminal Run already has a continuation input");
+                state = "existing";
+            } else {
+                this.database.prepare("INSERT INTO trigger_goal_continuations (goal_id, target_run_id, trigger_id) VALUES (?, ?, ?)")
+                    .run(goalId, targetRunId, triggerId);
+                state = "reserved";
+            }
+            this.database.exec("COMMIT");
+            return state;
+        } catch (error) {
+            this.database.exec("ROLLBACK");
+            throw error;
+        }
+    }
+
+    /**
+     * 记录续接输入已经提交的新 Run。
+     *
+     * @param goalId - 被续接的 Goal。
+     * @param targetRunId - 续接前的已结算终态 Run。
+     * @param triggerId - 提交续接的输入身份。
+     * @param appliedRunId - 新创建的 Run。
+     * @throws 记录不存在、身份不符或 Snapshot 与已绑定 Run 不一致时抛出。
+     * @example
+     * ```ts
+     * store.bindContinuationRun("goal-1", "run-1", "input-1", "run-2");
+     * ```
+     */
+    bindContinuationRun(goalId: string, targetRunId: string, triggerId: string, appliedRunId: string): void {
+        this.database.exec("BEGIN IMMEDIATE");
+        try {
+            const row = this.database.prepare("SELECT trigger_id, applied_run_id FROM trigger_goal_continuations WHERE goal_id = ? AND target_run_id = ?")
+                .get(goalId, targetRunId) as { trigger_id: string; applied_run_id: string | null } | undefined;
+            if (row === undefined || row.trigger_id !== triggerId) throw new Error("Continuation record does not match the input");
+            if (row.applied_run_id !== null && row.applied_run_id !== appliedRunId) {
+                throw new Error("Continuation record already points to a different Run");
+            }
+            this.database.prepare("UPDATE trigger_goal_continuations SET applied_run_id = ? WHERE goal_id = ? AND target_run_id = ?")
+                .run(appliedRunId, goalId, targetRunId);
+            this.database.exec("COMMIT");
+        } catch (error) {
+            this.database.exec("ROLLBACK");
+            throw error;
+        }
+    }
+
+    /**
+     * 读取指定终态 Run 的续接占用。
+     *
+     * @param goalId - 被续接的 Goal。
+     * @param targetRunId - 续接前的已结算终态 Run。
+     * @returns 占用记录；尚未有输入时返回 `undefined`。
+     * @throws 记录值无效或 SQLite 读取失败时抛出。
+     * @example
+     * ```ts
+     * const record = store.continuationRecord("goal-1", "run-1");
+     * ```
+     */
+    continuationRecord(goalId: string, targetRunId: string): TriggerGoalContinuationRecord | undefined {
+        const row = this.database.prepare("SELECT trigger_id, applied_run_id FROM trigger_goal_continuations WHERE goal_id = ? AND target_run_id = ?")
+            .get(goalId, targetRunId) as { trigger_id: string; applied_run_id: string | null } | undefined;
+        return row === undefined ? undefined : toContinuationRecord(goalId, targetRunId, row);
+    }
+
+    /**
+     * 按输入身份读取续接记录。
+     *
+     * @param triggerId - 提交续接的输入身份。
+     * @returns 占用记录；该身份不是续接输入时返回 `undefined`。
+     * @throws 记录值无效或 SQLite 读取失败时抛出。
+     * @example
+     * ```ts
+     * const record = store.continuationForTrigger("input-1");
+     * ```
+     */
+    continuationForTrigger(triggerId: string): TriggerGoalContinuationRecord | undefined {
+        const row = this.database.prepare("SELECT goal_id, target_run_id, applied_run_id FROM trigger_goal_continuations WHERE trigger_id = ?")
+            .get(triggerId) as { goal_id: string; target_run_id: string; applied_run_id: string | null } | undefined;
+        return row === undefined ? undefined : toContinuationRecord(row.goal_id, row.target_run_id, { trigger_id: triggerId, applied_run_id: row.applied_run_id });
+    }
+
+    /**
+     * 将已完成终态的 Goal 按当前受理顺序重新放入派发队列。
+     *
+     * @remarks 只接受已终态、无待恢复记录的队列项；清除原 Worker 绑定并追加到队列末尾。
+     * @param goalId - 要重新派发的 Goal。
+     * @throws 队列项不存在、尚未终态、存在待恢复记录或 SQLite 写入失败时抛出。
+     * @example
+     * ```ts
+     * store.requeueGoalForContinuation("goal-1");
+     * ```
+     */
+    requeueGoalForContinuation(goalId: string): void {
+        this.database.exec("BEGIN IMMEDIATE");
+        try {
+            const row = this.database.prepare("SELECT status FROM trigger_goal_queue WHERE goal_id = ?")
+                .get(goalId) as { status: string } | undefined;
+            if (row === undefined) throw new Error("Goal has no dispatch record");
+            if (row.status !== "terminal") throw new Error("Goal dispatch record is not terminal");
+            const recovery = this.database.prepare("SELECT status FROM trigger_worker_recoveries WHERE goal_id = ?")
+                .get(goalId) as { status: string } | undefined;
+            if (recovery?.status === "pending") throw new Error("Goal has a pending Worker recovery");
+            const nextSequence = (this.database.prepare("SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM trigger_goal_queue")
+                .get() as { next: number }).next;
+            this.database.prepare("UPDATE trigger_goal_queue SET sequence = ?, status = 'queued', worker_id = NULL, generation = NULL WHERE goal_id = ?")
+                .run(nextSequence, goalId);
+            this.database.exec("COMMIT");
         } catch (error) {
             this.database.exec("ROLLBACK");
             throw error;
@@ -740,4 +950,18 @@ function normalizeTrigger(input: unknown): Trigger {
 
 function isWorkTrigger(trigger: Trigger): trigger is Extract<Trigger, { readonly type: "work" }> {
     return trigger.type === "work";
+}
+
+function toContinuationRecord(
+    goalId: string,
+    targetRunId: string,
+    row: { readonly trigger_id: string; readonly applied_run_id: string | null },
+): TriggerGoalContinuationRecord {
+    if (!goalId.trim() || !targetRunId.trim() || !row.trigger_id.trim()) throw new Error("Invalid continuation record");
+    return {
+        goalId,
+        targetRunId,
+        triggerId: row.trigger_id,
+        ...(row.applied_run_id === null ? {} : { appliedRunId: row.applied_run_id }),
+    };
 }

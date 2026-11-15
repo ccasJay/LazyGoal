@@ -8,34 +8,40 @@ import { isRecord } from "./manifest.js";
 /**
  * 从已回收产物恢复报告事实，不推进 Runtime 或写回 Snapshot。
  * @remarks Trace 只提供已记录的用量；读取失败不冒充零消耗，也不覆盖其他可恢复事实。
- * @param copied - 已复制的宿主目录，不接受 Worker 提供的路径。
+ * @param goalsDirectory - 已复制到宿主的 Goal 目录根；`undefined` 表示本次未拷出。
  * @param identity - 本题 Goal/Run 身份。
  * @param diagnostic - 接收不含文件内容的读取失败诊断。
  * @param signal - 产物回收宽限期的中止信号。
  * @returns 部分报告 metadata；没有可验证事实时返回 undefined。
  * @example
  * ```ts
- * const meta = await recoverSwebenchResult(copied, { goalId, runId }, console.error, signal);
+ * const meta = await recoverSwebenchResult(goalsDirectory, { goalId, runId }, console.error, signal);
  * ```
  */
 export async function recoverSwebenchResult(
-    copied: Partial<Record<"goals" | "trajectories" | "traces", string>>,
+    goalsDirectory: string | undefined,
     identity: { goalId: string; runId: string },
     diagnostic: (message: string) => void,
     signal: AbortSignal,
 ): Promise<Readonly<Record<string, unknown>> | undefined> {
     const meta: Record<string, unknown> = {};
-    if (copied.goals !== undefined) {
+    if (goalsDirectory !== undefined) {
         try {
             signal.throwIfAborted();
-            const goal = await new JsonFileGoalStore(copied.goals).restore(identity.goalId);
+            const goal = await new JsonFileGoalStore(goalsDirectory).restore(identity.goalId);
             if (goal === undefined || goal.state.run.id !== identity.runId) throw new Error("identity mismatch");
             Object.assign(meta, { goalId: goal.id, runId: goal.state.run.id, runStatus: goal.state.run.status,
                 stopReason: goal.state.run.stopReason ?? null, completed: goal.state.run.status === "completed" });
         } catch { diagnostic("Could not recover a valid Goal snapshot for this attempt"); }
     }
-    if (copied.traces !== undefined) {
-        const file = join(copied.traces, Buffer.from(identity.goalId).toString("base64url"), `${Buffer.from(identity.runId).toString("base64url")}.jsonl`);
+    if (goalsDirectory !== undefined) {
+        const file = join(
+            goalsDirectory,
+            Buffer.from(identity.goalId).toString("base64url"),
+            "runs",
+            Buffer.from(identity.runId).toString("base64url"),
+            "trace.jsonl",
+        );
         const stream = createReadStream(file, { encoding: "utf8", signal });
         const lines = createInterface({ input: stream, crlfDelay: Infinity });
         try {

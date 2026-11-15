@@ -13,6 +13,7 @@ import {
 } from "../../runtime/src/index";
 import {
     JsonFileDiagnosticTraceSink,
+    runTracePath,
 } from "../src/index";
 
 test("JsonFileDiagnosticTraceSink writes an isolated ordered JSONL stream", async () => {
@@ -37,14 +38,7 @@ test("JsonFileDiagnosticTraceSink writes an isolated ordered JSONL stream", asyn
 
         await Promise.all(records.map((record) => sink.append(record)));
 
-        const goalDirectory = join(
-            directory,
-            Buffer.from("goal/with spaces", "utf8").toString("base64url"),
-        );
-        const filePath = join(
-            goalDirectory,
-            `${Buffer.from("run-1", "utf8").toString("base64url")}.jsonl`,
-        );
+        const filePath = runTracePath(directory, "goal/with spaces", "run-1");
         const lines = (await readFile(filePath, "utf8"))
             .trim()
             .split("\n")

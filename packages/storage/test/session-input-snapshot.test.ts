@@ -9,6 +9,7 @@ import { currentProtocols } from "../../runtime/test/current-fixtures";
 import {
     goalSnapshotCodec,
     GoalSnapshotProtocolError,
+    goalSnapshotPath,
     JsonFileGoalStore,
 } from "../src/index";
 
@@ -84,7 +85,7 @@ test("a file Store persists the session ledger and queue and restores them acros
         const goal = createGoalWithSessionState();
         await new JsonFileGoalStore(directory).save(goal);
 
-        const raw = await readFile(join(directory, `${Buffer.from(goal.id, "utf8").toString("base64url")}.json`), "utf8");
+        const raw = await readFile(goalSnapshotPath(directory, goal.id), "utf8");
         const parsed = JSON.parse(raw) as {
             readonly state: {
                 readonly commitRevision?: number;

@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { readLLMConfig } from "../src/index";
 import { LLMConfigurationError } from "../../llm-core/src/index";
 import { createLlmAdapter, createReflectionLlmAdapter } from "../../llm/src/index";
-import { OpenAICompatible } from "../../llm-openai/src/index";
+import { OpenAICompatible, StructuredOutputModeOpenAICompatible } from "../../llm-openai/src/index";
 import { Gemini } from "../../llm-google/src/index";
 import { PiAiAdapter } from "../../llm-pi-ai/src/index";
 
@@ -105,7 +105,7 @@ test("createReflectionLlmAdapter dispatches native runtime providers for google 
         structuredOutputMode: "prompt_only",
         baseURL: "http://127.0.0.1:8317/v1",
     });
-    assert.ok(openaiReflection instanceof OpenAICompatible);
+    assert.ok(openaiReflection instanceof StructuredOutputModeOpenAICompatible);
     assert.equal(openaiReflection.structuredOutputMode, "prompt_only");
 
     // Anthropic provider falls back to pi-ai

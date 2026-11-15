@@ -10,7 +10,10 @@ import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completio
 import {
     LLMConfigurationError,
     LLMRequestModeMismatchError,
+    readModelAssistantText,
+    classifyContextWindowRejection,
     classifyTransientModelFailure,
+    toSafeTokenCount,
     type LLMAdapter,
     type LLMConfig,
     type LLMContentBlock,
@@ -31,15 +34,42 @@ export class PiAiProviderError extends ModelRequestFailure {
 }
 
 function providerFailureMessage(provider: string, stopReason: string, errorMessage?: string): string {
-    if (provider === "opencode-go" && stopReason === "error"
-        && errorMessage?.toLowerCase().includes("active opencode go subscription is required")) {
-        return "OpenCode Go requires an active subscription for this request. Check your subscription or choose another provider in Settings.";
+    if (provider === "opencode-go" && stopReason === "error") {
+        const message = errorMessage?.toLowerCase();
+        if (message?.includes("active opencode go subscription is required")) {
+            return "OpenCode Go requires an active subscription for this request. Check your subscription or choose another provider in Settings.";
+        }
+        if (message?.includes("this model is not available in your country")) {
+            return "OpenCode Go denied access to this model in your region (HTTP 403). Choose a model available in your region.";
+        }
     }
     const status = errorMessage?.match(/(?:^\s*|\bHTTP\s+|\bstatus(?:\s+code)?[\s:=]+)([45]\d{2})\b/i)?.[1];
     if (status !== undefined) {
         return `Provider "${provider}" rejected the model request (HTTP ${status}). Check provider access and service status.`;
     }
     return `Provider "${provider}" did not complete a text response (${stopReason})`;
+}
+
+/**
+ * 把 pi-ai 上报的计数归一化为正式用量。
+ *
+ * @remarks
+ * pi-ai 在供应商未上报时使用全零占位，因此全零计数不视为有效上报，返回
+ * `undefined` 而不是伪造 0。缓存读取量仅在可读取时写入。
+ *
+ * @param usage - pi-ai AssistantMessage 的计数字段。
+ * @returns 可写入 `providerMetadata.usage` 的归一化计数；无有效上报时为 `undefined`。
+ */
+function normalizedUsage(
+    usage: AssistantMessage["usage"],
+): { readonly inputTokens: number; readonly outputTokens: number; readonly cachedInputTokens?: number } | undefined {
+    const inputTokens = toSafeTokenCount(usage.input);
+    const outputTokens = toSafeTokenCount(usage.output);
+    if (inputTokens === undefined || outputTokens === undefined || inputTokens + outputTokens === 0) return undefined;
+    const cachedInputTokens = toSafeTokenCount(usage.cacheRead);
+    return cachedInputTokens === undefined
+        ? { inputTokens, outputTokens }
+        : { inputTokens, outputTokens, cachedInputTokens };
 }
 
 const factories = {
@@ -83,6 +113,16 @@ export function buildPiAiRequestOptions(input: {
     };
 }
 
+function resolveToolChoice(
+    provider: LLMConfig["provider"],
+    request: LLMRequest,
+): "auto" | "none" | undefined {
+    // `required` 由专用工具流处理，调用方不会把此处的结果传给 simple 请求。
+    if (request.toolChoice === "required") return undefined;
+    if (provider === "opencode-go" && request.toolChoice === "none" && !request.tools?.length) return undefined;
+    return request.toolChoice;
+}
+
 /**
  * 把 pi-ai 的内容块转换为供应商无关的完整响应。
  *
@@ -118,8 +158,9 @@ function verifyToolCallArguments(raw: string | undefined, toolCall: { readonly a
  * @remarks
  * OpenCode Go 在线模型使用服务端传入的执行 API、容量与模型能力，并统一通过 Chat Completions 兼容路径执行；端点固定在本适配器。
  * 不执行登录、目录刷新或凭据持久化。
- * 内部聚合流式输出，只有正常结束的文本交给 Agent。pi-ai usage 无法证明
- * 原始计数是否存在，因此只返回诊断 piUsage，不参与正式用量累计。
+ * 内部聚合流式输出，只有正常结束的文本交给 Agent。pi-ai 计数为有限非负数时归一化写入
+ * `providerMetadata.usage` 并参与正式用量累计；全零计数视为未上报，不用 0 或估算值代替。
+ * 原始计数同时保留在诊断 `piUsage` 中。
  * 工具选择按模型 API 映射：auto/none 使用 simple 入口；required 使用完整 API，
  * OpenAI 发送 required，Anthropic/Google 发送 any。OpenCode Go 元数据声明不支持 required 时发送 auto，不改变 Runtime 的工具授权。
  */
@@ -232,6 +273,7 @@ export class PiAiAdapter implements LLMAdapter {
         const maxTokens = request.maxOutputTokens ?? this.config.maxOutputTokens;
         this.checkOutputLimit(maxTokens);
         const context = this.toContext(request);
+        const toolChoice = resolveToolChoice(this.config.provider, request);
         let response: AssistantMessage;
         try {
             const options = {
@@ -247,11 +289,13 @@ export class PiAiAdapter implements LLMAdapter {
                 ? await this.requiredToolStream(context, options).result()
                 : await this.models.completeSimple(this.model, context, {
                     ...options,
-                    ...(request.toolChoice === undefined ? {} : { toolChoice: request.toolChoice }),
+                    ...(toolChoice === undefined ? {} : { toolChoice }),
                 });
             throwIfAborted(control);
         } catch (error) {
             throwIfAborted(control);
+            const contextRejection = classifyContextWindowRejection(error);
+            if (contextRejection !== undefined) throw contextRejection;
             const transientFailure = classifyTransientModelFailure(error);
             if (transientFailure !== undefined) throw transientFailure;
             throw error;
@@ -278,6 +322,7 @@ export class PiAiAdapter implements LLMAdapter {
         const maxTokens = request.maxOutputTokens ?? this.config.maxOutputTokens;
         this.checkOutputLimit(maxTokens);
         const context = this.toContext(request);
+        const toolChoice = resolveToolChoice(this.config.provider, request);
         yield { kind: "started" };
 
         // 工具参数只保留原始分片文本；SDK 解析后的对象只用于语义核对，绝不改写已结束块。
@@ -298,7 +343,7 @@ export class PiAiAdapter implements LLMAdapter {
                 ? this.requiredToolStream(context, options)
                 : this.models.streamSimple(this.model, context, {
                     ...options,
-                    ...(request.toolChoice === undefined ? {} : { toolChoice: request.toolChoice }),
+                    ...(toolChoice === undefined ? {} : { toolChoice }),
                 });
             let primaryError: unknown;
             let sdkIterator: AsyncIterator<AssistantMessageEvent> | undefined;
@@ -388,6 +433,8 @@ export class PiAiAdapter implements LLMAdapter {
                     case "error":
                         if (event.reason === "aborted") throw new ExecutionAbortedError();
                         {
+                            const contextRejection = classifyContextWindowRejection(event.error);
+                            if (contextRejection !== undefined) throw contextRejection;
                             const transientFailure = classifyTransientModelFailure(event.error);
                             if (transientFailure !== undefined) throw transientFailure;
                             throw new PiAiProviderError(
@@ -453,6 +500,8 @@ export class PiAiAdapter implements LLMAdapter {
     ): LLMResponse {
         const hasTools = request.tools !== undefined && request.tools.length > 0;
         if (response.stopReason === "error") {
+            const contextRejection = classifyContextWindowRejection(response);
+            if (contextRejection !== undefined) throw contextRejection;
             const transientFailure = classifyTransientModelFailure(response);
             if (transientFailure !== undefined) throw transientFailure;
         }
@@ -472,6 +521,7 @@ export class PiAiAdapter implements LLMAdapter {
         const { input, output, cacheRead, cacheWrite, reasoning } = response.usage;
         const piUsage = Object.fromEntries(Object.entries({ input, output, cacheRead, cacheWrite, reasoning })
             .filter((entry): entry is [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1]) && entry[1] >= 0));
+        const usage = normalizedUsage(response.usage);
 
         // pi-ai 内容数组顺序即真实块归属；本适配器不请求图片，未知块类型在协议边界拒绝。
         const blocks: LLMContentBlock[] = [];
@@ -503,6 +553,7 @@ export class PiAiAdapter implements LLMAdapter {
                 ...(response.responseId === undefined ? {} : { responseId: response.responseId }),
                 stopReason: response.stopReason,
                 piUsage,
+                ...(usage === undefined ? {} : { usage }),
             },
         };
     }
@@ -523,8 +574,9 @@ export class PiAiAdapter implements LLMAdapter {
             } else if (message.role === "user") {
                 messages.push({ role: "user", content: message.content, timestamp: 0 });
             } else {
+                const content = message.role === "assistant" ? readModelAssistantText(message) : message.content;
                 messages.push({
-                    role: "assistant", content: [{ type: "text", text: message.content }],
+                    role: "assistant", content: [{ type: "text", text: content }],
                     api: this.model.api, provider: this.model.provider, model: this.model.id,
                     timestamp: 0, stopReason: "stop",
                     usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,

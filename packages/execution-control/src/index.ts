@@ -7,6 +7,7 @@ export {
 } from "./execution-control";
 
 export {
+    ContextWindowRejectedError,
     ModelRequestFailure,
     TransientModelRequestFailure,
     type TransientModelFailureReason,

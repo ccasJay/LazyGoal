@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { readModelMessageText } from "../../llm-core/src/index";
 
 import { createGoal } from "../../runtime/src/domain";
 import type { Goal, GoalMessage } from "../../runtime/src/domain";
@@ -223,21 +224,21 @@ test("Decide 與 Think 分别从本阶段已提交 frame 恢复，不共享比�
     const think = await build(goal, events, "think");
     const decide = await build(goal, events, "decide");
     const thinkPlanMessage = think.request.messages.find((message) =>
-        message.content.includes("GoalPlan (read-only projection"),
+        readModelMessageText(message).includes("GoalPlan (read-only projection"),
     );
     const decidePlanMessage = decide.request.messages.find((message) =>
-        message.content.includes("GoalPlan (read-only projection"),
+        readModelMessageText(message).includes("GoalPlan (read-only projection"),
     );
 
-    assert.match(thinkPlanMessage?.content ?? "", /当前计划/);
-    assert.doesNotMatch(thinkPlanMessage?.content ?? "", /operation: replace/);
-    assert.match(decidePlanMessage?.content ?? "", /operation: replace/);
-    assert.match(decidePlanMessage?.content ?? "", /当前计划/);
+    assert.match(thinkPlanMessage === undefined ? "" : readModelMessageText(thinkPlanMessage), /当前计划/);
+    assert.doesNotMatch(thinkPlanMessage === undefined ? "" : readModelMessageText(thinkPlanMessage), /operation: replace/);
+    assert.match(decidePlanMessage === undefined ? "" : readModelMessageText(decidePlanMessage), /operation: replace/);
+    assert.match(decidePlanMessage === undefined ? "" : readModelMessageText(decidePlanMessage), /当前计划/);
     assert.equal(think.modelContextFrame.stage, "think");
     assert.equal(decide.modelContextFrame.stage, "decide");
     assert.equal(think.request.tools, undefined);
-    assert.doesNotMatch(think.request.messages.at(-1)?.content ?? "", /responseShapeGuide/);
-    assert.ok(think.request.messages.some((message) => message.content.includes("确认当前 GoalPlan 与任务的关系")));
+    assert.doesNotMatch(readModelMessageText(think.request.messages.at(-1)!), /responseShapeGuide/);
+    assert.ok(think.request.messages.some(message => readModelMessageText(message).includes("确认当前 GoalPlan 与任务的关系")));
     assert.deepEqual(think.request.messages, (await build(goal, events, "think")).request.messages);
 });
 
@@ -252,12 +253,12 @@ test("无基线、旧 Epoch 與未提交 tail 都会重新完整注入当前 Sec
 
     const plan = await build(goal, staleOrUncommitted);
     const planMessage = plan.request.messages.find((message) =>
-        message.content.includes("GoalPlan (read-only projection"),
+        readModelMessageText(message).includes("GoalPlan (read-only projection"),
     );
 
     assert.ok(planMessage);
-    assert.doesNotMatch(planMessage.content, /operation: replace/);
-    assert.match(planMessage.content, /当前计划/);
+    assert.doesNotMatch(readModelMessageText(planMessage), /operation: replace/);
+    assert.match(readModelMessageText(planMessage), /当前计划/);
     assert.ok(plan.modelContextFrame.sections.some((section) => section.sectionId === "goal_plan"));
 });
 
@@ -307,9 +308,9 @@ test("会话裁剪后保留当前状态、Step 输入与逐请求工具 Schema",
 
     const plan = await build(goal, [event], "decide", capabilities);
     const actualConversation = plan.request.messages.filter((message) =>
-        message.content.startsWith("历史请求 ") || message.content.startsWith("历史响应 "),
+        readModelMessageText(message).startsWith("历史请求 ") || readModelMessageText(message).startsWith("历史响应 "),
     );
-    const workingContext = JSON.parse(plan.request.messages.at(-1)?.content ?? "{}");
+    const workingContext = JSON.parse(readModelMessageText(plan.request.messages.at(-1)!));
     const runModeFrame = plan.modelContextFrame.sections.find((section) => section.sectionId === "run_mode");
 
     assert.ok(actualConversation.length > 0);

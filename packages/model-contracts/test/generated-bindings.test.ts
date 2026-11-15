@@ -10,8 +10,6 @@ import {
     createBoundUnifiedToolDeclarations,
     decodePhaseToolCall,
     modelOutputBindings,
-    normalizeProjectionSchema,
-    triggerNameSummaryBinding,
     ModelOutputContractDefinitionError,
     SHAPE_GUIDE_PREFIX,
 } from "../src/index";
@@ -62,23 +60,6 @@ test("真实生成绑定装配全部模型组合入口", () => {
         assert.match(binding.contractId, /^model\./);
         assert.equal(binding.version, 1);
     }
-});
-
-test("Trigger 名称摘要绑定拒绝额外字段并投影可移植 Provider Schema", () => {
-    assert.equal(triggerNameSummaryBinding.contractId, "model.supervisor-trigger-name-summary");
-    assert.equal(triggerNameSummaryBinding.version, 1);
-
-    const valid = triggerNameSummaryBinding.read({ name: "Review dependency updates" }, "reject");
-    assert.equal(valid.ok, true);
-    if (valid.ok) assert.deepEqual(valid.data, { name: "Review dependency updates" });
-
-    assert.equal(triggerNameSummaryBinding.read({ name: "Review dependency updates", extra: true }, "reject").ok, false);
-    assert.equal(triggerNameSummaryBinding.read({ name: 42 }, "reject").ok, false);
-
-    const schema = normalizeProjectionSchema(triggerNameSummaryBinding, ["trigger_name_summary"]);
-    const validate = new Ajv2020({ strict: true, allErrors: true }).compile(schema);
-    assert.equal(validate({ name: "Review dependency updates" }), true);
-    assert.equal(validate({ name: "Review dependency updates", extra: true }), false);
 });
 
 test("生成 Provider Schema 保留数组长度、整数元素与过滤器上限", () => {

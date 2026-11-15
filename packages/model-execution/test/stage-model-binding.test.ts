@@ -1,6 +1,7 @@
 import { toolResponseFixture } from "../../agent/test/tool-response-fixture";
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { readModelMessageText } from "../../llm-core/src/index";
 
 import type { LLMAdapter } from "../../llm-core/src/index";
 import type { LLMRequest, LLMResponse } from "../../llm-core/src/index";
@@ -189,7 +190,7 @@ test("Decide 可请求 Think，Think 使用 prompt_only 且不挂载工具或结
     assert.equal(thinkAdapter.requests.length, 1);
     assert.equal(thinkAdapter.requests[0]?.structuredOutput, undefined);
     assert.equal(thinkAdapter.requests[0]?.tools, undefined);
-    assert.ok(thinkAdapter.requests[0]?.messages.some((message) => message.content.includes(request.goal)));
+    assert.ok(thinkAdapter.requests[0]?.messages.some(message => readModelMessageText(message).includes(request.goal)));
 });
 
 test("原生 Function Calling 的 request_think 解码为 Runtime 控制结果", async () => {

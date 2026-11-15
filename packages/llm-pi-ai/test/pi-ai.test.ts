@@ -91,6 +91,22 @@ test("PiAiAdapter maps ordered text history and isolates thinking and unverified
     assert.equal(response.blocks.some(block => block.type === "reasoning" && block.text.includes("private reasoning")), true);
 });
 
+test("pi-ai reports non-zero counts as normalized usage while keeping raw diagnostics", async () => {
+    const instance = adapter();
+    stub(instance, async () => result({
+        usage: {
+            input: 120, output: 30, cacheRead: 40, cacheWrite: 0, totalTokens: 150,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+    }));
+    const response = await instance.generate(request);
+    assert.deepEqual(readNormalizedUsage(response.providerMetadata), {
+        inputTokens: 120, outputTokens: 30, cachedInputTokens: 40,
+    });
+    const metadata = response.providerMetadata as Record<string, unknown>;
+    assert.deepEqual(metadata.piUsage, { input: 120, output: 30, cacheRead: 40, cacheWrite: 0 });
+});
+
 test("pi-ai keeps thinking out of tool-request text and final responses in both entrypoints", async () => {
     const cases: AssistantMessage["content"][] = [
         [{ type: "thinking", thinking: "PRIVATE_THINKING" }, { type: "text", text: json }],
@@ -203,6 +219,29 @@ test("OpenCode Go subscription errors use safe guidance for complete and streame
             assert.equal(error.message.includes("private body"), false);
             return true;
         });
+    }
+});
+
+test("OpenCode Go country restrictions survive SDK error formatting without exposing the provider body", async () => {
+    const fetch = globalThis.fetch;
+    globalThis.fetch = async () => Response.json({
+        type: "error",
+        error: { type: "RegionError", message: "This model is not available in your country", detail: "private provider body" },
+    }, { status: 403 });
+
+    try {
+        const instance = adapter("opencode-go", "beam-free");
+        for (const run of [
+            () => instance.generate(request),
+            async () => { for await (const _event of instance.stream(request)) {} },
+        ]) {
+            await assert.rejects(run, {
+                name: "PiAiProviderError",
+                message: "OpenCode Go denied access to this model in your region (HTTP 403). Choose a model available in your region.",
+            });
+        }
+    } finally {
+        globalThis.fetch = fetch;
     }
 });
 
@@ -378,6 +417,47 @@ test("PiAiAdapter 动态执行 OpenCode Go Beam Free", async () => {
     }
 });
 
+test("OpenCode Go 无工具时省略 none 工具选择", async () => {
+    const config: LLMConfig = {
+        ...minimaxDynamicConfig,
+        model: "beam-free",
+        contextWindowTokens: 1_048_576,
+        maxOutputTokens: 131_072,
+        supportsRequiredToolChoice: true,
+    };
+    const sent: Record<string, unknown>[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+        const body = await new Request(input, init).json() as Record<string, unknown>;
+        sent.push(body);
+        if (body.tool_choice !== undefined && body.tools === undefined) {
+            return new Response('{"error":{"message":"tool_choice requires tools"}}', { status: 400 });
+        }
+        return new Response(completionsBody(), { status: 200, headers: { "Content-Type": "text/event-stream" } });
+    };
+    try {
+        const instance = new PiAiAdapter(config);
+        for (const tools of [undefined, [], [{ id: "report", description: "Report", parametersSchema: { type: "object" } }]]) {
+            const input: LLMRequest = { ...request, sessionId: "goal-beam", toolChoice: "none", ...(tools === undefined ? {} : { tools }) };
+            await instance.generate(input);
+            const events: LLMStreamEvent[] = [];
+            for await (const event of instance.stream(input)) events.push(event);
+            assert.ok(events.some(event => event.kind === "completed"));
+        }
+        assert.equal(sent.length, 6);
+        for (const body of sent.slice(0, 4)) {
+            assert.equal("tool_choice" in body, false);
+            assert.equal("tools" in body, false);
+        }
+        for (const body of sent.slice(4)) {
+            assert.equal(body.tool_choice, "none");
+            assert.ok(Array.isArray(body.tools));
+        }
+    } finally {
+        globalThis.fetch = realFetch;
+    }
+});
+
 test("PiAiAdapter 在发送前拒绝未支持协议与无效动态容量", () => {
     const unknownApi = { ...minimaxDynamicConfig, executionApi: "unknown-api" } as unknown as LLMConfig;
     assert.throws(() => new PiAiAdapter(unknownApi), /Unsupported execution API/);
@@ -464,7 +544,9 @@ test("real pi-ai SDK maps four wire protocols against local SSE servers", async 
                 const instance = adapter(provider, model, provider === "openai" || provider === "openai-compatible" ? `${url}/v1` : undefined);
                 const response = await instance.generate(request);
                 assert.equal(readAssistantText(response), json, provider);
-                assert.equal(readNormalizedUsage(response.providerMetadata), undefined);
+                const usage = readNormalizedUsage(response.providerMetadata);
+                assert.ok(usage !== undefined, provider);
+                assert.ok(usage.inputTokens > 0 && usage.outputTokens > 0, provider);
                 const metadata = response.providerMetadata as Record<string, any>;
                 assert.ok(metadata.piUsage.output > 0, provider);
                 assert.equal(metadata.provider, provider);

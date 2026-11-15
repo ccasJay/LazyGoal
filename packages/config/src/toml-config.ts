@@ -92,6 +92,23 @@ export interface TuiTomlSection {
 }
 
 /**
+ * `[context]` 小节配置结构。
+ *
+ * @example
+ * ```toml
+ * [context]
+ * epoch_limit_tokens = 120000
+ * compact_threshold_percent = 80
+ * ```
+ */
+export interface ContextTomlSection {
+    /** Epoch 工作窗口的 Token 上限；省略时以模型标称容量为基数。 */
+    epoch_limit_tokens?: number;
+    /** 整理阈值百分比（1–99）；省略时默认 80。 */
+    compact_threshold_percent?: number;
+}
+
+/**
  * `[gepa]` 小节配置结构契约。
  *
  * @remarks
@@ -152,6 +169,7 @@ export interface LazyGoalTomlConfig {
     workspace?: WorkspaceTomlSection;
     profile?: ProfileTomlSection;
     tui?: TuiTomlSection;
+    context?: ContextTomlSection;
     gepa?: GepaTomlSection;
 }
 
@@ -175,8 +193,9 @@ export interface ProfileTomlConfig {
     tui?: TuiTomlSection;
 }
 
-const ALLOWED_CONFIG_SECTIONS = new Set(["llm", "workspace", "profile", "tui", "gepa"]);
+const ALLOWED_CONFIG_SECTIONS = new Set(["llm", "workspace", "profile", "tui", "context", "gepa"]);
 const ALLOWED_GEPA_FIELDS = new Set(["reflection_profile"]);
+const ALLOWED_CONTEXT_FIELDS = new Set(["epoch_limit_tokens", "compact_threshold_percent"]);
 const ALLOWED_LLM_FIELDS = new Set([
     "provider", "model", "api_key", "base_url", "structured_output_mode",
     "context_window_tokens", "max_output_tokens", "tokenizer_encoding",
@@ -228,6 +247,32 @@ export function parseTomlConfig(content: string, filePath?: string): LazyGoalTom
             if (!ALLOWED_LLM_FIELDS.has(field)) {
                 throw new TomlConfigurationError(`[llm] 小节包含未知字段: ${field}`, filePath);
             }
+        }
+    }
+
+    // 校验 [context] 小节字段
+    if (raw.context !== undefined) {
+        if (typeof raw.context !== "object" || raw.context === null || Array.isArray(raw.context)) {
+            throw new TomlConfigurationError("[context] 小节必须为键值对象", filePath);
+        }
+        const context = raw.context as Record<string, unknown>;
+        for (const field of Object.keys(context)) {
+            if (!ALLOWED_CONTEXT_FIELDS.has(field)) {
+                throw new TomlConfigurationError(`[context] 小节包含未知字段: ${field}`, filePath);
+            }
+        }
+        if (context.epoch_limit_tokens !== undefined
+            && (typeof context.epoch_limit_tokens !== "number"
+                || !Number.isSafeInteger(context.epoch_limit_tokens)
+                || context.epoch_limit_tokens <= 0)) {
+            throw new TomlConfigurationError("[context].epoch_limit_tokens 必须为正的安全整数", filePath);
+        }
+        if (context.compact_threshold_percent !== undefined
+            && (typeof context.compact_threshold_percent !== "number"
+                || !Number.isInteger(context.compact_threshold_percent)
+                || context.compact_threshold_percent < 1
+                || context.compact_threshold_percent > 99)) {
+            throw new TomlConfigurationError("[context].compact_threshold_percent 必须为 1–99 的整数", filePath);
         }
     }
 

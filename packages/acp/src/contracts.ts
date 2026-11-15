@@ -79,7 +79,7 @@ export interface AcpSessionInput {
     readonly signal: AbortSignal;
     /** `session/new` 传入的受信 metadata；未提供时省略。 */
     readonly sessionMeta?: Readonly<Record<string, unknown>>;
-    /** 向该 Session 的 ACP Client 发送更新。 */
+    /** 向该 Session 的 ACP Client 发送更新。注册前或连接关闭后的更新会被忽略。 */
     readonly update: (update: AcpSessionUpdate) => Promise<void>;
 }
 
@@ -106,7 +106,8 @@ export interface AcpPromptResult {
  * 一个 ACP Session 的执行与释放边界。
  *
  * @remarks
- * 同一实例的 prompt 由 Agent 串行化；dispose 释放该 Session 拥有的资源并且可重复调用。
+ * Agent 从输入校验到操作结算只接纳一个 Prompt。连接关闭时，Agent 等待已注册
+ * Session 的当前操作结算，再调用 dispose 释放该 Session 拥有的资源。
  *
  * @example
  * ```ts
@@ -128,9 +129,9 @@ export interface AcpSession {
     prompt(content: readonly AcpPromptContent[], control: AcpPromptControl): Promise<AcpPromptResult>;
 
     /**
-     * 释放 Session 所有资源；调用方不得在完成后继续发送更新。
+     * 释放 Session 所有资源。实现应支持重复调用，调用方不得在完成后继续发送更新。
      *
-     * @throws 资源释放失败时抛出错误，由连接拥有者记录并继续其他清理。
+     * @throws 资源释放失败时抛出错误。连接清理仍会继续，保留原请求的失败结果。
      */
     dispose(): Promise<void>;
 }
@@ -148,8 +149,8 @@ export interface AcpSession {
 export interface AcpSessionFactory {
     /**
      * @param input - 当前连接拥有的 Session 上下文。
-     * @returns 新建且归当前连接所有的 Session。
-     * @throws 工作区或资源装配失败时抛出错误。
+     * @returns 新建且归当前连接所有的 Session。即使连接已关闭，Agent 也负责释放交付的实例。
+     * @throws 工作区或资源装配失败时抛出原错误。工厂负责清理尚未交付的资源。
      */
     create(input: AcpSessionInput): Promise<AcpSession>;
 }
