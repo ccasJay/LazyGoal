@@ -7,10 +7,10 @@ import { openrouterProvider } from "@earendil-works/pi-ai/providers/openrouter";
 import { deepseekProvider } from "@earendil-works/pi-ai/providers/deepseek";
 import { opencodeGoProvider } from "@earendil-works/pi-ai/providers/opencode-go";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
-import { readModelAssistantText } from "../../model-contracts/src/index";
 import {
     LLMConfigurationError,
     LLMRequestModeMismatchError,
+    readModelAssistantText,
     classifyContextWindowRejection,
     classifyTransientModelFailure,
     toSafeTokenCount,

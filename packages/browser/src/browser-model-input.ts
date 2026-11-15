@@ -1,12 +1,6 @@
 import { createHash } from "node:crypto";
 import { Hono } from "hono";
 import {
-    readModelAssistantReasoning,
-    readModelAssistantText,
-    readModelMessageText,
-    readModelToolCalls,
-} from "../../model-contracts/src/index";
-import {
     trajectoryWatermark,
     type GoalStore,
     type ModelInputRecord,
@@ -26,36 +20,31 @@ export type {
 
 const system = (call: ModelInputRecord) => call.messages.flatMap(message => message.role === "system" ? [message.content] : []).join("\n");
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
-const messageKey = (message: ModelInputMessage) => message.role === "assistant" && "blocks" in message
-    ? JSON.stringify([message.role, message.source, message.blocks, message.continuation])
-    : message.role === "assistant"
-        ? JSON.stringify([message.role, message.source, message.content, [message.reasoning, message.toolCalls, message.continuation]])
-        : message.role === "tool"
-            ? JSON.stringify([message.role, message.source, message.content, null, [message.callId, message.toolId]])
-            : JSON.stringify([message.role, message.source, message.content, null, null]);
+const messageKey = (message: ModelInputMessage) => JSON.stringify([
+    message.role, message.source, message.content,
+    message.role === "assistant" ? [message.reasoning, message.toolCalls, message.continuation] : null,
+    message.role === "tool" ? [message.callId, message.toolId] : null,
+]);
 const messagePreview = (message: ModelInputMessage) => message.role === "assistant"
-    ? readModelToolCalls(message).length > 0 ? JSON.stringify(message) : readModelAssistantText(message)
-    : readModelMessageText(message);
+    ? message.toolCalls === undefined ? message.content : JSON.stringify(message)
+    : message.content;
 
 function projectModelInputMessage(message: ModelInputMessage): BrowserModelInputDetail["call"]["messages"][number] {
-    const content = readModelMessageText(message);
     if (message.role === "assistant") {
-        const reasoning = readModelAssistantReasoning(message);
-        const toolCalls = readModelToolCalls(message);
         return {
             role: "assistant",
-            content,
+            content: message.content,
             source: message.source,
-            ...(reasoning === undefined ? {} : { reasoning }),
-            ...(toolCalls.length === 0 ? {} : { toolCalls }),
+            ...(message.reasoning === undefined ? {} : { reasoning: message.reasoning }),
+            ...(message.toolCalls === undefined ? {} : { toolCalls: message.toolCalls }),
             ...(message.continuation === undefined ? {} : { continuation: message.continuation }),
         };
     }
     if (message.role === "tool") return {
-        role: "tool", content, source: message.source,
+        role: "tool", content: message.content, source: message.source,
         callId: message.callId, toolId: message.toolId,
     };
-    return { role: message.role, content, source: message.source };
+    return { role: message.role, content: message.content, source: message.source };
 }
 const validId = (value: string | null) => value !== null && /^[A-Za-z0-9_-]{1,256}$/.test(value);
 

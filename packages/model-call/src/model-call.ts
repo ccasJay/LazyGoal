@@ -10,11 +10,6 @@
 
 import { randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
-import {
-    readModelAssistantReasoning,
-    readModelMessageText,
-    readModelToolCalls,
-} from "../../model-contracts/src/index";
 
 import type { LLMAdapter } from "../../llm-core/src/index";
 import type {
@@ -26,6 +21,9 @@ import type {
 } from "../../llm-core/src/index";
 import {
     createContentBlockStreamTracker,
+    readModelAssistantReasoning,
+    readModelMessageText,
+    readModelToolCalls,
     readNormalizedUsage,
     readToolCalls,
     type ContentBlockStreamTracker,
