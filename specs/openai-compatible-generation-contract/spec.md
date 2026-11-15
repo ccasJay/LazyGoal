@@ -68,6 +68,6 @@ superseded_by: null
 ## 执行记录
 
 - 状态：passed
-- 验证：cfb54c62 · 2026-11-15T19:39:19+08:00
-- 结果：R1.1-R4.2 均已验证。测试提交 cfb54c62 的 npm test 全部通过：contracts generate check、TypeScript、文档、依赖、GEPA、3062 个 TypeScript 测试和 101 个 scripts 测试。OpenAI-compatible Composition 重启与原生历史测试 25/25 通过。指定 Mistral Profile 在系统代理下完成两进程工具调用与已配对工具结果续接，端点返回 tool_calls。
+- 验证：cfb54c62 · 2026-11-15T19:40:30+08:00
+- 结果：R1.1-R4.2 均已验证。测试提交 cfb54c62 的 npm test 全部通过：contracts generate check、TypeScript、文档、依赖、GEPA、3062 个 TypeScript 测试和 101 个 scripts 测试。Focused OpenAI-compatible Composition 重启与原生历史测试 25/25 通过。使用指定 Mistral Profile 和 Node --use-env-proxy，隔离 Goal 在工具结算后退出，再以新进程恢复；重放请求与已提交调用和结果一致，Mistral 返回正常完成，固定工具只执行一次。
 - 未决：全量回归中的 GEPA 暂时故障 fixture 按退避共耗时约 305 秒，最终通过。工作区保留用户已有的其他未提交改动。
