@@ -1337,6 +1337,77 @@ test("Runner 顺序执行两调用批次后回到模型并正常终止", async (
     assert.equal(result.state.stepCount, 2);
 });
 
+test("OpenAI-compatible Decide rejects a multi-call response before execution and retries with feedback only", async () => {
+    const store = new InMemoryGoalStore();
+    const trajectoryStore = createInMemoryTrajectoryStore();
+    const executed: string[] = [];
+    const runProfile: AgentProfile = { ...profile, toolIds: ["read_a", "read_b"] };
+    const registry = new InMemoryToolRegistry(["read_a", "read_b"].map(id => createTestToolRegistration({
+        definition: createTestToolDefinition(id, objectInputSchema({ path: { type: "string" } }), { description: id, isReadOnly: true }),
+        replayPolicy: "safe",
+        validate: () => ({ ok: true }),
+        async execute({ input }: any) {
+            executed.push(input.path);
+            return { kind: "success", output: { text: input.path }, summary: "Observed" };
+        },
+    })));
+    const identity = {
+        provider: "openai-compatible" as const,
+        endpoint: "https://gateway.example/v1",
+        model: "model",
+        protocol: "openai-chat" as const,
+    };
+    const requests: LLMRequest[] = [];
+    const adapter: LLMAdapter = {
+        nativeConversationIdentity: identity,
+        async generate(request) {
+            requests.push(request);
+            const response = requests.length === 1
+                ? blockResponse({ type: "text", format: "plain", text: "I will read a.md and b.md." })
+                : requests.length === 2
+                    ? blockResponse(
+                    { type: "tool_call", callId: "call-a", toolId: "read_a", argumentsJson: '{"path":"a.md"}' },
+                    { type: "tool_call", callId: "call-b", toolId: "read_b", argumentsJson: '{"path":"b.md"}' },
+                )
+                    : requests.length === 3
+                        ? blockResponse({ type: "tool_call", callId: "call-invalid", toolId: "read_a", argumentsJson: "{}" })
+                        : blockResponse({ type: "tool_call", callId: "wait-1", toolId: "system_wait_for_input", argumentsJson: '{"reason":"等待外部信息"}' });
+            return { ...response, continuation: { identity } };
+        },
+    };
+    const created = createTestGoal("run-openai-single-call", runProfile);
+    await store.save(created);
+    const runner = new Runner({ store, trajectoryStore, executor: createExecutor(adapter), toolRegistry: registry });
+    const result = await runner.run({ goalId, runId: "run-openai-single-call" });
+
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.state.status, "waiting");
+    assert.deepEqual(executed, []);
+    assert.equal(requests.length, 4);
+    assert.equal(requests[0]?.toolChoice, "auto");
+    assert.equal(requests[1]?.toolChoice, "auto");
+    assert.equal(requests[2]?.toolChoice, "auto");
+    assert.equal(requests[3]?.toolChoice, "auto");
+    const firstReplyMessages = requests[1]?.messages.filter(message => message.role === "assistant"
+        && message.content.includes("I will read a.md and b.md.")) ?? [];
+    assert.deepEqual(firstReplyMessages.map(message => ({ role: message.role, content: message.content.slice(-800) })), []);
+    assert.equal(requests[2]?.messages.some(message => message.role === "assistant"
+        && message.toolCalls?.some(call => call.callId === "call-a" || call.callId === "call-b")), false);
+    assert.equal(requests[3]?.messages.some(message => message.role === "assistant"
+        && message.toolCalls?.some(call => call.callId === "call-invalid")), false);
+    const parseFeedback = (request: LLMRequest | undefined, code: string) => request?.messages
+        .filter((message): message is Extract<typeof message, { readonly role: "user" }> => message.role === "user")
+        .map(message => {
+            try { return JSON.parse(message.content) as { readonly source?: string; readonly issues?: readonly { readonly code: string }[] }; }
+            catch { return undefined; }
+        })
+        .find(message => message?.source === "runtime_feedback" && message.issues?.some(issue => issue.code === code));
+    assert.ok(parseFeedback(requests[1], "no_usable_result"));
+    assert.ok(parseFeedback(requests[2], "multiple_tool_calls"));
+    assert.ok(parseFeedback(requests[3], "missing_field"));
+});
+
 test("Runner 在批次中途需要审批时停止后续执行并保留已执行结果与剩余队列", async () => {
     const store = new InMemoryGoalStore();
     const trajectoryStore = createInMemoryTrajectoryStore();

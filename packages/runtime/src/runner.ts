@@ -4997,7 +4997,9 @@ class RunExecutor {
                                                 message: "Return one declared tool call, or a non-empty text answer.",
                                             }],
                                             constraints: ["A text-only answer is accepted as an assistant message but does not advance the task. Continue the original task with one declared tool call."],
-                                        }), "A text-only answer does not advance the task.", undefined, result.text, result.modelContextFrame?.modelCallId);
+                                        }), "A text-only answer does not advance the task.", undefined,
+                                        result.modelContextFrame?.nativeIdentity?.provider === "openai-compatible" ? undefined : result.text,
+                                        result.modelContextFrame?.modelCallId);
                                     }
                                     const queue = result.kind === "batch" ? result.decisions.slice(1) : [];
                                     if (result.kind === "batch" && result.decisions.some(decision => decision.kind !== "tool_call")) {

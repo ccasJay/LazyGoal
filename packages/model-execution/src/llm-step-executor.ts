@@ -408,6 +408,18 @@ export class LLMStepExecutor implements StepExecutor {
             throw error;
         }
 
+        if (classified.kind === "batch" && adapter.nativeConversationIdentity?.provider === "openai-compatible") {
+            const error = new LLMResponseProtocolError("OpenAI-compatible Decide requires one tool call per response", {
+                issues: [{
+                    code: "multiple_tool_calls",
+                    path: ["toolCalls"],
+                    message: "Return exactly one declared tool call, not multiple calls.",
+                }],
+            });
+            await recordLlmError(this.traceSink, traceIdentity(goal), error, Date.now() - startedAt, "response_parse", callId);
+            throw error;
+        }
+
         if (classified.kind === "assistant_message") {
             return {
                 kind: "assistant_message",
