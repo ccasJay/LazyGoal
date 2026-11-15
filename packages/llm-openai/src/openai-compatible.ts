@@ -102,7 +102,7 @@ export class OpenAICompatible implements LLMAdapter {
      * @returns Chat Completions 首个候选归一化后的有序完整内容块。
      * @throws OpenAI SDK 暴露的网络、鉴权、限流或协议异常；截断或内容过滤响应抛出
      *   `OpenAIIncompleteResponseError`；中止时抛出 `ExecutionAbortedError`；
-     *   请求参数模式不匹配时抛出 `LLMRequestModeMismatchError`。
+     *   原生历史 provider、端点、模型或协议身份不匹配时抛出 `LLMRequestModeMismatchError`。
      */
     async generate(
         _request: LLMRequest,

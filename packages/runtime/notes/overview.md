@@ -159,7 +159,7 @@ Runner 的恢复读取委派给无写入能力的 RunRecoveryReader。它不缓�
 
 Runtime 当前只保存每个 Goal 的最新完整 Snapshot，不提供历史快照查询、跨进程租约或 Outbox 双写。Coordinator 实例内的 continue 闸门只保证单进程同一 Goal 串行；Web Server 与 Benchmark Composition Root 分别注入 Store、Trajectory、Tool、Agent 和 LLM 适配器。Headless Root 仍以单次 Run 返回，后续 Run 必须由持久化 Goal 的显式 continue 触发。
 
-原生模型响应由共享 checkpoint 提交器与接受的阶段结果保存为 `model_response_received`，包含调用身份、Conversation 位置、独立正文与公开 reasoning 摘要以及供应商必要续接字段；响应不进入 Goal Conversation。只有 Snapshot 边界内且具有对应领域结算的响应可回放，审批、Tool replay policy 和 pending Action 仍由现有 Runtime 流程控制。响应已提交而领域决策尚未提交时，恢复后的实际决策只关联其前最近一次 Decide 响应；旧响应不能绑定新 Action。Section frame 的原生身份标记用于结束模型切换前的续接段。安全等待或终态允许保存 Goal 的模型选择，终态已有中断时须先结算。
+原生模型响应由共享 checkpoint 提交器与接受的阶段结果保存为 `model_response_received`，包含调用身份、Conversation 位置与供应商必要续接字段；响应不进入 Goal Conversation。OpenAI-compatible 常规 Goal 的消息以 `ModelAssistantMessage.blocks` 作为正文、reasoning 和工具调用的唯一权威；OpenAI 官方与 Gemini 保持现有消息投影。只有 Snapshot 边界内、同一 `provider + endpoint + model + protocol` 身份且具有对应领域结算的响应可回放，审批、Tool replay policy 和 pending Action 仍由现有 Runtime 流程控制。响应已提交而领域决策尚未提交时，恢复后的实际决策只关联其前最近一次 Decide 响应；旧响应不能绑定新 Action。Section frame 的原生身份标记用于结束模型切换前的续接段。安全等待或终态允许保存 Goal 的模型选择，终态已有中断时须先结算。
 
 ## 跨模块不变量
 

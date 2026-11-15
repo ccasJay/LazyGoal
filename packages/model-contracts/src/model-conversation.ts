@@ -70,7 +70,13 @@ export interface ModelToolCallBlock extends ModelToolCall {
     readonly type: "tool_call";
 }
 
-/** 供应商无关的有序模型内容词表；模型响应和原生历史共用该表示。 */
+/**
+ * 供应商无关的有序模型内容词表；模型响应和 OpenAI-compatible 原生历史共用该表示。
+ * @example
+ * ```ts
+ * const block: ModelContentBlock = { index: 0, type: "text", format: "plain", text: "Done" };
+ * ```
+ */
 export type ModelContentBlock = ModelTextBlock | ModelReasoningBlock | ModelToolCallBlock;
 
 /**
@@ -90,7 +96,7 @@ export interface GeminiContinuationPart {
 
 /**
  * 可持久化的供应商续接字段，与诊断 metadata 分离。
- * @remarks 仅保留协议续接状态；可回放的正文、推理、工具调用均存于同一份 `ModelAssistantMessage.blocks`。
+ * @remarks OpenAI-compatible 的新历史把可回放正文、推理和工具调用保存在 `ModelBlockAssistantMessage.blocks`；其他 Provider 继续使用对应的既有字段。Gemini 原始 Parts 是维持签名续接所需的协议状态。
  * @example
  * ```ts
  * const continuation: ModelContinuation = { identity, parts: [{ functionCall: { name: "read_file", args: {} }, thoughtSignature: "opaque" }] };
@@ -142,7 +148,13 @@ export interface ModelBlockAssistantMessage {
     readonly continuation?: Pick<ModelContinuation, "identity" | "parts">;
 }
 
-/** 通用 assistant 消息由兼容 Provider 原生历史或 OpenAI-compatible 共享块构成。 */
+/**
+ * 通用 assistant 消息由现有扁平投影或 OpenAI-compatible 共享块构成。
+ * @example
+ * ```ts
+ * const message: ModelAssistantMessage = { role: "assistant", blocks: [] };
+ * ```
+ */
 export type ModelAssistantMessage = ModelLegacyAssistantMessage | ModelBlockAssistantMessage;
 
 /**
@@ -209,7 +221,13 @@ export type ModelLegacyConversationMessage =
     | ModelLegacyAssistantMessage
     | { readonly role: "tool"; readonly callId: string; readonly toolId: string; readonly content: string };
 
-/** 请求历史可使用 OpenAI-compatible 共享块或其他 Provider 的既有消息形态。 */
+/**
+ * 请求历史可使用 OpenAI-compatible 共享块或其他 Provider 的既有消息形态。
+ * @example
+ * ```ts
+ * const requestMessage: ModelConversationMessage = { role: "assistant", blocks: [] };
+ * ```
+ */
 export type ModelConversationMessage = ModelLegacyConversationMessage | ModelBlockAssistantMessage;
 
 /**

@@ -8,7 +8,7 @@
 
 [`TrajectoryExecutionUnitAdapter`](../src/trajectory-execution-unit-adapter.ts) 读取 committed Trajectory 并构建完整执行单元：忽略提交边界外的 tail，严格校验边界内事件的序号、Goal/Run 身份、执行阶段与单元连续性；Tool 单元必须包含 Decision、已批准 Action、Tool 开始/结果与 Observation；批准可以是同一单元的 `approved` staging，也可以是同单元的 `action_approved` 事实。不完整单元被排除而不是拆分，结构矛盾抛出 `MODEL_CONTEXT_SOURCE_ERROR`。`HotWindowSelector` 从最新单元向旧选择连续后缀，遇到首个无法整体容纳的单元即停止。
 
-[`TrajectoryEventProjector`](../src/trajectory-event-projector.ts) 把事件投影为有界模型 DTO：大型成功 Observation 以 SHA-256 与 prefix/suffix preview 替代完整载荷，Artifact 解析器只能返回已有引用，无引用时标记 `artifactAvailability: "unavailable"`。 [`collectNativeModelExchanges`](../src/native-model-history.ts) 重建原生调用交换：供应商调用 ID 与 Action 对应，审批等待与未结算调用不进入下一请求，切换 provider/端点/模型/协议结束旧续接段。
+[`TrajectoryEventProjector`](../src/trajectory-event-projector.ts) 把事件投影为有界模型 DTO：大型成功 Observation 以 SHA-256 与 prefix/suffix preview 替代完整载荷，Artifact 解析器只能返回已有引用，无引用时标记 `artifactAvailability: "unavailable"`。 [`collectNativeModelExchanges`](../src/native-model-history.ts) 重建原生调用交换：供应商调用 ID 与 Action 对应，审批等待与未结算调用不进入下一请求，切换 provider/端点/模型/协议结束旧续接段。OpenAI-compatible 响应保留同一份 `ModelContentBlock` 到 `LLMRequest.messages`；适配器按块投影 Chat Completions 字段。OpenAI 官方与 Gemini 继续使用各自既有消息投影，Gemini 签名仍随原始 Parts 回放。
 
 [`TrajectoryModelContextAssembler`](../src/trajectory-model-context-assembler.ts) 在一次调用内完成：按提交边界、Goal/Run、阶段、Epoch 与 Conversation 起点筛选已提交 frame；选择 Hot 连续后缀；用 `WarmReducer` 归约省略单元派生的有损 Warm 条目；把固定输入计量与 Hot/Warm 配额写入预算报告。Epoch 切换、历史裁剪或缺少有效基线时 Section 当前投影会重新完整注入；必需内容超限时在调用前抛出 `MODEL_CONTEXT_HARD_OVERFLOW`。
 

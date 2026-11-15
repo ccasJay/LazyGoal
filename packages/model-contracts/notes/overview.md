@@ -18,7 +18,9 @@
 
 ## 对话续接
 
-[模型消息协议](../src/model-conversation.ts) 区分 system、user、assistant 和配对 tool 消息。原生续接身份包含 provider、端点、模型和协议；只有身份一致且响应已被 Runtime 接受并提交时，才可回放续接字段。Gemini 原始 Part 顺序和不透明签名不能改写；不支持的多模态 Part 在供应商边界拒绝。
+[模型消息协议](../src/model-conversation.ts) 区分 system、user、assistant 和配对 tool 消息。`ModelContentBlock` 是文本、reasoning 与工具调用的共享有序词表，也用于 `LLMResponse.blocks`。常规 OpenAI-compatible Goal 的 `ModelBlockAssistantMessage` 只保存 `blocks` 与身份续接字段；正文、工具调用和可回放 reasoning 不另存副本。OpenAI 官方及 Gemini 继续使用 `ModelLegacyAssistantMessage`，避免改变其原生历史形状；Gemini 原始 Part 顺序和不透明签名仍由 continuation 保存。
+
+原生续接身份包含 provider、端点、模型和协议；只有身份一致且响应已被 Runtime 接受并提交时，才可回放续接字段。OpenAI-compatible Adapter 从共享块构造 Chat Completions 历史，只回传来源为 `reasoning_content` 的块；`thought` 留在生成记录中，不进入续接请求。不支持的 Gemini 多模态 Part 在供应商边界拒绝。
 
 `system_context_lookup` 仅查询 Goal 对话与执行历史，不搜索工作区文件。声明明确未命中不能证明仓库对象不存在，查询事件不能直接作为 Fact 或完成证据；需要仓库内容时使用获授权的业务工具。
 

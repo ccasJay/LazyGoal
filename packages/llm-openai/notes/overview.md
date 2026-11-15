@@ -1,14 +1,15 @@
 # OpenAI 适配
 
-本包把供应商无关的请求映射为 OpenAI Chat Completions（含兼容端点）原生调用，并回传有序正文、公开 reasoning 与工具调用块、续接字段与用量；`stream` 使用真实 Chat Completions 流。
+本包把供应商无关请求映射为 OpenAI Chat Completions（含兼容端点）原生调用，并回传有序内容块、续接身份、用量与可分类失败；`stream` 使用真实 Chat Completions 流。
 
 ## 职责
 
-- [OpenAICompatible](../src/openai-compatible.ts) 显式固定 `strict` 或 `prompt_only`：strict 把结构 Schema 原样映射为 `response_format.json_schema`（`strict: true`）；prompt_only 不发送任何原生 Schema 参数。无工具 strict 请求缺少 `structuredOutput`、或 prompt_only 请求携带它时，在发起网络请求前抛出 [LLMRequestModeMismatchError](../../llm-core/notes/overview.md)。
-- 工具请求挂载 `tools[].function`（`strict: true`）、`tool_choice`（缺省 `required`）并关闭并行调用；[LLMMessage](../../llm-core/src/types.ts) 的角色与顺序原样映射，tool 结果以 `tool_call_id` 配对回传。
-- [原生身份与续接](../src/openai-compatible.ts)：实例构造时固定 provider/端点/模型/协议身份；assistant 续接来自同一身份的 `reasoning_content` 回传，跨身份历史在派发前拒绝。
-- [原始用量提取](../src/usage.ts) 把 Chat Completions `usage`（含流式用量尾部）归一化为 [NormalizedUsage](../../llm-core/notes/overview.md)，缺失或核心字段非法时整体缺省，不补零。
+- [`OpenAICompatible`](../src/openai-compatible.ts) 只固定 API Key、端点与模型，不保存 `strict`、`prompt_only` 或 `two_stage` 模式。结构 Schema、`tool_choice`、工具参数 `strict`、并行调用与流尾用量都按单次 [`LLMRequest`](../../llm-core/src/types.ts) 的字段构造供应商参数；省略的可选字段不会由 Adapter 自行补发。
+- 常规 OpenAI-compatible Goal 的请求构造使用 `tool_choice: "auto"`，并省略顶层 Schema、工具 `strict`、`parallel_tool_calls` 和 `stream_options.include_usage`。请求声明的结束原因用于校验响应；`stop` 可和完整工具调用同在，`tool_calls` 必须带已封口调用。
+- Chat Completions 的正文、`reasoning_content`、`thought` 与工具调用按首次出现顺序组成 [共享内容块](../../model-contracts/src/model-conversation.ts)。常规 Goal 将这组块原样保存在同身份原生历史中；续接请求从块派生正文、调用及 `reasoning_content`，`thought` 留在生成记录中，不作为原生回放字段。
+- 实例暴露不含凭据的 provider/端点/模型/协议身份；身份不匹配的原生消息在发送请求前拒绝。OpenAI 官方路径与 Gemini 仍保留其现有历史投影，包括 Gemini 原始 Part 顺序和签名。
+- [原始用量提取](../src/usage.ts) 把 Chat Completions `usage` 归一化为 [NormalizedUsage](../../llm-core/notes/overview.md)；缺失或核心字段非法时整体缺省，不补零。
 
 ## 依赖与限制
 
-本包只依赖 `llm-core`、`model-contracts`、`execution-control` 与 `openai` SDK；不读取环境凭据、不注册宿主进程行为，构造与导入不发起网络请求。SDK 内部重试保持关闭（`maxRetries: 0`），暂时故障由 [llm-core](../../llm-core/notes/overview.md) 的结构化分类识别后原样传播，本包不自行重试。流式请求与非流式共享请求构造，正文与 reasoning 按首次出现累积为独立块、工具调用按供应商索引累计原始参数分片，只有收齐合法结束原因后才产生成功完成；长度截断、内容过滤、错误结束与无法归一化的内容抛出 `OpenAIIncompleteResponseError`，不降级为非流式重发。当前不支持 Responses API 与其它供应商。
+本包依赖 `llm-core`、`model-contracts`、`execution-control` 与 `openai` SDK；不读取环境凭据、不注册宿主进程行为，构造与导入不发起网络请求。SDK 内部重试关闭（`maxRetries: 0`）；暂时故障由 Runtime 按现有预算处理，本包不自行重试。流式请求与非流式共享请求构造；只有收齐合法结束原因后才产生成功完成。长度截断、内容过滤、拒绝、错误结束与无法归一化的内容会明确失败，不降级为非流式重发。当前不支持 Responses API 与其它供应商。

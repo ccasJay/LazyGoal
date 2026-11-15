@@ -12,7 +12,7 @@
 
 [`decodeToolCallOutcome`](../src/stage-response.ts) 解析调用参数 JSON 并交给声明契约解码：非法 JSON 报 `invalid_tool_arguments`；契约违规保留原始 issues，并把已授权业务工具的路径标记为 `action.input.*`，附带只含字段名的 `toolCallShape`。字面量错误可从本次工具 Schema 提取有界 `expectedValues`，供上层生成保留 JSON 类型的具体提示；不从原始参数或异常正文提取期望值。它不重新分配 actionId，也不重新推导工具可见性；业务工具 ID 由调用方显式传入。
 
-[`assertNativeResponseIdentity`](../src/stage-response.ts) 校验续接数据与原生身份；[`nativeResponseMessage`](../src/stage-response.ts) 把响应投影为可续接 Assistant 消息。[`decodeThinkResponse`](../src/stage-response.ts) 拒绝 Think 工具调用与空文本；[`normalizeRequestThinkGoal`](../src/stage-response.ts) 规范化 `request_think` 目标并拒绝空白。[`decodeCompletionReviewResponse`](../src/stage-response.ts) 解码唯一 `system_review_completion` 的接受或拒绝，并可通过可选 `onDiagnostic` 回报未知字段剥离路径。
+[`assertNativeResponseIdentity`](../src/stage-response.ts) 校验续接数据与原生身份；[`nativeResponseMessage`](../src/stage-response.ts) 把响应投影为可续接 Assistant 消息。OpenAI-compatible 身份使用 blocks-only 形态，使 Runtime 轨迹可原样保存回放所需块；OpenAI 官方与 Gemini 仍沿用现有扁平消息或原始 Parts 投影。[`decodeThinkResponse`](../src/stage-response.ts) 拒绝 Think 工具调用与空文本；[`normalizeRequestThinkGoal`](../src/stage-response.ts) 规范化 `request_think` 目标并拒绝空白。[`decodeCompletionReviewResponse`](../src/stage-response.ts) 解码唯一 `system_review_completion` 的接受或拒绝，并可通过可选 `onDiagnostic` 回报未知字段剥离路径。
 
 ## 错误契约
 
