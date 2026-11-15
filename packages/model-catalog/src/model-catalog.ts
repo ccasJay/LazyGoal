@@ -237,7 +237,7 @@ export function determineSelectability(
     }
 
     // 2. 结构化输出模式兼容性校验
-    if (config.structuredOutputMode === "strict") {
+    if (config.structuredOutputMode === "strict" && provider !== "openai-compatible") {
         if (!["openai", "google", "openai-compatible"].includes(provider)) {
             return {
                 selectable: false,

@@ -14,7 +14,6 @@ import {
     type LLMStreamEvent,
     type LLMTextBlockFormat,
     type LLMToolCall,
-    type StructuredOutputMode,
 } from "../../llm-core/src/index";
 import { extractOpenAIUsage } from "./usage";
 import {
@@ -31,7 +30,7 @@ import {
  * ```ts
  * const config: OpenAICompatibleConfig = {
  *     apiKey: "secret", baseURL: "https://api.openai.com/v1", model: "model-id",
- *     structuredOutputMode: "strict", maxOutputTokens: 4096,
+ *     maxOutputTokens: 4096,
  * };
  * ```
  */
@@ -44,8 +43,6 @@ export interface OpenAICompatibleConfig {
     baseURL: string;
     /** 每次生成请求使用的模型名称。 */
     model: string;
-    /** 固定的结构化输出模式。 */
-    structuredOutputMode: StructuredOutputMode;
     /** 请求未指定上限时使用的最大输出 Token。 */
     maxOutputTokens?: number;
 }
@@ -56,9 +53,7 @@ export interface OpenAICompatibleConfig {
  * @remarks
  * `baseURL` 可指向 OpenAI 或实现兼容协议的第三方服务。消息角色和顺序会
  * 原样映射；响应按真实字段与分片归一化为有序完整内容块，SDK 异常原样传播。
- * 在 strict 模式下将结构 Schema 原样映射为 `response_format.json_schema` 且 `strict: true`；
- * 在 prompt_only 模式下不传递任何原生结构 Schema 参数。
- * 若请求的结构化配置与 Adapter 固定模式不匹配，在发起网络请求前抛出 `LLMRequestModeMismatchError`。
+ * 结构化输出、工具调用策略、工具参数约束和流尾用量均由本次 {@link LLMRequest} 声明；未声明时遵循 Chat Completions 默认行为。
  * 响应携带 `usage` 时将其归一化写入 `providerMetadata.usage`
  * （`{ inputTokens, outputTokens, cachedInputTokens? }`），缺失时该字段缺省。
  * 长度截断、内容过滤、错误结束与无法归一化的内容抛出 `OpenAIIncompleteResponseError`，
@@ -68,22 +63,20 @@ export interface OpenAICompatibleConfig {
  * ```ts
  * const adapter = new OpenAICompatible({
  *     apiKey: "secret", baseURL: "https://api.openai.com/v1",
- *     model: "gpt-4o", structuredOutputMode: "prompt_only",
+ *     model: "gpt-4o",
  * });
  * const response = await adapter.generate({ messages: [{ role: "user", content: "你好" }] });
  * ```
  */
 export class OpenAICompatible implements LLMAdapter {
-    readonly structuredOutputMode: StructuredOutputMode;
     /** 无凭据的原生回放身份。 */
     readonly nativeConversationIdentity: NativeConversationIdentity;
     private readonly client: OpenAI;
     private readonly model: string;
     private readonly maxOutputTokens: number | undefined;
 
-    /** @param config - API Key、兼容端点地址、模型名称与固定的结构化输出模式。 */
+    /** @param config - API Key、兼容端点地址与模型名称。 */
     constructor (config: OpenAICompatibleConfig){
-        this.structuredOutputMode = config.structuredOutputMode;
         this.nativeConversationIdentity = {
             provider: config.provider ?? "openai-compatible", endpoint: config.baseURL.replace(/\/+$/, ""),
             model: config.model, protocol: "openai-chat",
@@ -110,7 +103,6 @@ export class OpenAICompatible implements LLMAdapter {
         control?: ExecutionControl,
     ): Promise<LLMResponse> {
         throwIfAborted(control);
-        this.assertRequestMode(_request);
         const payload = this.buildPayload(_request, toOpenAIMessages(_request.messages, this.nativeConversationIdentity));
 
         try {
@@ -175,16 +167,23 @@ export class OpenAICompatible implements LLMAdapter {
         control?: ExecutionControl,
     ): AsyncIterable<LLMStreamEvent> {
         throwIfAborted(control);
-        this.assertRequestMode(request);
         const payload = this.buildPayload(request, toOpenAIMessages(request.messages, this.nativeConversationIdentity));
         const textFormat = this.textFormat(request);
         yield { kind: "started" };
 
         try {
             const sdkStream = control?.signal === undefined
-                ? await this.client.chat.completions.create({ ...payload, stream: true, stream_options: { include_usage: true } })
+                ? await this.client.chat.completions.create({
+                    ...payload,
+                    stream: true,
+                    ...(request.includeUsage === true ? { stream_options: { include_usage: true } } : {}),
+                })
                 : await this.client.chat.completions.create(
-                    { ...payload, stream: true, stream_options: { include_usage: true } },
+                    {
+                        ...payload,
+                        stream: true,
+                        ...(request.includeUsage === true ? { stream_options: { include_usage: true } } : {}),
+                    },
                     { signal: control.signal },
                 );
 
@@ -312,22 +311,6 @@ export class OpenAICompatible implements LLMAdapter {
         }
     }
 
-    private assertRequestMode(request: LLMRequest): void {
-        if (request.tools === undefined && this.structuredOutputMode === "strict") {
-            if (request.structuredOutput === undefined) {
-                throw new LLMRequestModeMismatchError(
-                    "OpenAICompatible adapter is configured with 'strict' mode, but LLMRequest does not provide structuredOutput",
-                );
-            }
-        } else if (this.structuredOutputMode === "prompt_only") {
-            if (request.structuredOutput !== undefined) {
-                throw new LLMRequestModeMismatchError(
-                    "OpenAICompatible adapter is configured with 'prompt_only' mode, but LLMRequest provides structuredOutput",
-                );
-            }
-        }
-    }
-
     private textFormat(request: LLMRequest): LLMTextBlockFormat {
         const hasTools = request.tools !== undefined && request.tools.length > 0;
         return request.structuredOutput !== undefined && !hasTools ? "json" : "plain";
@@ -346,7 +329,7 @@ export class OpenAICompatible implements LLMAdapter {
             ...(maxOutputTokens !== undefined
                 ? { max_tokens: maxOutputTokens }
                 : {}),
-            ...((this.structuredOutputMode === "strict" || this.structuredOutputMode === "two_stage") && request.structuredOutput !== undefined && !hasTools
+            ...(request.structuredOutput !== undefined && !hasTools
                 ? {
                     response_format: {
                         type: "json_schema" as const,
@@ -366,11 +349,11 @@ export class OpenAICompatible implements LLMAdapter {
                             name: tool.id,
                             description: tool.description,
                             parameters: tool.parametersSchema,
-                            strict: true,
+                            ...(request.toolArgumentConstraint === "strict" ? { strict: true } : {}),
                         },
                     })),
-                    tool_choice: request.toolChoice ?? "required",
-                    parallel_tool_calls: false,
+                    tool_choice: request.toolChoice ?? "auto",
+                    ...(request.parallelToolCalls === undefined ? {} : { parallel_tool_calls: request.parallelToolCalls }),
                 }
                 : {}),
         };

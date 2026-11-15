@@ -1,6 +1,6 @@
 import { LLMConfigurationError, type LLMAdapter, type LLMConfig } from "../../llm-core/src/index";
 import { Gemini } from "../../llm-google/src/index";
-import { OpenAICompatible } from "../../llm-openai/src/index";
+import { OpenAICompatible, StructuredOutputModeOpenAICompatible } from "../../llm-openai/src/index";
 import { PiAiAdapter } from "../../llm-pi-ai/src/index";
 
 /**
@@ -49,7 +49,13 @@ export function createLlmAdapter(config: LLMConfig): LLMAdapter {
     switch (stageConfig.provider) {
         case "openai":
         case "openai-compatible":
-            return new OpenAICompatible({ ...stageConfig, provider: stageConfig.provider, baseURL: stageConfig.baseURL ?? "https://api.openai.com/v1" });
+            return new StructuredOutputModeOpenAICompatible({
+                apiKey: stageConfig.apiKey,
+                provider: stageConfig.provider,
+                baseURL: stageConfig.baseURL ?? "https://api.openai.com/v1",
+                model: stageConfig.model,
+                ...(stageConfig.maxOutputTokens === undefined ? {} : { maxOutputTokens: stageConfig.maxOutputTokens }),
+            }, stageConfig.structuredOutputMode);
         case "google":
             return new Gemini(stageConfig);
         default:
@@ -69,6 +75,19 @@ export function createLlmAdapter(config: LLMConfig): LLMAdapter {
  * ```
  */
 export function createLlmStageAdapters(config: LLMConfig): Readonly<LlmStageAdapters> {
+    if (config.provider === "openai-compatible") {
+        const requestDrivenAdapter = new OpenAICompatible({
+            apiKey: config.apiKey,
+            provider: "openai-compatible",
+            baseURL: config.baseURL,
+            model: config.model,
+            ...(config.maxOutputTokens === undefined ? {} : { maxOutputTokens: config.maxOutputTokens }),
+        });
+        return Object.freeze({
+            thinkAdapter: requestDrivenAdapter,
+            decideAdapter: requestDrivenAdapter,
+        });
+    }
     return Object.freeze({
         thinkAdapter: config.structuredOutputMode === "prompt_only"
             ? createLlmAdapter(config)
@@ -105,7 +124,13 @@ export function createReflectionLlmAdapter(config: LLMConfig): LLMAdapter {
             return new Gemini(config);
         case "openai":
         case "openai-compatible":
-            return new OpenAICompatible({ ...config, provider: config.provider, baseURL: config.baseURL ?? "https://api.openai.com/v1" });
+            return new StructuredOutputModeOpenAICompatible({
+                apiKey: config.apiKey,
+                provider: config.provider,
+                baseURL: config.baseURL ?? "https://api.openai.com/v1",
+                model: config.model,
+                ...(config.maxOutputTokens === undefined ? {} : { maxOutputTokens: config.maxOutputTokens }),
+            }, config.structuredOutputMode);
         default:
             return createLlmAdapter(config);
     }

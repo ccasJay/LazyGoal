@@ -817,7 +817,9 @@ async function assembleRuntimeComposition(
         provider: llmConfig?.provider ?? ((adapter as { readonly provider?: string }).provider as GoalModelSelection["provider"] | undefined) ?? "openai",
         ...(bootConfigFromProfile && activeProviderProfile !== undefined ? { profileId: activeProviderProfile.id } : {}),
         modelId: llmConfig?.model ?? (adapter as { readonly modelId?: string }).modelId ?? "default-model",
-        structuredOutputMode: llmConfig?.structuredOutputMode ?? adapter.structuredOutputMode ?? "prompt_only",
+        ...(llmConfig?.provider === "openai-compatible" ? {} : {
+            structuredOutputMode: llmConfig?.structuredOutputMode ?? adapter.structuredOutputMode ?? "prompt_only",
+        }),
         ...(defaultExecutionMetadata === undefined ? {} : { executionApi: defaultExecutionMetadata.executionApi }),
         ...(defaultExecutionMetadata === undefined ? {} : { reasoning: defaultExecutionMetadata.reasoning }),
         ...(defaultExecutionMetadata === undefined ? {} : { vision: defaultExecutionMetadata.vision }),

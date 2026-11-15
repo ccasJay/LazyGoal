@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { OpenAICompatible } from "../../llm-openai/src/index";
+import { StructuredOutputModeOpenAICompatible } from "../../llm-openai/src/index";
 import { Gemini } from "../../llm-google/src/index";
 import { PiAiAdapter } from "../../llm-pi-ai/src/index";
 import type { LLMRequest, LLMToolDefinition } from "../../llm-core/src/index";
@@ -21,12 +21,11 @@ const mockToolDefinition: LLMToolDefinition = {
 };
 
 test("OpenAICompatible 原生 Function Calling 挂载 tools、strict: true 与 tool_choice: required", async () => {
-    const adapter = new OpenAICompatible({
+    const adapter = new StructuredOutputModeOpenAICompatible({
         apiKey: "test-key",
         baseURL: "https://api.openai.com/v1",
         model: "gpt-4o",
-        structuredOutputMode: "strict",
-    });
+    }, "strict");
 
     let capturedRequest: any = undefined;
     (adapter as any).client = {
@@ -98,12 +97,11 @@ test("OpenAICompatible 原生 Function Calling 挂载 tools、strict: true 与 t
 });
 
 test("OpenAICompatible 无损捕获原生思考模型 reasoning_content 与工具调用", async () => {
-    const adapter = new OpenAICompatible({
+    const adapter = new StructuredOutputModeOpenAICompatible({
         apiKey: "test-key",
         baseURL: "https://api.deepseek.com/v1",
         model: "deepseek-r1",
-        structuredOutputMode: "strict",
-    });
+    }, "strict");
 
     (adapter as any).client = {
         chat: {

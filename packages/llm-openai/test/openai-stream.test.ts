@@ -6,8 +6,10 @@ import { test } from "node:test";
 import {
     OpenAICompatible,
     OpenAIIncompleteResponseError,
+    StructuredOutputModeOpenAICompatible,
     type OpenAICompatibleConfig,
 } from "../src/index";
+import type { StructuredOutputMode } from "../../llm-core/src/llm-config";
 import {
     createContentBlockStreamTracker,
     readAssistantText,
@@ -23,11 +25,11 @@ const TOOLS = [
     { id: "write_file", description: "Write a file", parametersSchema: { type: "object", properties: {} } },
 ];
 
-function adapter(baseURL: string, config: Partial<OpenAICompatibleConfig> = {}) {
-    return new OpenAICompatible({
+function adapter(baseURL: string, config: Partial<OpenAICompatibleConfig> = {}, mode: StructuredOutputMode = "prompt_only") {
+    return new StructuredOutputModeOpenAICompatible({
         apiKey: "test-key", baseURL: `${baseURL}/v1`, model: "stream-model",
-        structuredOutputMode: "prompt_only", ...config,
-    });
+        ...config,
+    }, mode);
 }
 
 async function withServer(
@@ -144,6 +146,40 @@ test("真实 SDK 流映射分片文本、两个工具索引、晚到身份与用
     assert.equal(recorded[0]?.tools.length, 2);
 });
 
+test("请求驱动的 OpenAI-compatible Adapter 共用实例并只按请求字段构造工具生成", async () => {
+    const recorded: Record<string, any>[] = [];
+    await withServer(async (incoming, outgoing) => {
+        recorded.push(await readBody(incoming));
+        outgoing.writeHead(200, { "Content-Type": "text/event-stream" });
+        outgoing.end(sse([
+            chunk({ tool_calls: [{ index: 0, id: "call-native", type: "function", function: { name: "read_file", arguments: "{}" } }] }),
+            chunk({}, "stop"),
+        ]));
+    }, async baseURL => {
+        const instance = new OpenAICompatible({ apiKey: "test-key", baseURL: `${baseURL}/v1`, model: "stream-model" });
+        assert.equal(Object.hasOwn(instance, "structuredOutputMode"), false);
+        const events = [];
+        assert.ok(instance.stream);
+        for await (const event of instance.stream({
+            messages: [{ role: "user", content: "Read." }],
+            tools: [TOOLS[0]!],
+            toolChoice: "auto",
+        })) events.push(event);
+        assert.equal(events.at(-1)?.kind, "completed");
+    });
+
+    assert.equal(recorded.length, 1);
+    const request = recorded[0]!;
+    assert.equal(request.tool_choice, "auto");
+    assert.equal(request.parallel_tool_calls, undefined);
+    assert.equal(request.stream_options, undefined);
+    assert.equal(request.response_format, undefined);
+    assert.deepEqual(request.tools, [{
+        type: "function",
+        function: { name: "read_file", description: "Read a file", parameters: TOOLS[0]!.parametersSchema },
+    }]);
+});
+
 test("截断、内容过滤、无有效结束与不支持内容都不产生成功响应，也不重发请求", async () => {
     const cases: readonly { readonly name: string; readonly chunks: readonly unknown[] }[] = [
         {
@@ -246,7 +282,7 @@ test("流式响应缺失用量尾部时用量整体缺省，不补零", async ()
 });
 
 test("OpenAI native stream releases the supplier iterator without masking the primary failure", async () => {
-    const adapter = new OpenAICompatible({ apiKey: "key", baseURL: "https://example.test/v1", model: "model", structuredOutputMode: "prompt_only" });
+    const adapter = new OpenAICompatible({ apiKey: "key", baseURL: "https://example.test/v1", model: "model" });
     let released = 0;
     (adapter as any).client = { chat: { completions: { create: async () => ({
         [Symbol.asyncIterator]() {

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { ExecutionAbortedError } from "../../execution-control/src/index";
-import { OpenAICompatible, OpenAIIncompleteResponseError } from "../src/index";
+import { OpenAICompatible, OpenAIIncompleteResponseError, StructuredOutputModeOpenAICompatible } from "../src/index";
 import {
     LLMRequestModeMismatchError,
     readAssistantText,
@@ -20,18 +20,19 @@ const dummySchema = {
     additionalProperties: false,
 };
 
-function createAdapter(mode: "strict" | "prompt_only") {
-    return new OpenAICompatible({
+function createAdapter(mode: "strict" | "prompt_only", config: { readonly maxOutputTokens?: number } = {}) {
+    return new StructuredOutputModeOpenAICompatible({
         apiKey: "test-api-key",
         baseURL: "http://127.0.0.1:9999/v1",
         model: "test-model-name",
-        structuredOutputMode: mode,
-    });
+        ...config,
+    }, mode);
 }
 
-test("OpenAICompatible exposes configured structuredOutputMode immutably", () => {
+test("固定模式包装器保留模式校验且复用无模式 Chat Completions 传输实现", () => {
     const strictAdapter = createAdapter("strict");
     assert.equal(strictAdapter.structuredOutputMode, "strict");
+    assert.ok(strictAdapter instanceof OpenAICompatible);
     assert.equal((strictAdapter as any).client.maxRetries, 0);
 
     const promptOnlyAdapter = createAdapter("prompt_only");
@@ -456,7 +457,7 @@ test("OpenAICompatible passes abortSignal to create call and handles abort clean
 });
 
 test("OpenAI native adapter applies configured output limit unless request overrides it", async () => {
-    const adapter = new OpenAICompatible({ apiKey: "key", baseURL: "https://example.test/v1", model: "model", structuredOutputMode: "strict", maxOutputTokens: 512 });
+    const adapter = createAdapter("strict", { maxOutputTokens: 512 });
     const limits: number[] = [];
     (adapter as any).client = { chat: { completions: { create: async (params: any) => {
         limits.push(params.max_tokens);
@@ -469,7 +470,7 @@ test("OpenAI native adapter applies configured output limit unless request overr
 });
 
 test("OpenAI native adapter rejects truncated and filtered completions instead of returning partial decisions", async () => {
-    const adapter = new OpenAICompatible({ apiKey: "key", baseURL: "https://example.test/v1", model: "model", structuredOutputMode: "prompt_only" });
+    const adapter = createAdapter("prompt_only");
     for (const finishReason of ["length", "content_filter"] as const) {
         (adapter as any).client = { chat: { completions: { create: async () => ({
             choices: [{ message: { content: "", tool_calls: [{ id: "call-1", type: "function", function: { name: "read_file", arguments: "{}" } }] }, finish_reason: finishReason }],
@@ -483,7 +484,7 @@ test("OpenAI native adapter rejects truncated and filtered completions instead o
 });
 
 test("OpenAI native stream validates the fixed output mode before dispatch", async () => {
-    const adapter = new OpenAICompatible({ apiKey: "key", baseURL: "https://example.test/v1", model: "model", structuredOutputMode: "strict" });
+    const adapter = createAdapter("strict");
     let dispatched = 0;
     (adapter as any).client = { chat: { completions: { create: async () => { dispatched += 1; throw new Error("must not dispatch"); } } } };
     const events: LLMStreamEvent[] = [];

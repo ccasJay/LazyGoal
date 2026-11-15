@@ -74,10 +74,7 @@ export interface LLMRequest {
     readonly messages: readonly LLMMessage[];
     /** 供应商生成阶段允许的最大输出 Token；配置模型能力时由 Executor 传递。 */
     readonly maxOutputTokens?: number;
-    /**
-     * 无工具的 strict 请求必须传递原生结构化输出配置；工具请求由参数 Schema 约束，省略此字段。
-     * prompt_only 请求必须完全省略。
-     */
+    /** 本次生成需要供应商原生约束的 JSON 输出；缺省时不发送顶层 JSON Schema。 */
     readonly structuredOutput?: LLMStructuredOutput;
     /** 原生 Function Calling 挂载的工具定义集合。 */
     readonly tools?: readonly LLMToolDefinition[];
@@ -88,6 +85,12 @@ export interface LLMRequest {
      * - `none`: 禁止模型调用工具。
      */
     readonly toolChoice?: "auto" | "required" | "none";
+    /** 要求供应商按工具参数 Schema 约束生成；省略时由供应商采用默认生成策略。 */
+    readonly toolArgumentConstraint?: "strict";
+    /** 显式设置供应商是否允许一轮产生多个工具调用；省略时采用供应商默认值。 */
+    readonly parallelToolCalls?: boolean;
+    /** 请求供应商在流尾发送用量；省略时不改变供应商默认用量行为。 */
+    readonly includeUsage?: boolean;
     /**
      * 稳定会话身份（如 Goal 的 id）。供应商会话感知能力据此获得跨调用一致的会话标识；
      * 省略时适配器保持既有请求形态，不发送任何会话头。

@@ -449,7 +449,7 @@ function renderFinalRequest<Result = AgentDecision>(
                         description: declaration.description,
                         parametersSchema: declaration.parametersSchema,
                     })),
-                    toolChoice: "required" as const,
+                    toolChoice: nativeIdentity?.provider === "openai-compatible" ? "auto" as const : "required" as const,
                 }
                 : {}),
             ...(stage === "decide" && !requiresToolCall && structuredOutputMode === "strict" && nativeIdentity === undefined

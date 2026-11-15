@@ -83,10 +83,10 @@ switch (scenario) {
         break;
     }
     case "llm-openai": {
-        const { OpenAICompatible } = await import(entry("packages/llm-openai/src/index.ts"));
-        const instance = new OpenAICompatible({
-            apiKey: "probe-key", baseURL: "https://api.openai.com/v1", model: "probe-model", structuredOutputMode: "strict",
-        });
+        const { StructuredOutputModeOpenAICompatible } = await import(entry("packages/llm-openai/src/index.ts"));
+        const instance = new StructuredOutputModeOpenAICompatible({
+            apiKey: "probe-key", baseURL: "https://api.openai.com/v1", model: "probe-model",
+        }, "strict");
         artifacts = { mode: instance.structuredOutputMode, endpoint: instance.nativeConversationIdentity.endpoint };
         break;
     }
