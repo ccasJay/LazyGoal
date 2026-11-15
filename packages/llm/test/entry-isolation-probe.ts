@@ -106,7 +106,17 @@ switch (scenario) {
     }
     case "model-catalog": {
         const catalogModule = await import(entry("packages/model-catalog/src/index.ts"));
-        const catalog = new catalogModule.DefaultLlmModelCatalog();
+        const catalog = new catalogModule.DefaultLlmModelCatalog({
+            sources: [{
+                provider: "openai",
+                protocol: "chat-completions",
+                staticModels: [{
+                    id: "gpt-4o", displayName: "GPT-4o",
+                    contextWindowTokens: 128_000, maxOutputTokens: 4096,
+                }],
+            }],
+            isProtocolImplemented: () => true,
+        });
         const models = await catalog.list({
             provider: "openai", model: "gpt-4o", apiKey: "probe-key", structuredOutputMode: "prompt_only",
         }, { requireTokenCapacity: false });
