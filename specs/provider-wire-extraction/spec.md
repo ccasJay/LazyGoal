@@ -95,7 +95,7 @@ packages/
 ## 任务
 
 - [x] //TODO 1. 抽出 `wire-chat-completions`：请求形状、SSE 映射、协议错误分类，并移除 openai SDK → R1.1、R1.2；检查：wire 包基础测试
-- [ ] //TODO 2. 建立预录 SSE fixture、请求 golden 与迁移等价基线 → R1.3、R1.4；检查：fixture 逐帧比对与 golden 比对
+- [x] //TODO 2. 建立预录 SSE fixture、请求 golden 与迁移等价基线 → R1.3、R1.4；检查：fixture 逐帧比对与 golden 比对
 - [ ] //TODO 3. 收敛 `model-catalog` 为合并、排序、可选性与降级判定，协议可用性与模型来源由组合根和适配器注入 → R2.4；检查：边界与依赖检查
 - [ ] //TODO 4. 建立开放 provider 注册表与 `llm-adapters` 结构，先落 OpenAI 官方适配器（含 `discover`）→ R2.1、R3.2；检查：注册表、未知 id 拒绝与声明测试
 - [ ] //TODO 5. DeepSeek 与 OpenRouter 复用 chat wire → R2.2；检查：端点与请求头断言

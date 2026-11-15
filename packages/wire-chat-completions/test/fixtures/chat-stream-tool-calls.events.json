@@ -1,0 +1,65 @@
+[
+    { "kind": "started" },
+    { "kind": "content_block_started", "index": 0, "blockType": "tool_call", "delivery": "incremental" },
+    { "kind": "content_block_delta", "index": 0, "deltaKind": "tool_arguments", "delta": "{\"path\"" },
+    { "kind": "content_block_delta", "index": 0, "deltaKind": "tool_arguments", "delta": ":\"README.md\"}" },
+    { "kind": "content_block_started", "index": 1, "blockType": "tool_call", "delivery": "incremental" },
+    { "kind": "content_block_delta", "index": 1, "deltaKind": "tool_arguments", "delta": "{}" },
+    {
+        "kind": "content_block_completed",
+        "delivery": "incremental",
+        "block": {
+            "index": 0,
+            "type": "tool_call",
+            "callId": "call_fixture",
+            "toolId": "read_file",
+            "argumentsJson": "{\"path\":\"README.md\"}"
+        }
+    },
+    {
+        "kind": "content_block_completed",
+        "delivery": "incremental",
+        "block": {
+            "index": 1,
+            "type": "tool_call",
+            "callId": "call_two",
+            "toolId": "write_file",
+            "argumentsJson": "{}"
+        }
+    },
+    {
+        "kind": "completed",
+        "response": {
+            "blocks": [
+                {
+                    "index": 0,
+                    "type": "tool_call",
+                    "callId": "call_fixture",
+                    "toolId": "read_file",
+                    "argumentsJson": "{\"path\":\"README.md\"}"
+                },
+                {
+                    "index": 1,
+                    "type": "tool_call",
+                    "callId": "call_two",
+                    "toolId": "write_file",
+                    "argumentsJson": "{}"
+                }
+            ],
+            "continuation": {
+                "identity": {
+                    "provider": "openai-compatible",
+                    "endpoint": "https://gateway.example.test/v1",
+                    "model": "fixture-model",
+                    "protocol": "openai-chat"
+                }
+            },
+            "providerMetadata": {
+                "requestId": "chatcmpl-fixture-2",
+                "model": "fixture-model",
+                "created": 1730000001,
+                "finishReason": "tool_calls"
+            }
+        }
+    }
+]

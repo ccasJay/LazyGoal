@@ -1,0 +1,14 @@
+data: {"id":"chatcmpl-fixture-1","object":"chat.completion.chunk","created":1730000000,"model":"fixture-model","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-fixture-1","object":"chat.completion.chunk","created":1730000000,"model":"fixture-model","choices":[{"index":0,"delta":{"content":"{\"answer\":"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-fixture-1","object":"chat.completion.chunk","created":1730000000,"model":"fixture-model","choices":[{"index":0,"delta":{"reasoning_content":"Read the diff."},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-fixture-1","object":"chat.completion.chunk","created":1730000000,"model":"fixture-model","choices":[{"index":0,"delta":{"content":"\"ok\"}"},"finish_reason":null}]}
+
+data: {"id":"chatcmpl-fixture-1","object":"chat.completion.chunk","created":1730000000,"model":"fixture-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
+
+data: {"id":"chatcmpl-fixture-1","object":"chat.completion.chunk","created":1730000000,"model":"fixture-model","choices":[],"usage":{"prompt_tokens":21,"completion_tokens":9,"prompt_tokens_details":{"cached_tokens":4}}}
+
+data: [DONE]
+

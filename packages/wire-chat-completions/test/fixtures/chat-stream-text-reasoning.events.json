@@ -1,0 +1,42 @@
+[
+    { "kind": "started" },
+    { "kind": "content_block_started", "index": 0, "blockType": "text", "delivery": "incremental", "format": "json" },
+    { "kind": "content_block_delta", "index": 0, "deltaKind": "text", "delta": "{\"answer\":" },
+    { "kind": "content_block_started", "index": 1, "blockType": "reasoning", "delivery": "incremental" },
+    { "kind": "content_block_delta", "index": 1, "deltaKind": "reasoning", "delta": "Read the diff." },
+    { "kind": "content_block_delta", "index": 0, "deltaKind": "text", "delta": "\"ok\"}" },
+    {
+        "kind": "content_block_completed",
+        "delivery": "incremental",
+        "block": { "index": 0, "type": "text", "format": "json", "text": "{\"answer\":\"ok\"}" }
+    },
+    {
+        "kind": "content_block_completed",
+        "delivery": "incremental",
+        "block": { "index": 1, "type": "reasoning", "source": "reasoning_content", "text": "Read the diff." }
+    },
+    {
+        "kind": "completed",
+        "response": {
+            "blocks": [
+                { "index": 0, "type": "text", "format": "json", "text": "{\"answer\":\"ok\"}" },
+                { "index": 1, "type": "reasoning", "source": "reasoning_content", "text": "Read the diff." }
+            ],
+            "continuation": {
+                "identity": {
+                    "provider": "openai-compatible",
+                    "endpoint": "https://gateway.example.test/v1",
+                    "model": "fixture-model",
+                    "protocol": "openai-chat"
+                }
+            },
+            "providerMetadata": {
+                "requestId": "chatcmpl-fixture-1",
+                "model": "fixture-model",
+                "created": 1730000000,
+                "finishReason": "stop",
+                "usage": { "inputTokens": 21, "outputTokens": 9, "cachedInputTokens": 4 }
+            }
+        }
+    }
+]

@@ -1,0 +1,7 @@
+{
+    "model": "gateway-model",
+    "messages": [
+        { "role": "user", "content": "Summarize." }
+    ],
+    "max_tokens": 512
+}
