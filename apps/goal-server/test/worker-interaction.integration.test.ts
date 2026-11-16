@@ -263,7 +263,9 @@ async function runInteractionScenario(context: TestContext, route: "direct" | "r
             storesOpen = true;
             scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, readPermissionProfile, commitContinuation: unusedContinuation });
         }
-        const answering = track(route === "direct" ? scheduler.handleInteractionTrigger(interaction, interactionPrincipal) : scheduler.pump());
+        const answering = track(route === "direct"
+            ? scheduler.handleInteractionTrigger(interaction, interactionPrincipal).then(() => undefined)
+            : scheduler.pump());
         if (route !== "reattached-completion") {
             await waitFor(() => resumedRequestOpen);
             assert.deepEqual(requestedModels, [selectedModel, selectedModel]);
@@ -287,12 +289,12 @@ async function runInteractionScenario(context: TestContext, route: "direct" | "r
             assert.equal(stoppedGoal?.state.run.interruption?.status, "finished");
             assert.equal(triggers.queueRecord(goalId)?.status, "terminal");
             assert.deepEqual(scheduler.assignments(), [{ workerId: workerProcesses[0]!.workerId }]);
-            const cancelled = triggers.listGoalTriggers(goalId).filter((trigger) => trigger.type === "response"
+            const cancelled = triggers.listGoalTriggers(goalId).find((trigger) => trigger.type === "response"
                 && trigger.payload.action === "cancelled");
-            assert.equal(cancelled.length, 1);
-            assert.equal(cancelled[0]?.replyTo, work.id);
-            assert.deepEqual(cancelled[0]?.payload, { action: "cancelled", runId: waitingGoal.state.run.id });
-            assert.equal(triggers.routeStatus(cancelled[0]!.id), "routed");
+            if (cancelled?.type !== "response" || cancelled.payload.action !== "cancelled") assert.fail("Expected one cancelled response trigger");
+            assert.equal(cancelled.replyTo, work.id);
+            assert.deepEqual(cancelled.payload, { action: "cancelled", runId: waitingGoal.state.run.id });
+            assert.equal(triggers.routeStatus(cancelled.id), "routed");
             assert.equal(triggers.routeStatus(interaction.id), "routed");
             assert.equal(triggers.routeStatus(stop.id), "routed");
 
@@ -311,7 +313,7 @@ async function runInteractionScenario(context: TestContext, route: "direct" | "r
                 assert.equal(triggers.queueRecord(goalId)?.status, "terminal");
                 assert.equal(triggers.queueRecord(next.goalId)?.status, "waiting");
                 assert.deepEqual(triggers.listGoalTriggers(goalId).filter((trigger) => trigger.type === "response"
-                    && trigger.payload.action === "cancelled"), cancelled);
+                    && trigger.payload.action === "cancelled"), [cancelled]);
             }
             return;
         }

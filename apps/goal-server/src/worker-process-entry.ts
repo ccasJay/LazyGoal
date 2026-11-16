@@ -543,13 +543,18 @@ function parseAttachRequest(value: unknown): { readonly workerId: string; readon
 function parseParentMessage(value: unknown): ParentMessage | undefined {
     if (typeof value !== "object" || value === null || !("kind" in value) || typeof value.kind !== "string") return undefined;
     if (value.kind === "probe" && "requestId" in value && typeof value.requestId === "string") return value as ParentMessage;
-    if (value.kind === "create-goal" && hasExactKeys(value, ["kind", "requestId", "goalId", "intent", "mode"], ["modelSelection"])
-        && typeof value.requestId === "string" && typeof value.goalId === "string" && typeof value.intent === "string"
-        && (value.mode === "normal" || value.mode === "plan")
-        && (value.modelSelection === undefined || isGoalModelSelection(value.modelSelection))) {
+    if (value.kind === "create-goal" && hasExactKeys(value, ["kind", "requestId", "goalId", "intent", "mode"], ["modelSelection"])) {
+        const fields = value as Record<string, unknown>;
+        const requestId = fields.requestId;
+        const goalId = fields.goalId;
+        const intent = fields.intent;
+        const modelSelection = fields.modelSelection;
+        const runMode = fields.mode === "normal" || fields.mode === "plan" ? fields.mode : undefined;
+        if (typeof requestId !== "string" || typeof goalId !== "string" || typeof intent !== "string" || runMode === undefined
+            || (modelSelection !== undefined && !isGoalModelSelection(modelSelection))) return undefined;
         return {
-            kind: "create-goal", requestId: value.requestId, goalId: value.goalId, intent: value.intent, mode: value.mode,
-            ...(value.modelSelection === undefined ? {} : { modelSelection: value.modelSelection as GoalModelSelection }),
+            kind: "create-goal", requestId, goalId, intent, mode: runMode,
+            ...(modelSelection === undefined ? {} : { modelSelection: modelSelection as GoalModelSelection }),
         };
     }
     if (value.kind === "advance" && "requestId" in value && typeof value.requestId === "string"

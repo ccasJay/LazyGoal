@@ -30,7 +30,7 @@ test("worktree 分支绑定 Goal，审核摘要变化会拒绝合并，确认后
     try {
         const shared = await allocateGoalWorkspace(projectRoot, dataDirectory, "goal-shared", "shared");
         assert.equal(shared.mode, "shared");
-        if (shared.mode !== "worktree") assert.equal(shared.executionRoot, shared.projectRoot);
+        assert.equal(shared.executionRoot, shared.projectRoot);
 
         const workspace = await allocateGoalWorkspace(projectRoot, dataDirectory, "goal-isolated", "worktree");
         assert.equal(workspace.mode, "worktree");

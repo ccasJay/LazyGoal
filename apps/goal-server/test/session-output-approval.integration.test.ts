@@ -7,6 +7,7 @@ import { createBrowserSessionAccess } from "../../../packages/browser/src/index"
 import type { JsonValue } from "../../../packages/contracts/src/index";
 import { createTestBinding, objectInputSchema } from "../../../packages/tool-core/test/binding-fixtures";
 import type { LLMAdapter, LLMRequest, LLMResponse } from "../../../packages/llm-core/src/index";
+import { readModelMessageText } from "../../../packages/model-contracts/src/index";
 import { toolCallResponse } from "../../../packages/llm-core/test/response-fixtures";
 import type { AgentProfile, SessionInput, SessionInputAdmissionResult } from "../../../packages/runtime/src/index";
 import { isSeatbeltSupported } from "../../../packages/sandbox/src/index";
@@ -236,7 +237,8 @@ async function waitFor(
 
 /** 判断本次请求是否为完成审查。 */
 function isCompletionReview(request: LLMRequest): boolean {
-    return (request.messages.at(-1)?.content ?? "").includes("runtime_completion_candidate");
+    const prompt = request.messages.at(-1);
+    return prompt === undefined ? false : readModelMessageText(prompt).includes("runtime_completion_candidate");
 }
 
 /**
@@ -245,7 +247,8 @@ function isCompletionReview(request: LLMRequest): boolean {
  * @remarks 完成候选必须引用真实已提交证据；反馈按真实序号列出可引用范围。
  */
 function readEvidenceSequences(request: LLMRequest): number[] {
-    const feedback = request.messages.at(-1)?.content ?? "";
+    const lastMessage = request.messages.at(-1);
+    const feedback = lastMessage === undefined ? "" : readModelMessageText(lastMessage);
     const match = /Valid committed evidence sequences: ([0-9, ]+)/.exec(feedback);
     const captured = match?.[1];
     if (captured === undefined) return [];

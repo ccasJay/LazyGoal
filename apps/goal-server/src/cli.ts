@@ -400,23 +400,21 @@ export async function runServerSession(
             coordinator: {
                 ...root.commands,
                 listPermissionExemptions: async (ref): Promise<readonly BrowserPermissionExemptionSummary[]> => {
-                    const grants = await root.commands.listGrants(ref);
-                    return grants.flatMap((grant) => grant.kind === "sandbox"
-                        ? [{
-                            id: grant.id,
-                            scope: grant.scope,
-                            network: grant.network,
-                            extraFiles: grant.extraFiles.map((file) => ({
-                                canonicalPath: file.canonicalPath,
-                                access: file.access,
-                                kind: file.kind,
-                            })),
-                            status: grant.status,
-                        }]
-                        : []);
+                    const exemptions = await root.commands.listGrants(ref);
+                    return exemptions.map((grant) => ({
+                        id: grant.id,
+                        scope: grant.scope,
+                        network: grant.network,
+                        extraFiles: grant.extraFiles.map((file) => ({
+                            canonicalPath: file.canonicalPath,
+                            access: file.access,
+                            kind: file.kind,
+                        })),
+                        status: grant.status,
+                    }));
                 },
                 revokePermissionExemption: ({ ref, exemptionId }) =>
-                    root.commands.revokeGrant({ ref, kind: "sandbox", grantId: exemptionId }),
+                    root.commands.revokeGrant({ ref, grantId: exemptionId }),
             },
             modelSelectionCoordinator: root.goalModelSelectionCoordinator,
             resolveModelSelection,

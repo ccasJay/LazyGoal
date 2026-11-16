@@ -134,6 +134,7 @@ export class WorkerScheduler {
     private readonly progressTasks = new Set<Promise<void>>();
     private activePump: Promise<void> | undefined;
     private pumpRequested = false;
+    private detached = false;
 
     /**
      * @param options - 同一 workspace 的 Supervisor 所有权、持久队列和文件存储。
@@ -207,17 +208,24 @@ export class WorkerScheduler {
      * ```
      */
     pump(): Promise<void> {
+        if (this.detached) return Promise.resolve();
         this.pumpRequested = true;
         if (this.activePump !== undefined) return this.activePump;
-        this.activePump = (async () => {
+        const cycle = (async () => {
             do {
                 this.pumpRequested = false;
+                if (this.detached) return;
                 await this.recoverWorkers();
+                if (this.detached) return;
                 await this.resumeUnroutedControlTriggers();
+                if (this.detached) return;
                 await this.dispatchQueuedGoals();
+                if (this.detached) return;
                 await this.resumeUnroutedControlTriggers();
-            } while (this.pumpRequested);
-        })().finally(() => { this.activePump = undefined; });
+            } while (this.pumpRequested && !this.detached);
+        })();
+        this.activePump = cycle.finally(() => { this.activePump = undefined; });
+        void cycle.catch(() => undefined);
         return this.activePump;
     }
 
@@ -697,10 +705,12 @@ export class WorkerScheduler {
     }
 
     /**
-     * 关闭空闲 Worker 通道，并从仍持有 Goal 的 Worker 通道安全断开。
+     * 关闭空闲 Worker 通道，并从仍持有 Goal 的 Worker 通道安全断开；分离后本调度器不再访问持久存储。
      *
      * @remarks 活动 Worker 的进程登记、Goal 绑定及本地 outbox 保留，供下一位
      * Supervisor 通过挑战握手重新接管；当前 Supervisor 不再持有这些进程句柄。
+     * 等待中的 pump 循环先排空退出，分离后新的 pump 请求仍是空操作，
+     * 调用方因此可以在本方法返回后立即关闭 Trigger 与 Owner 存储。
      * @throws 关闭或断开任一 Worker 失败时，继续处理其他 Worker 后聚合抛出。
      * @example
      * ```ts
@@ -708,6 +718,9 @@ export class WorkerScheduler {
      * ```
      */
     async detachAll(): Promise<void> {
+        this.detached = true;
+        this.pumpRequested = false;
+        await this.activePump?.catch(() => undefined);
         const failures: unknown[] = [];
         try { await this.closeIdle(); } catch (error) { failures.push(error); }
         for (const [workerId, slot] of this.workers) {
