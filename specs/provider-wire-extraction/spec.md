@@ -107,7 +107,7 @@ packages/
 
 ## 执行记录
 
-- 状态：未执行
-- 验证：-
-- 结果：-
-- 未决：无
+- 状态：blocked
+- 验证：分支 `feature/provider-wire-extraction` 提交 5 个实现提交与 1 个文档提交；`npx tsc --noEmit`、`npm run check:dependencies`、`npm run check:docs` 通过；1630 项目标测试中 1593 通过，唯一失败为 `packages/tools/test/git-write-tools.test.ts`（本机 Git 输出中文，工具按英文消息匹配，与本次改动无关）。
+- 结果：TODO 1–7、10 完成；TODO 8 的注册表选择表与文本转 JSON 兜底已落地，`structured_output_mode` 全量移除未完成；TODO 9 开发 Profile 未建立。
+- 未决：`structured_output_mode` 仍保留在 config、受管档案、Web 契约、Goal 快照与生成契约中；`llm-openai` 作为线格式薄入口暂时保留；开发 Profile 需要用户提供真实端点与凭据。

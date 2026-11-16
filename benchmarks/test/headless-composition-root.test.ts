@@ -974,30 +974,46 @@ test("pi-ai provider-reported usage counts toward benchmark totals", async () =>
     }, trajectoryStore);
     let calls = 0;
     const server = createServer((req, res) => {
-        req.resume();
-        calls += 1;
-        const result = calls === 1
-            ? { kind: "tool_discovery", query: "benchmark evidence" }
-            : calls === 2
-                ? {
-                    kind: "run_stage_update",
-                    stageId: null,
-                    baseRevision: null,
-                    reason: null,
-                    target: "Record evidence",
-                    acceptanceCriteria: ["Evidence recorded"],
-                    memoryPatch: null,
-                    contextNotes: null,
-                }
-                : calls === 3
-                    ? { kind: "tool_call", action: { actionId: "pi-evidence", toolId: "benchmark_evidence", input: {} }, memoryPatch: null }
-                    : calls === 4 ? { kind: "complete", summary: "done", evidenceSequences: [latestObservationSequence(trajectoryStore)], memoryPatch: null, contextNotes: null } : { kind: "accept" };
-        const call = readToolCalls(toolResponseFixture(JSON.stringify({ result })))[0]!;
-        res.setHeader("Content-Type", "text/event-stream");
-        res.end(`data: ${JSON.stringify({
-            id: "pi-usage", model: "local-model", choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, id: call.callId, type: "function", function: { name: call.toolId, arguments: call.argumentsJson } }] }, finish_reason: "tool_calls" }],
-            usage: { prompt_tokens: 100, completion_tokens: 20 },
-        })}\n\ndata: [DONE]\n\n`);
+        let body = "";
+        req.setEncoding("utf8");
+        req.on("data", (chunk) => { body += chunk; });
+        req.on("end", () => {
+            calls += 1;
+            const result = calls === 1
+                ? { kind: "tool_discovery", query: "benchmark evidence" }
+                : calls === 2
+                    ? {
+                        kind: "run_stage_update",
+                        stageId: null,
+                        baseRevision: null,
+                        reason: null,
+                        target: "Record evidence",
+                        acceptanceCriteria: ["Evidence recorded"],
+                        memoryPatch: null,
+                        contextNotes: null,
+                    }
+                    : calls === 3
+                        ? { kind: "tool_call", action: { actionId: "pi-evidence", toolId: "benchmark_evidence", input: {} }, memoryPatch: null }
+                        : calls === 4 ? { kind: "complete", summary: "done", evidenceSequences: [latestObservationSequence(trajectoryStore)], memoryPatch: null, contextNotes: null } : { kind: "accept" };
+            const call = readToolCalls(toolResponseFixture(JSON.stringify({ result })))[0]!;
+            const usage = { prompt_tokens: 100, completion_tokens: 20 };
+            const toolCall = { id: call.callId, type: "function", function: { name: call.toolId, arguments: call.argumentsJson } };
+            if (JSON.parse(body).stream === true) {
+                res.setHeader("Content-Type", "text/event-stream");
+                res.end(`data: ${JSON.stringify({
+                    id: "pi-usage", model: "local-model",
+                    choices: [{ index: 0, delta: { role: "assistant", tool_calls: [{ index: 0, ...toolCall }] }, finish_reason: "tool_calls" }],
+                    usage,
+                })}\n\ndata: [DONE]\n\n`);
+                return;
+            }
+            res.setHeader("Content-Type", "application/json");
+            res.end(JSON.stringify({
+                id: "pi-usage", model: "local-model", created: 1,
+                choices: [{ index: 0, message: { role: "assistant", content: "", tool_calls: [toolCall] }, finish_reason: "tool_calls" }],
+                usage,
+            }));
+        });
     });
     server.listen(0, "127.0.0.1");
     await once(server, "listening");
