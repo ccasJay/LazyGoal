@@ -30,6 +30,14 @@ export {
     createOpenRouterProviderAdapter,
 } from "./openrouter";
 
+export {
+    createOpenAICompatibleAdapter,
+    createOpenAICompatibleCatalogSource,
+    createOpenAICompatibleProviderAdapter,
+} from "./openai-compatible";
+
+export { createConfiguredCatalogSource } from "./configured-catalog";
+
 export { createProviderRegistry } from "./registry";
 export type { ProviderAdapterDefinition, ProviderRegistry } from "./registry";
 

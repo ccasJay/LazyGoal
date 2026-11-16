@@ -26,7 +26,8 @@ test("configuration requires explicit provider, model and key (structuredOutputM
         return true;
     });
     assert.equal(readLLMConfig({ ...base, LLM_API_KEY: "  explicit-key  " }).apiKey, "explicit-key");
-    assert.throws(() => readLLMConfig({ ...base, LLM_PROVIDER: "unknown" }), /Unsupported LLM_PROVIDER/);
+    // 供应商标识为开放字符串；是否已注册由组合根注册表校验。
+    assert.equal(readLLMConfig({ ...base, LLM_PROVIDER: "my-gateway" }).provider, "my-gateway");
     assert.throws(() => readLLMConfig({ ...base, LLM_STRUCTURED_OUTPUT_MODE: "auto" }), /Invalid LLM_STRUCTURED_OUTPUT_MODE/);
 
     // 省略 LLM_STRUCTURED_OUTPUT_MODE 时平滑加载，默认为 prompt_only

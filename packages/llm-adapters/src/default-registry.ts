@@ -1,4 +1,5 @@
 import { createDeepSeekProviderAdapter } from "./deepseek";
+import { createOpenAICompatibleProviderAdapter } from "./openai-compatible";
 import { createOpenAIProviderAdapter } from "./openai";
 import { createOpenCodeGoProviderAdapter } from "./opencode-go";
 import { createOpenRouterProviderAdapter } from "./openrouter";
@@ -24,5 +25,6 @@ export function createDefaultProviderRegistry(): ProviderRegistry {
         createDeepSeekProviderAdapter(),
         createOpenRouterProviderAdapter(),
         createOpenCodeGoProviderAdapter(),
+        createOpenAICompatibleProviderAdapter(),
     ]);
 }

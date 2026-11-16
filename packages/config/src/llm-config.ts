@@ -30,9 +30,6 @@ export function readLLMConfig(env: Readonly<Record<string, string | undefined>>)
     const missing = required.filter(name => !value(name));
     if (missing.length) throw new LLMConfigurationError(missing);
     const provider = value("LLM_PROVIDER");
-    if (!isSupportedLlmProvider(provider)) {
-        throw new LLMConfigurationError([], `Unsupported LLM_PROVIDER "${provider}"`);
-    }
     const rawMode = value("LLM_STRUCTURED_OUTPUT_MODE");
     let mode: StructuredOutputMode = "prompt_only";
     if (rawMode) {
@@ -62,18 +59,19 @@ export function readLLMConfig(env: Readonly<Record<string, string | undefined>>)
         return n;
     };
     const maxOutputTokens = value("LLM_MAX_OUTPUT_TOKENS") ? positive("LLM_MAX_OUTPUT_TOKENS") : undefined;
-    const common = {
-        apiKey: value("LLM_API_KEY"), model: value("LLM_MODEL"), structuredOutputMode: mode,
+    const contextWindowTokens = provider === "openai-compatible"
+        ? positive("LLM_CONTEXT_WINDOW_TOKENS")
+        : undefined;
+    if (contextWindowTokens !== undefined && maxOutputTokens !== undefined && maxOutputTokens >= contextWindowTokens) {
+        throw new LLMConfigurationError([], "LLM_MAX_OUTPUT_TOKENS must be less than LLM_CONTEXT_WINDOW_TOKENS");
+    }
+    return {
+        provider,
+        apiKey: value("LLM_API_KEY"),
+        model: value("LLM_MODEL"),
+        structuredOutputMode: mode,
+        ...(baseURL ? { baseURL } : {}),
+        ...(contextWindowTokens === undefined ? {} : { contextWindowTokens }),
         ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
     };
-    if (provider === "openai-compatible") {
-        const contextWindowTokens = positive("LLM_CONTEXT_WINDOW_TOKENS");
-        if (maxOutputTokens! >= contextWindowTokens) {
-            throw new LLMConfigurationError([], "LLM_MAX_OUTPUT_TOKENS must be less than LLM_CONTEXT_WINDOW_TOKENS");
-        }
-        return { ...common, provider, baseURL, contextWindowTokens, maxOutputTokens: maxOutputTokens! };
-    }
-    if (provider === "openai" || provider === "google") return { ...common, provider, ...(baseURL ? { baseURL } : {}) };
-    if (provider === "opencode-go") return { ...common, provider };
-    return { ...common, provider: provider as "anthropic" | "openrouter" | "deepseek" };
 }

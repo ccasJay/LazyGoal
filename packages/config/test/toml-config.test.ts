@@ -11,14 +11,22 @@ import {
     TomlConfigurationError,
 } from "../src/index";
 
-test("parseTomlConfig 正常解析各小节配置", () => {
+test("parseTomlConfig 正常解析 providers、llm 引用与其它小节", () => {
     const toml = `
-[llm]
-provider = "openai-compatible"
-model = "gpt-4o"
+[providers.openai-compatible.gateway]
 api_key = "sk-test"
 base_url = "https://api.example.com/v1"
-structured_output_mode = "strict"
+
+[[providers.openai-compatible.gateway.models]]
+id = "gpt-4o"
+display_name = "GPT-4o"
+context_window = 128000
+max_output_tokens = 16384
+tools = true
+
+[llm]
+provider = "gateway"
+model = "gpt-4o"
 
 [workspace]
 root = "/custom/project"
@@ -29,15 +37,86 @@ active = "deepseek"
 [tui]
 execution_mode = "confirm"
 `;
-    const config = parseTomlConfig(toml, "/path/to/config.toml");
-    assert.equal(config.llm?.provider, "openai-compatible");
+    const config = parseTomlConfig(toml, "/path/to/config.toml", {
+        knownProviderFamilies: ["openai-compatible"],
+    });
+    const provider = config.providers?.["openai-compatible"]?.["gateway"];
+    assert.equal(provider?.api_key, "sk-test");
+    assert.equal(provider?.base_url, "https://api.example.com/v1");
+    assert.equal(provider?.models?.[0]?.id, "gpt-4o");
+    assert.equal(provider?.models?.[0]?.display_name, "GPT-4o");
+    assert.equal(provider?.models?.[0]?.context_window, 128000);
+    assert.equal(provider?.models?.[0]?.max_output_tokens, 16384);
+    assert.equal(provider?.models?.[0]?.tools, true);
+    assert.equal(config.llm?.provider, "gateway");
     assert.equal(config.llm?.model, "gpt-4o");
-    assert.equal(config.llm?.api_key, "sk-test");
-    assert.equal(config.llm?.base_url, "https://api.example.com/v1");
-    assert.equal(config.llm?.structured_output_mode, "strict");
     assert.equal(config.workspace?.root, "/custom/project");
     assert.equal(config.profile?.active, "deepseek");
     assert.equal(config.tui?.execution_mode, "confirm");
+});
+
+test("parseTomlConfig 拒绝 providers 的未知家族、未知字段与非法容量", () => {
+    const cases: readonly [string, RegExp][] = [
+        [
+            `[providers.mystery.main]\napi_key = "k"\n[[providers.mystery.main.models]]\nid = "m"\ncontext_window = 10\nmax_output_tokens = 5`,
+            /未知的供应商家族: mystery/,
+        ],
+        [
+            `[providers.openai.main]\napi_key = "k"\nunknown = 1\n[[providers.openai.main.models]]\nid = "m"\ncontext_window = 10\nmax_output_tokens = 5`,
+            /包含未知字段: unknown/,
+        ],
+        [
+            `[providers.openai.main]\napi_key = "k"\n[[providers.openai.main.models]]\nid = "m"\nmax_output_tokens = 5`,
+            /context_window 必须为正的安全整数/,
+        ],
+        [
+            `[providers.openai.main]\napi_key = "k"\n[[providers.openai.main.models]]\nid = "m"\ncontext_window = 10\nmax_output_tokens = 10`,
+            /max_output_tokens 必须小于 context_window/,
+        ],
+        [
+            `[providers.openai.main]\napi_key = "k"\n[[providers.openai.main.models]]\nid = "m"\ncontext_window = 10\nmax_output_tokens = 5\n[[providers.openai.main.models]]\nid = "m"\ncontext_window = 10\nmax_output_tokens = 5`,
+            /模型标识 "m" 重复/,
+        ],
+        [
+            `[providers.openai-compatible.main]\napi_key = "k"\n[[providers.openai-compatible.main.models]]\nid = "m"\ncontext_window = 10\nmax_output_tokens = 5`,
+            /必须声明 base_url/,
+        ],
+    ];
+    for (const [toml, pattern] of cases) {
+        assert.throws(
+            () => parseTomlConfig(toml, "config.toml", { knownProviderFamilies: ["openai", "openai-compatible"] }),
+            (error: unknown) => error instanceof TomlConfigurationError && pattern.test(error.message),
+        );
+    }
+});
+
+test("parseTomlConfig 拒绝跨家族重复的供应商标识", () => {
+    const toml = `
+[providers.openai.main]
+api_key = "k"
+[[providers.openai.main.models]]
+id = "m"
+context_window = 10
+max_output_tokens = 5
+
+[providers.deepseek.main]
+api_key = "k"
+[[providers.deepseek.main.models]]
+id = "m"
+context_window = 10
+max_output_tokens = 5
+`;
+    assert.throws(
+        () => parseTomlConfig(toml, "config.toml", { knownProviderFamilies: ["openai", "deepseek"] }),
+        (error: unknown) => error instanceof TomlConfigurationError && /供应商标识 "main" 重复/.test(error.message),
+    );
+});
+
+test("parseProfileToml 的 [llm] 只接受 provider 与 model", () => {
+    assert.throws(
+        () => parseProfileToml(`name = "work"\n[llm]\nprovider = "main"\nmodel = "gpt-4o"\napi_key = "sk-never"`),
+        (error: unknown) => error instanceof TomlConfigurationError && /未知字段: api_key/.test(error.message),
+    );
 });
 
 test("parseTomlConfig 遇到语法错误精准报告行号", () => {

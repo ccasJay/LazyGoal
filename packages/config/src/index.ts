@@ -57,6 +57,10 @@ export {
 } from "./toml-config";
 export type {
     LLMTomlSection,
+    ProviderModelTomlSection,
+    ProviderTomlSection,
+    ProvidersTomlSection,
+    TomlParseOptions,
     WorkspaceTomlSection,
     ProfileTomlSection,
     TuiTomlSection,
@@ -67,4 +71,11 @@ export type {
     ProfileTomlConfig,
 } from "./toml-config";
 export { loadRuntimeConfig, loadReflectionRuntimeConfig, loadGepaModelConfigs, loadContextConfig } from "./config-loader";
-export type { CliConfigOverrides, LazyGoalRuntimeConfig, LoadConfigOptions, GepaModelConfigs } from "./config-loader";
+export type {
+    CliConfigOverrides,
+    LazyGoalRuntimeConfig,
+    LoadConfigOptions,
+    GepaModelConfigs,
+    RuntimeModelDeclaration,
+    RuntimeProviderDeclaration,
+} from "./config-loader";

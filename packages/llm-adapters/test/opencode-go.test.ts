@@ -101,7 +101,7 @@ test("OpenCode Go 在模型不支持时把 required 工具选择降级为 auto",
 
 test("默认注册表登记内置供应商与其目录来源", () => {
     const registry = createDefaultProviderRegistry();
-    assert.deepEqual(registry.ids(), ["openai", "deepseek", "openrouter", "opencode-go"]);
+    assert.deepEqual(registry.ids(), ["openai", "deepseek", "openrouter", "opencode-go", "openai-compatible"]);
     assert.equal(registry.require("opencode-go").catalog.provider, "opencode-go");
     assert.equal(registry.require("openai").catalog.provider, "openai");
     assert.ok(createOpenAICatalogSource().staticModels.length > 0);

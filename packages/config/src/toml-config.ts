@@ -2,6 +2,8 @@ import { parse as parseToml } from "smol-toml";
 import { join } from "node:path";
 import { readdir, readFile } from "node:fs/promises";
 
+import { isAcceptableBaseUrl, isPositiveSafeInteger } from "./provider-rules";
+
 /**
  * TOML 解析或语义校验失败的结构化异常。
  *
@@ -26,31 +28,77 @@ export class TomlConfigurationError extends Error {
 }
 
 /**
- * `[llm]` 小节配置结构。
+ * `[llm]` 选择小节：只引用 `providers.<family>.<name>` 中的供应商与模型。
  *
  * @example
  * ```ts
- * const llm: LLMTomlSection = { provider: "openai", model: "gpt-4o" };
+ * const llm: LLMTomlSection = { provider: "mistral-gateway", model: "mistral-large-latest" };
  * ```
  */
 export interface LLMTomlSection {
-    /** 模型提供商标识（如 openai, google, openai-compatible 等）。 */
+    /** 引用的供应商标识，即 `providers.<family>.<name>` 中的 `name`。 */
     provider?: string;
-    /** 选用的模型名称。 */
+    /** 该供应商 `models[]` 中声明的模型标识。 */
     model?: string;
-    /** API 访问密钥凭据。 */
-    api_key?: string;
-    /** 覆盖基础请求端点 URL。 */
-    base_url?: string;
-    /** 结构化输出模式（strict 或 prompt_only）。 */
-    structured_output_mode?: string;
-    /** 上下文窗口 Token 限制。 */
-    context_window_tokens?: number;
-    /** 最大输出 Token 限制。 */
-    max_output_tokens?: number;
-    /** Tokenizer 编码名称。 */
-    tokenizer_encoding?: string;
 }
+
+/**
+ * 供应商 `models[]` 中的单个模型声明。
+ *
+ * @remarks
+ * `context_window` 与 `max_output_tokens` 必须为正整数且后者小于前者；
+ * 能力位可选，缺省时由适配器或目录决定。
+ *
+ * @example
+ * ```toml
+ * [[providers.openai.main.models]]
+ * id = "gpt-4o"
+ * context_window = 128000
+ * max_output_tokens = 16384
+ * ```
+ */
+export interface ProviderModelTomlSection {
+    /** 供应商内唯一的模型标识。 */
+    id?: string;
+    /** 面向用户的模型名称；省略时使用标识。 */
+    display_name?: string;
+    /** 上下文窗口 Token 容量。 */
+    context_window?: number;
+    /** 单次补全最大输出 Token。 */
+    max_output_tokens?: number;
+    /** 是否具备原生推理能力。 */
+    reasoning?: boolean;
+    /** 是否接受视觉输入。 */
+    vision?: boolean;
+    /** 是否支持工具调用。 */
+    tools?: boolean;
+    /** 是否接受强制工具选择。 */
+    supports_required_tool_choice?: boolean;
+    /** 是否原生约束结构化输出。 */
+    native_structured_output?: boolean;
+}
+
+/**
+ * `providers.<family>.<name>` 中的单个供应商连接。
+ *
+ * @example
+ * ```toml
+ * [providers.openai-compatible.mistral]
+ * api_key = "..."
+ * base_url = "https://gateway.example/v1"
+ * ```
+ */
+export interface ProviderTomlSection {
+    /** API 访问凭据。 */
+    api_key?: string;
+    /** 端点覆盖；`openai-compatible` 家族必填。 */
+    base_url?: string;
+    /** 该供应商声明的模型列表；至少一项。 */
+    models?: ProviderModelTomlSection[];
+}
+
+/** `providers` 小节：家族 → 供应商标识 → 连接声明。 */
+export type ProvidersTomlSection = Readonly<Record<string, Readonly<Record<string, ProviderTomlSection>>>>;
 
 /**
  * `[workspace]` 小节配置结构。
@@ -166,6 +214,7 @@ export interface GepaConfig {
  */
 export interface LazyGoalTomlConfig {
     llm?: LLMTomlSection;
+    providers?: ProvidersTomlSection;
     workspace?: WorkspaceTomlSection;
     profile?: ProfileTomlSection;
     tui?: TuiTomlSection;
@@ -193,27 +242,40 @@ export interface ProfileTomlConfig {
     tui?: TuiTomlSection;
 }
 
-const ALLOWED_CONFIG_SECTIONS = new Set(["llm", "workspace", "profile", "tui", "context", "gepa"]);
+const ALLOWED_CONFIG_SECTIONS = new Set(["llm", "providers", "workspace", "profile", "tui", "context", "gepa"]);
 const ALLOWED_GEPA_FIELDS = new Set(["reflection_profile"]);
 const ALLOWED_CONTEXT_FIELDS = new Set(["epoch_limit_tokens", "compact_threshold_percent"]);
-const ALLOWED_LLM_FIELDS = new Set([
-    "provider", "model", "api_key", "base_url", "structured_output_mode",
-    "context_window_tokens", "max_output_tokens", "tokenizer_encoding",
+const ALLOWED_LLM_FIELDS = new Set(["provider", "model"]);
+const ALLOWED_PROVIDER_FIELDS = new Set(["api_key", "base_url", "models"]);
+const ALLOWED_PROVIDER_MODEL_FIELDS = new Set([
+    "id", "display_name", "context_window", "max_output_tokens",
+    "reasoning", "vision", "tools", "supports_required_tool_choice", "native_structured_output",
 ]);
+
+/** 解析主配置时可注入的校验事实。 */
+export interface TomlParseOptions {
+    /** 组合根已注册的供应商家族；省略时跳过家族校验。 */
+    readonly knownProviderFamilies?: readonly string[] | undefined;
+}
 
 /**
  * 解析并强校验主配置 TOML 文本。
  *
  * @param content - 原始 TOML 文本。
  * @param filePath - 可选的文件绝对路径，用于精准报错定位。
+ * @param options - 可选的可信供应商家族集合。
  * @returns 经过校验的配置对象。
  * @throws TomlConfigurationError 当语法错误或包含未知小节/字段时快速失败。
  * @example
  * ```ts
- * const config = parseTomlConfig("[llm]\nprovider = 'openai'", "config.toml");
+ * const config = parseTomlConfig("[llm]\nprovider = 'main'", "config.toml", { knownProviderFamilies: ["openai"] });
  * ```
  */
-export function parseTomlConfig(content: string, filePath?: string): LazyGoalTomlConfig {
+export function parseTomlConfig(
+    content: string,
+    filePath?: string,
+    options: TomlParseOptions = {},
+): LazyGoalTomlConfig {
     let raw: Record<string, unknown>;
     try {
         raw = parseToml(content) as Record<string, unknown>;
@@ -248,6 +310,16 @@ export function parseTomlConfig(content: string, filePath?: string): LazyGoalTom
                 throw new TomlConfigurationError(`[llm] 小节包含未知字段: ${field}`, filePath);
             }
         }
+        for (const field of ["provider", "model"] as const) {
+            if (llm[field] !== undefined && (typeof llm[field] !== "string" || (llm[field] as string).trim().length === 0)) {
+                throw new TomlConfigurationError(`[llm].${field} 必须为非空字符串`, filePath);
+            }
+        }
+    }
+
+    // 校验 [providers] 小节
+    if (raw.providers !== undefined) {
+        validateProvidersSection(raw.providers, filePath, options.knownProviderFamilies);
     }
 
     // 校验 [context] 小节字段
@@ -332,6 +404,21 @@ export function parseProfileToml(content: string, filePath?: string): ProfileTom
         }
     }
 
+    if (raw.llm !== undefined) {
+        const llm = raw.llm;
+        if (typeof llm !== "object" || llm === null || Array.isArray(llm)) {
+            throw new TomlConfigurationError("Profile 的 [llm] 必须为对象", filePath);
+        }
+        for (const [field, value] of Object.entries(llm as Record<string, unknown>)) {
+            if (!ALLOWED_LLM_FIELDS.has(field)) {
+                throw new TomlConfigurationError(`Profile 的 [llm] 包含未知字段: ${field}`, filePath);
+            }
+            if (typeof value !== "string" || value.trim().length === 0) {
+                throw new TomlConfigurationError(`Profile 的 [llm].${field} 必须为非空字符串`, filePath);
+            }
+        }
+    }
+
     return raw as ProfileTomlConfig;
 }
 
@@ -374,6 +461,106 @@ export async function loadProfileToml(profileName: string, profilesDir: string):
             targetFile,
         );
     }
+}
+
+/** 校验 `[providers]` 小节的结构、字段、容量与标识唯一性。 */
+function validateProvidersSection(
+    value: unknown,
+    filePath: string | undefined,
+    knownProviderFamilies: readonly string[] | undefined,
+): void {
+    if (!isRecord(value)) {
+        throw new TomlConfigurationError("[providers] 必须为以家族分组的对象", filePath);
+    }
+    const seenNames = new Set<string>();
+    for (const [family, familyValue] of Object.entries(value)) {
+        if (knownProviderFamilies !== undefined && !knownProviderFamilies.includes(family)) {
+            throw new TomlConfigurationError(`未知的供应商家族: ${family}`, filePath);
+        }
+        if (!isRecord(familyValue)) {
+            throw new TomlConfigurationError(`[providers.${family}] 必须为对象`, filePath);
+        }
+        for (const [name, providerValue] of Object.entries(familyValue)) {
+            const label = `providers.${family}.${name}`;
+            if (name.trim().length === 0) {
+                throw new TomlConfigurationError(`[providers.${family}] 中的供应商标识不得为空`, filePath);
+            }
+            if (seenNames.has(name)) {
+                throw new TomlConfigurationError(`供应商标识 "${name}" 重复`, filePath);
+            }
+            seenNames.add(name);
+            if (!isRecord(providerValue)) {
+                throw new TomlConfigurationError(`[${label}] 必须为对象`, filePath);
+            }
+            for (const field of Object.keys(providerValue)) {
+                if (!ALLOWED_PROVIDER_FIELDS.has(field)) {
+                    throw new TomlConfigurationError(`[${label}] 包含未知字段: ${field}`, filePath);
+                }
+            }
+            const apiKey = providerValue.api_key;
+            if (typeof apiKey !== "string" || apiKey.trim().length === 0) {
+                throw new TomlConfigurationError(`[${label}].api_key 必须为非空字符串`, filePath);
+            }
+            const baseURL = providerValue.base_url;
+            if (baseURL !== undefined) {
+                if (typeof baseURL !== "string" || !isAcceptableBaseUrl(baseURL)) {
+                    throw new TomlConfigurationError(`[${label}].base_url 必须是不含凭据、查询与片段的 HTTP(S) URL`, filePath);
+                }
+            } else if (family === "openai-compatible") {
+                throw new TomlConfigurationError(`[${label}] 必须声明 base_url`, filePath);
+            }
+            const models = providerValue.models;
+            if (!Array.isArray(models) || models.length === 0) {
+                throw new TomlConfigurationError(`[${label}] 必须声明至少一个模型`, filePath);
+            }
+            const seenIds = new Set<string>();
+            for (const [index, modelValue] of models.entries()) {
+                const modelLabel = `${label}.models[${index}]`;
+                if (!isRecord(modelValue)) {
+                    throw new TomlConfigurationError(`[${modelLabel}] 必须为对象`, filePath);
+                }
+                for (const field of Object.keys(modelValue)) {
+                    if (!ALLOWED_PROVIDER_MODEL_FIELDS.has(field)) {
+                        throw new TomlConfigurationError(`[${modelLabel}] 包含未知字段: ${field}`, filePath);
+                    }
+                }
+                const id = modelValue.id;
+                if (typeof id !== "string" || id.trim().length === 0) {
+                    throw new TomlConfigurationError(`[${modelLabel}].id 必须为非空字符串`, filePath);
+                }
+                if (seenIds.has(id)) {
+                    throw new TomlConfigurationError(`[${label}] 中的模型标识 "${id}" 重复`, filePath);
+                }
+                seenIds.add(id);
+                if (modelValue.display_name !== undefined
+                    && (typeof modelValue.display_name !== "string" || modelValue.display_name.trim().length === 0)) {
+                    throw new TomlConfigurationError(`[${modelLabel}].display_name 必须为非空字符串`, filePath);
+                }
+                const contextWindow = modelValue.context_window;
+                if (typeof contextWindow !== "number" || !isPositiveSafeInteger(contextWindow)) {
+                    throw new TomlConfigurationError(`[${modelLabel}].context_window 必须为正的安全整数`, filePath);
+                }
+                const maxOutputTokens = modelValue.max_output_tokens;
+                if (typeof maxOutputTokens !== "number" || !isPositiveSafeInteger(maxOutputTokens)) {
+                    throw new TomlConfigurationError(`[${modelLabel}].max_output_tokens 必须为正的安全整数`, filePath);
+                }
+                if (maxOutputTokens >= contextWindow) {
+                    throw new TomlConfigurationError(`[${modelLabel}].max_output_tokens 必须小于 context_window`, filePath);
+                }
+                for (const flag of [
+                    "reasoning", "vision", "tools", "supports_required_tool_choice", "native_structured_output",
+                ] as const) {
+                    if (modelValue[flag] !== undefined && typeof modelValue[flag] !== "boolean") {
+                        throw new TomlConfigurationError(`[${modelLabel}].${flag} 必须为布尔值`, filePath);
+                    }
+                }
+            }
+        }
+    }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**

@@ -184,6 +184,9 @@ export class PiAiAdapter implements LLMAdapter {
             throw new LLMConfigurationError([], `Unsupported execution API "${String(executionApi)}" for provider "${config.provider}"`);
         }
         if (config.provider === "openai-compatible") {
+            if (config.baseURL === undefined || config.contextWindowTokens === undefined || config.maxOutputTokens === undefined) {
+                throw new LLMConfigurationError([], "OpenAI-compatible connections require a base URL and model capacities");
+            }
             this.model = {
                 id: config.model, name: config.model, provider: config.provider,
                 api: "openai-completions", baseUrl: config.baseURL,
@@ -247,7 +250,11 @@ export class PiAiAdapter implements LLMAdapter {
             });
             this.model = model;
         } else {
-            this.models.setProvider(factories[config.provider]());
+            const factory = factories[config.provider as keyof typeof factories];
+            if (factory === undefined) {
+                throw new LLMConfigurationError([], `Unsupported provider "${config.provider}" for the pi-ai adapter`);
+            }
+            this.models.setProvider(factory());
             const model = this.models.getModel(config.provider, config.model);
             if (model === undefined) {
                 throw new LLMConfigurationError([], `Unknown model "${config.model}" for provider "${config.provider}" in the pinned pi-ai catalog`);

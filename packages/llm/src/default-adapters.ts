@@ -1,7 +1,18 @@
 import { LLMConfigurationError, type LLMAdapter, type LLMConfig } from "../../llm-core/src/index";
-import { Gemini } from "../../llm-google/src/index";
+import { Gemini, type GeminiConfig } from "../../llm-google/src/index";
 import { OpenAICompatible, StructuredOutputModeOpenAICompatible } from "../../llm-openai/src/index";
 import { PiAiAdapter } from "../../llm-pi-ai/src/index";
+
+/** 把共享连接配置投影为 Gemini 专属配置，不为缺省字段伪造值。 */
+function toGeminiConfig(config: LLMConfig): GeminiConfig {
+    return {
+        apiKey: config.apiKey,
+        model: config.model,
+        structuredOutputMode: config.structuredOutputMode,
+        ...(config.baseURL === undefined ? {} : { baseURL: config.baseURL }),
+        ...(config.maxOutputTokens === undefined ? {} : { maxOutputTokens: config.maxOutputTokens }),
+    };
+}
 
 /**
  * 同一供应商与模型下供 Runtime 两阶段执行使用的 Adapter 对。
@@ -57,7 +68,7 @@ export function createLlmAdapter(config: LLMConfig): LLMAdapter {
                 ...(stageConfig.maxOutputTokens === undefined ? {} : { maxOutputTokens: stageConfig.maxOutputTokens }),
             }, stageConfig.structuredOutputMode);
         case "google":
-            return new Gemini(stageConfig);
+            return new Gemini(toGeminiConfig(stageConfig));
         default:
             throw new LLMConfigurationError([], `Provider "${stageConfig.provider}" does not support ${stageConfig.structuredOutputMode} output; select prompt_only`);
     }
@@ -76,6 +87,9 @@ export function createLlmAdapter(config: LLMConfig): LLMAdapter {
  */
 export function createLlmStageAdapters(config: LLMConfig): Readonly<LlmStageAdapters> {
     if (config.provider === "openai-compatible") {
+        if (config.baseURL === undefined) {
+            throw new LLMConfigurationError([], "openai-compatible requires an explicit baseURL");
+        }
         const requestDrivenAdapter = new OpenAICompatible({
             apiKey: config.apiKey,
             provider: "openai-compatible",
@@ -121,7 +135,7 @@ export function createLlmStageAdapters(config: LLMConfig): Readonly<LlmStageAdap
 export function createReflectionLlmAdapter(config: LLMConfig): LLMAdapter {
     switch (config.provider) {
         case "google":
-            return new Gemini(config);
+            return new Gemini(toGeminiConfig(config));
         case "openai":
         case "openai-compatible":
             return new StructuredOutputModeOpenAICompatible({

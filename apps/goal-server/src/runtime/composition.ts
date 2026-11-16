@@ -102,6 +102,7 @@ import {
     type LLMConfig,
 } from "../../../../packages/llm-core/src/index";
 import { loadContextConfig, loadRuntimeConfig } from "../../../../packages/config/src/index";
+import type { RuntimeProviderDeclaration } from "../../../../packages/config/src/index";
 import {
     ensureSecureConfigFile,
     ensureSecureHomeDirectories,
@@ -118,6 +119,8 @@ import {
 } from "../../../../packages/model-catalog/src/index";
 import {
     createBuiltinCatalogSources,
+    createConfiguredCatalogSource,
+    createDefaultProviderRegistry,
     resolveOpenCodeGoExecutionMetadata,
 } from "../../../../packages/llm-adapters/src/index";
 import {
@@ -548,6 +551,8 @@ async function assembleRuntimeComposition(
 ): Promise<RuntimeComposition> {
     const env = options.env ?? process.env;
     const homePaths = resolveLazyGoalHomePaths(env);
+    const providerRegistry = createDefaultProviderRegistry();
+    let declaredProviders: readonly RuntimeProviderDeclaration[] = [];
     const providerProfileStore = options.providerProfileStore ?? new JsonFileProviderProfileStore(homePaths);
     // 注入适配器时由调用方拥有模型构造，不读取真实 Home 的 Provider 档案，保持测试与外部组合的确定性。
     const managesProviderProfiles = options.providerProfiles !== undefined || options.adapter === undefined;
@@ -595,8 +600,13 @@ async function assembleRuntimeComposition(
                 const hasHomeConfig = existsSync(homePaths.configFile)
                     || existsSync(join(homePaths.profilesDir, "default.toml"));
                 if (hasHomeConfig) {
-                    const runtimeConfig = await loadRuntimeConfig({ env, homePaths });
+                    const runtimeConfig = await loadRuntimeConfig({
+                        env,
+                        homePaths,
+                        knownProviderFamilies: providerRegistry.ids(),
+                    });
                     llmConfig = runtimeConfig.llm;
+                    declaredProviders = runtimeConfig.providers ?? [];
                 } else {
                     if (error instanceof LLMConfigurationError) {
                         throw new LLMConfigurationError(
@@ -610,6 +620,13 @@ async function assembleRuntimeComposition(
         }
         configuredStageAdapters = createLlmStageAdapters(configuredModelAdapterConfig(llmConfig));
         adapter = configuredStageAdapters.decideAdapter;
+    }
+    if (llmConfig !== undefined) {
+        const declared = declaredProviders.some(entry => entry.provider === llmConfig!.provider);
+        const legacy = llmConfig.provider === "anthropic" || llmConfig.provider === "google";
+        if (!providerRegistry.has(llmConfig.provider) && !declared && !legacy) {
+            throw new LLMConfigurationError([], `Unknown provider "${llmConfig.provider}"; register an adapter or declare it under [providers.<family>.<name>]`);
+        }
     }
     const conversationCharBudget = readConversationCharBudget(env);
     const configuredEstimator = resolveModelInputEstimator(options.modelInputEstimator);
@@ -923,8 +940,23 @@ async function assembleRuntimeComposition(
         }
         return Object.freeze({ thinkAdapter: adapter, decideAdapter: adapter });
     };
+    const configuredSources = declaredProviders.map(declaration => createConfiguredCatalogSource(
+        providerRegistry.require(declaration.family),
+        declaration.provider,
+        declaration.models.map(model => ({
+            id: model.id,
+            displayName: model.displayName,
+            contextWindowTokens: model.contextWindowTokens,
+            maxOutputTokens: model.maxOutputTokens,
+            ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
+            ...(model.vision === undefined ? {} : { vision: model.vision }),
+            ...(model.supportsRequiredToolChoice === undefined
+                ? {}
+                : { supportsRequiredToolChoice: model.supportsRequiredToolChoice }),
+        })),
+    ));
     const modelCatalog = options.modelCatalog ?? createLlmModelCatalog({
-        sources: createBuiltinCatalogSources(),
+        sources: [...createBuiltinCatalogSources(), ...configuredSources],
         isProtocolImplemented: protocol => protocol === "chat-completions"
             || protocol === "anthropic-messages"
             || protocol === "google-generate-content",

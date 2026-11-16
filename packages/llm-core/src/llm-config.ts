@@ -1,3 +1,5 @@
+import type { ProviderId } from "./ids";
+
 /**
  * 模型请求支持的输出结构模式。
  *
@@ -11,8 +13,15 @@
  */
 export type StructuredOutputMode = "strict" | "prompt_only" | "two_stage";
 
-/** 本期开放的供应商；兼容端点使用独立标识，不推断协议。 */
-export type LLMProvider = "openai" | "google" | "anthropic" | "openrouter" | "deepseek" | "openai-compatible" | "opencode-go";
+/**
+ * 供应商标识；开放字符串，由组合根按适配器注册表校验。
+ *
+ * @example
+ * ```ts
+ * const provider: LLMProvider = "mistral-gateway";
+ * ```
+ */
+export type LLMProvider = ProviderId;
 
 /**
  * Runtime 支持的模型执行 API 家族。
@@ -27,53 +36,49 @@ export type LLMProvider = "openai" | "google" | "anthropic" | "openrouter" | "de
  */
 export type LLMExecutionApi = "openai-completions";
 
-type CommonConfig = {
-    readonly apiKey: string;
-    readonly model: string;
-    readonly structuredOutputMode: StructuredOutputMode;
-    readonly maxOutputTokens?: number;
-};
-
 /**
  * 已校验的供应商连接配置；凭据由调用方提供，不查询其它凭据源。
  *
  * @remarks
- * 自定义模型必须声明容量；目录模型只允许覆盖输出上限。
- * OpenAI 与 Google 可覆盖端点；Google baseURL 是包含所需版本路径的完整 API 前缀。
- * OpenCode Go 在线模型由服务端目录提供执行 API、容量、推理和工具选择能力，端点仍由适配器固定拥有。
- * 配置不写入 Goal 或 Diagnostic Trace。
- * 本类型是无 I/O 的数据契约；环境与 TOML/Profile 的读取、合并和校验归 `@lazygoal/config` 的 `readLLMConfig` 与加载器。
+ * 供应商标识为开放字符串，适配器由组合根注册表解析；配置只携带连接与模型事实，不携带供应商分支。
+ * 端点、容量与能力字段可选，缺省时由适配器或目录决定；配置不写入 Goal 或 Diagnostic Trace。
+ * 本类型是无 I/O 的数据契约；环境、TOML/Profile 与受管档案的读取、合并和校验归 `@lazygoal/config`。
  * @example
  * ```ts
  * const config: LLMConfig = {
- *     provider: "anthropic", model: "claude-sonnet-4-5",
+ *     provider: "mistral-gateway", model: "mistral-large-latest",
  *     apiKey: "secret", structuredOutputMode: "prompt_only",
- * };
- * const dynamic: LLMConfig = {
- *     provider: "opencode-go", model: "minimax-m3.1-flash-free", apiKey: "secret",
- *     structuredOutputMode: "prompt_only", executionApi: "openai-completions",
- *     contextWindowTokens: 1_000_000, maxOutputTokens: 524_288, reasoning: true,
- *     vision: false, supportsRequiredToolChoice: false,
+ *     baseURL: "https://gateway.example.test/v1",
+ *     contextWindowTokens: 131_072, maxOutputTokens: 8_192,
  * };
  * ```
  */
-export type LLMConfig = CommonConfig & (
-    | { readonly provider: "openai" | "google"; readonly baseURL?: string }
-    | { readonly provider: "anthropic" | "openrouter" | "deepseek" }
-    | { readonly provider: "opencode-go"; readonly executionApi?: undefined }
-    | {
-        readonly provider: "opencode-go";
-        readonly executionApi: LLMExecutionApi;
-        readonly contextWindowTokens: number;
-        readonly maxOutputTokens: number;
-        readonly reasoning: boolean;
-        /** 模型是否接受图像等视觉输入；未提供时由静态模型目录决定。 */
-        readonly vision?: boolean | undefined;
-        /** OpenAI Chat Completions 路径是否接受强制工具选择；未知或不支持时使用 `auto`。 */
-        readonly supportsRequiredToolChoice?: boolean | undefined;
-    }
-    | { readonly provider: "openai-compatible"; readonly baseURL: string; readonly contextWindowTokens: number; readonly maxOutputTokens: number }
-);
+export interface LLMConfig {
+    /** 供应商标识；由组合根按注册表解析。 */
+    readonly provider: ProviderId;
+    /** API 访问凭据。 */
+    readonly apiKey: string;
+    /** 请求使用的模型标识；只在供应商内唯一。 */
+    readonly model: string;
+    /** 当前入口固定的输出策略；请求驱动适配器忽略此字段。 */
+    readonly structuredOutputMode: StructuredOutputMode;
+    /** 端点覆盖；适配器声明是否接受。 */
+    readonly baseURL?: string | undefined;
+    /** 上下文窗口 Token 容量；未知时省略。 */
+    readonly contextWindowTokens?: number | undefined;
+    /** 单次补全最大输出 Token。 */
+    readonly maxOutputTokens?: number | undefined;
+    /** 服务端目录解析的协议族；仅用于动态模型。 */
+    readonly executionApi?: LLMExecutionApi | undefined;
+    /** 模型是否具备原生推理能力。 */
+    readonly reasoning?: boolean | undefined;
+    /** 模型是否接受图像等视觉输入。 */
+    readonly vision?: boolean | undefined;
+    /** 供应商是否接受强制工具选择；未知时按适配器默认处理。 */
+    readonly supportsRequiredToolChoice?: boolean | undefined;
+    /** 供应商是否原生约束结构化输出；false 时使用文本转 JSON 兜底。 */
+    readonly nativeStructuredOutput?: boolean | undefined;
+}
 
 /**
  * 共享模型配置错误，在创建 Goal、Store 或发起请求前报告。

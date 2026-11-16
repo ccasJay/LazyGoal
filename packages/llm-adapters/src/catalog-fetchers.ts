@@ -15,7 +15,7 @@ export interface ProviderModelConnection {
     readonly provider: LLMProvider;
     readonly apiKey: string;
     /** 已由调用边界按供应商规则验证的端点。 */
-    readonly baseURL?: string;
+    readonly baseURL?: string | undefined;
 }
 
 /**
@@ -149,10 +149,8 @@ export class DefaultProviderModelFetcher {
                     return await this.fetchOpenAiCompatible(config, executeRequest);
                 case "opencode-go":
                     return await this.fetchOpenCodeGo(config, executeRequest);
-                default: {
-                    const exhaustive: never = config.provider;
-                    throw new ModelCatalogError("unsupported", `Unsupported provider: ${exhaustive}`);
-                }
+                default:
+                    throw new ModelCatalogError("unsupported", `Unsupported provider: ${config.provider}`);
             }
         } finally {
             clearTimeout(timer);

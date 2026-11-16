@@ -100,7 +100,7 @@ packages/
 - [x] //TODO 4. 建立开放 provider 注册表与 `llm-adapters` 结构，先落 OpenAI 官方适配器（含 `discover`）→ R2.1、R3.2；检查：注册表、未知 id 拒绝与声明测试
 - [x] //TODO 5. DeepSeek 与 OpenRouter 复用 chat wire → R2.2；检查：端点与请求头断言
 - [x] //TODO 6. OpenCode Go 适配器声明固定端点与会话头，协议分发保持 chat 等价 → R2.3；检查：端点、请求头与分发断言
-- [ ] //TODO 7. 把自定义 compatible 收敛为由配置生成的 `CatalogSource`，与内置供应商同构 → R3.1；检查：配置校验与同构断言
+- [x] //TODO 7. 把自定义 compatible 收敛为由配置生成的 `CatalogSource`，与内置供应商同构 → R3.1；检查：配置校验与同构断言
 - [ ] //TODO 8. 收敛 `llm` 选择表与 `llm-core` 文本转 JSON 兜底 → R4.1；检查：选择表测试
 - [ ] //TODO 9. 建立开发 Profile：全部工具、自定义 openai-compatible 与 Mistral 取值，供真实端点验证 → R1.4、R3.1；检查：真实端点跑通一次 Goal
 - [ ] //TODO 10. 同步五个包的概览、语义表与根 README 布局 → R2.1；检查：`npm run check:docs`
