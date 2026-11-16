@@ -37,6 +37,8 @@ export interface ProviderAdapterDefinition {
 export interface ProviderRegistry {
     /** 当前已注册的供应商标识，按注册顺序。 */
     ids(): readonly ProviderId[];
+    /** 当前已注册的适配器声明。 */
+    definitions(): readonly ProviderAdapterDefinition[];
     /** 判定供应商标识是否已注册。 */
     has(id: ProviderId): boolean;
     /**
@@ -77,6 +79,7 @@ export function createProviderRegistry(
     }
     return {
         ids: () => definitions.map(definition => definition.id),
+        definitions: () => definitions,
         has: id => byId.has(id),
         require: (id) => {
             const definition = byId.get(id);

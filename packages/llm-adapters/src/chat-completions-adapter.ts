@@ -3,6 +3,7 @@ import type {
     LLMRequest,
     LLMResponse,
     LLMStreamEvent,
+    NativeConversationIdentity,
 } from "../../llm-core/src/index";
 import type { ExecutionControl } from "../../execution-control/src/index";
 import {
@@ -25,8 +26,13 @@ import {
  * ```
  */
 export class ChatCompletionsAdapter implements LLMAdapter {
+    /** 无凭据的原生回放身份；供 Decide 原生路径与历史重建使用。 */
+    readonly nativeConversationIdentity: NativeConversationIdentity;
+
     /** @param connection - 端点、请求头、身份与协议能力事实。 */
-    constructor(readonly connection: ChatCompletionsConnection) {}
+    constructor(readonly connection: ChatCompletionsConnection) {
+        this.nativeConversationIdentity = connection.identity;
+    }
 
     /**
      * @param request - 供应商无关的生成请求。

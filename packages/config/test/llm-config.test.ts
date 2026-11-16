@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { readLLMConfig } from "../src/index";
 import { LLMConfigurationError } from "../../llm-core/src/index";
 import { createLlmAdapter, createReflectionLlmAdapter } from "../../llm/src/index";
-import { OpenAICompatible, StructuredOutputModeOpenAICompatible } from "../../llm-openai/src/index";
+import { ChatCompletionsAdapter } from "../../llm-adapters/src/index";
 import { Gemini } from "../../llm-google/src/index";
 import { PiAiAdapter } from "../../llm-pi-ai/src/index";
 
@@ -36,24 +36,36 @@ test("configuration requires explicit provider, model and key (structuredOutputM
     assert.equal(config.structuredOutputMode, "prompt_only");
 });
 
-test("factory dispatches all seven providers without network or ambient credentials", () => {
+test("factory dispatches registered providers to request-driven adapters", () => {
     for (const [provider, model] of [
-        ["openai", "gpt-4.1-mini"], ["google", "gemini-2.5-flash"],
-        ["anthropic", "claude-sonnet-4-5"], ["deepseek", "deepseek-v4-pro"],
+        ["openai", "gpt-4.1-mini"], ["deepseek", "deepseek-v4-pro"],
         ["openrouter", "~anthropic/claude-haiku-latest"], ["opencode-go", "kimi-k3"],
     ] as const) {
-        assert.ok(createLlmAdapter(readLLMConfig({ ...base, LLM_PROVIDER: provider, LLM_MODEL: model })) instanceof PiAiAdapter);
-        const strict = { ...base, LLM_PROVIDER: provider, LLM_MODEL: model, LLM_STRUCTURED_OUTPUT_MODE: "strict" };
-        if (provider === "openai") assert.ok(createLlmAdapter(readLLMConfig(strict)) instanceof OpenAICompatible);
-        else if (provider === "google") assert.ok(createLlmAdapter(readLLMConfig(strict)) instanceof Gemini);
-        else assert.throws(() => readLLMConfig(strict), /does not support strict/);
+        const config = readLLMConfig({ ...base, LLM_PROVIDER: provider, LLM_MODEL: model });
+        assert.ok(createLlmAdapter(config) instanceof ChatCompletionsAdapter, provider);
+        const strict = readLLMConfig({ ...base, LLM_PROVIDER: provider, LLM_MODEL: model, LLM_STRUCTURED_OUTPUT_MODE: "strict" });
+        assert.ok(createLlmAdapter(strict) instanceof ChatCompletionsAdapter, provider);
     }
-    assert.ok(createLlmAdapter(readLLMConfig(custom)) instanceof PiAiAdapter);
-    assert.ok(createLlmAdapter(readLLMConfig({ ...custom, LLM_STRUCTURED_OUTPUT_MODE: "strict" })) instanceof OpenAICompatible);
+
+    const anthropic = readLLMConfig({ ...base, LLM_PROVIDER: "anthropic", LLM_MODEL: "claude-sonnet-4-5" });
+    assert.ok(createLlmAdapter(anthropic) instanceof PiAiAdapter);
+
+    const google = readLLMConfig({ ...base, LLM_PROVIDER: "google", LLM_MODEL: "gemini-2.5-flash" });
+    assert.ok(createLlmAdapter(google) instanceof PiAiAdapter);
+    const googleStrict = readLLMConfig({
+        ...base, LLM_PROVIDER: "google", LLM_MODEL: "gemini-2.5-flash", LLM_STRUCTURED_OUTPUT_MODE: "strict",
+    });
+    assert.ok(createLlmAdapter(googleStrict) instanceof Gemini);
+
+    assert.ok(createLlmAdapter(readLLMConfig(custom)) instanceof ChatCompletionsAdapter);
+    assert.ok(createLlmAdapter(readLLMConfig({ ...custom, LLM_STRUCTURED_OUTPUT_MODE: "strict" })) instanceof ChatCompletionsAdapter);
 });
 
-test("unsupported strict also fails for typed factory callers", () => {
-    assert.throws(() => createLlmAdapter({ provider: "anthropic", apiKey: "key", model: "claude-sonnet-4-5", structuredOutputMode: "strict" }), /does not support strict/);
+test("unknown provider is rejected by the typed factory", () => {
+    assert.throws(
+        () => createLlmAdapter({ provider: "unknown-gateway", apiKey: "key", model: "model", structuredOutputMode: "prompt_only" }),
+        (error: unknown) => error instanceof LLMConfigurationError && /Unknown provider/.test(error.message),
+    );
 });
 
 test("endpoint overrides are explicit and never silently ignored", () => {
@@ -79,15 +91,12 @@ test("custom models require explicit valid capacities", () => {
     assert.throws(() => readLLMConfig({ ...custom, LLM_MAX_OUTPUT_TOKENS: "8192" }), /must be less than/);
 });
 
-test("catalog resolution and capacity errors happen during factory construction", () => {
-    assert.throws(() => createLlmAdapter(readLLMConfig({ ...base, LLM_MODEL: "unknown-model" })), /Unknown model/);
-    assert.throws(() => createLlmAdapter(readLLMConfig({ ...base, LLM_MAX_OUTPUT_TOKENS: "999999999" })), /exceed model/);
-    // Native strict endpoints retain their existing support for arbitrary model identifiers.
-    assert.ok(createLlmAdapter(readLLMConfig({ ...base, LLM_MODEL: "private-model", LLM_STRUCTURED_OUTPUT_MODE: "strict" })) instanceof OpenAICompatible);
+test("chat adapters accept arbitrary model identifiers without catalog lookup", () => {
+    assert.ok(createLlmAdapter(readLLMConfig({ ...base, LLM_MODEL: "unknown-model" })) instanceof ChatCompletionsAdapter);
+    assert.ok(createLlmAdapter(readLLMConfig({ ...base, LLM_MODEL: "private-model", LLM_STRUCTURED_OUTPUT_MODE: "strict" })) instanceof ChatCompletionsAdapter);
 });
 
 test("createReflectionLlmAdapter dispatches native runtime providers for google and openai in prompt_only mode", () => {
-    // Google provider uses native Gemini adapter even in prompt_only mode and with arbitrary model name
     const googleReflection = createReflectionLlmAdapter({
         provider: "google",
         apiKey: "test-key",
@@ -96,9 +105,7 @@ test("createReflectionLlmAdapter dispatches native runtime providers for google 
         baseURL: "http://127.0.0.1:8317/v1beta",
     });
     assert.ok(googleReflection instanceof Gemini);
-    assert.equal(googleReflection.structuredOutputMode, "prompt_only");
 
-    // OpenAI provider uses native OpenAICompatible adapter
     const openaiReflection = createReflectionLlmAdapter({
         provider: "openai",
         apiKey: "test-key",
@@ -106,10 +113,8 @@ test("createReflectionLlmAdapter dispatches native runtime providers for google 
         structuredOutputMode: "prompt_only",
         baseURL: "http://127.0.0.1:8317/v1",
     });
-    assert.ok(openaiReflection instanceof StructuredOutputModeOpenAICompatible);
-    assert.equal(openaiReflection.structuredOutputMode, "prompt_only");
+    assert.ok(openaiReflection instanceof ChatCompletionsAdapter);
 
-    // Anthropic provider falls back to pi-ai
     const anthropicReflection = createReflectionLlmAdapter({
         provider: "anthropic",
         apiKey: "test-key",

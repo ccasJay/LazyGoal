@@ -351,12 +351,14 @@ test("显式 CLI 配置的登记模型使用服务端执行元数据构造动态
         assert.equal(root.defaultModelSelection.maxOutputTokens, 524_288);
         assert.equal("availabilitySource" in root.defaultModelSelection, false, "configured ID is not represented as an online availability claim");
 
-        const adapterConfig = (root.modelBinding.current().decideAdapter as unknown as {
-            readonly config: { readonly apiKey: string; readonly model: string; readonly executionApi?: string };
-        }).config;
-        assert.equal(adapterConfig.apiKey, "sk-explicit-config");
-        assert.equal(adapterConfig.model, "minimax-m3.1-flash-free");
-        assert.equal(adapterConfig.executionApi, "openai-completions");
+        const connection = (root.modelBinding.current().decideAdapter as unknown as {
+            readonly connection: {
+                readonly model: string;
+                readonly headers: Readonly<Record<string, string>>;
+            };
+        }).connection;
+        assert.equal(connection.headers.Authorization, "Bearer sk-explicit-config");
+        assert.equal(connection.model, "minimax-m3.1-flash-free");
     } finally {
         await root?.resources.closeAll();
         await cleanup();

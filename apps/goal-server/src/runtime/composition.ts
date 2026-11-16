@@ -121,6 +121,7 @@ import {
     createBuiltinCatalogSources,
     createConfiguredCatalogSource,
     createDefaultProviderRegistry,
+    createProviderRegistry,
     resolveOpenCodeGoExecutionMetadata,
 } from "../../../../packages/llm-adapters/src/index";
 import {
@@ -552,6 +553,40 @@ async function assembleRuntimeComposition(
     const env = options.env ?? process.env;
     const homePaths = resolveLazyGoalHomePaths(env);
     const providerRegistry = createDefaultProviderRegistry();
+    const buildRuntimeRegistry = (declarations: readonly RuntimeProviderDeclaration[]) => {
+        const sources = declarations.map(declaration => createConfiguredCatalogSource(
+            providerRegistry.require(declaration.family),
+            declaration.provider,
+            declaration.models.map(model => ({
+                id: model.id,
+                displayName: model.displayName,
+                contextWindowTokens: model.contextWindowTokens,
+                maxOutputTokens: model.maxOutputTokens,
+                ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
+                ...(model.vision === undefined ? {} : { vision: model.vision }),
+                ...(model.supportsRequiredToolChoice === undefined
+                    ? {}
+                    : { supportsRequiredToolChoice: model.supportsRequiredToolChoice }),
+            })),
+        ));
+        return {
+            sources,
+            registry: createProviderRegistry([
+                ...providerRegistry.definitions(),
+                ...declarations.map((declaration, index) => {
+                    const family = providerRegistry.require(declaration.family);
+                    return {
+                        id: declaration.provider,
+                        protocol: family.protocol,
+                        catalog: sources[index]!,
+                        createAdapter: family.createAdapter,
+                    };
+                }),
+            ]),
+        };
+    };
+    let runtimeRegistry = providerRegistry;
+    let configuredSources: ReturnType<typeof buildRuntimeRegistry>["sources"] = [];
     let declaredProviders: readonly RuntimeProviderDeclaration[] = [];
     const providerProfileStore = options.providerProfileStore ?? new JsonFileProviderProfileStore(homePaths);
     // 注入适配器时由调用方拥有模型构造，不读取真实 Home 的 Provider 档案，保持测试与外部组合的确定性。
@@ -583,7 +618,7 @@ async function assembleRuntimeComposition(
         adapter = options.adapter;
         try {
             llmConfig = readLLMConfig(env);
-            configuredStageAdapters = createLlmStageAdapters(configuredModelAdapterConfig(llmConfig));
+            configuredStageAdapters = createLlmStageAdapters(configuredModelAdapterConfig(llmConfig), { registry: runtimeRegistry });
         } catch {
             llmConfig = undefined;
             configuredStageAdapters = undefined;
@@ -607,6 +642,7 @@ async function assembleRuntimeComposition(
                     });
                     llmConfig = runtimeConfig.llm;
                     declaredProviders = runtimeConfig.providers ?? [];
+                    ({ sources: configuredSources, registry: runtimeRegistry } = buildRuntimeRegistry(declaredProviders));
                 } else {
                     if (error instanceof LLMConfigurationError) {
                         throw new LLMConfigurationError(
@@ -618,7 +654,7 @@ async function assembleRuntimeComposition(
                 }
             }
         }
-        configuredStageAdapters = createLlmStageAdapters(configuredModelAdapterConfig(llmConfig));
+        configuredStageAdapters = createLlmStageAdapters(configuredModelAdapterConfig(llmConfig), { registry: runtimeRegistry });
         adapter = configuredStageAdapters.decideAdapter;
     }
     if (llmConfig !== undefined) {
@@ -933,28 +969,13 @@ async function assembleRuntimeComposition(
                         }),
                 };
             }
-            return createLlmStageAdapters(selectionConfig);
+            return createLlmStageAdapters(selectionConfig, { registry: runtimeRegistry });
         }
         if (selection.executionApi !== undefined) {
             throw new LLMConfigurationError([], `Provider configuration is unavailable for dynamic model "${selection.modelId}"`);
         }
         return Object.freeze({ thinkAdapter: adapter, decideAdapter: adapter });
     };
-    const configuredSources = declaredProviders.map(declaration => createConfiguredCatalogSource(
-        providerRegistry.require(declaration.family),
-        declaration.provider,
-        declaration.models.map(model => ({
-            id: model.id,
-            displayName: model.displayName,
-            contextWindowTokens: model.contextWindowTokens,
-            maxOutputTokens: model.maxOutputTokens,
-            ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
-            ...(model.vision === undefined ? {} : { vision: model.vision }),
-            ...(model.supportsRequiredToolChoice === undefined
-                ? {}
-                : { supportsRequiredToolChoice: model.supportsRequiredToolChoice }),
-        })),
-    ));
     const modelCatalog = options.modelCatalog ?? createLlmModelCatalog({
         sources: [...createBuiltinCatalogSources(), ...configuredSources],
         isProtocolImplemented: protocol => protocol === "chat-completions"

@@ -1,7 +1,41 @@
 import { LLMConfigurationError, type LLMAdapter, type LLMConfig } from "../../llm-core/src/index";
 import { Gemini, type GeminiConfig } from "../../llm-google/src/index";
-import { OpenAICompatible, StructuredOutputModeOpenAICompatible } from "../../llm-openai/src/index";
 import { PiAiAdapter } from "../../llm-pi-ai/src/index";
+import { createDefaultProviderRegistry, type ProviderRegistry } from "../../llm-adapters/src/index";
+
+/**
+ * 同一供应商与模型下供 Runtime 两阶段执行使用的 Adapter 对。
+ *
+ * @remarks
+ * 已注册的 Chat Completions 供应商两侧共用一个请求驱动 Adapter；
+ * 仍由既有实现服务的 Anthropic 与 Google 保留阶段差异。
+ *
+ * @example
+ * ```ts
+ * const adapters = createLlmStageAdapters(config);
+ * await adapters.decideAdapter.generate(decideRequest);
+ * ```
+ */
+export interface LlmStageAdapters {
+    /** Think 阶段使用的自由文本 Adapter。 */
+    readonly thinkAdapter: LLMAdapter;
+    /** Decide 阶段使用的 Adapter。 */
+    readonly decideAdapter: LLMAdapter;
+}
+
+/** 适配器选择可选注入的供应商注册表。 */
+export interface LlmAdapterOptions {
+    /** 已注册供应商；省略时使用内置注册表。 */
+    readonly registry?: ProviderRegistry;
+}
+
+function registryFor(options: LlmAdapterOptions): ProviderRegistry {
+    return options.registry ?? createDefaultProviderRegistry();
+}
+
+function decideModeForProvider(provider: string): "strict" | "prompt_only" {
+    return provider === "google" ? "strict" : "prompt_only";
+}
 
 /** 把共享连接配置投影为 Gemini 专属配置，不为缺省字段伪造值。 */
 function toGeminiConfig(config: LLMConfig): GeminiConfig {
@@ -15,137 +49,88 @@ function toGeminiConfig(config: LLMConfig): GeminiConfig {
 }
 
 /**
- * 同一供应商与模型下供 Runtime 两阶段执行使用的 Adapter 对。
+ * 按供应商注册表创建 Adapter，不发请求或写入任何存储。
  *
- * @remarks
- * Think Adapter 固定为 prompt_only；Decide Adapter 根据供应商固定为 strict 或 prompt_only。
+ * @param config - 已校验的连接配置。
+ * @param options - 可选注入的供应商注册表。
+ * @returns 已注册供应商使用适配器工厂；Anthropic 与 Google 仍由既有实现服务。
+ * @throws LLMConfigurationError 供应商未注册且无既有实现时抛出。
  *
- * @example
- * ```ts
- * const adapters = createLlmStageAdapters(config);
- * await adapters.decideAdapter.generate(decideRequest);
- * ```
- */
-export interface LlmStageAdapters {
-    /** Think 使用不携带原生结构 Schema 的自由文本 prompt_only Adapter。 */
-    readonly thinkAdapter: LLMAdapter;
-    /** Decide 按供应商能力使用 strict 或 prompt_only 的 Adapter。 */
-    readonly decideAdapter: LLMAdapter;
-}
-
-function decideModeForProvider(provider: LLMConfig["provider"]): "strict" | "prompt_only" {
-    return provider === "openai" || provider === "google" || provider === "openai-compatible"
-        ? "strict"
-        : "prompt_only";
-}
-
-/**
- * 离线创建固定供应商及单一实际输出模式的 Adapter，不发请求或写入任何存储。
- * @param config - readLLMConfig 产生的显式连接配置。
- * @returns prompt_only 使用 pi-ai；strict 使用现有 OpenAI/Gemini 原生实现；two_stage 返回 provider 对应的 Decide Adapter。
- * @throws LLMConfigurationError strict 不受支持、目录模型不存在或容量超限。
  * @example
  * ```ts
  * const adapter = createLlmAdapter(readLLMConfig(process.env));
  * ```
  */
-export function createLlmAdapter(config: LLMConfig): LLMAdapter {
-    const structuredOutputMode = config.structuredOutputMode === "two_stage"
+export function createLlmAdapter(config: LLMConfig, options: LlmAdapterOptions = {}): LLMAdapter {
+    const registry = registryFor(options);
+    if (registry.has(config.provider)) {
+        return registry.require(config.provider).createAdapter(config);
+    }
+    const mode = config.structuredOutputMode === "two_stage"
         ? decideModeForProvider(config.provider)
         : config.structuredOutputMode;
-    const stageConfig = structuredOutputMode === config.structuredOutputMode
-        ? config
-        : { ...config, structuredOutputMode };
-    if (stageConfig.structuredOutputMode === "prompt_only") return new PiAiAdapter(stageConfig);
-    switch (stageConfig.provider) {
-        case "openai":
-        case "openai-compatible":
-            return new StructuredOutputModeOpenAICompatible({
-                apiKey: stageConfig.apiKey,
-                provider: stageConfig.provider,
-                baseURL: stageConfig.baseURL ?? "https://api.openai.com/v1",
-                model: stageConfig.model,
-                ...(stageConfig.maxOutputTokens === undefined ? {} : { maxOutputTokens: stageConfig.maxOutputTokens }),
-            }, stageConfig.structuredOutputMode);
-        case "google":
-            return new Gemini(toGeminiConfig(stageConfig));
-        default:
-            throw new LLMConfigurationError([], `Provider "${stageConfig.provider}" does not support ${stageConfig.structuredOutputMode} output; select prompt_only`);
+    const stageConfig = mode === config.structuredOutputMode ? config : { ...config, structuredOutputMode: mode };
+    if (stageConfig.provider === "google" && stageConfig.structuredOutputMode !== "prompt_only") {
+        return new Gemini(toGeminiConfig(stageConfig));
     }
+    if (stageConfig.provider === "anthropic" || stageConfig.provider === "google") {
+        return new PiAiAdapter(stageConfig);
+    }
+    throw new LLMConfigurationError([], `Unknown provider "${config.provider}"; register an adapter before creating a model adapter`);
 }
 
 /**
- * 为同一供应商与模型构造 Think/Decide Adapter。Think 始终为 prompt_only；Decide
- * 在原生 strict 供应商上为 strict，其余现有供应商为 prompt_only。
+ * 为同一供应商与模型构造 Think/Decide Adapter。
  *
- * @param config - 已校验的同一模型连接配置；Think 始终使用 prompt_only，Decide 实际模式由供应商能力决定。
- * @returns 按推理阶段固定输出模式的不可变 Adapter 对。
+ * @param config - 已校验的同一模型连接配置。
+ * @param options - 可选注入的供应商注册表。
+ * @returns 按推理阶段绑定的不可变 Adapter 对。
+ *
  * @example
  * ```ts
  * const { thinkAdapter, decideAdapter } = createLlmStageAdapters(config);
  * ```
  */
-export function createLlmStageAdapters(config: LLMConfig): Readonly<LlmStageAdapters> {
-    if (config.provider === "openai-compatible") {
-        if (config.baseURL === undefined) {
-            throw new LLMConfigurationError([], "openai-compatible requires an explicit baseURL");
-        }
-        const requestDrivenAdapter = new OpenAICompatible({
-            apiKey: config.apiKey,
-            provider: "openai-compatible",
-            baseURL: config.baseURL,
-            model: config.model,
-            ...(config.maxOutputTokens === undefined ? {} : { maxOutputTokens: config.maxOutputTokens }),
-        });
-        return Object.freeze({
-            thinkAdapter: requestDrivenAdapter,
-            decideAdapter: requestDrivenAdapter,
-        });
+export function createLlmStageAdapters(
+    config: LLMConfig,
+    options: LlmAdapterOptions = {},
+): Readonly<LlmStageAdapters> {
+    const registry = registryFor(options);
+    if (registry.has(config.provider)) {
+        const adapter = registry.require(config.provider).createAdapter(config);
+        return Object.freeze({ thinkAdapter: adapter, decideAdapter: adapter });
     }
     return Object.freeze({
         thinkAdapter: config.structuredOutputMode === "prompt_only"
-            ? createLlmAdapter(config)
-            : createReflectionLlmAdapter({ ...config, structuredOutputMode: "prompt_only" }),
+            ? createLlmAdapter(config, options)
+            : createReflectionLlmAdapter({ ...config, structuredOutputMode: "prompt_only" }, options),
         decideAdapter: createLlmAdapter({
             ...config,
             structuredOutputMode: decideModeForProvider(config.provider),
-        }),
+        }, options),
     });
 }
 
 /**
- * 为 GEPA 反思等纯文本推理场景创建 Adapter，优先复用原生 Runtime Provider 实现。
- *
- * @remarks
- * Google 与 OpenAI/OpenAI-compatible 优先使用原生驱动，解除 pi-ai 静态目录对私有网关与自定义模型名的限制。
- * 其余供应商（Anthropic、DeepSeek、OpenRouter）在 prompt_only 下使用标准 pi-ai 适配器。
+ * 为 GEPA 反思等纯文本推理场景创建 Adapter。
  *
  * @param config - 已经校验的 LLM 运行时配置。
+ * @param options - 可选注入的供应商注册表。
  * @returns 可直接用于纯文本生成的 LLMAdapter。
+ *
  * @example
  * ```ts
- * const adapter = createReflectionLlmAdapter({
- *     provider: "google",
- *     apiKey: "secret",
- *     model: "gemini-pro-agent",
- *     structuredOutputMode: "prompt_only",
- * });
+ * const adapter = createReflectionLlmAdapter(config);
  * ```
  */
-export function createReflectionLlmAdapter(config: LLMConfig): LLMAdapter {
-    switch (config.provider) {
-        case "google":
-            return new Gemini(toGeminiConfig(config));
-        case "openai":
-        case "openai-compatible":
-            return new StructuredOutputModeOpenAICompatible({
-                apiKey: config.apiKey,
-                provider: config.provider,
-                baseURL: config.baseURL ?? "https://api.openai.com/v1",
-                model: config.model,
-                ...(config.maxOutputTokens === undefined ? {} : { maxOutputTokens: config.maxOutputTokens }),
-            }, config.structuredOutputMode);
-        default:
-            return createLlmAdapter(config);
+export function createReflectionLlmAdapter(
+    config: LLMConfig,
+    options: LlmAdapterOptions = {},
+): LLMAdapter {
+    const registry = registryFor(options);
+    if (registry.has(config.provider)) {
+        return registry.require(config.provider).createAdapter(config);
     }
+    if (config.provider === "google") return new Gemini(toGeminiConfig(config));
+    return new PiAiAdapter(config);
 }

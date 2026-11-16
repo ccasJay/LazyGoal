@@ -6,9 +6,7 @@ import {
 import {
     isAcceptableBaseUrl,
     isPositiveSafeInteger,
-    isSupportedLlmProvider,
     supportsBaseUrl,
-    supportsStrictOutput,
 } from "./provider-rules";
 
 /**
@@ -36,7 +34,7 @@ export function readLLMConfig(env: Readonly<Record<string, string | undefined>>)
         if (rawMode !== "strict" && rawMode !== "prompt_only" && rawMode !== "two_stage") {
             throw new LLMConfigurationError([], `Invalid LLM_STRUCTURED_OUTPUT_MODE "${rawMode}": must be either "strict", "prompt_only", or "two_stage"`);
         }
-        if (rawMode === "strict" && !supportsStrictOutput(provider)) {
+        if (rawMode === "strict" && provider === "anthropic") {
             throw new LLMConfigurationError([], `Provider "${provider}" does not support ${rawMode} output; select prompt_only`);
         }
         mode = rawMode as StructuredOutputMode;
