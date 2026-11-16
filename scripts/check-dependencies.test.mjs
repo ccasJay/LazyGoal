@@ -162,15 +162,15 @@ test("allows config to consume llm-core and rejects core SDK-style reverse edges
     assert.equal(await checkDependencies(root), 2);
 });
 
-test("allows llm-openai to consume llm-core and rejects application config edges", async () => {
+test("allows llm-adapters to consume llm-core and rejects application config edges", async () => {
     const root = await fixtureProject({
         "packages/llm-core/src/index.ts": "export const core = true;\n",
-        "packages/llm-openai/src/index.ts": 'export { core } from "../../llm-core/src/index";\nexport {} from "../../config/src/index";\n',
+        "packages/llm-adapters/src/index.ts": 'export { core } from "../../llm-core/src/index";\nexport {} from "../../config/src/index";\n',
         "packages/config/src/index.ts": "export {};\n",
     });
 
     assert.deepEqual(await analyzeDependencies(root), [
-        "禁止依赖方向：packages/llm-openai 不得导入 packages/config（packages/llm-openai/src/index.ts 引用 ../../config/src/index）",
+        "禁止依赖方向：packages/llm-adapters 不得导入 packages/config（packages/llm-adapters/src/index.ts 引用 ../../config/src/index）",
     ]);
 });
 
@@ -225,7 +225,7 @@ test("rejects vendor SDK leakage from llm-core and config across reference forms
 test("allows capability entries and rejects cross-capability internal penetration", async () => {
     const root = await fixtureProject({
         "packages/llm-core/src/index.ts": "export const core = true;\n",
-        "packages/llm-openai/src/index.ts": 'export { core } from "../../llm-core/src/index";\n',
+        "packages/llm-adapters/src/index.ts": 'export { core } from "../../llm-core/src/index";\n',
         "packages/llm/src/index.ts": 'export { core } from "../../llm-core/src/types";\n',
     });
 
@@ -250,11 +250,11 @@ test("rejects removed llm path references and leftover forwarding files", async 
 test("rejects project artifact references including literal dynamic imports", async () => {
     const root = await fixtureProject({
         "packages/llm-core/src/index.ts": "export const core = true;\n",
-        "packages/llm-openai/src/index.ts": 'export const load = () => import("../../llm-core/dist/index.js");\n',
+        "packages/llm-adapters/src/index.ts": 'export const load = () => import("../../llm-core/dist/index.js");\n',
     });
 
     assert.deepEqual(await analyzeDependencies(root), [
-        "禁止导入项目产物：packages/llm-openai/src/index.ts 引用 ../../llm-core/dist/index.js（packages/llm-core/dist/index.js）",
+        "禁止导入项目产物：packages/llm-adapters/src/index.ts 引用 ../../llm-core/dist/index.js（packages/llm-core/dist/index.js）",
     ]);
 });
 
@@ -1001,7 +1001,7 @@ const PACKAGE_DIRECTION_CASES = [
     ["tool-core", "runtime"],
     ["working-memory", "runtime"],
     ["llm-core", "config"],
-    ["llm-openai", "config"],
+    ["llm-adapters", "config"],
     ["llm-google", "config"],
     ["llm-pi-ai", "config"],
     ["model-catalog", "llm-pi-ai"],
@@ -1108,7 +1108,7 @@ test("allows benchmark shared-layer and same-benchmark imports", async () => {
 
 test("allows vendor SDK imports outside SDK-free packages", async () => {
     const root = await fixtureProject({
-        "packages/llm-openai/src/index.ts": [
+        "packages/llm-google/src/index.ts": [
             'import OpenAI from "openai";',
             'import type { GoogleGenAI } from "@google/genai";',
             "export const client = OpenAI;\nexport type Client = GoogleGenAI;",

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { StructuredOutputModeOpenAICompatible } from "../../llm-openai/src/index";
+import { createOpenAICompatibleAdapter } from "../../llm-adapters/src/index";
 import { Gemini } from "../../llm-google/src/index";
 import { PiAiAdapter } from "../../llm-pi-ai/src/index";
 import type { LLMRequest, LLMToolDefinition } from "../../llm-core/src/index";
@@ -37,18 +37,21 @@ const mockToolDefinition: LLMToolDefinition = {
     },
 };
 
-test("OpenAICompatible 原生 Function Calling 挂载 tools、strict: true 与 tool_choice: required", async () => {
-    const adapter = new StructuredOutputModeOpenAICompatible({
+test("Chat Completions 适配器挂载 tools、strict: true 与 tool_choice: required", async () => {
+    const adapter = createOpenAICompatibleAdapter({
+        provider: "openai-compatible",
         apiKey: "test-key",
         baseURL: "https://api.openai.com/v1",
         model: "gpt-4o",
-    }, "strict");
+        structuredOutputMode: "prompt_only",
+    });
 
     let capturedRequest: any = undefined;
     const request: LLMRequest = {
         messages: [{ role: "user", content: "请完成任务" }],
         tools: [mockToolDefinition],
         toolChoice: "required",
+        toolArgumentConstraint: "strict",
     };
 
     const response = await withFetch(async (_url, init) => {
@@ -101,12 +104,14 @@ test("OpenAICompatible 原生 Function Calling 挂载 tools、strict: true 与 t
     assert.equal(parsedArgs.summary, "任务已成功实现");
 });
 
-test("OpenAICompatible 无损捕获原生思考模型 reasoning_content 与工具调用", async () => {
-    const adapter = new StructuredOutputModeOpenAICompatible({
+test("Chat Completions 适配器无损捕获原生思考模型 reasoning_content 与工具调用", async () => {
+    const adapter = createOpenAICompatibleAdapter({
+        provider: "openai-compatible",
         apiKey: "test-key",
         baseURL: "https://api.deepseek.com/v1",
         model: "deepseek-r1",
-    }, "strict");
+        structuredOutputMode: "prompt_only",
+    });
 
     const response = await withFetch(async () => jsonResponse({
         id: "chatcmpl-r1",

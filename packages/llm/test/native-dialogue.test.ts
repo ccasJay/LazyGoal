@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { StructuredOutputModeOpenAICompatible } from "../../llm-openai/src/index";
+import { createOpenAICompatibleAdapter } from "../../llm-adapters/src/index";
 import { Gemini } from "../../llm-google/src/index";
 import type { LLMRequest, LLMResponse } from "../../llm-core/src/index";
 import { readAssistantText, readReasoningText, readToolCalls } from "../../llm-core/src/index";
@@ -17,7 +17,10 @@ function nextRequest(first: LLMResponse): LLMRequest {
 }
 
 test("OpenAI two-turn dialogue preserves call IDs and supported reasoning extension without top-level JSON constraints", async () => {
-    const adapter = new StructuredOutputModeOpenAICompatible({ apiKey: "test-key", model: "test", baseURL: "https://gateway.test/v1/" }, "strict");
+    const adapter = createOpenAICompatibleAdapter({
+        provider: "openai-compatible", apiKey: "test-key", model: "test",
+        baseURL: "https://gateway.test/v1/", structuredOutputMode: "prompt_only",
+    });
     const requests: any[] = [];
     const originalFetch = globalThis.fetch;
     globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
@@ -35,14 +38,17 @@ test("OpenAI two-turn dialogue preserves call IDs and supported reasoning extens
     } finally {
         globalThis.fetch = originalFetch;
     }
-    assert.equal(requests[0].parallel_tool_calls, false);
+    assert.equal(requests[0].parallel_tool_calls, undefined);
     assert.equal(requests[0].response_format, undefined);
     assert.equal(requests[1].messages[1].tool_calls[0].id, "native-id");
     assert.equal(requests[1].messages[1].reasoning_content, "Summary");
     assert.equal(requests[1].messages[2].role, "tool");
     assert.equal(requests[1].messages[2].tool_call_id, "native-id");
     assert.equal(JSON.stringify(first.continuation).includes("test-key"), false);
-    const other = new StructuredOutputModeOpenAICompatible({ apiKey: "test", baseURL: "https://other.test/v1", model: "test" }, "strict");
+    const other = createOpenAICompatibleAdapter({
+        provider: "openai-compatible", apiKey: "test", baseURL: "https://other.test/v1", model: "test",
+        structuredOutputMode: "prompt_only",
+    });
     await assert.rejects(other.generate(nextRequest(first)), /another provider/);
 });
 

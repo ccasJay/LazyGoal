@@ -3,19 +3,23 @@ import { test } from "node:test";
 
 import { ExecutionAbortedError } from "../../execution-control/src/index";
 import { Gemini } from "../../llm-google/src/index";
-import { OpenAICompatible } from "../../llm-openai/src/index";
+import { createOpenAICompatibleAdapter } from "../../llm-adapters/src/index";
 
 const request = {
     messages: [{ role: "user" as const, content: "abort" }],
 };
 
-test("OpenAICompatible rejects before opening a request when aborted", async () => {
+test("Chat Completions 适配器 rejects before opening a request when aborted", async () => {
     const controller = new AbortController();
     controller.abort();
-    const adapter = new OpenAICompatible({
+    const adapter = createOpenAICompatibleAdapter({
+        provider: "openai-compatible",
         apiKey: "test-key",
-        baseURL: "http://127.0.0.1:1/v1",
         model: "test-model",
+        baseURL: "http://127.0.0.1:1/v1",
+        contextWindowTokens: 8192,
+        maxOutputTokens: 1024,
+        structuredOutputMode: "prompt_only",
     });
 
     await assert.rejects(

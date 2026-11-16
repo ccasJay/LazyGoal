@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { OpenAICompatible } from "../../../packages/llm-openai/src/index";
+import { createOpenAICompatibleAdapter } from "../../../packages/llm-adapters/src/index";
 import { readModelAssistantReasoning, readModelAssistantText, readModelToolCalls, readToolCalls } from "../../../packages/llm-core/src/index";
 import { toolCallResponse } from "../../../packages/llm-core/test/response-fixtures";
 import { createToolRegistration, InMemoryToolRegistry, type Tool } from "../../../packages/tool-core/src/index";
@@ -164,8 +164,10 @@ test("经正式无界面装配的真实 Chat Completions 流：屏障前无工�
     assert.ok(address !== null && typeof address !== "string");
     const baseURL = `http://127.0.0.1:${address.port}/v1`;
 
-    const adapter = new OpenAICompatible({
+    const adapter = createOpenAICompatibleAdapter({
+        provider: "openai-compatible",
         apiKey: "fixture-key", baseURL, model: "stream-model",
+        structuredOutputMode: "prompt_only",
     });
     const runtime = await createRuntimeComposition({
         cwd: fixture.workspace,
@@ -218,7 +220,10 @@ test("经正式无界面装配的真实 Chat Completions 流：屏障前无工�
         cwd: fixture.workspace,
         env: { LAZYGOAL_HOME: fixture.home } as NodeJS.ProcessEnv,
         dataDirectory: fixture.dataDirectory,
-        adapter: new OpenAICompatible({ apiKey: "fixture-key", baseURL, model: "stream-model" }),
+        adapter: createOpenAICompatibleAdapter({
+            provider: "openai-compatible", apiKey: "fixture-key", baseURL, model: "stream-model",
+            structuredOutputMode: "prompt_only",
+        }),
         profile,
         toolRegistry: new InMemoryToolRegistry([createTestToolRegistration(bashTool(command => { executed.push(`unexpected:${String(command)}`); }))]),
     });

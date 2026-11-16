@@ -87,19 +87,6 @@ const SCENARIOS: Record<string, ScenarioDefinition> = {
         ],
         expectedArtifacts: { provider: "openai", mode: "prompt_only" },
     },
-    "llm-openai": {
-        entryMarker: "/packages/llm-openai/src/index.ts",
-        allowedProviderEnvKeys: PROVIDER_ENV_KEYS.openai,
-        forbiddenModuleMarkers: [
-            "/packages/llm-google/",
-            "/packages/llm-pi-ai/",
-            "/packages/model-catalog/",
-            "/packages/llm/src/",
-            "/node_modules/@google/genai/",
-            "/node_modules/@earendil-works/",
-        ],
-        expectedArtifacts: { mode: "strict", endpoint: "https://api.openai.com/v1" },
-    },
     "llm-google": {
         entryMarker: "/packages/llm-google/src/index.ts",
         allowedProviderEnvKeys: PROVIDER_ENV_KEYS.google,

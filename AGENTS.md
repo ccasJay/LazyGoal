@@ -50,7 +50,6 @@ packages/        Private `@lazygoal/*` workspaces
   llm-core/       Provider-agnostic LLM call contracts, SSE framing, JSON text repair, shared model configuration, normalized usage, and failure classification
   wire-chat-completions/ Chat Completions request shape, SSE event mapping, and protocol error classification
   llm-adapters/   Provider facts: endpoints, authentication, catalog sources, protocol declarations, and request-driven adapters
-  llm-openai/     Thin OpenAI/OpenAI-compatible entry over the Chat Completions wire
   llm-google/     Native Gemini generation, strict schema projection, and native parts replay
   llm-pi-ai/      pi-ai multi-provider prompt_only adapter and incremental stream mapping
   model-catalog/  Injected catalog merge, sorting, selectability, and degradation

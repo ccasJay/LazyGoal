@@ -82,14 +82,6 @@ switch (scenario) {
         artifacts = { provider: parsed.provider, mode: parsed.structuredOutputMode };
         break;
     }
-    case "llm-openai": {
-        const { StructuredOutputModeOpenAICompatible } = await import(entry("packages/llm-openai/src/index.ts"));
-        const instance = new StructuredOutputModeOpenAICompatible({
-            apiKey: "probe-key", baseURL: "https://api.openai.com/v1", model: "probe-model",
-        }, "strict");
-        artifacts = { mode: instance.structuredOutputMode, endpoint: instance.nativeConversationIdentity.endpoint };
-        break;
-    }
     case "llm-google": {
         const { Gemini } = await import(entry("packages/llm-google/src/index.ts"));
         const instance = new Gemini({ apiKey: "probe-key", model: "gemini-2.5-flash", structuredOutputMode: "strict" });

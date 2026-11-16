@@ -32,7 +32,6 @@ Web 服务和 Worker 共用启动时解析的代理配置。显式 HTTP(S) 代�
 - [Chat Completions 线格式](packages/wire-chat-completions/README.md)
 - [供应商适配层](packages/llm-adapters/README.md)
 - [Gemini 适配](packages/llm-google/README.md)
-- [OpenAI 适配](packages/llm-openai/README.md)
 - [pi-ai 适配](packages/llm-pi-ai/README.md)
 - [模型调用](packages/model-call/README.md)
 - [模型目录](packages/model-catalog/README.md)
