@@ -101,13 +101,13 @@ packages/
 - [x] //TODO 5. DeepSeek 与 OpenRouter 复用 chat wire → R2.2；检查：端点与请求头断言
 - [x] //TODO 6. OpenCode Go 适配器声明固定端点与会话头，协议分发保持 chat 等价 → R2.3；检查：端点、请求头与分发断言
 - [x] //TODO 7. 把自定义 compatible 收敛为由配置生成的 `CatalogSource`，与内置供应商同构 → R3.1；检查：配置校验与同构断言
-- [ ] //TODO 8. 收敛 `llm` 选择表与 `llm-core` 文本转 JSON 兜底 → R4.1；检查：选择表测试
+- [x] //TODO 8. 收敛 `llm` 选择表与 `llm-core` 文本转 JSON 兜底 → R4.1；检查：选择表测试
 - [ ] //TODO 9. 建立开发 Profile：全部工具、自定义 openai-compatible 与 Mistral 取值，供真实端点验证 → R1.4、R3.1；检查：真实端点跑通一次 Goal
 - [x] //TODO 10. 同步五个包的概览、语义表与根 README 布局 → R2.1；检查：`npm run check:docs`
 
 ## 执行记录
 
-- 状态：blocked
-- 验证：分支 `feature/provider-wire-extraction` 提交 5 个实现提交与 1 个文档提交；`npx tsc --noEmit`、`npm run check:dependencies`、`npm run check:docs` 通过；1630 项目标测试中 1593 通过，唯一失败为 `packages/tools/test/git-write-tools.test.ts`（本机 Git 输出中文，工具按英文消息匹配，与本次改动无关）。
-- 结果：TODO 1–7、10 完成；TODO 8 的注册表选择表与文本转 JSON 兜底已落地，`structured_output_mode` 全量移除未完成；TODO 9 开发 Profile 未建立。
-- 未决：`structured_output_mode` 仍保留在 config、受管档案、Web 契约、Goal 快照与生成契约中；`llm-openai` 作为线格式薄入口暂时保留；开发 Profile 需要用户提供真实端点与凭据。
+- 状态：blocked（仅余 TODO 9 真实端点验证）
+- 验证：分支 `feature/provider-wire-extraction`；`npx tsc --noEmit`、`npm run check:dependencies`、`npm run check:docs`、`npm run contracts:generate -- --check` 通过；包与集成测试分批全部通过（`packages/tools/test/git-write-tools.test.ts` 因本机 Git 输出中文失败，与本次改动无关）。
+- 结果：TODO 1–8、10 完成。`structured_output_mode` 已从 config、受管档案、Web 契约、Goal 快照、生成契约、全部适配器与测试夹具中全量移除；`llm-openai` 已删除；自定义 provider 名（`providers.<family>.<name>`）在运行时注册表按家族投影调用适配器工厂；线上目录动态选型只为已登记的 OpenCode Go 模型携带 `executionApi`。
+- 未决：TODO 9 开发 Profile 骨架待用户填入真实端点、凭据与模型容量后跑通一次 Goal。
