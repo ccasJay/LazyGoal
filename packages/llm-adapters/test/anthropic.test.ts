@@ -15,12 +15,13 @@ import { LLMConfigurationError } from "../../llm-core/src/index";
 test("adapter declares Anthropic endpoint facts, version header and native identity", () => {
     const adapter = createAnthropicAdapter({ provider: "anthropic", apiKey: "secret", model: "claude-sonnet-4-5" });
     assert.ok(adapter instanceof AnthropicMessagesAdapter);
-    const connection = (adapter as AnthropicMessagesAdapter).connection;
+    const messages = adapter as AnthropicMessagesAdapter;
+    const connection = messages.connection;
     assert.equal(connection.url, `${DEFAULT_ANTHROPIC_BASE_URL}/messages`);
     assert.equal(connection.headers["x-api-key"], "secret");
     assert.equal(connection.headers["anthropic-version"], ANTHROPIC_VERSION);
     assert.equal(connection.model, "claude-sonnet-4-5");
-    assert.deepEqual(adapter.nativeConversationIdentity, {
+    assert.deepEqual(messages.nativeConversationIdentity, {
         provider: "anthropic",
         endpoint: DEFAULT_ANTHROPIC_BASE_URL,
         model: "claude-sonnet-4-5",
@@ -32,8 +33,8 @@ test("explicit base URL replaces the endpoint prefix of url and identity", () =>
     const adapter = createAnthropicAdapter({
         provider: "anthropic", apiKey: "secret", model: "claude-sonnet-4-5",
         baseURL: "https://gateway.example/anthropic/v1/",
-    });
-    const connection = (adapter as AnthropicMessagesAdapter).connection;
+    }) as AnthropicMessagesAdapter;
+    const connection = adapter.connection;
     assert.equal(connection.url, "https://gateway.example/anthropic/v1/messages");
     assert.equal(adapter.nativeConversationIdentity.endpoint, "https://gateway.example/anthropic/v1");
 });
