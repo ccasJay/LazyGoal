@@ -494,6 +494,48 @@ test("活动 Goal 在安全等待点切换模型：保存成功后发布新 Bind
     }
 });
 
+test("相同模型选择不发布新绑定：generation 与适配器实例保持不变", async () => {
+    const { workspace, dataDirectory, cleanup } = await setupTestWorkspace();
+    try {
+        const created: string[] = [];
+        const root = await createCompositionRoot({
+            cwd: workspace,
+            dataDirectory,
+            adapter: new FakeAdapter("model-initial"),
+            adapterFactory: (selection, stage) => {
+                created.push(`${selection.modelId}:${stage}`);
+                return new FakeAdapter(selection.modelId);
+            },
+            profile: {
+                id: "default",
+                systemPrompt: "System prompt",
+                instructions: [],
+                toolIds: [],
+            },
+            toolPolicy: createDefaultToolPolicy(),
+        });
+
+        const currentGeneration = root.modelBinding.current().generation;
+        created.length = 0;
+        root.alignModelBinding(root.modelBinding.current().selection);
+
+        assert.equal(root.modelBinding.current().generation, currentGeneration);
+        assert.deepEqual(created, []);
+
+        // 真实切换仍发布下一代绑定，并重建两个阶段的适配器。
+        root.alignModelBinding({ ...root.defaultModelSelection, modelId: "model-next" });
+        assert.equal(root.modelBinding.current().generation, currentGeneration + 1);
+        assert.deepEqual(created, ["model-next:think", "model-next:decide"]);
+
+        // 同一新选择的再次对齐同样不重复发布。
+        root.alignModelBinding({ ...root.defaultModelSelection, modelId: "model-next" });
+        assert.equal(root.modelBinding.current().generation, currentGeneration + 1);
+        assert.deepEqual(created, ["model-next:think", "model-next:decide"]);
+    } finally {
+        await cleanup();
+    }
+});
+
 test("活动 Goal 保存失败时维持旧选择与旧 Binding", async () => {
     const { workspace, dataDirectory, cleanup } = await setupTestWorkspace();
     try {

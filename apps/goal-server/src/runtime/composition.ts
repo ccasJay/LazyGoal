@@ -434,7 +434,13 @@ export interface RuntimeComposition {
     readonly contextLookupService: IndexedContextLookupService;
     readonly modelCatalog: LlmModelCatalog;
     readonly modelBinding: MutableModelBinding;
-    /** 按已保存的 Goal 选择发布阶段适配器。档案或供应商不可用时抛出异常并保留当前绑定。 */
+    /**
+     * 按已保存的 Goal 选择发布阶段适配器。
+     *
+     * @remarks
+     * 选择与当前绑定时，不发布新 generation，也不重建适配器。档案或供应商
+     * 不可用时抛出异常并保留当前绑定。
+     */
     readonly alignModelBinding: (selection: GoalModelSelection) => void;
     readonly goalModelSelectionCoordinator: GoalModelSelectionCoordinator;
     readonly defaultModelSelection: GoalModelSelection;
@@ -990,7 +996,31 @@ async function assembleRuntimeComposition(
             customEstimator: modelInputEstimator,
         }),
     );
+    /**
+     * 判断两个选择是否描述同一个模型绑定。
+     *
+     * @remarks
+     * `inputEstimator` 按种类与编码比较。相同选择不得发布新绑定：重建适配器会
+     * 递增 generation 并重算 Prompt 能力位，而调用方观察到的是同一模型。
+     */
+    const sameModelSelection = (left: GoalModelSelection, right: GoalModelSelection): boolean => {
+        const sameEstimator = left.inputEstimator.kind === "character-v1"
+            ? right.inputEstimator.kind === "character-v1"
+            : right.inputEstimator.kind === "token-encoding"
+                && right.inputEstimator.encoding === left.inputEstimator.encoding;
+        return left.provider === right.provider
+            && left.profileId === right.profileId
+            && left.modelId === right.modelId
+            && left.protocol === right.protocol
+            && left.contextWindowTokens === right.contextWindowTokens
+            && left.maxOutputTokens === right.maxOutputTokens
+            && left.reasoning === right.reasoning
+            && left.vision === right.vision
+            && left.supportsRequiredToolChoice === right.supportsRequiredToolChoice
+            && sameEstimator;
+    };
     const alignModelBinding = (selection: GoalModelSelection): void => {
+        if (sameModelSelection(modelBinding.current().selection, selection)) return;
         const candidate = modelBinding.createCandidate({
             selection,
             ...createStageAdaptersForSelection(selection),
