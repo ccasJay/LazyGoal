@@ -36,6 +36,8 @@ export {
     readToolCalls,
 } from "./content-blocks";
 export { readModelAssistantReasoning, readModelAssistantText, readModelMessageText, readModelToolCalls } from "../../model-contracts/src/index";
+export { isModelAssistantMessage } from "../../model-contracts/src/index";
+export type { GeminiContinuationPart } from "../../model-contracts/src/index";
 
 export {
     LLMStreamProtocolError,
