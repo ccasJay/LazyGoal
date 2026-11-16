@@ -256,7 +256,7 @@ export function WorkspaceShell() {
           <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
             <DialogContent className="settings-dialog" aria-describedby={undefined} onCloseAutoFocus={event => { event.preventDefault(); settingsButton.current?.focus(); }}>
               <DialogTitle className="settings-dialog-title">Settings</DialogTitle>
-              <SettingsPage activityWidth={activityWidth} onActivityWidthChange={changeActivityWidth} widthSaveError={widthSaveError} />
+              <SettingsPage activityWidth={activityWidth} onActivityWidthChange={changeActivityWidth} widthSaveError={widthSaveError} onClose={() => setSettingsOpen(false)} />
             </DialogContent>
           </Dialog>
           {app.modelPickerTarget !== null && <ModelPicker key={app.modelPickerTarget.kind === "draft" ? "draft" : `${app.modelPickerTarget.goalId}:${app.modelPickerTarget.runId}`} target={app.modelPickerTarget} selectedId={app.modelPickerTarget.kind === "draft" ? app.draftModelId : null} onSelect={app.onSelectModel} onClose={() => app.setModelPickerTarget(null)} onDone={app.onDoneModelPicker} />}

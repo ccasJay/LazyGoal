@@ -62,7 +62,7 @@
 | 不确定提交核验 | 受理结果不明时保留原 `inputId` 与冻结载荷，由统一核验按收据或资源身份结算；只有未应用允许原身份重试。 | [Goal Board](../README.md) | [控制核验](../src/control/verify.ts)、[运行命令](../src/hooks/useRunCommands.ts) |
 | 渲染错误边界 | 会话与轨迹视图的渲染异常被边界捕获，显示错误卡与重载入口，不整页白屏。 | [Goal Board](../README.md) | [SessionBoundary](../src/components/error-boundary.tsx) |
 | liveText 帧合并 | 打字机增量按帧合并后提交渲染，跟随滚动以帧节流，流结束不丢字。 | [Goal Board](../README.md) | [live-text-batch](../src/live-text-batch.ts) |
-| Provider 设置页 | 受管 Provider 紧凑列表与按需展开表单；区分凭据已保存、激活与目录检查状态，不回显已保存密钥。 | [Goal Board](../README.md) | [SettingsPage](../src/components/SettingsPage.tsx) |
+| Provider 设置页 | 设置弹窗内的 Provider 列表与就地编辑页；区分凭据已保存、激活与目录检查状态，不回显已保存密钥。 | [Goal Board](../README.md) | [SettingsPage](../src/components/SettingsPage.tsx) |
 | 来源两级选择 | 模型选择器先选 Provider 来源再选模型，结果写入对应偏好或 Goal 选择。 | [Goal Board](../README.md) | [ModelPicker](../src/components/ModelPicker.tsx) |
 | Fetch models | 用当前表单查询在线模型；绑定剥离未声明字段并记录不含值的诊断，不保存档案。 | [Goal Board](../README.md) | [SettingsPage](../src/components/SettingsPage.tsx)、[Provider 模型绑定](../../../packages/web-contracts/src/generated/provider-models-binding.ts) |
 | 轨迹概览轨道 | 50px 三轨 Sequence／Time 投影；始终填满可视宽度，Sequence 滚轮缩放不低于 Fit，右键平移、拖拽选择范围，Compact 只收窄事件标记。 | [Goal Board](../README.md) | [TrajectoryTimeline](../src/trajectory-timeline.tsx)、[投影](../src/trajectory-timeline-model.ts) |

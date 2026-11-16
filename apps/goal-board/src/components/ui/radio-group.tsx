@@ -34,6 +34,8 @@ const RadioGroupItem = React.forwardRef<
       <RadioGroupPrimitive.Indicator className="flex items-center justify-center">
         <Circle className="h-3.5 w-3.5 fill-current" />
       </RadioGroupPrimitive.Indicator>
+      {/* 显式展开调用方子节点：上面的 Indicator 会覆盖 props 里透传的 children。 */}
+      {props.children}
     </RadioGroupPrimitive.Item>
   )
 })

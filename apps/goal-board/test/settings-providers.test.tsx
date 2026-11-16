@@ -52,10 +52,11 @@ test("设置页列出凭据状态、激活标记与只读配置来源", async ()
   assert.match(html, /Read-only/);
   assert.match(html, /Google, gemini-2\.5-pro/);
 
-  // 激活档案不可删除；其它档案仍提供删除入口。
-  assert.match(html, /More options for/);
+  // 每行通过 Configure 进入编辑页；激活状态在行内标记。
+  assert.match(html, /Configure/);
   const activeRow = html.slice(html.indexOf("profile-active"), html.indexOf("profile-spare"));
-  assert.match(activeRow, /disabled/);
+  assert.match(activeRow, /Active/);
+  assert.match(activeRow, /aria-label="Configure OpenAI 主账号"/);
 });
 
 test("设置页默认收起表单且不回显明文凭据", async () => {
