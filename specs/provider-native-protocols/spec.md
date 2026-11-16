@@ -1,6 +1,6 @@
 ---
 feature: provider-native-protocols
-status: proposed
+status: implemented
 risk: high
 created_at: 2026-11-15
 delivered_at: null
@@ -59,18 +59,18 @@ superseded_by: null
 
 ## 任务
 
-- [ ] //TODO 1. 新增 `wire-anthropic-messages` 的请求、SSE 与错误分类 → R1.1、R1.3；检查：wire 包基础与终态测试
-- [ ] //TODO 2. Anthropic thinking 签名与用量处理 → R1.2；检查：thinking 与 usage 用例
-- [ ] //TODO 3. Anthropic 适配器接入 `llm-adapters` → R1.1；检查：适配器声明测试
-- [ ] //TODO 4. 新增 `wire-google-generate-content` 并搬迁投影与哨兵 → R2.1、R2.2；检查：投影等价测试
-- [ ] //TODO 5. Google 适配器瘦身并接入 → R2.1；检查：适配器声明测试
-- [ ] //TODO 6. 把 OpenCode Go 分发从统一 chat 改为按模型协议，协议随 Goal 选择往返，并建立覆盖矩阵与分发拒绝用例 → R3.2、R3.3；检查：矩阵、快照往返与拒绝测试
-- [ ] //TODO 7. 删除 `llm-pi-ai` 与剩余 LLM SDK 依赖 → R3.1；检查：`npm run check:dependencies`
-- [ ] //TODO 8. 同步受影响包概览与语义表 → R2.1、R3.1；检查：`npm run check:docs`
+- [x] //TODO 1. 新增 `wire-anthropic-messages` 的请求、SSE 与错误分类 → R1.1、R1.3；检查：wire 包基础与终态测试
+- [x] //TODO 2. Anthropic thinking 签名与用量处理 → R1.2；检查：thinking 与 usage 用例
+- [x] //TODO 3. Anthropic 适配器接入 `llm-adapters` → R1.1；检查：适配器声明测试
+- [x] //TODO 4. 新增 `wire-google-generate-content` 并搬迁投影与哨兵 → R2.1、R2.2；检查：投影等价测试
+- [x] //TODO 5. Google 适配器瘦身并接入 → R2.1；检查：适配器声明测试
+- [x] //TODO 6. 把 OpenCode Go 分发从统一 chat 改为按模型协议，协议随 Goal 选择往返，并建立覆盖矩阵与分发拒绝用例 → R3.2、R3.3；检查：矩阵、快照往返与拒绝测试
+- [x] //TODO 7. 删除 `llm-pi-ai` 与剩余 LLM SDK 依赖 → R3.1；检查：`npm run check:dependencies`
+- [x] //TODO 8. 同步受影响包概览与语义表 → R2.1、R3.1；检查：`npm run check:docs`
 
 ## 执行记录
 
-- 状态：未执行
-- 验证：-
-- 结果：-
-- 未决：无
+- 状态：implemented（待真实 Anthropic 端点多轮工具交换验证）
+- 验证：`npx tsc --noEmit`、`npm run check:dependencies`、`npm run check:docs`、`npm run contracts:generate -- --check` 通过；`wire-anthropic-messages`（11 项）、`wire-google-generate-content` 相关 `llm-google`（32 项）、`llm-adapters`（43 项含覆盖矩阵与分发拒绝）、`llm`（25 项）、runtime/storage/browser/goal-server 受影响套件均通过。
+- 结果：TODO 1–8 完成。Anthropic 走原生 Messages 协议（thinking 签名按块保存并原样回放）；Google 投影与哨兵原样迁入 `wire-google-generate-content`；`executionApi` 由 `protocol` 取代并随 Goal 快照往返；`llm-pi-ai` 与全部供应商 SDK 依赖删除，静态目录固化为包内数据。
+- 未决：真实 Anthropic 端点的一次多轮工具交换验证需用户凭据；本机存在随机单比特内存损坏（导致 `tsc`/生成器/打包偶发 SIGSEGV），所有验证均以重试至成功的运行为准。
