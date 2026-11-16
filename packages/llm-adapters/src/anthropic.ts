@@ -17,6 +17,7 @@ import {
 import { DefaultProviderModelFetcher } from "./catalog-fetchers";
 import { ANTHROPIC_MESSAGES_PROTOCOL } from "./protocols";
 import type { ProviderAdapterDefinition } from "./registry";
+import { readStaticCatalogModels } from "./static-catalog";
 
 /** Anthropic 官方端点前缀；Messages 请求发往其 `messages` 路径。 */
 export const DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1";
@@ -28,7 +29,7 @@ export const ANTHROPIC_VERSION = "2023-06-01";
  * 创建 Anthropic 官方目录来源。
  *
  * @remarks
- * 在线发现由本适配器拥有的 fetcher 提供；静态模型来源由组合根注入。
+ * 静态模型事实来自锁定静态目录；在线发现由本适配器拥有的 fetcher 提供。
  *
  * @returns 可交给 `model-catalog` 的供应商目录来源。
  *
@@ -42,7 +43,7 @@ export function createAnthropicCatalogSource(): CatalogSource {
     return {
         provider: "anthropic",
         protocol: ANTHROPIC_MESSAGES_PROTOCOL,
-        staticModels: [],
+        staticModels: readStaticCatalogModels("anthropic"),
         discover: (config, options) => fetcher.fetchModels(config, options),
     };
 }

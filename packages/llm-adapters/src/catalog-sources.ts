@@ -1,16 +1,12 @@
-import type { LLMConfig, ProtocolId } from "../../llm-core/src/index";
+import type { ProtocolId } from "../../llm-core/src/index";
 import type { CatalogSource } from "../../model-catalog/src/index";
-import { DefaultProviderModelFetcher } from "./catalog-fetchers";
+import { createAnthropicCatalogSource } from "./anthropic";
 import { createDeepSeekCatalogSource } from "./deepseek";
+import { createGoogleCatalogSource } from "./google";
 import { createOpenAICatalogSource } from "./openai";
+import { createOpenAICompatibleCatalogSource } from "./openai-compatible";
 import { createOpenCodeGoCatalogSource } from "./opencode-go";
 import { createOpenRouterCatalogSource } from "./openrouter";
-import {
-    ANTHROPIC_MESSAGES_PROTOCOL,
-    CHAT_COMPLETIONS_PROTOCOL,
-    GOOGLE_GENERATE_CONTENT_PROTOCOL,
-} from "./protocols";
-import { readStaticCatalogModels } from "./static-catalog";
 
 /**
  * OpenCode Go 已知模型的执行元数据。
@@ -95,31 +91,13 @@ export function resolveOpenCodeGoExecutionMetadata(modelId: string): OpenCodeGoE
  * ```
  */
 export function createBuiltinCatalogSources(): readonly CatalogSource[] {
-    const fetcher = new DefaultProviderModelFetcher();
-    const discover = (config: LLMConfig, options?: { readonly signal?: AbortSignal | undefined; readonly fetch?: typeof fetch | undefined }) =>
-        fetcher.fetchModels(config, options);
     return [
         createOpenAICatalogSource(),
+        createAnthropicCatalogSource(),
+        createGoogleCatalogSource(),
         createDeepSeekCatalogSource(),
         createOpenRouterCatalogSource(),
         createOpenCodeGoCatalogSource(),
-        {
-            provider: "anthropic",
-            protocol: ANTHROPIC_MESSAGES_PROTOCOL,
-            staticModels: readStaticCatalogModels("anthropic"),
-            discover,
-        },
-        {
-            provider: "google",
-            protocol: GOOGLE_GENERATE_CONTENT_PROTOCOL,
-            staticModels: readStaticCatalogModels("google"),
-            discover,
-        },
-        {
-            provider: "openai-compatible",
-            protocol: CHAT_COMPLETIONS_PROTOCOL,
-            staticModels: [],
-            discover,
-        },
+        createOpenAICompatibleCatalogSource(),
     ];
 }

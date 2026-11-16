@@ -55,5 +55,5 @@ test("registry serves the Anthropic declaration with its catalog source", () => 
     assert.equal(definition.catalog.provider, source.provider);
     assert.equal(definition.catalog.protocol, source.protocol);
     assert.equal(typeof source.discover, "function");
-    assert.deepEqual(definition.catalog.staticModels, []);
+    assert.ok(definition.catalog.staticModels.length > 0, "Anthropic declaration carries its static catalog");
 });

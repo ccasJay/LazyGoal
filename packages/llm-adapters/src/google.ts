@@ -8,6 +8,7 @@ import type { CatalogSource } from "../../model-catalog/src/index";
 import { DefaultProviderModelFetcher } from "./catalog-fetchers";
 import { GOOGLE_GENERATE_CONTENT_PROTOCOL } from "./protocols";
 import type { ProviderAdapterDefinition } from "./registry";
+import { readStaticCatalogModels } from "./static-catalog";
 
 /**
  * 创建 Google 官方目录来源。
@@ -27,7 +28,7 @@ export function createGoogleCatalogSource(): CatalogSource {
     return {
         provider: "google",
         protocol: GOOGLE_GENERATE_CONTENT_PROTOCOL,
-        staticModels: [],
+        staticModels: readStaticCatalogModels("google"),
         discover: (config, options) => fetcher.fetchModels(config, options),
     };
 }
