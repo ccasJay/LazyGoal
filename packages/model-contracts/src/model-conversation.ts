@@ -11,10 +11,10 @@ import { isRecord } from "../../contracts/src/index";
  * ```
  */
 export interface NativeConversationIdentity {
-    readonly provider: "openai" | "openai-compatible" | "google";
+    readonly provider: "openai" | "openai-compatible" | "google" | "anthropic";
     readonly endpoint: string;
     readonly model: string;
-    readonly protocol: "openai-chat" | "gemini-content";
+    readonly protocol: "openai-chat" | "gemini-content" | "anthropic-messages";
 }
 
 /**
@@ -95,6 +95,21 @@ export interface GeminiContinuationPart {
 }
 
 /**
+ * Anthropic Messages 原生续接块；顺序与签名不得修改。
+ * @remarks 只包含文本、thinking（含签名）与 tool_use；上游要求 thinking 签名原样回放，
+ * 请求时把这些块作为 assistant content 回传。不支持图像与检索引用等其它块。
+ * @example
+ * ```ts
+ * const block: AnthropicContinuationBlock = { type: "thinking", thinking: "检查中", signature: "sig" };
+ * ```
+ */
+export type AnthropicContinuationBlock =
+    | { readonly type: "text"; readonly text: string }
+    | { readonly type: "thinking"; readonly thinking: string; readonly signature: string }
+    | { readonly type: "redacted_thinking"; readonly data: string }
+    | { readonly type: "tool_use"; readonly id: string; readonly name: string; readonly input: Record<string, unknown> };
+
+/**
  * 可持久化的供应商续接字段，与诊断 metadata 分离。
  * @remarks OpenAI-compatible 的新历史把可回放正文、推理和工具调用保存在 `ModelBlockAssistantMessage.blocks`；其他 Provider 继续使用对应的既有字段。Gemini 原始 Parts 是维持签名续接所需的协议状态。
  * @example
@@ -105,6 +120,8 @@ export interface GeminiContinuationPart {
 export interface ModelContinuation {
     readonly identity: NativeConversationIdentity;
     readonly parts?: readonly GeminiContinuationPart[];
+    /** Anthropic Messages 的原生续接块；与 `parts` 互斥，由身份协议选择。 */
+    readonly blocks?: readonly AnthropicContinuationBlock[];
     /** 既有 OpenAI 原生历史中的可续接 reasoning 字段。 */
     readonly reasoningContent?: string;
     /** 既有 OpenAI 原生历史中记录但不回放的扩展字段。 */
@@ -145,7 +162,7 @@ export interface ModelLegacyAssistantMessage {
 export interface ModelBlockAssistantMessage {
     readonly role: "assistant";
     readonly blocks: readonly ModelContentBlock[];
-    readonly continuation?: Pick<ModelContinuation, "identity" | "parts">;
+    readonly continuation?: Pick<ModelContinuation, "identity" | "parts" | "blocks">;
 }
 
 /**
@@ -304,19 +321,25 @@ export function isModelAssistantMessage(value: unknown): value is ModelAssistant
 /** 校验原生 Provider 续接载荷；blocks 形态禁止复制 OpenAI reasoning 字段。 */
 function isModelContinuation(value: unknown, blockMessage: boolean): value is ModelContinuation | undefined {
     if (value === undefined) return true;
-    if (!isRecord(value) || !keys(value, ["identity", "parts", "reasoningContent", "thought"]) || !isRecord(value.identity)) return false;
+    if (!isRecord(value) || !keys(value, ["identity", "parts", "blocks", "reasoningContent", "thought"]) || !isRecord(value.identity)) return false;
     const identity = value.identity;
     if (!keys(identity, ["provider", "endpoint", "model", "protocol"]) || !nonempty(identity.model) || !nonempty(identity.endpoint)
-        || !["openai", "openai-compatible", "google"].includes(String(identity.provider))) return false;
+        || !["openai", "openai-compatible", "google", "anthropic"].includes(String(identity.provider))) return false;
     try {
         const url = new URL(identity.endpoint);
         if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.search || url.hash) return false;
     } catch { return false; }
     if (identity.protocol === "openai-chat") {
-        return identity.provider !== "google" && value.parts === undefined
+        return identity.provider !== "google" && identity.provider !== "anthropic" && value.parts === undefined && value.blocks === undefined
             && (value.reasoningContent === undefined || typeof value.reasoningContent === "string")
             && (value.thought === undefined || typeof value.thought === "string")
             && (!blockMessage || value.reasoningContent === undefined && value.thought === undefined);
+    }
+    if (identity.protocol === "anthropic-messages") {
+        return identity.provider === "anthropic" && value.parts === undefined
+            && value.reasoningContent === undefined && value.thought === undefined
+            && Array.isArray(value.blocks) && value.blocks.length > 0
+            && value.blocks.every(block => isAnthropicContinuationBlock(block));
     }
     if (identity.protocol !== "gemini-content" || identity.provider !== "google"
         || value.reasoningContent !== undefined || value.thought !== undefined || !Array.isArray(value.parts)) return false;
@@ -335,19 +358,50 @@ function isModelContinuation(value: unknown, blockMessage: boolean): value is Mo
     return true;
 }
 
+/** 校验 Anthropic 原生续接块的四种受支持形状。 */
+function isAnthropicContinuationBlock(value: unknown): boolean {
+    if (!isRecord(value) || !nonempty(value.type)) return false;
+    switch (value.type) {
+        case "text":
+            return keys(value, ["type", "text"]) && typeof value.text === "string" && value.text.length > 0;
+        case "thinking":
+            return keys(value, ["type", "thinking", "signature"])
+                && typeof value.thinking === "string" && value.thinking.length > 0
+                && typeof value.signature === "string" && value.signature.length > 0;
+        case "redacted_thinking":
+            return keys(value, ["type", "data"]) && typeof value.data === "string" && value.data.length > 0;
+        case "tool_use":
+            return keys(value, ["type", "id", "name", "input"]) && nonempty(value.id) && nonempty(value.name)
+                && isRecord(value.input);
+        default:
+            return false;
+    }
+}
+
 function continuationCallsMatch(
     continuation: unknown,
     normalized: readonly ModelToolCall[],
 ): boolean {
-    if (!isRecord(continuation) || !isRecord(continuation.identity)
-        || continuation.identity.protocol !== "gemini-content" || !Array.isArray(continuation.parts)) return true;
-    const calls = continuation.parts.flatMap((part): Record<string, unknown>[] =>
-        isRecord(part) && isRecord(part.functionCall) ? [part.functionCall] : []);
-    if (calls.length === 0) return normalized.length === 0;
-    if (calls.length !== 1 || normalized.length !== 1) return false;
-    const call = calls[0]!, expected = normalized[0]!;
-    return call.name === expected.toolId && (call.id === undefined || call.id === expected.callId)
-        && JSON.stringify(call.args ?? {}) === expected.argumentsJson;
+    if (!isRecord(continuation) || !isRecord(continuation.identity)) return true;
+    if (continuation.identity.protocol === "gemini-content" && Array.isArray(continuation.parts)) {
+        const calls = continuation.parts.flatMap((part): Record<string, unknown>[] =>
+            isRecord(part) && isRecord(part.functionCall) ? [part.functionCall] : []);
+        if (calls.length === 0) return normalized.length === 0;
+        if (calls.length !== 1 || normalized.length !== 1) return false;
+        const call = calls[0]!, expected = normalized[0]!;
+        return call.name === expected.toolId && (call.id === undefined || call.id === expected.callId)
+            && JSON.stringify(call.args ?? {}) === expected.argumentsJson;
+    }
+    if (continuation.identity.protocol === "anthropic-messages" && Array.isArray(continuation.blocks)) {
+        const calls = continuation.blocks.filter((block): block is Record<string, unknown> =>
+            isRecord(block) && block.type === "tool_use");
+        if (calls.length === 0) return normalized.length === 0;
+        if (calls.length !== 1 || normalized.length !== 1) return false;
+        const call = calls[0]!, expected = normalized[0]!;
+        return call.name === expected.toolId && call.id === expected.callId
+            && JSON.stringify(call.input ?? {}) === expected.argumentsJson;
+    }
+    return true;
 }
 
 /**

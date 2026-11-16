@@ -68,5 +68,5 @@ export type { JsonTextFailure } from "./json-text";
 
 export { ModelHttpRequestError, parseRetryAfterMs } from "./http-error";
 
-export type { NativeConversationIdentity, ModelContinuation } from "../../model-contracts/src/index";
+export type { NativeConversationIdentity, ModelContinuation, AnthropicContinuationBlock } from "../../model-contracts/src/index";
 export { sameNativeIdentity } from "../../model-contracts/src/index";
