@@ -133,15 +133,32 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
         profiles_dir = config_dir / "profiles"
         profiles_dir.mkdir(parents=True, exist_ok=True)
         (config_dir / "config.toml").write_text(
-            '[gepa]\nreflection_profile = "gepa-reflection"\n', encoding="utf-8"
+            "\n".join(
+                [
+                    "[providers.openai.working]",
+                    'api_key = "test-working"',
+                    "[[providers.openai.working.models]]",
+                    'id = "default"',
+                    "context_window = 128000",
+                    "max_output_tokens = 8192",
+                    "[providers.openai.reflection]",
+                    'api_key = "test-reflection"',
+                    "[[providers.openai.reflection.models]]",
+                    'id = "reflection"',
+                    "context_window = 65536",
+                    "max_output_tokens = 8192",
+                    "[gepa]",
+                    'reflection_profile = "gepa-reflection"',
+                    "",
+                ]
+            ),
+            encoding="utf-8",
         )
         (profiles_dir / "default.toml").write_text(
-            '[llm]\nprovider = "openai"\nmodel = "default"\napi_key = "test-working"\n',
-            encoding="utf-8",
+            '[llm]\nprovider = "working"\nmodel = "default"\n', encoding="utf-8"
         )
         (profiles_dir / "gepa-reflection.toml").write_text(
-            '[llm]\nprovider = "openai"\nmodel = "reflection"\napi_key = "test-reflection"\n',
-            encoding="utf-8",
+            '[llm]\nprovider = "reflection"\nmodel = "reflection"\n', encoding="utf-8"
         )
         self.env_patch = patch.dict(os.environ, {"LAZYGOAL_HOME": str(lazygoal_home)})
         self.env_patch.start()
@@ -247,8 +264,8 @@ class M3Challenger2AdversarialTests(unittest.TestCase):
             ),
             seed_candidate=seed,
             seed_candidate_id=_fingerprint(snapshot.system_prompt, snapshot.instructions),
-            working_model=ModelIdentity(profile_name="default", model_id="default", provider="openai"),
-            reflection_model=ModelIdentity(profile_name="gepa-reflection", model_id="reflection", provider="openai"),
+            working_model=ModelIdentity(profile_name="default", model_id="default", provider="working"),
+            reflection_model=ModelIdentity(profile_name="gepa-reflection", model_id="reflection", provider="reflection"),
         )
 
     # =========================================================================
