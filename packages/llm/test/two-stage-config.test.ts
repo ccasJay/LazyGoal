@@ -8,7 +8,7 @@ import { loadRuntimeConfig, readLLMConfig, resolveLazyGoalHomePaths } from "../.
 import { ChatCompletionsAdapter } from "../../llm-adapters/src/index";
 import { createLlmAdapter, createLlmStageAdapters } from "../src/index";
 import { Gemini } from "../../llm-google/src/index";
-import { PiAiAdapter } from "../../llm-pi-ai/src/index";
+import { AnthropicMessagesAdapter } from "../../llm-adapters/src/index";
 
 test("readLLMConfig 只读取连接事实，不再接受输出模式配置", () => {
     const base = {
@@ -22,7 +22,7 @@ test("readLLMConfig 只读取连接事实，不再接受输出模式配置", () 
     assert.equal("structuredOutputMode" in config, false);
 });
 
-test("已注册供应商使用同一请求驱动适配器，Anthropic 保留 pi-ai", () => {
+test("已注册供应商使用同一请求驱动适配器", () => {
     for (const [provider, model] of [
         ["deepseek", "deepseek-v4-pro"],
         ["openrouter", "~anthropic/claude-haiku-latest"],
@@ -43,7 +43,7 @@ test("已注册供应商使用同一请求驱动适配器，Anthropic 保留 pi-
         LLM_MODEL: "claude-sonnet-4-5",
         LLM_API_KEY: "sk-test",
     });
-    assert.ok(createLlmStageAdapters(anthropic).thinkAdapter instanceof PiAiAdapter);
+    assert.ok(createLlmStageAdapters(anthropic).thinkAdapter instanceof AnthropicMessagesAdapter);
 });
 
 test("Think 与 Decide 共用同一实例，Google 使用原生 Gemini", () => {

@@ -3,8 +3,7 @@ import { test } from "node:test";
 
 import { LLMConfigurationError, type LLMConfig } from "../../llm-core/src/index";
 import { Gemini } from "../../llm-google/src/index";
-import { PiAiAdapter } from "../../llm-pi-ai/src/index";
-import { ChatCompletionsAdapter } from "../../llm-adapters/src/index";
+import { AnthropicMessagesAdapter, ChatCompletionsAdapter } from "../../llm-adapters/src/index";
 import * as entry from "../src/index";
 import {
     createLlmAdapter,
@@ -35,7 +34,7 @@ test("createLlmAdapter 按注册表选择适配器且不发网络请求", () => 
         const anthropic = createLlmAdapter({
             provider: "anthropic", model: "claude-sonnet-4-5", apiKey: "sk-test",
         });
-        assert.ok(anthropic instanceof PiAiAdapter);
+        assert.ok(anthropic instanceof AnthropicMessagesAdapter);
 
         const openaiAdapter = createLlmAdapter({ ...openai });
         assert.ok(openaiAdapter instanceof ChatCompletionsAdapter);
@@ -45,10 +44,10 @@ test("createLlmAdapter 按注册表选择适配器且不发网络请求", () => 
         });
         assert.ok(deepseek instanceof ChatCompletionsAdapter);
 
-        const googleStrict = createLlmAdapter({
+        const googleAdapter = createLlmAdapter({
             provider: "google", model: "gemini-2.5-flash", apiKey: "sk-test",
         });
-        assert.ok(googleStrict instanceof Gemini);
+        assert.ok(googleAdapter instanceof Gemini);
 
         const compatible = createLlmAdapter({
             provider: "openai-compatible", model: "local-model", apiKey: "sk-test",
@@ -70,14 +69,14 @@ test("createLlmAdapter 按注册表选择适配器且不发网络请求", () => 
     }
 });
 
-test("two_stage 对已注册供应商选择请求驱动适配器，Anthropic 保持 prompt_only", () => {
+test("registered providers share one request-driven adapter per stage", () => {
     const openaiTwoStage = createLlmAdapter({ ...openai });
     assert.ok(openaiTwoStage instanceof ChatCompletionsAdapter);
 
     const anthropicTwoStage = createLlmAdapter({
         provider: "anthropic", model: "claude-sonnet-4-5", apiKey: "sk-test",
     });
-    assert.ok(anthropicTwoStage instanceof PiAiAdapter);
+    assert.ok(anthropicTwoStage instanceof AnthropicMessagesAdapter);
 });
 
 test("createLlmStageAdapters 复用请求驱动适配器，保留既有实现阶段差异", () => {
@@ -113,5 +112,5 @@ test("createReflectionLlmAdapter 对注册表供应商使用同一适配器", ()
     const anthropicReflection = createReflectionLlmAdapter({
         provider: "anthropic", apiKey: "sk-test", model: "claude-sonnet-4-5",
     });
-    assert.ok(anthropicReflection instanceof PiAiAdapter);
+    assert.ok(anthropicReflection instanceof AnthropicMessagesAdapter);
 });

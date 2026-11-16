@@ -19,6 +19,12 @@ export {
 } from "./anthropic";
 
 export {
+    createGoogleAdapter,
+    createGoogleCatalogSource,
+    createGoogleProviderAdapter,
+} from "./google";
+
+export {
     DEFAULT_OPENAI_BASE_URL,
     createOpenAICatalogSource,
     createOpenAIAdapter,

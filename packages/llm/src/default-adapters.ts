@@ -1,6 +1,4 @@
 import { LLMConfigurationError, type LLMAdapter, type LLMConfig } from "../../llm-core/src/index";
-import { Gemini, type GeminiConfig } from "../../llm-google/src/index";
-import { PiAiAdapter } from "../../llm-pi-ai/src/index";
 import { createDefaultProviderRegistry, type ProviderRegistry } from "../../llm-adapters/src/index";
 
 /**
@@ -32,23 +30,13 @@ function registryFor(options: LlmAdapterOptions): ProviderRegistry {
     return options.registry ?? createDefaultProviderRegistry();
 }
 
-/** 把共享连接配置投影为 Gemini 专属配置，不为缺省字段伪造值。 */
-function toGeminiConfig(config: LLMConfig): GeminiConfig {
-    return {
-        apiKey: config.apiKey,
-        model: config.model,
-        ...(config.baseURL === undefined ? {} : { baseURL: config.baseURL }),
-        ...(config.maxOutputTokens === undefined ? {} : { maxOutputTokens: config.maxOutputTokens }),
-    };
-}
-
 /**
  * 按供应商注册表创建 Adapter，不发请求或写入任何存储。
  *
  * @param config - 已校验的连接配置。
  * @param options - 可选注入的供应商注册表。
- * @returns 已注册供应商使用适配器工厂；Anthropic 与 Google 由既有实现服务。
- * @throws LLMConfigurationError 供应商未注册且无既有实现时抛出。
+ * @returns 已注册供应商的适配器工厂产物。
+ * @throws LLMConfigurationError 供应商未注册时抛出，指明未知供应商与已注册清单。
  *
  * @example
  * ```ts
@@ -60,9 +48,11 @@ export function createLlmAdapter(config: LLMConfig, options: LlmAdapterOptions =
     if (registry.has(config.provider)) {
         return registry.require(config.provider).createAdapter(config);
     }
-    if (config.provider === "google") return new Gemini(toGeminiConfig(config));
-    if (config.provider === "anthropic") return new PiAiAdapter(config);
-    throw new LLMConfigurationError([], `Unknown provider "${config.provider}"; register an adapter before creating a model adapter`);
+    const known = registry.ids();
+    throw new LLMConfigurationError(
+        [],
+        `Unknown provider "${config.provider}"; registered providers: ${known.length === 0 ? "none" : known.join(", ")}`,
+    );
 }
 
 /**

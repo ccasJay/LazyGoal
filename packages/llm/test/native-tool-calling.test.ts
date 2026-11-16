@@ -152,44 +152,38 @@ test("Gemini 原生 Function Calling 挂载 functionDeclarations 与 ANY 模式�
         model: "gemini-2.5-flash",
     });
 
-    let capturedParams: any = undefined;
-    (adapter as any).client = {
-        models: {
-            generateContent: async (params: any) => {
-                capturedParams = params;
-                return {
-                    candidates: [
-                        {
-                            content: {
-                                role: "model",
-                                parts: [
-                                    {
-                                        thought: true,
-                                        text: "这是 Gemini 原生生成的思考过程",
+    let capturedBody: any = undefined;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+        capturedBody = JSON.parse(String(init?.body));
+        return new Response(JSON.stringify({
+            candidates: [
+                {
+                    content: {
+                        role: "model",
+                        parts: [
+                            { thought: true, text: "这是 Gemini 原生生成的思考过程" },
+                            {
+                                functionCall: {
+                                    name: "system_complete_task",
+                                    args: {
+                                        summary: "Gemini 执行完毕",
+                                        completionEvidence: ["log-1"],
                                     },
-                                    {
-                                        functionCall: {
-                                            name: "system_complete_task",
-                                            args: {
-                                                summary: "Gemini 执行完毕",
-                                                completionEvidence: ["log-1"],
-                                            },
-                                        },
-                                    },
-                                ],
+                                },
                             },
-                            finishReason: "STOP",
-                        },
-                    ],
-                    usageMetadata: {
-                        promptTokenCount: 80,
-                        candidatesTokenCount: 40,
-                        totalTokenCount: 120,
+                        ],
                     },
-                };
+                    finishReason: "STOP",
+                },
+            ],
+            usageMetadata: {
+                promptTokenCount: 80,
+                candidatesTokenCount: 40,
+                totalTokenCount: 120,
             },
-        },
-    };
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }) as typeof fetch;
 
     const request: LLMRequest = {
         messages: [{ role: "user", content: "请决策" }],
@@ -197,76 +191,70 @@ test("Gemini 原生 Function Calling 挂载 functionDeclarations 与 ANY 模式�
         toolChoice: "required",
     };
 
-    const response = await adapter.generate(request);
+    try {
+        const response = await adapter.generate(request);
 
-    // 1. 验证 Gemini 配置
-    assert.ok(capturedParams);
-    assert.equal(capturedParams.config.tools.length, 1);
-    const fnDecl = capturedParams.config.tools[0].functionDeclarations[0];
-    assert.equal(fnDecl.name, "system_complete_task");
-    assert.equal(capturedParams.config.toolConfig.functionCallingConfig.mode, "ANY");
+        // 1. 验证线格式请求形状
+        assert.ok(capturedBody);
+        assert.equal(capturedBody.tools.length, 1);
+        const fnDecl = capturedBody.tools[0].functionDeclarations[0];
+        assert.equal(fnDecl.name, "system_complete_task");
+        assert.equal(capturedBody.toolConfig.functionCallingConfig.mode, "ANY");
 
-    // 2. 验证双通道内容提取
-    assert.equal(readAssistantText(response), "");
-    assert.equal(readReasoningText(response), "这是 Gemini 原生生成的思考过程");
-    const geminiCalls = readToolCalls(response);
-    assert.equal(geminiCalls.length, 1);
-    assert.equal(geminiCalls[0]!.toolId, "system_complete_task");
-    const parsedArgs = JSON.parse(geminiCalls[0]!.argumentsJson);
-    assert.equal(parsedArgs.summary, "Gemini 执行完毕");
+        // 2. 验证双通道内容提取
+        assert.equal(readAssistantText(response), "");
+        assert.equal(readReasoningText(response), "这是 Gemini 原生生成的思考过程");
+        const geminiCalls = readToolCalls(response);
+        assert.equal(geminiCalls.length, 1);
+        assert.equal(geminiCalls[0]!.toolId, "system_complete_task");
+        const parsedArgs = JSON.parse(geminiCalls[0]!.argumentsJson);
+        assert.equal(parsedArgs.summary, "Gemini 执行完毕");
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
 });
 
-test("Gemini 纯 functionCall 响应提取工具调用，content 为空字符串且不触发 response.text", async () => {
+test("Gemini 纯 functionCall 响应提取工具调用，不读取正文派生字段", async () => {
     const adapter = new Gemini({
         apiKey: "test-key",
         model: "gemini-2.5-flash",
     });
 
-    let textPropertyAccessed = false;
-    (adapter as any).client = {
-        models: {
-            generateContent: async () => {
-                const dummyResponse = {
-                    candidates: [
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+        candidates: [
+            {
+                content: {
+                    role: "model",
+                    parts: [
                         {
-                            content: {
-                                role: "model",
-                                parts: [
-                                    {
-                                        functionCall: {
-                                            name: "read_file",
-                                            args: { path: "package.json" },
-                                        },
-                                    },
-                                ],
+                            functionCall: {
+                                name: "read_file",
+                                args: { path: "package.json" },
                             },
-                            finishReason: "STOP",
                         },
                     ],
-                };
-                Object.defineProperty(dummyResponse, "text", {
-                    get() {
-                        textPropertyAccessed = true;
-                        return "";
-                    },
-                });
-                return dummyResponse;
+                },
+                finishReason: "STOP",
             },
-        },
-    };
+        ],
+    }), { status: 200, headers: { "Content-Type": "application/json" } })) as typeof fetch;
 
-    const response = await adapter.generate({
-        messages: [{ role: "user", content: "读取文件" }],
-        tools: [mockToolDefinition],
-        toolChoice: "required",
-    });
+    try {
+        const response = await adapter.generate({
+            messages: [{ role: "user", content: "读取文件" }],
+            tools: [mockToolDefinition],
+            toolChoice: "required",
+        });
 
-    assert.equal(readAssistantText(response), "");
-    assert.equal(textPropertyAccessed, false, "当包含工具调用且无文本时，严禁访问 response.text 避免 SDK 产生告警");
-    const calls = readToolCalls(response);
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0]!.toolId, "read_file");
-    assert.ok(calls[0]!.callId.startsWith("call_"));
+        assert.equal(readAssistantText(response), "");
+        const calls = readToolCalls(response);
+        assert.equal(calls.length, 1);
+        assert.equal(calls[0]!.toolId, "read_file");
+        assert.ok(calls[0]!.callId.startsWith("call_"));
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
 });
 
 test("PiAiAdapter 原生挂载 tools、隔离 thinking 并提取 toolCall blocks", async () => {

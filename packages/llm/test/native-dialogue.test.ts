@@ -55,16 +55,22 @@ test("Gemini two-turn dialogue preserves signed parts verbatim and returns exact
     const adapter = new Gemini({ apiKey: "test-key", model: "test" });
     const parts = [{ text: "Summary", thought: true }, { text: "Checking" }, { functionCall: { id: "native-id", name: "read_file", args: {} }, thoughtSignature: "opaque-signature" }];
     const requests: any[] = [];
-    (adapter as any).client = { models: { generateContent: async (request: unknown) => {
-        requests.push(request);
-        return { candidates: [{ content: { role: "model", parts } }] };
-    } } };
-    const first = await adapter.generate(firstRequest);
-    assert.equal(readAssistantText(first), "Checking");
-    assert.equal(readReasoningText(first), "Summary");
-    await adapter.generate(nextRequest(first));
-    assert.equal(requests[0].config.responseSchema, undefined);
-    assert.equal(requests[0].config.responseMimeType, undefined);
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+        requests.push(JSON.parse(String(init?.body)));
+        return new Response(JSON.stringify({ candidates: [{ content: { role: "model", parts }, finishReason: "STOP" }] }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }) as typeof fetch;
+    let first: LLMResponse;
+    try {
+        first = await adapter.generate(firstRequest);
+        assert.equal(readAssistantText(first), "Checking");
+        assert.equal(readReasoningText(first), "Summary");
+        await adapter.generate(nextRequest(first));
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
+    assert.equal(requests[0].generationConfig?.responseSchema, undefined);
+    assert.equal(requests[0].generationConfig?.responseMimeType, undefined);
     assert.deepEqual(requests[1].contents[1].parts, parts);
     assert.deepEqual(requests[1].contents[2].parts[0].functionResponse, { name: "read_file", id: "native-id", response: { observation: { kind: "success", output: "file" } } });
     assert.equal(JSON.stringify(first.continuation).includes("test-key"), false);
@@ -73,12 +79,18 @@ test("Gemini two-turn dialogue preserves signed parts verbatim and returns exact
 test("Gemini locally allocated call ID does not fabricate a provider function ID", async () => {
     const adapter = new Gemini({ apiKey: "test", model: "test" });
     const requests: any[] = [];
-    (adapter as any).client = { models: { generateContent: async (request: unknown) => {
-        requests.push(request);
-        return { candidates: [{ content: { parts: [{ text: "Summary", thought: true }, { functionCall: { name: "read_file", args: {} }, thoughtSignature: "signature" }] } }] };
-    } } };
-    const first = await adapter.generate(firstRequest);
-    await adapter.generate(nextRequest(first));
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+        requests.push(JSON.parse(String(init?.body)));
+        return new Response(JSON.stringify({ candidates: [{ content: { role: "model", parts: [{ text: "Summary", thought: true }, { functionCall: { name: "read_file", args: {} }, thoughtSignature: "signature" }] }, finishReason: "STOP" }] }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }) as typeof fetch;
+    let first: LLMResponse;
+    try {
+        first = await adapter.generate(firstRequest);
+        await adapter.generate(nextRequest(first));
+    } finally {
+        globalThis.fetch = originalFetch;
+    }
     assert.ok(readToolCalls(first)[0]!.callId);
     assert.equal(requests[1].contents[2].parts[0].functionResponse.id, undefined);
 });

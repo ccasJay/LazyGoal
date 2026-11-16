@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test, afterEach } from "node:test";
 import { bashInputBinding, editFileInputBinding, readFileInputBinding, writeFileInputBinding } from "../../tools/src/index";
 import {
     createBoundModelOutputContractBundle,
@@ -91,6 +91,57 @@ function createAdapter() {
     });
 }
 
+/**
+ * 把旧 SDK client mock 协议转录为 HTTP 层拦截，并在 afterEach 统一还原。
+ *
+ * @param adapter - 被测适配器；其连接事实提供模型名。
+ * @param impl - 收到旧 SDK 形状的 `{model, contents, config}`，返回 `{text}`/`{candidates...}`/抛出异常。
+ */
+function mockClient(adapter: Gemini, impl: (params: { model: string; contents: unknown; config: Record<string, unknown> }) => unknown): void {
+    fetchRestorers.push(installMockedClient(adapter, impl));
+}
+
+const fetchRestorers: (() => void)[] = [];
+afterEach(() => { while (fetchRestorers.length > 0) fetchRestorers.pop()!(); });
+
+function installMockedClient(adapter: Gemini, impl: (params: { model: string; contents: unknown; config: Record<string, unknown> }) => unknown): () => void {
+    const originalFetch = globalThis.fetch;
+    const model = (adapter as unknown as { connection: { model: string } }).connection.model;
+    globalThis.fetch = async (_input, init) => {
+        const bodyText = init?.body === undefined ? "{}" : String(init.body);
+        const body = JSON.parse(bodyText) as Record<string, any>;
+        const generation = body.generationConfig as Record<string, unknown> | undefined;
+        const config: Record<string, unknown> = {
+            ...(body.systemInstruction === undefined ? {} : { systemInstruction: body.systemInstruction }),
+            ...(generation === undefined ? {} : {
+                maxOutputTokens: generation.maxOutputTokens,
+                responseMimeType: generation.responseMimeType,
+                responseSchema: generation.responseSchema,
+            }),
+            ...(body.tools === undefined ? {} : { tools: body.tools }),
+            ...(body.toolConfig === undefined ? {} : { toolConfig: body.toolConfig }),
+        };
+        for (const key of Object.keys(config)) {
+            if (config[key] === undefined) delete config[key];
+        }
+        const legacy = { model, contents: body.contents, config };
+        const outcome = await impl(legacy);
+        if (outcome instanceof Error) throw outcome;
+        const result = (outcome ?? {}) as Record<string, any>;
+        if (result.candidates !== undefined || result.promptFeedback !== undefined) {
+            return new Response(JSON.stringify(result), { headers: { "Content-Type": "application/json" } });
+        }
+        const parts: unknown[] = typeof result.text === "string" ? [{ text: result.text }] : [];
+        return new Response(JSON.stringify({
+            candidates: [{ content: { role: "model", parts }, finishReason: "STOP" }],
+            ...(result.usageMetadata === undefined ? {} : { usageMetadata: result.usageMetadata }),
+        }), {
+            headers: { "Content-Type": "application/json" },
+        });
+    };
+    return () => { globalThis.fetch = originalFetch; };
+}
+
 test("Gemini 构造与导入零网络请求", () => {
     createAdapter();
 });
@@ -122,17 +173,13 @@ test("Gemini in strict mode maps structuredOutput to responseMimeType and respon
     let capturedInput: any = undefined;
     let callCount = 0;
 
-    (adapter as any).client = {
-        models: {
-            generateContent: async (params: any) => {
+    mockClient(adapter as Gemini, async (params: any) => {
                 callCount += 1;
                 capturedInput = params;
                 return {
                     text: JSON.stringify({ summary: "done" }),
                 };
-            },
-        },
-    };
+            });
 
     const request: LLMRequest = {
         messages: [{ role: "user", content: "hi" }],
@@ -148,7 +195,11 @@ test("Gemini in strict mode maps structuredOutput to responseMimeType and respon
     assert.equal(readAssistantText(response), JSON.stringify({ summary: "done" }));
     assert.equal(capturedInput.model, "gemini-2.5-flash");
     assert.equal(capturedInput.config?.responseMimeType, "application/json");
-    assert.deepEqual(capturedInput.config?.responseSchema, dummySchema);
+    assert.deepEqual(capturedInput.config?.responseSchema, {
+        type: "OBJECT",
+        properties: { summary: { type: "STRING" } },
+        required: ["summary"],
+    });
 });
 
 test("Gemini preserves valid Plan completion evidence without rewriting", async () => {
@@ -157,7 +208,7 @@ test("Gemini preserves valid Plan completion evidence without rewriting", async 
         completionEvidence: [{ criterionIndex: 0, evidenceSequences: [96] }], contextNotes: null } };
     const adapter = createAdapter();
     const text = JSON.stringify(value);
-    (adapter as any).client = { models: { generateContent: async () => ({ text }) } };
+    mockClient(adapter as Gemini, async () => ({ text }));
     const response = await adapter.generate({ messages: [], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
     assert.equal(readAssistantText(response), text);
     assert.equal(bundle.decode(JSON.parse(readAssistantText(response))).kind, "complete");
@@ -172,7 +223,7 @@ test("Gemini preserves and rejects invalid completion evidence formats", async (
     });
     const adapter = createAdapter();
     let responseValue: unknown;
-    (adapter as any).client = { models: { generateContent: async () => ({ text: JSON.stringify(responseValue) }) } };
+    mockClient(adapter as Gemini, async () => ({ text: JSON.stringify(responseValue) }));
 
     for (const completionEvidence of [
         "",
@@ -212,7 +263,7 @@ test("Gemini rejects non-placeholder completion evidence on tool calls", async (
             completionEvidence: "0:96",
         },
     };
-    (adapter as any).client = { models: { generateContent: async () => ({ text: JSON.stringify(responseValue) }) } };
+    mockClient(adapter as Gemini, async () => ({ text: JSON.stringify(responseValue) }));
 
     const response = await adapter.generate({
         messages: [],
@@ -236,7 +287,7 @@ test("Gemini normalizes tool call and removes extraneous summary field", async (
             completionEvidence: "__lazygoal_absent__",
         },
     };
-    (adapter as any).client = { models: { generateContent: async () => ({ text: JSON.stringify(responseValue) }) } };
+    mockClient(adapter as Gemini, async () => ({ text: JSON.stringify(responseValue) }));
 
     const response = await adapter.generate({
         messages: [],
@@ -252,7 +303,7 @@ test("Gemini normalizes sentinel values and missing action into complete", async
         result: { kind: "tool_call", summary: "Task completed with verified evidence.", memoryPatch: "__lazygoal_null__", completionEvidence: "0:96" },
     });
     const adapter = createAdapter();
-    (adapter as any).client = { models: { generateContent: async () => ({ text }) } };
+    mockClient(adapter as Gemini, async () => ({ text }));
     const response = await adapter.generate({ messages: [], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
     const wire = JSON.parse(readAssistantText(response));
     assert.equal(wire.result.memoryPatch, null);
@@ -264,7 +315,7 @@ test("Gemini normalizes sentinel values and missing action into complete", async
 test("Gemini leaves malformed JSON and missing non-nullable fields unchanged", async () => {
     const adapter = createAdapter();
     let content = "not-json";
-    (adapter as any).client = { models: { generateContent: async () => ({ text: content }) } };
+    mockClient(adapter as Gemini, async () => ({ text: content }));
     const request = { messages: [], structuredOutput: { name: "answer", schema: dummySchema } };
     assert.equal(readAssistantText(await adapter.generate(request)), content);
 
@@ -275,14 +326,10 @@ test("Gemini leaves malformed JSON and missing non-nullable fields unchanged", a
 test("Gemini omits native schema when the request has none", async () => {
     const adapter = createAdapter();
     let capturedInput: any = undefined;
-    (adapter as any).client = {
-        models: {
-            generateContent: async (params: any) => {
+    mockClient(adapter as Gemini, async (params: any) => {
                 capturedInput = params;
                 return { candidates: [{ content: { role: "model", parts: [{ text: "plain" }] }, finishReason: "STOP" }] };
-            },
-        },
-    };
+            });
     await adapter.generate({ messages: [{ role: "user", content: "hi" }] });
     assert.equal(capturedInput.config?.responseMimeType, undefined);
     assert.equal(capturedInput.config?.responseSchema, undefined);
@@ -293,17 +340,13 @@ test("Gemini in prompt_only mode does not send native schema parameters", async 
     let capturedInput: any = undefined;
     let callCount = 0;
 
-    (adapter as any).client = {
-        models: {
-            generateContent: async (params: any) => {
+    mockClient(adapter as Gemini, async (params: any) => {
                 callCount += 1;
                 capturedInput = params;
                 return {
                     text: "plain text response",
                 };
-            },
-        },
-    };
+            });
 
     const request: LLMRequest = {
         messages: [{ role: "user", content: "hi" }],
@@ -321,14 +364,10 @@ test("Gemini in prompt_only mode does not send native schema parameters", async 
 test("Gemini maps request structuredOutput to native schema", async () => {
     const adapter = createAdapter();
     let capturedInput: any = undefined;
-    (adapter as any).client = {
-        models: {
-            generateContent: async (params: any) => {
+    mockClient(adapter as Gemini, async (params: any) => {
                 capturedInput = params;
                 return { candidates: [{ content: { role: "model", parts: [{ text: "{}" }] }, finishReason: "STOP" }] };
-            },
-        },
-    };
+            });
     const request: LLMRequest = {
         messages: [{ role: "user", content: "hi" }],
         structuredOutput: { name: "answer", schema: dummySchema },
@@ -344,14 +383,10 @@ test("Gemini propagates SDK error directly without retry or fallback to prompt_o
     let callCount = 0;
     const sdkError = new Error("Google Gen AI API Error: Schema compilation failure");
 
-    (adapter as any).client = {
-        models: {
-            generateContent: async () => {
+    mockClient(adapter as Gemini, async () => {
                 callCount += 1;
                 throw sdkError;
-            },
-        },
-    };
+            });
 
     const request: LLMRequest = {
         messages: [{ role: "user", content: "hi" }],
@@ -372,9 +407,7 @@ test("Gemini propagates SDK error directly without retry or fallback to prompt_o
 test("Gemini normalizes usageMetadata into providerMetadata.usage", async () => {
     const adapter = createAdapter();
 
-    (adapter as any).client = {
-        models: {
-            generateContent: async () => ({
+    mockClient(adapter as Gemini, async () => ({
                 text: "ok",
                 usageMetadata: {
                     promptTokenCount: 120,
@@ -382,9 +415,7 @@ test("Gemini normalizes usageMetadata into providerMetadata.usage", async () => 
                     totalTokenCount: 154,
                     cachedContentTokenCount: 50,
                 },
-            }),
-        },
-    };
+            }));
 
     const response = await adapter.generate({
         messages: [{ role: "user", content: "hi" }],
@@ -403,18 +434,14 @@ test("Gemini normalizes usageMetadata into providerMetadata.usage", async () => 
 test("Gemini omits cachedInputTokens when cachedContentTokenCount is absent", async () => {
     const adapter = createAdapter();
 
-    (adapter as any).client = {
-        models: {
-            generateContent: async () => ({
+    mockClient(adapter as Gemini, async () => ({
                 text: "ok",
                 usageMetadata: {
                     promptTokenCount: 10,
                     candidatesTokenCount: 4,
                     totalTokenCount: 14,
                 },
-            }),
-        },
-    };
+            }));
 
     const response = await adapter.generate({
         messages: [{ role: "user", content: "hi" }],
@@ -432,13 +459,9 @@ test("Gemini omits cachedInputTokens when cachedContentTokenCount is absent", as
 test("Gemini omits providerMetadata.usage when response has no usageMetadata", async () => {
     const adapter = createAdapter();
 
-    (adapter as any).client = {
-        models: {
-            generateContent: async () => ({
+    mockClient(adapter as Gemini, async () => ({
                 text: "ok",
-            }),
-        },
-    };
+            }));
 
     const response = await adapter.generate({
         messages: [{ role: "user", content: "hi" }],
@@ -453,18 +476,14 @@ test("Gemini omits providerMetadata.usage when response has no usageMetadata", a
 test("Gemini omits providerMetadata.usage when core token counts are non-finite or negative", async () => {
     const adapter = createAdapter();
 
-    (adapter as any).client = {
-        models: {
-            generateContent: async () => ({
+    mockClient(adapter as Gemini, async () => ({
                 text: "ok",
                 usageMetadata: {
                     promptTokenCount: Number.POSITIVE_INFINITY,
                     candidatesTokenCount: -3,
                     totalTokenCount: 0,
                 },
-            }),
-        },
-    };
+            }));
 
     const response = await adapter.generate({
         messages: [{ role: "user", content: "hi" }],
@@ -476,20 +495,19 @@ test("Gemini omits providerMetadata.usage when core token counts are non-finite 
     );
 });
 
-test("Gemini passes abortSignal to generateContent config and handles abort cleanly", async () => {
+test("Gemini passes abort signal to the wire request and handles abort cleanly", async () => {
     const adapter = createAdapter();
     const controller = new AbortController();
-    let capturedInput: any = undefined;
+    const captured: { signal?: AbortSignal }[] = [];
 
-    (adapter as any).client = {
-        models: {
-            generateContent: async (params: any) => {
-                capturedInput = params;
-                return {
-                    text: "ok",
-                };
-            },
-        },
+    const originalFetch = globalThis.fetch;
+    fetchRestorers.push(() => { globalThis.fetch = originalFetch; });
+    globalThis.fetch = async (_input, init) => {
+        const signal = init?.signal ?? undefined;
+        if (signal !== undefined) captured.push({ signal });
+        return new Response(JSON.stringify({ candidates: [{ content: { role: "model", parts: [{ text: "ok" }] }, finishReason: "STOP" }] }), {
+            headers: { "Content-Type": "application/json" },
+        });
     };
 
     const request: LLMRequest = {
@@ -501,7 +519,7 @@ test("Gemini passes abortSignal to generateContent config and handles abort clea
     };
 
     await adapter.generate(request, { signal: controller.signal });
-    assert.equal(capturedInput.config?.abortSignal, controller.signal);
+    assert.equal(captured[0]?.signal, controller.signal);
 
     controller.abort();
     await assert.rejects(
@@ -513,10 +531,10 @@ test("Gemini passes abortSignal to generateContent config and handles abort clea
 test("Gemini native adapter applies configured output limit unless request overrides it", async () => {
     const adapter = new Gemini({ apiKey: "key", model: "model", maxOutputTokens: 512 });
     const limits: number[] = [];
-    (adapter as any).client = { models: { generateContent: async (params: any) => {
+    mockClient(adapter as Gemini, async (params: any) => {
         limits.push(params.config.maxOutputTokens);
         return { text: "{}" };
-    } } };
+    });
     const request = { messages: [{ role: "user" as const, content: "hi" }], structuredOutput: { name: "answer", schema: dummySchema } };
     await adapter.generate(request);
     await adapter.generate({ ...request, maxOutputTokens: 128 });
@@ -532,7 +550,7 @@ test("Gemini preserves executing Working Memory updates and rejects task-plannin
         } }] }, contextNotes: null };
     const text = JSON.stringify({ result });
     const adapter = createAdapter();
-    (adapter as any).client = { models: { generateContent: async () => ({ text }) } };
+    mockClient(adapter as Gemini, async () => ({ text }));
     const response = await adapter.generate({ messages: [], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
     assert.equal(readAssistantText(response), text);
     const decoded = bundle.decode(JSON.parse(readAssistantText(response)));
@@ -612,7 +630,7 @@ test("Gemini restores response and strips null properties for all branches", asy
             memoryPatch: null,
         },
     };
-    (adapter as any).client = { models: { generateContent: async () => ({ text: JSON.stringify(completeWithNullAction) }) } };
+    mockClient(adapter as Gemini, async () => ({ text: JSON.stringify(completeWithNullAction) }));
     const res1 = await adapter.generate({ messages: [], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
     const parsed1 = JSON.parse(readAssistantText(res1));
     assert.equal("action" in parsed1.result, false);
@@ -631,7 +649,7 @@ test("Gemini restores response and strips null properties for all branches", asy
             memoryPatch: null,
         },
     };
-    (adapter as any).client = { models: { generateContent: async () => ({ text: JSON.stringify(toolCallWithNulls) }) } };
+    mockClient(adapter as Gemini, async () => ({ text: JSON.stringify(toolCallWithNulls) }));
     const res2 = await adapter.generate({ messages: [], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
     const parsed2 = JSON.parse(readAssistantText(res2));
     assert.equal("summary" in parsed2.result, false);
@@ -660,7 +678,7 @@ test("Gemini strips ask_user residue from a tool_call before restoring sentinels
             questions: [],
         },
     };
-    (adapter as any).client = { models: { generateContent: async () => ({ text: JSON.stringify(modelResponse) }) } };
+    mockClient(adapter as Gemini, async () => ({ text: JSON.stringify(modelResponse) }));
 
     const response = await adapter.generate({ messages: [], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
     const wire = JSON.parse(readAssistantText(response));
@@ -686,7 +704,7 @@ test("Gemini does not rollback on evidence sentinel and keeps corrupted output t
             completionEvidence: "__lazygoal_absent__",
         },
     };
-    (adapter as any).client = { models: { generateContent: async () => ({ text: JSON.stringify(validWithSentinel) }) } };
+    mockClient(adapter as Gemini, async () => ({ text: JSON.stringify(validWithSentinel) }));
     const res = await adapter.generate({ messages: [], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
     assert.equal(JSON.parse(readAssistantText(res)).result.completionEvidence, undefined);
     assert.equal(bundle.decode(JSON.parse(readAssistantText(res))).kind, "tool_call");
@@ -698,7 +716,7 @@ test("Gemini does not rollback on evidence sentinel and keeps corrupted output t
             action: null,
         },
     };
-    (adapter as any).client = { models: { generateContent: async () => ({ text: JSON.stringify(invalidDecision) }) } };
+    mockClient(adapter as Gemini, async () => ({ text: JSON.stringify(invalidDecision) }));
     const resInvalid = await adapter.generate({ messages: [], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
     assert.throws(() => bundle.decode(JSON.parse(readAssistantText(resInvalid))));
 });
@@ -709,7 +727,7 @@ test("Gemini in two_stage mode restores sentinel values when structuredOutput is
         result: { kind: "tool_call", summary: "Task completed with verified evidence.", memoryPatch: "__lazygoal_null__", completionEvidence: "0:96" },
     });
     const adapter = createAdapter();
-    (adapter as any).client = { models: { generateContent: async () => ({ text }) } };
+    mockClient(adapter as Gemini, async () => ({ text }));
     const response = await adapter.generate({ messages: [], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
     const wire = JSON.parse(readAssistantText(response));
     assert.equal(wire.result.memoryPatch, null);
@@ -735,7 +753,7 @@ test("Gemini restores a normal completion with request_think field residue", asy
             goal: "",
         },
     });
-    (adapter as any).client = { models: { generateContent: async () => ({ text }) } };
+    mockClient(adapter as Gemini, async () => ({ text }));
 
     const response = await adapter.generate({
         messages: [],
@@ -766,7 +784,7 @@ test("Gemini preserves authorized Tool calls in Plan Mode before task approval",
         },
     });
     const adapter = createAdapter();
-    (adapter as any).client = { models: { generateContent: async () => ({ text }) } };
+    mockClient(adapter as Gemini, async () => ({ text }));
     const response = await adapter.generate({ messages: [], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
     const wire = JSON.parse(readAssistantText(response));
     assert.equal(wire.result.kind, "tool_call");
@@ -797,7 +815,7 @@ test("Gemini strips evidenceSequences residue from a tool_call in normal mode", 
         },
     });
     const adapter = createAdapter();
-    (adapter as any).client = { models: { generateContent: async () => ({ text }) } };
+    mockClient(adapter as Gemini, async () => ({ text }));
     const response = await adapter.generate({ messages: [], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
     const wire = JSON.parse(readAssistantText(response));
     assert.equal(wire.result.kind, "tool_call");
@@ -812,9 +830,9 @@ test("Gemini strips evidenceSequences residue from a tool_call in normal mode", 
 test("Gemini native adapter rejects truncated, blocked and unsupported completions before returning decisions", async () => {
     const adapter = createAdapter();
     for (const finishReason of ["MAX_TOKENS", "SAFETY", "PROHIBITED_CONTENT", "MALFORMED_FUNCTION_CALL"] as const) {
-        (adapter as any).client = { models: { generateContent: async () => ({
+        mockClient(adapter as Gemini, async () => ({
             candidates: [{ content: { role: "model", parts: [{ text: "部分正文" }] }, finishReason }],
-        }) } };
+        }));
         await assert.rejects(
             adapter.generate({ messages: [{ role: "user", content: "hi" }] }),
             (error: unknown) => error instanceof GeminiIncompleteResponseError && error.code === "GEMINI_INCOMPLETE_RESPONSE",
@@ -822,15 +840,15 @@ test("Gemini native adapter rejects truncated, blocked and unsupported completio
         );
     }
 
-    (adapter as any).client = { models: { generateContent: async () => ({ promptFeedback: { blockReason: "PROHIBITED_CONTENT" } }) } };
+    mockClient(adapter as Gemini, async () => ({ promptFeedback: { blockReason: "PROHIBITED_CONTENT" } }));
     await assert.rejects(
         adapter.generate({ messages: [{ role: "user", content: "hi" }] }),
         (error: unknown) => error instanceof GeminiIncompleteResponseError,
     );
 
-    (adapter as any).client = { models: { generateContent: async () => ({
+    mockClient(adapter as Gemini, async () => ({
         candidates: [{ content: { role: "model", parts: [{ inlineData: { mimeType: "image/png", data: "AAAA" } }] }, finishReason: "STOP" }],
-    }) } };
+    }));
     await assert.rejects(
         adapter.generate({ messages: [{ role: "user", content: "hi" }] }),
         (error: unknown) => error instanceof LLMRequestModeMismatchError,
@@ -840,19 +858,15 @@ test("Gemini native adapter rejects truncated, blocked and unsupported completio
 test("Gemini 转换复杂嵌套 anyOf 工具 Schema 时完全消除 anyOf 并保留平坦结构", async () => {
     const adapter = createAdapter();
     let capturedConfig: any;
-    (adapter as any).client = {
-        models: {
-            generateContent: async (input: any) => {
-                capturedConfig = input.config;
-                return {
-                    candidates: [{
-                        content: { role: "model", parts: [{ text: "done" }] },
-                        finishReason: "STOP",
-                    }],
-                };
-            },
-        },
-    };
+    mockClient(adapter as Gemini, async (params: any) => {
+        capturedConfig = params.config;
+        return {
+            candidates: [{
+                content: { role: "model", parts: [{ text: "done" }] },
+                finishReason: "STOP",
+            }],
+        };
+    });
 
     const complexToolSchema = {
         type: "object",
@@ -897,5 +911,5 @@ test("Gemini 转换复杂嵌套 anyOf 工具 Schema 时完全消除 anyOf 并保
     const serialized = JSON.stringify(capturedConfig.tools);
     assert.equal(serialized.includes("anyOf"), false, "Gemini parametersSchema must never contain anyOf");
     assert.equal(capturedConfig.tools[0].functionDeclarations[0].name, "system_complete_task");
-    assert.equal(capturedConfig.tools[0].functionDeclarations[0].parameters.type, "object");
+    assert.equal(capturedConfig.tools[0].functionDeclarations[0].parameters.type, "OBJECT");
 });

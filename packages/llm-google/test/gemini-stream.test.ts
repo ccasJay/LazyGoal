@@ -235,37 +235,49 @@ test("截断、安全阻断、未知 Part 与无正常结束的流都失败且�
     }
 });
 
-test("Gemini native stream releases the supplier iterator without masking the primary failure", async () => {
-    const instance = adapter("http://127.0.0.1:1");
-    let released = 0;
-    (instance as any).client = { models: { generateContentStream: async () => ({
-        [Symbol.asyncIterator]() {
-            let step = 0;
-            return {
-                async next() {
-                    step += 1;
-                    if (step === 1) return { done: false as const, value: candidate([{ text: "部分正文" }]) };
-                    throw new Error("stream transport failed");
-                },
-                async return() {
-                    released += 1;
-                    throw new Error("iterator cleanup failed");
-                },
-            };
-        },
-    }) } };
+test("Gemini native stream propagates mid-transport failure and releases the connection on consumer break", async () => {
+    const released: string[] = [];
+    await withServer(async (incoming, outgoing) => {
+        if (incoming.url?.includes("streamGenerateContent") !== true) {
+            outgoing.writeHead(200, { "Content-Type": "application/json" });
+            outgoing.end(JSON.stringify(candidate([{ text: "结尾" }], "STOP")));
+            return;
+        }
+        outgoing.writeHead(200, { "Content-Type": "text/event-stream" });
+        outgoing.write(sse([candidate([{ text: "部分正文" }])]));
+        setTimeout(() => {
+            released.push("destroyed");
+            outgoing.destroy(new Error("stream transport failed"));
+        }, 20);
+    }, async baseURL => {
+        const instance = adapter(baseURL);
+        const events: LLMStreamEvent[] = [];
+        assert.ok(instance.stream);
+        await assert.rejects(async () => {
+            for await (const event of instance.stream!({ messages: [{ role: "user", content: "开始" }] })) events.push(event);
+        }, (error: unknown) => (error instanceof Error && /stream transport failed|socket hang up|ECONNRESET/i.test(error.message))
+            || error?.constructor?.name === "TransientModelRequestFailure");
+        assert.equal(events.some(event => event.kind === "completed"), false);
+    });
 
-    const events: LLMStreamEvent[] = [];
-    assert.ok(instance.stream);
-    await assert.rejects(async () => {
-        for await (const event of instance.stream!({ messages: [{ role: "user", content: "开始" }] })) events.push(event);
-    }, /stream transport failed/);
-    assert.equal(released, 1);
-    assert.equal(events.some(event => event.kind === "completed"), false);
-
-    released = 0;
-    for await (const event of instance.stream!({ messages: [{ role: "user", content: "开始" }] })) {
-        if (event.kind === "content_block_delta") break;
-    }
-    assert.equal(released, 1);
+    // 消费方提前 break 后连接被释放：服务器 socket 关闭回调先于同一测试断言。
+    await withServer(async (incoming, outgoing) => {
+        if (incoming.url?.includes("streamGenerateContent") !== true) {
+            outgoing.writeHead(200, { "Content-Type": "application/json" });
+            outgoing.end(JSON.stringify(candidate([{ text: "结尾" }], "STOP")));
+            return;
+        }
+        incoming.on("close", () => released.push("closed"));
+        outgoing.writeHead(200, { "Content-Type": "text/event-stream" });
+        outgoing.write(sse([candidate([{ text: "部分正文" }])]));
+        outgoing.write(sse([candidate([{ text: "后续" }])]));
+    }, async baseURL => {
+        const instance = adapter(baseURL);
+        assert.ok(instance.stream);
+        for await (const event of instance.stream!({ messages: [{ role: "user", content: "开始" }] })) {
+            if (event.kind === "content_block_delta") break;
+        }
+        await new Promise(resolve => setTimeout(resolve, 30));
+        assert.ok(released.includes("closed"), "consumer break must release the body reader");
+    });
 });
