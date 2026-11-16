@@ -21,8 +21,8 @@ supersedes: [project-memory/features/two-stage-decision-pipeline.md]
 - D1 — LLMResponse 分离自由文本 content 与结构化 toolCalls；自然语言推演不受动作参数语法约束，动作参数由底层契约校验。 [S1, S2, S6, S8]
 - D2 — 完成任务、等待用户、失败、上下文查找及工具发现等非业务控制使用系统函数；工具发现是 Decide 专用决策，结果仅影响后续模型请求中的可见 Schema。 [S1, S2, S7, S9, S10, S11]
 - D3 — 每次 Decide 请求仍要求且只接受一个工具决策；其业务工具 Schema 来自 Runtime 提供的当前 Run 可见集合。发现控制用于初始轻量请求，匹配工具从后续请求开始进入 Prompt 与原生声明，二者使用同一集合。 [S1, S2, S5, S8, S9, S10, S12, S13, S14, S15]
-- D4 — OpenAI 使用原生 tools 与 strict 参数约束，Gemini 使用官方 functionDeclarations 与 toolConfig；由供应商适配器投影同一系统决策与业务工具定义。 [S1, S2, S4, S6, S8]
-- D5 — strict、prompt_only 与 two_stage 结构化输出仍可供适配器选择；具备原生双通道的 Provider 由 Function Calling 约束动作参数。 [S1, S2, S4, S8]
+- D4 — OpenAI 使用原生 tools，Gemini 使用官方 functionDeclarations 与 toolConfig，由供应商适配器投影同一系统决策与业务工具定义；openai-compatible 常规 Goal 路径按请求声明生成约束，不再按适配器模式注入 `strict`（见 openai-compatible-generation-contract）。 [S1, S2, S4, S6, S8, S16]
+- D5 — strict、prompt_only 与 two_stage 结构化输出按适配器声明选择；openai-compatible 路径的约束声明收敛到每次请求，不再按模式匹配。 [S1, S2, S4, S8, S16]
 
 ## Guardrails
 
@@ -51,3 +51,4 @@ supersedes: [project-memory/features/two-stage-decision-pipeline.md]
 - S13: `packages/model-context/src/model-inference-projector.ts`
 - S14: `packages/runtime/test/tool-discovery.test.ts`
 - S15: `packages/model-request/test/prompt.test.ts`
+- S16: `specs/openai-compatible-generation-contract/spec.md`
