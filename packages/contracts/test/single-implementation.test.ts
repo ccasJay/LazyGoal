@@ -60,6 +60,7 @@ const HELPER_ALLOWLIST = new Set([
     "packages/storage/src/path-segment.ts",
     "packages/execution-stream/src/publisher.ts",
     "packages/browser/src/browser-projection.ts",
+    "packages/config/src/toml-config.ts",
 ]);
 
 const STORAGE_ENCODING_ALLOWLIST = new Set(["packages/storage/src/path-segment.ts"]);

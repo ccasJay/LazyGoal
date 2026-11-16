@@ -1,4 +1,4 @@
-import type { JsonSchema202012 } from "../../contracts/src/index";
+import { isRecord, type JsonSchema202012 } from "../../contracts/src/index";
 
 /** Google strict 输出中表达 null 的哨兵值。 */
 export const GEMINI_NULL_SENTINEL = "__lazygoal_null__";
@@ -503,8 +503,4 @@ function mergeGeminiUnion(
     // Gemini 严格不支持 anyOf；多基础类型联合收敛为单一主类型，避免 HTTP 400
     const primaryType = values.find(b => b.type && b.type !== "null")?.type ?? "string";
     return withNullability({ type: primaryType });
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -33,7 +33,7 @@ import { parse } from "@babel/parser";
  * llm-core 承载供应商无关调用契约与共享模型配置，仅依赖 contracts、model-contracts 与 execution-control；
  * wire-chat-completions 承载 Chat Completions 请求、SSE 事件映射与协议错误，只依赖 llm-core 与 execution-control；
  * wire-anthropic-messages 承载 Anthropic Messages 请求、thinking 签名续接、SSE 事件映射与协议错误，只依赖 llm-core 与 execution-control；
- * llm-google 承载 Gemini 原生适配与 strict Schema 投影，只依赖 llm-core、contracts、model-contracts、execution-control 与 @google/genai SDK；
+ * llm-google 承载 Gemini 原生适配并委派 wire-google-generate-content，只依赖 llm-core、wire-google-generate-content 与 execution-control；
  * model-catalog 只承载注入式目录合并、排序、可选性与降级判定，依赖 llm-core；
  * llm-adapters 承载供应商端点、认证、目录来源与协议事实，依赖 llm-core 与 model-catalog；
  * runtime 依赖 contracts、model-contracts、execution-stream、sandbox、permission、context-retrieval、execution-control 和 tool-core；

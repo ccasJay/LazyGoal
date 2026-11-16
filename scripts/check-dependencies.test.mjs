@@ -14,7 +14,7 @@ import {
     extractModuleSpecifiers,
 } from "./check-dependencies.mjs";
 
-const EXISTING_PACKAGES = ["runtime", "llm-core", "llm-google", "storage", "agent", "tools"];
+const EXISTING_PACKAGES = ["runtime", "llm-core", "storage", "agent", "tools"];
 
 async function fixtureProject(files) {
     const root = await mkdtemp(path.join(os.tmpdir(), "lazygoal-dependencies-"));
