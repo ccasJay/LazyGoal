@@ -102,12 +102,13 @@ packages/
 - [x] //TODO 6. OpenCode Go 适配器声明固定端点与会话头，协议分发保持 chat 等价 → R2.3；检查：端点、请求头与分发断言
 - [x] //TODO 7. 把自定义 compatible 收敛为由配置生成的 `CatalogSource`，与内置供应商同构 → R3.1；检查：配置校验与同构断言
 - [x] //TODO 8. 收敛 `llm` 选择表与 `llm-core` 文本转 JSON 兜底 → R4.1；检查：选择表测试
-- [ ] //TODO 9. 建立开发 Profile：全部工具、自定义 openai-compatible 与 Mistral 取值，供真实端点验证 → R1.4、R3.1；检查：真实端点跑通一次 Goal
+- [x] //TODO 9. 建立开发 Profile：全部工具、自定义 openai-compatible 与 Mistral 取值，供真实端点验证 → R1.4、R3.1；检查：真实端点跑通一次 Goal
 - [x] //TODO 10. 同步五个包的概览、语义表与根 README 布局 → R2.1；检查：`npm run check:docs`
 
 ## 执行记录
 
-- 状态：blocked（仅余 TODO 9 真实端点验证）
+- 状态：implemented
 - 验证：分支 `feature/provider-wire-extraction`；`npx tsc --noEmit`、`npm run check:dependencies`、`npm run check:docs`、`npm run contracts:generate -- --check` 通过；包与集成测试分批全部通过（`packages/tools/test/git-write-tools.test.ts` 因本机 Git 输出中文失败，与本次改动无关）。
 - 结果：TODO 1–8、10 完成。`structured_output_mode` 已从 config、受管档案、Web 契约、Goal 快照、生成契约、全部适配器与测试夹具中全量移除；`llm-openai` 已删除；自定义 provider 名（`providers.<family>.<name>`）在运行时注册表按家族投影调用适配器工厂；线上目录动态选型只为已登记的 OpenCode Go 模型携带 `executionApi`。
-- 未决：TODO 9 开发 Profile 骨架待用户填入真实端点、凭据与模型容量后跑通一次 Goal。
+- 真实端点：`~/.lazygoal` 下以 `[providers.openai-compatible.mistral]` + `profiles/dev.toml` + 全部 25 个工具的 Agent Profile 跑通一次 Goal：`runStatus=completed`，5 步 / 8 次模型调用 / 96,720 输入 + 636 输出 token，缓存命中率 50.7%，上下文容量取自模型配置（1,000,000）。
+- 未决：本机存在随机单比特内存损坏（`tsc`、esbuild、契约生成器偶发 SIGSEGV），所有验证均以重试至成功的运行为准；Node 的 `fetch` 不读代理环境变量，跑真实端点需 `NODE_USE_ENV_PROXY=1`。
