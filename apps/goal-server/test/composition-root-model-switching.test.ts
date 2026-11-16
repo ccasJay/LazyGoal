@@ -248,7 +248,7 @@ test("浏览器只提交模型 ID，服务端目录生成并保存 OpenCode Go �
             body: JSON.stringify(body),
         });
         for (const forged of [
-            { executionApi: "attacker-api" },
+            { protocol: "attacker-api" },
             { baseURL: "https://attacker.invalid/v1" },
             { contextWindowTokens: 999 },
             { maxOutputTokens: 999 },
@@ -257,7 +257,7 @@ test("浏览器只提交模型 ID，服务端目录生成并保存 OpenCode Go �
             assert.equal(response.status, 200);
         }
         const afterForged = await root.workspaceGoalStore.restore("goal-dynamic-browser");
-        assert.equal(afterForged?.state.modelSelection.executionApi, "openai-completions");
+        assert.equal(afterForged?.state.modelSelection.protocol, "chat-completions");
         assert.equal(afterForged?.state.modelSelection.contextWindowTokens, 1_000_000);
         assert.equal(afterForged?.state.modelSelection.maxOutputTokens, 524_288);
 
@@ -280,14 +280,14 @@ test("浏览器只提交模型 ID，服务端目录生成并保存 OpenCode Go �
             reasoning: true,
             vision: false,
             supportsRequiredToolChoice: false,
-            executionApi: "openai-completions",
+            protocol: "chat-completions",
             inputEstimator: { kind: "character-v1" },
         });
         assert.doesNotMatch(JSON.stringify(saved?.state.modelSelection), /sk-server-only|baseURL|apiKey|endpoint/i);
         root.alignModelBinding(saved!.state.modelSelection);
         assert.ok(alignedSelections.some((selection) =>
             selection.modelId === "minimax-m3.1-flash-free"
-            && selection.executionApi === "openai-completions"
+            && selection.protocol === "chat-completions"
             && selection.contextWindowTokens === 1_000_000
             && selection.maxOutputTokens === 524_288));
 
@@ -302,13 +302,13 @@ test("浏览器只提交模型 ID，服务端目录生成并保存 OpenCode Go �
             reasoning: true,
             vision: false,
             supportsRequiredToolChoice: true,
-            executionApi: "openai-completions",
+            protocol: "chat-completions",
             inputEstimator: { kind: "character-v1" },
         });
         root.alignModelBinding(beamSaved!.state.modelSelection);
         assert.ok(alignedSelections.some((selection) =>
             selection.modelId === "beam-free"
-            && selection.executionApi === "openai-completions"
+            && selection.protocol === "chat-completions"
             && selection.contextWindowTokens === 1_000_000
             && selection.maxOutputTokens === 131_072));
     } finally {
@@ -340,7 +340,7 @@ test("显式 CLI 配置的登记模型使用服务端执行元数据构造动态
         });
         assert.equal(root.defaultModelSelection.provider, "opencode-go");
         assert.equal(root.defaultModelSelection.modelId, "minimax-m3.1-flash-free");
-        assert.equal(root.defaultModelSelection.executionApi, "openai-completions");
+        assert.equal(root.defaultModelSelection.protocol, "chat-completions");
         assert.equal(root.defaultModelSelection.contextWindowTokens, 1_000_000);
         assert.equal(root.defaultModelSelection.maxOutputTokens, 524_288);
         assert.equal("availabilitySource" in root.defaultModelSelection, false, "configured ID is not represented as an online availability claim");
@@ -386,7 +386,7 @@ test("新进程从 Snapshot 恢复动态模型 API 与容量，并使用当前 P
         const savedSelection: GoalModelSelection = {
             ...firstRoot.defaultModelSelection,
             modelId: "minimax-m3.1-flash-free",
-            executionApi: "openai-completions",
+            protocol: "chat-completions",
             contextWindowTokens: 1_000_000,
             maxOutputTokens: 524_288,
         };
@@ -428,7 +428,7 @@ test("新进程从 Snapshot 恢复动态模型 API 与容量，并使用当前 P
         assert.equal(request.headers.get("authorization"), "Bearer sk-current-provider-key");
         assert.equal(request.headers.get("user-agent"), "lazygoal");
         assert.ok(request.headers.get("x-opencode-session"));
-        assert.equal(restoredRoot.modelBinding.current().selection.executionApi, "openai-completions");
+        assert.equal(restoredRoot.modelBinding.current().selection.protocol, "chat-completions");
         assert.equal(restoredRoot.modelBinding.current().selection.contextWindowTokens, 1_000_000);
         assert.equal(restoredRoot.modelBinding.current().selection.maxOutputTokens, 524_288);
         await waitForSessionIdle(restoredRoot);

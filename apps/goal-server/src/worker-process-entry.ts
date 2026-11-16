@@ -588,13 +588,13 @@ function hasExactKeys(
 
 function isGoalModelSelection(value: unknown): value is GoalModelSelection {
     if (!isRecord(value) || !hasExactKeys(value, ["provider", "modelId", "inputEstimator"], [
-        "profileId", "executionApi", "contextWindowTokens", "maxOutputTokens",
+        "profileId", "protocol", "contextWindowTokens", "maxOutputTokens",
         "reasoning", "vision", "supportsRequiredToolChoice",
     ])) return false;
     if (typeof value.provider !== "string" || !value.provider.trim()
         || typeof value.modelId !== "string" || !value.modelId.trim()) return false;
     if ("profileId" in value && (typeof value.profileId !== "string" || !value.profileId.trim())) return false;
-    if ("executionApi" in value && value.executionApi !== "openai-completions") return false;
+    if ("protocol" in value && (typeof value.protocol !== "string" || !value.protocol.trim())) return false;
     if (["contextWindowTokens", "maxOutputTokens"].some((key) => key in value
         && (!Number.isSafeInteger(value[key]) || Number(value[key]) <= 0))) return false;
     if (["reasoning", "vision", "supportsRequiredToolChoice"].some((key) => key in value && typeof value[key] !== "boolean")) return false;

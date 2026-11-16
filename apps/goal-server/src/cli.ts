@@ -316,7 +316,7 @@ export async function runServerSession(
                     modelId: selectedModel.id,
                     ...(selectedModel.contextWindowTokens === undefined ? {} : { contextWindowTokens: selectedModel.contextWindowTokens }),
                     ...(selectedModel.maxOutputTokens === undefined ? {} : { maxOutputTokens: selectedModel.maxOutputTokens }),
-                    ...(resolveOpenCodeGoExecutionMetadata(selectedModel.id) === undefined ? {} : { executionApi: "openai-completions" as const }),
+                    ...(resolveOpenCodeGoExecutionMetadata(selectedModel.id) === undefined ? {} : { protocol: "chat-completions" as const }),
                     ...(selectedModel.reasoning === undefined ? {} : { reasoning: selectedModel.reasoning }),
                     ...(selectedModel.vision === undefined ? {} : { vision: selectedModel.vision }),
                     ...(selectedModel.supportsRequiredToolChoice === undefined
@@ -354,7 +354,7 @@ export async function runServerSession(
                 modelId: model.id,
                 ...(model.contextWindowTokens === undefined ? {} : { contextWindowTokens: model.contextWindowTokens }),
                 ...(model.maxOutputTokens === undefined ? {} : { maxOutputTokens: model.maxOutputTokens }),
-                ...(resolveOpenCodeGoExecutionMetadata(model.id) === undefined ? {} : { executionApi: "openai-completions" as const }),
+                ...(resolveOpenCodeGoExecutionMetadata(model.id) === undefined ? {} : { protocol: "chat-completions" as const }),
                 ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
                 ...(model.vision === undefined ? {} : { vision: model.vision }),
                 ...(model.supportsRequiredToolChoice === undefined

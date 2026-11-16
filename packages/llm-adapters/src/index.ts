@@ -71,6 +71,9 @@ export {
     ANTHROPIC_MESSAGES_PROTOCOL,
     CHAT_COMPLETIONS_PROTOCOL,
     GOOGLE_GENERATE_CONTENT_PROTOCOL,
+    IMPLEMENTED_PROTOCOLS,
+    assertProtocolImplemented,
+    isProtocolImplemented,
 } from "./protocols";
 
 export { readStaticCatalogModels } from "./static-catalog";

@@ -861,16 +861,16 @@ export type GoalSnapshotWorkflowV1 = {
 };
 
 /**
- * Snapshot v1 中持久化的模型选择与执行协议。
+ * Snapshot v1 中持久化的模型选择与线格式协议。
  *
  * @remarks
- * 保存重建 Binding 所需的非敏感 API 家族、容量和模型能力；凭据与 Base URL 不属于快照，本字段扩展不改变 schemaVersion。
+ * 保存重建 Binding 所需的非敏感协议、容量和模型能力；凭据与 Base URL 不属于快照，本字段扩展不改变 schemaVersion。
  *
  * @example
  * ```ts
  * const selection: GoalSnapshotModelSelectionV1 = {
  *   provider: "opencode-go", modelId: "minimax-m3.1-flash-free",
- *   executionApi: "openai-completions", contextWindowTokens: 1_000_000,
+ *   protocol: "chat-completions", contextWindowTokens: 1_000_000,
  *   maxOutputTokens: 524_288, reasoning: true, vision: false, supportsRequiredToolChoice: true,
  *   inputEstimator: { kind: "character-v1" },
  * };
@@ -880,7 +880,8 @@ export interface GoalSnapshotModelSelectionV1 {
     readonly provider: string;
     readonly profileId?: string | undefined;
     readonly modelId: string;
-    readonly executionApi?: "openai-completions" | undefined;
+    /** 服务端目录解析的线格式协议；恢复后按注册表分发。 */
+    readonly protocol?: string | undefined;
     readonly contextWindowTokens?: number | undefined;
     readonly maxOutputTokens?: number | undefined;
     /** 模型是否支持推理内容。 */
@@ -1943,19 +1944,19 @@ function validateSnapshotFieldRefinements(
     }
 
     const selection = goal.state.modelSelection;
-    if (selection.executionApi !== undefined && selection.provider !== "opencode-go") {
+    if (selection.protocol !== undefined && !selection.protocol.trim()) {
         addInvariantIssue(
             context,
-            "executionApi is only supported for opencode-go selections",
-            ["state", "modelSelection", "executionApi"],
+            "model selection protocol must not be blank",
+            ["state", "modelSelection", "protocol"],
         );
     }
-    if (selection.executionApi !== undefined
+    if (selection.protocol !== undefined
         && (selection.contextWindowTokens === undefined || selection.maxOutputTokens === undefined)) {
         addInvariantIssue(
             context,
-            "executionApi selections require contextWindowTokens and maxOutputTokens",
-            ["state", "modelSelection", "executionApi"],
+            "protocol selections require contextWindowTokens and maxOutputTokens",
+            ["state", "modelSelection", "protocol"],
         );
     }
     if (selection.contextWindowTokens !== undefined

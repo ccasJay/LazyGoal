@@ -11,17 +11,17 @@ import type { ProviderId } from "./ids";
 export type LLMProvider = ProviderId;
 
 /**
- * Runtime 支持的模型执行 API 家族。
+ * 服务端为动态模型解析的线格式协议。
  *
  * @remarks
- * 该值描述请求协议，不包含 Provider 端点或凭据；当前用于服务端目录确认可执行的 OpenCode Go 在线文本模型。
+ * 协议标识由具体 `wire-*` 包声明；配置只携带该事实，不做可用性判断。
  *
  * @example
  * ```ts
- * const executionApi: LLMExecutionApi = "openai-completions";
+ * const protocol: LLMRecordedProtocol = "chat-completions";
  * ```
  */
-export type LLMExecutionApi = "openai-completions";
+export type LLMRecordedProtocol = string;
 
 /**
  * 已校验的供应商连接配置；凭据由调用方提供，不查询其它凭据源。
@@ -53,8 +53,8 @@ export interface LLMConfig {
     readonly contextWindowTokens?: number | undefined;
     /** 单次补全最大输出 Token。 */
     readonly maxOutputTokens?: number | undefined;
-    /** 服务端目录解析的协议族；仅用于动态模型。 */
-    readonly executionApi?: LLMExecutionApi | undefined;
+    /** 服务端目录解析的线格式协议；仅用于动态模型。 */
+    readonly protocol?: LLMRecordedProtocol | undefined;
     /** 模型是否具备原生推理能力。 */
     readonly reasoning?: boolean | undefined;
     /** 模型是否接受图像等视觉输入。 */

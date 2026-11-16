@@ -1,5 +1,9 @@
 import { LLMConfigurationError, type LLMAdapter, type LLMConfig } from "../../llm-core/src/index";
-import { createDefaultProviderRegistry, type ProviderRegistry } from "../../llm-adapters/src/index";
+import {
+    assertProtocolImplemented,
+    createDefaultProviderRegistry,
+    type ProviderRegistry,
+} from "../../llm-adapters/src/index";
 
 /**
  * 同一供应商与模型下供 Runtime 两阶段执行使用的 Adapter 对。
@@ -46,7 +50,9 @@ function registryFor(options: LlmAdapterOptions): ProviderRegistry {
 export function createLlmAdapter(config: LLMConfig, options: LlmAdapterOptions = {}): LLMAdapter {
     const registry = registryFor(options);
     if (registry.has(config.provider)) {
-        return registry.require(config.provider).createAdapter(config);
+        const declaration = registry.require(config.provider);
+        assertProtocolImplemented(declaration.protocol);
+        return declaration.createAdapter(config);
     }
     const known = registry.ids();
     throw new LLMConfigurationError(

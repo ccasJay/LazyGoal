@@ -1083,7 +1083,7 @@ export interface ModelContextEpochState {
  * 结构化模型选择与执行参数恢复契约。
  *
  * @remarks
- * 记录 Goal 当前绑定的语言模型标识、供应商、执行 API、结构化输出模式、容量上限与 Token 估算器。
+ * 记录 Goal 当前绑定的语言模型标识、供应商、线格式协议、容量上限与 Token 估算器。
  * 持久化到 Goal 快照中，用于进程重启后重建完全一致的模型绑定，严禁包含 API Key、baseURL 或凭据。
  *
  * @example
@@ -1091,7 +1091,7 @@ export interface ModelContextEpochState {
  * const selection: GoalModelSelection = {
  *   provider: "opencode-go",
  *   modelId: "minimax-m3.1-flash-free",
- *   *   executionApi: "openai-completions",
+ *   protocol: "chat-completions",
  *   contextWindowTokens: 1_000_000,
  *   maxOutputTokens: 524_288,
  *   reasoning: true,
@@ -1108,8 +1108,8 @@ export interface GoalModelSelection {
     readonly profileId?: string | undefined;
     /** 模型唯一标识（如 "gpt-4o", "claude-sonnet-4-5"）。 */
     readonly modelId: string;
-    /** 服务端目录解析的非敏感执行 API；当前仅用于 OpenCode Go 在线模型。 */
-    readonly executionApi?: "openai-completions" | undefined;
+    /** 服务端目录解析的线格式协议；恢复后按注册表分发，缺失时按供应商声明。 */
+    readonly protocol?: string | undefined;
     /** 模型上下文窗口 Token 容量上限。 */
     readonly contextWindowTokens?: number | undefined;
     /** 单次补全最大输出 Token 限制。 */
@@ -1562,7 +1562,7 @@ function cloneModelSelection(selection: GoalModelSelection): GoalModelSelection 
         provider: selection.provider,
         ...(selection.profileId === undefined ? {} : { profileId: selection.profileId }),
         modelId: selection.modelId,
-        ...(selection.executionApi === undefined ? {} : { executionApi: selection.executionApi }),
+        ...(selection.protocol === undefined ? {} : { protocol: selection.protocol }),
         ...(selection.contextWindowTokens !== undefined ? { contextWindowTokens: selection.contextWindowTokens } : {}),
         ...(selection.maxOutputTokens !== undefined ? { maxOutputTokens: selection.maxOutputTokens } : {}),
         ...(selection.reasoning !== undefined ? { reasoning: selection.reasoning } : {}),

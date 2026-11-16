@@ -1,4 +1,4 @@
-import type { LLMConfig, LLMExecutionApi } from "../../llm-core/src/index";
+import type { LLMConfig, ProtocolId } from "../../llm-core/src/index";
 import type { CatalogSource } from "../../model-catalog/src/index";
 import { DefaultProviderModelFetcher } from "./catalog-fetchers";
 import { createDeepSeekCatalogSource } from "./deepseek";
@@ -27,8 +27,8 @@ import { readStaticCatalogModels } from "./static-catalog";
 export interface OpenCodeGoExecutionMetadata {
     /** 与 OpenCode Go 在线清单匹配的模型 ID。 */
     readonly modelId: string;
-    /** 请求使用的协议族。 */
-    readonly executionApi: LLMExecutionApi;
+    /** 请求使用的线格式协议。 */
+    readonly protocol: ProtocolId;
     /** 上下文窗口 Token 容量。 */
     readonly contextWindowTokens: number;
     /** 最大输出 Token 容量。 */
@@ -44,7 +44,7 @@ export interface OpenCodeGoExecutionMetadata {
 const OPENCODE_GO_EXECUTION_METADATA: Readonly<Record<string, OpenCodeGoExecutionMetadata>> = {
     "beam-free": {
         modelId: "beam-free",
-        executionApi: "openai-completions",
+        protocol: "chat-completions",
         contextWindowTokens: 1_048_576,
         maxOutputTokens: 131_072,
         reasoning: true,
@@ -53,7 +53,7 @@ const OPENCODE_GO_EXECUTION_METADATA: Readonly<Record<string, OpenCodeGoExecutio
     },
     "minimax-m3.1-flash-free": {
         modelId: "minimax-m3.1-flash-free",
-        executionApi: "openai-completions",
+        protocol: "chat-completions",
         contextWindowTokens: 1_000_000,
         maxOutputTokens: 524_288,
         reasoning: true,

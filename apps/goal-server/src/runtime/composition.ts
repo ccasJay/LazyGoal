@@ -264,7 +264,7 @@ function configuredModelAdapterConfig(config: LLMConfig): LLMConfig {
     const metadata = resolveOpenCodeGoExecutionMetadata(config.model);
     return metadata === undefined ? config : {
         ...config,
-        executionApi: metadata.executionApi,
+        protocol: metadata.protocol,
         contextWindowTokens: metadata.contextWindowTokens,
         maxOutputTokens: metadata.maxOutputTokens,
         reasoning: metadata.reasoning,
@@ -889,7 +889,7 @@ async function assembleRuntimeComposition(
         provider: llmConfig?.provider ?? ((adapter as { readonly provider?: string }).provider as GoalModelSelection["provider"] | undefined) ?? "openai",
         ...(bootConfigFromProfile && activeProviderProfile !== undefined ? { profileId: activeProviderProfile.id } : {}),
         modelId: llmConfig?.model ?? (adapter as { readonly modelId?: string }).modelId ?? "default-model",
-        ...(defaultExecutionMetadata === undefined ? {} : { executionApi: defaultExecutionMetadata.executionApi }),
+        ...(defaultExecutionMetadata === undefined ? {} : { protocol: defaultExecutionMetadata.protocol }),
         ...(defaultExecutionMetadata === undefined ? {} : { reasoning: defaultExecutionMetadata.reasoning }),
         ...(defaultExecutionMetadata === undefined ? {} : { vision: defaultExecutionMetadata.vision }),
         ...(defaultExecutionMetadata === undefined
@@ -938,21 +938,21 @@ async function assembleRuntimeComposition(
             : resolveProviderProfileConfig(selection.profileId, selection.modelId);
         if (baseConfig !== undefined) {
             let selectionConfig: LLMConfig = { ...baseConfig, model: selection.modelId };
-            if (selection.executionApi !== undefined) {
-                const metadata = resolveOpenCodeGoExecutionMetadata(selection.modelId);
+            if (selection.protocol !== undefined) {
+                // 分发按选择记录的线格式协议；本期登记模型属于 OpenCode Go，其它供应商声明不支持记录。
                 if (baseConfig.provider !== "opencode-go") {
-                    throw new LLMConfigurationError([], `Saved execution metadata requires OpenCode Go for model "${selection.modelId}"`);
+                    throw new LLMConfigurationError([], `Recorded protocol requires OpenCode Go for model "${selection.modelId}"`);
                 }
-                if (selection.executionApi !== "openai-completions"
+                if (selection.protocol !== "chat-completions"
                     || selection.contextWindowTokens === undefined
                     || selection.maxOutputTokens === undefined) {
-                    throw new LLMConfigurationError([], `Saved execution metadata is unavailable for model "${selection.modelId}"`);
+                    throw new LLMConfigurationError([], `Recorded protocol is unavailable for model "${selection.modelId}"`);
                 }
+                const metadata = resolveOpenCodeGoExecutionMetadata(selection.modelId);
                 selectionConfig = {
                     provider: "opencode-go",
                     model: selection.modelId,
                     apiKey: baseConfig.apiKey,
-                    executionApi: selection.executionApi,
                     contextWindowTokens: selection.contextWindowTokens,
                     maxOutputTokens: selection.maxOutputTokens,
                     reasoning: selection.reasoning ?? metadata?.reasoning ?? false,
@@ -969,7 +969,7 @@ async function assembleRuntimeComposition(
             }
             return createLlmStageAdapters(selectionConfig, { registry: runtimeRegistry });
         }
-        if (selection.executionApi !== undefined) {
+        if (selection.protocol !== undefined) {
             throw new LLMConfigurationError([], `Provider configuration is unavailable for dynamic model "${selection.modelId}"`);
         }
         return Object.freeze({ thinkAdapter: adapter, decideAdapter: adapter });

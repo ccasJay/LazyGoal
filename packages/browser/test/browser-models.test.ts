@@ -93,7 +93,7 @@ test("执行登记模型仅投影展示能力，不泄漏执行协议、路由�
         maxOutputTokens: 524_288,
         reasoning: true,
         vision: false,
-        executionApi: "openai-completions",
+        protocol: "chat-completions",
         baseURL: "https://opencode.ai/inference/go/openai/v1",
         apiKey: "DO_NOT_SEND_KEY",
         availabilitySource: "live" as const,

@@ -50,7 +50,7 @@ export {
 } from "./llm-config";
 export type {
     LLMProvider,
-    LLMExecutionApi,
+    LLMRecordedProtocol,
     LLMConfig,
 } from "./llm-config";
 

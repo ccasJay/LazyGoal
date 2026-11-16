@@ -333,7 +333,7 @@ test("createGoal incorporates and isolates explicit modelSelection", () => {
     const customSelection = {
         provider: "opencode-go",
         modelId: "minimax-m3.1-flash-free" as const,
-        executionApi: "openai-completions" as const,
+        protocol: "chat-completions" as const,
         contextWindowTokens: 1_000_000,
         maxOutputTokens: 524_288,
         inputEstimator: { kind: "token-encoding" as const, encoding: "cl100k_base" as const },

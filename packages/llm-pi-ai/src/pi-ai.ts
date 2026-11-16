@@ -185,9 +185,9 @@ export class PiAiAdapter implements LLMAdapter {
      * @throws LLMConfigurationError 模式不匹配、静态模型不在目录、动态协议不受支持或动态容量无效时抛出。
      */
     constructor(private readonly config: LLMConfig) {
-        const executionApi = (config as LLMConfig & { readonly executionApi?: unknown }).executionApi;
-        if (executionApi !== undefined && (config.provider !== "opencode-go" || executionApi !== "openai-completions")) {
-            throw new LLMConfigurationError([], `Unsupported execution API "${String(executionApi)}" for provider "${config.provider}"`);
+        const protocol = config.protocol;
+        if (protocol !== undefined && (config.provider !== "opencode-go" || protocol !== "chat-completions")) {
+            throw new LLMConfigurationError([], `Unsupported wire protocol "${protocol}" for provider "${config.provider}"`);
         }
         if (config.provider === "openai-compatible") {
             if (config.baseURL === undefined || config.contextWindowTokens === undefined || config.maxOutputTokens === undefined) {
@@ -213,7 +213,7 @@ export class PiAiAdapter implements LLMAdapter {
         } else if (config.provider === "opencode-go") {
             const provider = opencodeGoProvider();
             const sourceModel = provider.getModels().find(candidate => candidate.id === config.model);
-            const dynamicConfig = config.executionApi === "openai-completions" ? config : undefined;
+            const dynamicConfig = config.protocol === "chat-completions" ? config : undefined;
             const unknownBeamFallback = dynamicConfig === undefined && sourceModel === undefined && config.model === "beam-free";
             const contextWindow = dynamicConfig?.contextWindowTokens ?? sourceModel?.contextWindow ?? (unknownBeamFallback ? 128_000 : undefined);
             const sourceMaxTokens = dynamicConfig?.maxOutputTokens ?? sourceModel?.maxTokens ?? (unknownBeamFallback ? config.maxOutputTokens ?? 8192 : undefined);
@@ -482,7 +482,7 @@ export class PiAiAdapter implements LLMAdapter {
 
     private requiredToolStream(context: Context, options: StreamOptions) {
         if (this.config.provider === "opencode-go"
-            && this.config.executionApi === "openai-completions"
+            && this.config.protocol === "chat-completions"
             && this.config.supportsRequiredToolChoice !== true) {
             return this.models.streamSimple(this.model, context, { ...options, toolChoice: "auto" });
         }

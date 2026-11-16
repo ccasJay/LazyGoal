@@ -316,7 +316,7 @@ const minimaxDynamicConfig: LLMConfig = {
     provider: "opencode-go",
     model: "minimax-m3.1-flash-free",
     apiKey: "test-explicit-key",
-    executionApi: "openai-completions",
+    protocol: "chat-completions",
     contextWindowTokens: 1_000_000,
     maxOutputTokens: 524_288,
     reasoning: true,
@@ -456,7 +456,7 @@ test("OpenCode Go 无工具时省略 none 工具选择", async () => {
 });
 
 test("PiAiAdapter 在发送前拒绝未支持协议与无效动态容量", () => {
-    const unknownApi = { ...minimaxDynamicConfig, executionApi: "unknown-api" } as unknown as LLMConfig;
+    const unknownApi = { ...minimaxDynamicConfig, protocol: "unknown-api" } as unknown as LLMConfig;
     assert.throws(() => new PiAiAdapter(unknownApi), /Unsupported execution API/);
 
     const invalidCapacity = { ...minimaxDynamicConfig, maxOutputTokens: 1_000_000 };

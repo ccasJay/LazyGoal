@@ -104,7 +104,7 @@ test("GoalSnapshotCodec: 编码与解码严格保持 GoalModelSelection 描述�
     const customSelection = {
         provider: "opencode-go",
         modelId: "minimax-m3.1-flash-free" as const,
-        executionApi: "openai-completions" as const,
+        protocol: "chat-completions" as const,
         contextWindowTokens: 1_000_000,
         maxOutputTokens: 524_288,
         inputEstimator: { kind: "token-encoding" as const, encoding: "cl100k_base" as const },
@@ -214,33 +214,25 @@ test("GoalSnapshotCodec: 包含额外敏感字段或非法容量的模型选择�
         assertProtocolError,
     );
 
-    // 3. 执行 API 必须来自支持的登记值且只适用于 OpenCode Go。
-    const snapshotUnsupportedApi = structuredClone(encoded) as unknown as Record<string, unknown>;
-    const state3 = snapshotUnsupportedApi["state"] as Record<string, unknown>;
+    // 3. 协议标识不得为空白；声明协议时必须同时携带容量。
+    const snapshotBlankProtocol = structuredClone(encoded) as unknown as Record<string, unknown>;
+    const state3 = snapshotBlankProtocol["state"] as Record<string, unknown>;
     state3["modelSelection"] = {
         ...(state3["modelSelection"] as object),
-        executionApi: "unknown-api",
+        protocol: "  ",
     };
-    assert.throws(() => goalSnapshotCodec.decode(snapshotUnsupportedApi), assertProtocolError);
-
-    const snapshotWrongProvider = structuredClone(encoded) as unknown as Record<string, unknown>;
-    const state4 = snapshotWrongProvider["state"] as Record<string, unknown>;
-    state4["modelSelection"] = {
-        ...(state4["modelSelection"] as object),
-        executionApi: "openai-completions",
-    };
-    assert.throws(() => goalSnapshotCodec.decode(snapshotWrongProvider), assertProtocolError);
+    assert.throws(() => goalSnapshotCodec.decode(snapshotBlankProtocol), assertProtocolError);
 
     const snapshotMissingCapacity = structuredClone(encoded) as unknown as Record<string, unknown>;
-    const state5 = snapshotMissingCapacity["state"] as Record<string, unknown>;
+    const state4 = snapshotMissingCapacity["state"] as Record<string, unknown>;
     const missingCapacitySelection: Record<string, unknown> = {
-        ...(state5["modelSelection"] as Record<string, unknown>),
+        ...(state4["modelSelection"] as Record<string, unknown>),
         provider: "opencode-go",
-        executionApi: "openai-completions",
+        protocol: "chat-completions",
     };
     delete missingCapacitySelection["contextWindowTokens"];
     delete missingCapacitySelection["maxOutputTokens"];
-    state5["modelSelection"] = missingCapacitySelection;
+    state4["modelSelection"] = missingCapacitySelection;
     assert.throws(() => goalSnapshotCodec.decode(snapshotMissingCapacity), assertProtocolError);
 });
 

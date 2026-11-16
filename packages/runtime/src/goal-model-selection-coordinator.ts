@@ -109,7 +109,7 @@ function cloneModelSelection(selection: GoalModelSelection): GoalModelSelection 
         provider: selection.provider,
         ...(selection.profileId === undefined ? {} : { profileId: selection.profileId }),
         modelId: selection.modelId,
-        ...(selection.executionApi === undefined ? {} : { executionApi: selection.executionApi }),
+        ...(selection.protocol === undefined ? {} : { protocol: selection.protocol }),
         ...(selection.contextWindowTokens !== undefined ? { contextWindowTokens: selection.contextWindowTokens } : {}),
         ...(selection.maxOutputTokens !== undefined ? { maxOutputTokens: selection.maxOutputTokens } : {}),
         ...(selection.reasoning !== undefined ? { reasoning: selection.reasoning } : {}),

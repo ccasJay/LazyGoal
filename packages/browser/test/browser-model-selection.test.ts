@@ -186,7 +186,7 @@ test("模型提交剥离精确 wire 之外的字段，并隐藏服务端错误�
     assert.equal(store.saves, 0);
     for (const field of [
         { provider: "google" },
-        { executionApi: "openai-completions" },
+        { protocol: "chat-completions" },
         { baseURL: "https://attacker.invalid/v1" },
         { contextWindowTokens: 1_000_000 },
         { maxOutputTokens: 524_288 },
@@ -224,7 +224,7 @@ test("模型偏好路由剥离未知字段并区分不可选与持久化故障",
     assert.equal((await send({ modelId: "valid", provider: "openai" })).status, 200);
     assert.equal((await send({ modelId: null })).status, 400);
     for (const field of [
-        { executionApi: "openai-completions" },
+        { protocol: "chat-completions" },
         { baseURL: "https://attacker.invalid/v1" },
         { contextWindowTokens: 1_000_000 },
         { maxOutputTokens: 524_288 },
