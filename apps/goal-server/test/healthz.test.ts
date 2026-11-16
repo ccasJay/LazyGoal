@@ -21,7 +21,6 @@ test("Goal Server health probe returns its wire contract and retains request gua
             env: { LAZYGOAL_HOME: join(workspace, "home") },
             profile: { id: "healthz-test", systemPrompt: "unused", instructions: [], toolIds: [] },
             adapter: {
-                structuredOutputMode: "strict" as const,
                 async generate(): Promise<never> {
                     throw new Error("health probe must not call the model");
                 },

@@ -8150,8 +8150,7 @@
     "strategy": "typescript-binding",
     "rootType": "BrowserProviderProfile",
     "declaredTypes": [
-     "BrowserProviderProfile",
-     "BrowserStructuredOutputMode"
+     "BrowserProviderProfile"
     ],
     "outputDirectory": "packages/web-contracts/src/generated",
     "artifacts": {
@@ -8212,7 +8211,6 @@
     "declaredTypes": [
      "BrowserProviderSettings",
      "BrowserProviderProfile",
-     "BrowserStructuredOutputMode",
      "BrowserProviderFallback"
     ],
     "outputDirectory": "packages/web-contracts/src/generated",
@@ -8274,7 +8272,6 @@
     "declaredTypes": [
      "BrowserProviderProfileWriteResult",
      "BrowserProviderProfile",
-     "BrowserStructuredOutputMode",
      "BrowserProviderSettingsError"
     ],
     "outputDirectory": "packages/web-contracts/src/generated",
@@ -8336,7 +8333,6 @@
     "declaredTypes": [
      "BrowserProviderProfileDeleteResult",
      "BrowserProviderProfile",
-     "BrowserStructuredOutputMode",
      "BrowserProviderSettingsError"
     ],
     "outputDirectory": "packages/web-contracts/src/generated",
@@ -8516,8 +8512,7 @@
     "strategy": "typescript-binding",
     "rootType": "BrowserProviderProfileInput",
     "declaredTypes": [
-     "BrowserProviderProfileInput",
-     "BrowserStructuredOutputMode"
+     "BrowserProviderProfileInput"
     ],
     "outputDirectory": "packages/web-contracts/src/generated",
     "artifacts": {

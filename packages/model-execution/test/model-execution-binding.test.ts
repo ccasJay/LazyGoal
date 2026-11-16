@@ -16,7 +16,6 @@ import {
 import { createInMemoryTrajectoryStore } from "../../agent/test/current-fixtures.js";
 
 class FakeAdapter implements LLMAdapter {
-    readonly structuredOutputMode = "strict" as const;
     readonly requests: LLMRequest[] = [];
 
     async generate(request: LLMRequest): Promise<LLMResponse> {
@@ -26,7 +25,6 @@ class FakeAdapter implements LLMAdapter {
 }
 
 class PromptOnlyAdapter implements LLMAdapter {
-    readonly structuredOutputMode = "prompt_only" as const;
 
     async generate(): Promise<LLMResponse> {
         return textResponse("{}");
@@ -43,7 +41,6 @@ test("createModelExecutionBinding: 成功构造 Token 模式完整绑定", () =>
     const selection: GoalModelSelection = {
         provider: "openai",
         modelId: "gpt-4o",
-        structuredOutputMode: "strict",
         contextWindowTokens: 128_000,
         maxOutputTokens: 4096,
         inputEstimator: { kind: "token-encoding", encoding: "o200k_base" },
@@ -59,7 +56,6 @@ test("createModelExecutionBinding: 成功构造 Token 模式完整绑定", () =>
     assert.equal(binding.generation, 1);
     assert.deepEqual(binding.selection, selection);
     assert.equal(binding.decideAdapter, adapter);
-    assert.equal(binding.thinkAdapter.structuredOutputMode, "prompt_only");
     assert.ok(binding.modelCapabilities !== undefined);
     assert.equal(binding.modelCapabilities.contextWindowTokens, 128_000);
     assert.equal(binding.modelCapabilities.maxOutputTokens, 4096);
@@ -75,7 +71,6 @@ test("createModelExecutionBinding: 成功构造字符兜底模式绑定", () => 
     const selection: GoalModelSelection = {
         provider: "openai-compatible",
         modelId: "custom-text",
-        structuredOutputMode: "strict",
         inputEstimator: { kind: "character-v1" },
     };
 
@@ -96,8 +91,7 @@ test("createModelExecutionBinding 允许不同历史模式或省略模式平滑�
     const adapter = new PromptOnlyAdapter(); // prompt_only
     const selection: GoalModelSelection = {
         provider: "openai",
-        modelId: "gpt-4o",
-        structuredOutputMode: "strict", // 历史 snapshot 可能残留 strict
+        modelId: "gpt-4o", // 历史 snapshot 可能残留 strict
         contextWindowTokens: 128_000,
         maxOutputTokens: 4096,
         inputEstimator: { kind: "token-encoding", encoding: "o200k_base" },
@@ -124,7 +118,6 @@ test("createModelExecutionBinding: 容量缺失或非法时拒绝构造", () => 
             selection: {
                 provider: "openai",
                 modelId: "gpt-4o",
-                structuredOutputMode: "strict",
                 maxOutputTokens: 4096,
                 inputEstimator: { kind: "token-encoding", encoding: "o200k_base" },
             },
@@ -140,7 +133,6 @@ test("createModelExecutionBinding: 容量缺失或非法时拒绝构造", () => 
             selection: {
                 provider: "openai",
                 modelId: "gpt-4o",
-                structuredOutputMode: "strict",
                 contextWindowTokens: 4096,
                 maxOutputTokens: 4096,
                 inputEstimator: { kind: "token-encoding", encoding: "o200k_base" },
@@ -157,7 +149,6 @@ test("createModelExecutionBinding: 容量缺失或非法时拒绝构造", () => 
             selection: {
                 provider: "openai",
                 modelId: "gpt-4o",
-                structuredOutputMode: "strict",
                 contextWindowTokens: 128_000,
                 maxOutputTokens: 4096,
                 inputEstimator: { kind: "token-encoding", encoding: "o200k_base" },
@@ -174,7 +165,6 @@ test("MutableModelBinding: 候选创建、generation 隔离与同步发布", () 
     const initialSelection: GoalModelSelection = {
         provider: "openai",
         modelId: "gpt-4o-mini",
-        structuredOutputMode: "strict",
         contextWindowTokens: 128_000,
         maxOutputTokens: 4096,
         inputEstimator: { kind: "token-encoding", encoding: "o200k_base" },
@@ -196,7 +186,6 @@ test("MutableModelBinding: 候选创建、generation 隔离与同步发布", () 
     const candidateSelection: GoalModelSelection = {
         provider: "openai",
         modelId: "gpt-4o",
-        structuredOutputMode: "strict",
         contextWindowTokens: 128_000,
         maxOutputTokens: 8192,
         inputEstimator: { kind: "token-encoding", encoding: "o200k_base" },

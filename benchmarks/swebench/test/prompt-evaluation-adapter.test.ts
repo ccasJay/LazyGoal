@@ -59,7 +59,6 @@ const workerArtifact: WorkerArtifact = {
 };
 
 const llmAdapter: LLMAdapter = {
-    structuredOutputMode: "strict",
     async generate() {
         throw new Error("not used in unit test");
     },
@@ -86,7 +85,6 @@ test("validateSwebenchPromptEvaluationProfile and parseSwebenchAcpTaskMetadata a
         goalId: "goal-1",
         runId: "run-1",
         maxSteps: 30,
-        structuredOutputMode: "strict",
         baseProfile: SWE_ACP_PROFILE,
         profile: candidateProfile,
         templateOverrides: {
@@ -112,7 +110,6 @@ test("parseSwebenchAcpTaskMetadata rejects locked template overrides and unautho
                 goalId: "goal-1",
                 runId: "run-1",
                 maxSteps: 30,
-                structuredOutputMode: "strict",
                 templateOverrides: {
                     "working-memory@1": "illegal override",
                 },

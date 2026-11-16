@@ -176,7 +176,6 @@ async function prepare(terminal: Terminal) {
     } as NodeJS.ProcessEnv;
     const goals = new JsonFileGoalStore(join(dataDirectory, "goals"));
     const supervisorAdapter: LLMAdapter = {
-        structuredOutputMode: "prompt_only",
         async generate() { return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({ name: "Continue work" }) }] }; },
     };
     const composition = await createRuntimeComposition({

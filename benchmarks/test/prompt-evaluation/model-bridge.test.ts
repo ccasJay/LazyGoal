@@ -13,9 +13,26 @@ async function setupConfig(t: TestContext): Promise<{ env: NodeJS.ProcessEnv }> 
     const lazygoal = root;
     const profiles = join(lazygoal, "profiles");
     await mkdir(profiles, { recursive: true });
-    await writeFile(join(lazygoal, "config.toml"), "[gepa]\nreflection_profile = \"reflection\"\n");
-    await writeFile(join(profiles, "default.toml"), "[llm]\nprovider = \"openai\"\nmodel = \"working-model\"\napi_key = \"sk-working-secret\"\n");
-    await writeFile(join(profiles, "reflection.toml"), "[llm]\nprovider = \"deepseek\"\nmodel = \"reflection-model\"\napi_key = \"sk-reflection-secret\"\n");
+    await writeFile(join(lazygoal, "config.toml"), `
+[providers.openai.working]
+api_key = "sk-working-secret"
+[[providers.openai.working.models]]
+id = "working-model"
+context_window = 128000
+max_output_tokens = 8192
+
+[providers.deepseek.reflection]
+api_key = "sk-reflection-secret"
+[[providers.deepseek.reflection.models]]
+id = "reflection-model"
+context_window = 65536
+max_output_tokens = 8192
+
+[gepa]
+reflection_profile = "reflection"
+`);
+    await writeFile(join(profiles, "default.toml"), "[llm]\nprovider = \"working\"\nmodel = \"working-model\"\n");
+    await writeFile(join(profiles, "reflection.toml"), "[llm]\nprovider = \"reflection\"\nmodel = \"reflection-model\"\n");
     return { env: { LAZYGOAL_HOME: root } };
 }
 
@@ -33,8 +50,8 @@ test("resolve-models 只输出双模型无凭据身份且 stdout 恰好一行", 
     assert.equal(output.length, 1);
     assert.equal(errors.length, 0);
     assert.deepEqual(JSON.parse(output[0]!), {
-        working: { profileName: "default", provider: "openai", modelId: "working-model" },
-        reflection: { profileName: "reflection", provider: "deepseek", modelId: "reflection-model" },
+        working: { profileName: "default", provider: "working", modelId: "working-model" },
+        reflection: { profileName: "reflection", provider: "reflection", modelId: "reflection-model" },
     });
     assert.ok(!output[0]!.includes("secret"));
     assert.ok(!output[0]!.includes("apiKey"));
@@ -72,7 +89,7 @@ test("bin/lazygoal.cjs 将 resolve-models 路由到 TS bridge 而非 Python 生�
     const lines = result.trimEnd().split("\n");
     assert.equal(lines.length, 1);
     assert.deepEqual(JSON.parse(lines[0]!), {
-        working: { profileName: "default", provider: "openai", modelId: "working-model" },
-        reflection: { profileName: "reflection", provider: "deepseek", modelId: "reflection-model" },
+        working: { profileName: "default", provider: "working", modelId: "working-model" },
+        reflection: { profileName: "reflection", provider: "reflection", modelId: "reflection-model" },
     });
 });

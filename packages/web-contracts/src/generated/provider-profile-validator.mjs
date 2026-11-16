@@ -12,16 +12,16 @@ var require_BrowserProviderProfile_validator = __commonJS({
   "BrowserProviderProfile-validator.cjs"(exports, module) {
     module.exports = validate10;
     module.exports.default = validate10;
-    var schema12 = { "type": "object", "properties": { "id": { "type": "string", "pattern": "\\S" }, "label": { "type": "string", "pattern": "\\S" }, "kind": { "type": "string", "pattern": "\\S" }, "defaultModel": { "type": "string", "pattern": "\\S" }, "baseURL": { "type": "string" }, "contextWindowTokens": { "type": "number" }, "maxOutputTokens": { "type": "number" }, "structuredOutputMode": { "$ref": "#/definitions/BrowserStructuredOutputMode" }, "hasApiKey": { "type": "boolean" }, "apiKeyMask": { "type": "string" } }, "required": ["id", "label", "kind", "defaultModel", "hasApiKey", "apiKeyMask"], "additionalProperties": false, "description": "\u53D7\u7BA1 Provider \u6863\u6848\u7684\u975E\u654F\u611F\u6295\u5F71\u3002" };
-    var schema13 = { "type": "string", "enum": ["strict", "prompt_only", "two_stage"], "description": "\u7ED3\u6784\u5316\u8F93\u51FA\u6A21\u5F0F\u3002" };
+    var schema12 = { "type": "object", "properties": { "id": { "type": "string", "pattern": "\\S" }, "label": { "type": "string", "pattern": "\\S" }, "kind": { "type": "string", "pattern": "\\S" }, "defaultModel": { "type": "string", "pattern": "\\S" }, "baseURL": { "type": "string" }, "contextWindowTokens": { "type": "number" }, "maxOutputTokens": { "type": "number" }, "hasApiKey": { "type": "boolean" }, "apiKeyMask": { "type": "string" } }, "required": ["id", "label", "kind", "defaultModel", "hasApiKey", "apiKeyMask"], "additionalProperties": false, "description": "\u53D7\u7BA1 Provider \u6863\u6848\u7684\u975E\u654F\u611F\u6295\u5F71\u3002" };
     var func2 = Object.prototype.hasOwnProperty;
     var pattern0 = new RegExp("\\S", "u");
-    function validate11(data, { instancePath = "", parentData, parentDataProperty, rootData = data } = {}) {
+    function validate10(data, { instancePath = "", parentData, parentDataProperty, rootData = data } = {}) {
+      ;
       let vErrors = null;
       let errors = 0;
       if (data && typeof data == "object" && !Array.isArray(data)) {
         if (data.id === void 0) {
-          const err0 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "id" }, message: "must have required property 'id'" };
+          const err0 = { instancePath, schemaPath: "#/definitions/BrowserProviderProfile/required", keyword: "required", params: { missingProperty: "id" }, message: "must have required property 'id'" };
           if (vErrors === null) {
             vErrors = [err0];
           } else {
@@ -30,7 +30,7 @@ var require_BrowserProviderProfile_validator = __commonJS({
           errors++;
         }
         if (data.label === void 0) {
-          const err1 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "label" }, message: "must have required property 'label'" };
+          const err1 = { instancePath, schemaPath: "#/definitions/BrowserProviderProfile/required", keyword: "required", params: { missingProperty: "label" }, message: "must have required property 'label'" };
           if (vErrors === null) {
             vErrors = [err1];
           } else {
@@ -39,7 +39,7 @@ var require_BrowserProviderProfile_validator = __commonJS({
           errors++;
         }
         if (data.kind === void 0) {
-          const err2 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
+          const err2 = { instancePath, schemaPath: "#/definitions/BrowserProviderProfile/required", keyword: "required", params: { missingProperty: "kind" }, message: "must have required property 'kind'" };
           if (vErrors === null) {
             vErrors = [err2];
           } else {
@@ -48,7 +48,7 @@ var require_BrowserProviderProfile_validator = __commonJS({
           errors++;
         }
         if (data.defaultModel === void 0) {
-          const err3 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "defaultModel" }, message: "must have required property 'defaultModel'" };
+          const err3 = { instancePath, schemaPath: "#/definitions/BrowserProviderProfile/required", keyword: "required", params: { missingProperty: "defaultModel" }, message: "must have required property 'defaultModel'" };
           if (vErrors === null) {
             vErrors = [err3];
           } else {
@@ -57,7 +57,7 @@ var require_BrowserProviderProfile_validator = __commonJS({
           errors++;
         }
         if (data.hasApiKey === void 0) {
-          const err4 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "hasApiKey" }, message: "must have required property 'hasApiKey'" };
+          const err4 = { instancePath, schemaPath: "#/definitions/BrowserProviderProfile/required", keyword: "required", params: { missingProperty: "hasApiKey" }, message: "must have required property 'hasApiKey'" };
           if (vErrors === null) {
             vErrors = [err4];
           } else {
@@ -66,7 +66,7 @@ var require_BrowserProviderProfile_validator = __commonJS({
           errors++;
         }
         if (data.apiKeyMask === void 0) {
-          const err5 = { instancePath, schemaPath: "#/required", keyword: "required", params: { missingProperty: "apiKeyMask" }, message: "must have required property 'apiKeyMask'" };
+          const err5 = { instancePath, schemaPath: "#/definitions/BrowserProviderProfile/required", keyword: "required", params: { missingProperty: "apiKeyMask" }, message: "must have required property 'apiKeyMask'" };
           if (vErrors === null) {
             vErrors = [err5];
           } else {
@@ -76,7 +76,7 @@ var require_BrowserProviderProfile_validator = __commonJS({
         }
         for (const key0 in data) {
           if (!func2.call(schema12.properties, key0)) {
-            const err6 = { instancePath, schemaPath: "#/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key0 }, message: "must NOT have additional properties" };
+            const err6 = { instancePath, schemaPath: "#/definitions/BrowserProviderProfile/additionalProperties", keyword: "additionalProperties", params: { additionalProperty: key0 }, message: "must NOT have additional properties" };
             if (vErrors === null) {
               vErrors = [err6];
             } else {
@@ -89,7 +89,7 @@ var require_BrowserProviderProfile_validator = __commonJS({
           let data0 = data.id;
           if (typeof data0 === "string") {
             if (!pattern0.test(data0)) {
-              const err7 = { instancePath: instancePath + "/id", schemaPath: "#/properties/id/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+              const err7 = { instancePath: instancePath + "/id", schemaPath: "#/definitions/BrowserProviderProfile/properties/id/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
               if (vErrors === null) {
                 vErrors = [err7];
               } else {
@@ -98,7 +98,7 @@ var require_BrowserProviderProfile_validator = __commonJS({
               errors++;
             }
           } else {
-            const err8 = { instancePath: instancePath + "/id", schemaPath: "#/properties/id/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            const err8 = { instancePath: instancePath + "/id", schemaPath: "#/definitions/BrowserProviderProfile/properties/id/type", keyword: "type", params: { type: "string" }, message: "must be string" };
             if (vErrors === null) {
               vErrors = [err8];
             } else {
@@ -111,7 +111,7 @@ var require_BrowserProviderProfile_validator = __commonJS({
           let data1 = data.label;
           if (typeof data1 === "string") {
             if (!pattern0.test(data1)) {
-              const err9 = { instancePath: instancePath + "/label", schemaPath: "#/properties/label/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+              const err9 = { instancePath: instancePath + "/label", schemaPath: "#/definitions/BrowserProviderProfile/properties/label/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
               if (vErrors === null) {
                 vErrors = [err9];
               } else {
@@ -120,7 +120,7 @@ var require_BrowserProviderProfile_validator = __commonJS({
               errors++;
             }
           } else {
-            const err10 = { instancePath: instancePath + "/label", schemaPath: "#/properties/label/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            const err10 = { instancePath: instancePath + "/label", schemaPath: "#/definitions/BrowserProviderProfile/properties/label/type", keyword: "type", params: { type: "string" }, message: "must be string" };
             if (vErrors === null) {
               vErrors = [err10];
             } else {
@@ -133,7 +133,7 @@ var require_BrowserProviderProfile_validator = __commonJS({
           let data2 = data.kind;
           if (typeof data2 === "string") {
             if (!pattern0.test(data2)) {
-              const err11 = { instancePath: instancePath + "/kind", schemaPath: "#/properties/kind/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+              const err11 = { instancePath: instancePath + "/kind", schemaPath: "#/definitions/BrowserProviderProfile/properties/kind/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
               if (vErrors === null) {
                 vErrors = [err11];
               } else {
@@ -142,7 +142,7 @@ var require_BrowserProviderProfile_validator = __commonJS({
               errors++;
             }
           } else {
-            const err12 = { instancePath: instancePath + "/kind", schemaPath: "#/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            const err12 = { instancePath: instancePath + "/kind", schemaPath: "#/definitions/BrowserProviderProfile/properties/kind/type", keyword: "type", params: { type: "string" }, message: "must be string" };
             if (vErrors === null) {
               vErrors = [err12];
             } else {
@@ -155,7 +155,7 @@ var require_BrowserProviderProfile_validator = __commonJS({
           let data3 = data.defaultModel;
           if (typeof data3 === "string") {
             if (!pattern0.test(data3)) {
-              const err13 = { instancePath: instancePath + "/defaultModel", schemaPath: "#/properties/defaultModel/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
+              const err13 = { instancePath: instancePath + "/defaultModel", schemaPath: "#/definitions/BrowserProviderProfile/properties/defaultModel/pattern", keyword: "pattern", params: { pattern: "\\S" }, message: 'must match pattern "\\S"' };
               if (vErrors === null) {
                 vErrors = [err13];
               } else {
@@ -164,7 +164,7 @@ var require_BrowserProviderProfile_validator = __commonJS({
               errors++;
             }
           } else {
-            const err14 = { instancePath: instancePath + "/defaultModel", schemaPath: "#/properties/defaultModel/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            const err14 = { instancePath: instancePath + "/defaultModel", schemaPath: "#/definitions/BrowserProviderProfile/properties/defaultModel/type", keyword: "type", params: { type: "string" }, message: "must be string" };
             if (vErrors === null) {
               vErrors = [err14];
             } else {
@@ -175,7 +175,7 @@ var require_BrowserProviderProfile_validator = __commonJS({
         }
         if (data.baseURL !== void 0) {
           if (typeof data.baseURL !== "string") {
-            const err15 = { instancePath: instancePath + "/baseURL", schemaPath: "#/properties/baseURL/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+            const err15 = { instancePath: instancePath + "/baseURL", schemaPath: "#/definitions/BrowserProviderProfile/properties/baseURL/type", keyword: "type", params: { type: "string" }, message: "must be string" };
             if (vErrors === null) {
               vErrors = [err15];
             } else {
@@ -187,7 +187,7 @@ var require_BrowserProviderProfile_validator = __commonJS({
         if (data.contextWindowTokens !== void 0) {
           let data5 = data.contextWindowTokens;
           if (!(typeof data5 == "number" && isFinite(data5))) {
-            const err16 = { instancePath: instancePath + "/contextWindowTokens", schemaPath: "#/properties/contextWindowTokens/type", keyword: "type", params: { type: "number" }, message: "must be number" };
+            const err16 = { instancePath: instancePath + "/contextWindowTokens", schemaPath: "#/definitions/BrowserProviderProfile/properties/contextWindowTokens/type", keyword: "type", params: { type: "number" }, message: "must be number" };
             if (vErrors === null) {
               vErrors = [err16];
             } else {
@@ -199,7 +199,7 @@ var require_BrowserProviderProfile_validator = __commonJS({
         if (data.maxOutputTokens !== void 0) {
           let data6 = data.maxOutputTokens;
           if (!(typeof data6 == "number" && isFinite(data6))) {
-            const err17 = { instancePath: instancePath + "/maxOutputTokens", schemaPath: "#/properties/maxOutputTokens/type", keyword: "type", params: { type: "number" }, message: "must be number" };
+            const err17 = { instancePath: instancePath + "/maxOutputTokens", schemaPath: "#/definitions/BrowserProviderProfile/properties/maxOutputTokens/type", keyword: "type", params: { type: "number" }, message: "must be number" };
             if (vErrors === null) {
               vErrors = [err17];
             } else {
@@ -208,10 +208,9 @@ var require_BrowserProviderProfile_validator = __commonJS({
             errors++;
           }
         }
-        if (data.structuredOutputMode !== void 0) {
-          let data7 = data.structuredOutputMode;
-          if (typeof data7 !== "string") {
-            const err18 = { instancePath: instancePath + "/structuredOutputMode", schemaPath: "#/definitions/BrowserStructuredOutputMode/type", keyword: "type", params: { type: "string" }, message: "must be string" };
+        if (data.hasApiKey !== void 0) {
+          if (typeof data.hasApiKey !== "boolean") {
+            const err18 = { instancePath: instancePath + "/hasApiKey", schemaPath: "#/definitions/BrowserProviderProfile/properties/hasApiKey/type", keyword: "type", params: { type: "boolean" }, message: "must be boolean" };
             if (vErrors === null) {
               vErrors = [err18];
             } else {
@@ -219,8 +218,10 @@ var require_BrowserProviderProfile_validator = __commonJS({
             }
             errors++;
           }
-          if (!(data7 === "strict" || data7 === "prompt_only" || data7 === "two_stage")) {
-            const err19 = { instancePath: instancePath + "/structuredOutputMode", schemaPath: "#/definitions/BrowserStructuredOutputMode/enum", keyword: "enum", params: { allowedValues: schema13.enum }, message: "must be equal to one of the allowed values" };
+        }
+        if (data.apiKeyMask !== void 0) {
+          if (typeof data.apiKeyMask !== "string") {
+            const err19 = { instancePath: instancePath + "/apiKeyMask", schemaPath: "#/definitions/BrowserProviderProfile/properties/apiKeyMask/type", keyword: "type", params: { type: "string" }, message: "must be string" };
             if (vErrors === null) {
               vErrors = [err19];
             } else {
@@ -229,47 +230,14 @@ var require_BrowserProviderProfile_validator = __commonJS({
             errors++;
           }
         }
-        if (data.hasApiKey !== void 0) {
-          if (typeof data.hasApiKey !== "boolean") {
-            const err20 = { instancePath: instancePath + "/hasApiKey", schemaPath: "#/properties/hasApiKey/type", keyword: "type", params: { type: "boolean" }, message: "must be boolean" };
-            if (vErrors === null) {
-              vErrors = [err20];
-            } else {
-              vErrors.push(err20);
-            }
-            errors++;
-          }
-        }
-        if (data.apiKeyMask !== void 0) {
-          if (typeof data.apiKeyMask !== "string") {
-            const err21 = { instancePath: instancePath + "/apiKeyMask", schemaPath: "#/properties/apiKeyMask/type", keyword: "type", params: { type: "string" }, message: "must be string" };
-            if (vErrors === null) {
-              vErrors = [err21];
-            } else {
-              vErrors.push(err21);
-            }
-            errors++;
-          }
-        }
       } else {
-        const err22 = { instancePath, schemaPath: "#/type", keyword: "type", params: { type: "object" }, message: "must be object" };
+        const err20 = { instancePath, schemaPath: "#/definitions/BrowserProviderProfile/type", keyword: "type", params: { type: "object" }, message: "must be object" };
         if (vErrors === null) {
-          vErrors = [err22];
+          vErrors = [err20];
         } else {
-          vErrors.push(err22);
+          vErrors.push(err20);
         }
         errors++;
-      }
-      validate11.errors = vErrors;
-      return errors === 0;
-    }
-    function validate10(data, { instancePath = "", parentData, parentDataProperty, rootData = data } = {}) {
-      ;
-      let vErrors = null;
-      let errors = 0;
-      if (!validate11(data, { instancePath, parentData, parentDataProperty, rootData })) {
-        vErrors = vErrors === null ? validate11.errors : vErrors.concat(validate11.errors);
-        errors = vErrors.length;
       }
       validate10.errors = vErrors;
       return errors === 0;

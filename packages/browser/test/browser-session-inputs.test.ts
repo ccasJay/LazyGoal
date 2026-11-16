@@ -51,7 +51,7 @@ function createApi(
             readControlSnapshot: (goalId) => readBrowserControlSnapshot(goalId, harness.store, () => false),
             resolveModelSelection: async () => ({
                 ok: true,
-                selection: { provider: "openai", modelId: "model-1", structuredOutputMode: "prompt_only", inputEstimator: { kind: "character-v1" } },
+                selection: { provider: "openai", modelId: "model-1", inputEstimator: { kind: "character-v1" } },
             }),
         }),
     };

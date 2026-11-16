@@ -75,7 +75,7 @@ describe("TuaBenchPromptEvaluationAdapter", () => {
                 systemPrompt: "candidate prompt",
                 instructions: ["candidate instruction"],
             };
-            const llmAdapter = { structuredOutputMode: "strict" } as PromptEvaluationTaskInput<TuaBenchTaskDefinition>["llmAdapter"];
+            const llmAdapter = {} as PromptEvaluationTaskInput<TuaBenchTaskDefinition>["llmAdapter"];
             const result = await adapter.runTask({
                 evaluationId: "eval-1",
                 candidateId: "candidate-1",
@@ -127,7 +127,7 @@ describe("TuaBenchPromptEvaluationAdapter", () => {
                     tasks: [task], repoRoot: root, loadedAt: "2026-09-24T00:00:00.000Z", byFamily: {},
                 }),
             });
-            const llmAdapter = { structuredOutputMode: "strict" } as PromptEvaluationTaskInput<TuaBenchTaskDefinition>["llmAdapter"];
+            const llmAdapter = {} as PromptEvaluationTaskInput<TuaBenchTaskDefinition>["llmAdapter"];
             const result = await adapter.runTask({
                 evaluationId: "eval-1", candidateId: "candidate-1", modelConfigId: "default", modelId: "model-1",
                 task, profile: TUA_BENCH_WORKER_PROFILE, baseProfile: TUA_BENCH_WORKER_PROFILE,

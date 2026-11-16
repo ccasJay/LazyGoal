@@ -69,7 +69,6 @@ async function fixture(t: TestContext, changes: {
     };
     let modelCalls = 0;
     const llmAdapter: LLMAdapter = {
-        structuredOutputMode: "strict",
         generate: async () => {
             modelCalls++;
             changes.onGenerate?.();

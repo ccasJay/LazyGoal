@@ -20,7 +20,7 @@ test("model input is saved before failed Adapter calls and shares call identity 
     const executor = new LLMStepExecutor({ renderer, contextCompactor: new DropOldestContextCompactor(), trajectoryContextAssembler: createCurrentContextAssembler(),
         traceSink: { append: async record => { traces.push(record); } },
         modelInputStore: { append: async record => { saved.push(record); }, read: async () => saved },
-        adapter: { structuredOutputMode: "strict", generate: async (request: LLMRequest) => {
+        adapter: { generate: async (request: LLMRequest) => {
             assert.deepEqual(saved.at(-1)!.messages.map(({ role, content }) => ({ role, content })), request.messages);
             if (fail) throw new Error("provider failed");
             return textResponse("Inspect Runtime and Storage ownership.");
@@ -49,7 +49,7 @@ test("configured model input storage failure prevents sending an unrecorded requ
     let calls = 0;
     const executor = new LLMStepExecutor({ renderer, contextCompactor: new DropOldestContextCompactor(), trajectoryContextAssembler: createCurrentContextAssembler(),
         modelInputStore: { append: async () => { throw new Error("storage unavailable"); }, read: async () => [] },
-        adapter: { structuredOutputMode: "strict", generate: async () => { calls++; return textResponse("unused"); } },
+        adapter: { generate: async () => { calls++; return textResponse("unused"); } },
     });
     await assert.rejects(executor.execute({ goal, authorizedTools: [], workingMemory: currentWorkingMemory }), /storage unavailable/);
     assert.equal(calls, 0);

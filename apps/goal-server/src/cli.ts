@@ -21,7 +21,7 @@ import {
     type BrowserPermissionExemptionSummary,
     type BrowserSessionAccess,
 } from "../../../packages/browser/src/index";
-import { DefaultProviderModelFetcher } from "../../../packages/llm-adapters/src/index";
+import { DefaultProviderModelFetcher, resolveOpenCodeGoExecutionMetadata } from "../../../packages/llm-adapters/src/index";
 import { ModelCatalogError } from "../../../packages/model-catalog/src/index";
 import type { LlmModelDescriptor } from "../../../packages/model-catalog/src/index";
 import {
@@ -90,7 +90,6 @@ function toBrowserProviderProfile(profile: ProviderProfile): BrowserProviderProf
         ...(profile.baseURL === undefined ? {} : { baseURL: profile.baseURL }),
         ...(profile.contextWindowTokens === undefined ? {} : { contextWindowTokens: profile.contextWindowTokens }),
         ...(profile.maxOutputTokens === undefined ? {} : { maxOutputTokens: profile.maxOutputTokens }),
-        ...(profile.structuredOutputMode === undefined ? {} : { structuredOutputMode: profile.structuredOutputMode }),
         hasApiKey: profile.apiKey.trim().length > 0,
         apiKeyMask: maskProviderApiKey(profile.apiKey),
     };
@@ -106,7 +105,6 @@ function toProfileDraft(input: BrowserProviderProfileInput): ProviderProfileDraf
         ...(input.baseURL == null ? {} : { baseURL: input.baseURL }),
         ...(input.contextWindowTokens == null ? {} : { contextWindowTokens: input.contextWindowTokens }),
         ...(input.maxOutputTokens == null ? {} : { maxOutputTokens: input.maxOutputTokens }),
-        ...(input.structuredOutputMode == null ? {} : { structuredOutputMode: input.structuredOutputMode }),
     };
 }
 
@@ -120,7 +118,6 @@ function toProfilePatch(input: BrowserProviderProfileInput): ProviderProfilePatc
         baseURL: input.baseURL ?? undefined,
         contextWindowTokens: input.contextWindowTokens ?? undefined,
         maxOutputTokens: input.maxOutputTokens ?? undefined,
-        structuredOutputMode: input.structuredOutputMode ?? undefined,
     };
 }
 
@@ -317,12 +314,9 @@ export async function runServerSession(
                     provider: target.config.provider,
                     ...(target.profileId === undefined ? {} : { profileId: target.profileId }),
                     modelId: selectedModel.id,
-                    ...(target.config.provider === "openai-compatible"
-                        ? {}
-                        : { structuredOutputMode: configuredSelection.structuredOutputMode }),
                     ...(selectedModel.contextWindowTokens === undefined ? {} : { contextWindowTokens: selectedModel.contextWindowTokens }),
                     ...(selectedModel.maxOutputTokens === undefined ? {} : { maxOutputTokens: selectedModel.maxOutputTokens }),
-                    ...(selectedModel.protocol === "chat-completions" ? { executionApi: "openai-completions" as const } : {}),
+                    ...(resolveOpenCodeGoExecutionMetadata(selectedModel.id) === undefined ? {} : { executionApi: "openai-completions" as const }),
                     ...(selectedModel.reasoning === undefined ? {} : { reasoning: selectedModel.reasoning }),
                     ...(selectedModel.vision === undefined ? {} : { vision: selectedModel.vision }),
                     ...(selectedModel.supportsRequiredToolChoice === undefined
@@ -358,12 +352,9 @@ export async function runServerSession(
                 provider: config.provider,
                 ...(targetProfileId === undefined ? {} : { profileId: targetProfileId }),
                 modelId: model.id,
-                ...(config.provider === "openai-compatible"
-                    ? {}
-                    : { structuredOutputMode: current.structuredOutputMode }),
                 ...(model.contextWindowTokens === undefined ? {} : { contextWindowTokens: model.contextWindowTokens }),
                 ...(model.maxOutputTokens === undefined ? {} : { maxOutputTokens: model.maxOutputTokens }),
-                ...(model.protocol === "chat-completions" ? { executionApi: "openai-completions" as const } : {}),
+                ...(resolveOpenCodeGoExecutionMetadata(model.id) === undefined ? {} : { executionApi: "openai-completions" as const }),
                 ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
                 ...(model.vision === undefined ? {} : { vision: model.vision }),
                 ...(model.supportsRequiredToolChoice === undefined

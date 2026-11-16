@@ -19,7 +19,7 @@ function nextRequest(first: LLMResponse): LLMRequest {
 test("OpenAI two-turn dialogue preserves call IDs and supported reasoning extension without top-level JSON constraints", async () => {
     const adapter = createOpenAICompatibleAdapter({
         provider: "openai-compatible", apiKey: "test-key", model: "test",
-        baseURL: "https://gateway.test/v1/", structuredOutputMode: "prompt_only",
+        baseURL: "https://gateway.test/v1/",
     });
     const requests: any[] = [];
     const originalFetch = globalThis.fetch;
@@ -47,13 +47,12 @@ test("OpenAI two-turn dialogue preserves call IDs and supported reasoning extens
     assert.equal(JSON.stringify(first.continuation).includes("test-key"), false);
     const other = createOpenAICompatibleAdapter({
         provider: "openai-compatible", apiKey: "test", baseURL: "https://other.test/v1", model: "test",
-        structuredOutputMode: "prompt_only",
     });
     await assert.rejects(other.generate(nextRequest(first)), /another provider/);
 });
 
 test("Gemini two-turn dialogue preserves signed parts verbatim and returns exact native function ID", async () => {
-    const adapter = new Gemini({ apiKey: "test-key", model: "test", structuredOutputMode: "strict" });
+    const adapter = new Gemini({ apiKey: "test-key", model: "test" });
     const parts = [{ text: "Summary", thought: true }, { text: "Checking" }, { functionCall: { id: "native-id", name: "read_file", args: {} }, thoughtSignature: "opaque-signature" }];
     const requests: any[] = [];
     (adapter as any).client = { models: { generateContent: async (request: unknown) => {
@@ -72,7 +71,7 @@ test("Gemini two-turn dialogue preserves signed parts verbatim and returns exact
 });
 
 test("Gemini locally allocated call ID does not fabricate a provider function ID", async () => {
-    const adapter = new Gemini({ apiKey: "test", model: "test", structuredOutputMode: "strict" });
+    const adapter = new Gemini({ apiKey: "test", model: "test" });
     const requests: any[] = [];
     (adapter as any).client = { models: { generateContent: async (request: unknown) => {
         requests.push(request);

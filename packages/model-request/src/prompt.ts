@@ -1,6 +1,5 @@
 import type { NativeConversationIdentity } from "../../model-contracts/src/index";
 import { readModelMessageText, type LLMMessage, type LLMRequest } from "../../llm-core/src/index";
-import type { StructuredOutputMode } from "../../llm-core/src/index";
 import type { Goal } from "../../runtime/src/domain";
 import type { WorkingMemory } from "../../working-memory/src/index";
 import type { ModelContextFramePayload } from "../../runtime/src/index";
@@ -288,7 +287,6 @@ async function compactConversation(
  * @param trajectoryContextAssembler - trajectory-layered@1 的本轮上下文组装器。
  * @param contextLookupResult - 上一轮已提交的历史 Lookup 结果；只存在于当前调用。
  * @param modelCapabilities - 可选模型上下文预算能力。
- * @param structuredOutputMode - Decide 当前使用 strict 或 prompt_only 响应约束。
  * @param stage - 当前请求属于 Decide 还是 Think；省略时使用 Decide。
  * @param stageContext - Think 目标、已提交 Think 历史或 Decide 的 Think 控制开关。
  * @param nativeConversationIdentity - 原生 Adapter 的回放身份；仅 Decide 使用，工具参数替代顶层输出 Schema。
@@ -306,7 +304,6 @@ export async function buildStepRequest<Result extends DecideOutput = AgentDecisi
     trajectoryContextAssembler?: TrajectoryModelContextAssembler,
     contextLookupResult?: ContextLookupResult,
     modelCapabilities?: ModelCapabilities,
-    structuredOutputMode: StructuredOutputMode = "strict",
     stage: PromptStage = "decide",
     stageContext?: StepPromptStageContext,
     nativeConversationIdentity?: NativeConversationIdentity,
@@ -391,7 +388,6 @@ export async function buildStepRequest<Result extends DecideOutput = AgentDecisi
         initialBundle,
         toolDeclarations,
         modelCapabilities,
-        structuredOutputMode,
         assembled.sectionFrames,
         goal.state.messages.length,
         stageMessages,
@@ -407,7 +403,6 @@ function renderFinalRequest<Result = AgentDecision>(
     initialBundle: ModelOutputBundle<Result>,
     initialToolDeclarations: readonly SystemToolDeclaration<unknown>[],
     modelCapabilities?: ModelCapabilities,
-    structuredOutputMode: StructuredOutputMode = "strict",
     baselineFrames: readonly ModelContextFramePayload[] = [],
     conversationPosition = view.conversation.length,
     stageMessages: readonly LLMMessage[] = [],
@@ -430,7 +425,7 @@ function renderFinalRequest<Result = AgentDecision>(
         const requiresToolCall = stage === "decide" && currentToolDeclarations.length > 0;
         const shapeGuide = requiresToolCall
             ? "Call exactly one declared tool using arguments matching its schema. Do not return a text JSON decision or an enclosing result object."
-            : stage === "decide" && structuredOutputMode === "prompt_only" && nativeIdentity === undefined
+            : stage === "decide" && nativeIdentity === undefined
                 ? bundle.shapeGuide
                 : undefined;
         const request = renderRequest(
@@ -455,7 +450,7 @@ function renderFinalRequest<Result = AgentDecision>(
                     toolChoice: nativeIdentity?.provider === "openai-compatible" ? "auto" as const : "required" as const,
                 }
                 : {}),
-            ...(stage === "decide" && !requiresToolCall && structuredOutputMode === "strict" && nativeIdentity === undefined
+            ...(stage === "decide" && !requiresToolCall && nativeIdentity === undefined
                 ? {
                     structuredOutput: {
                         name: bundle.name,

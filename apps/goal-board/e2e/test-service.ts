@@ -40,7 +40,6 @@ let activeGoalId: string | undefined;
 let compositionRoot: Awaited<ReturnType<typeof createCompositionRoot>> | undefined;
 
 class DeterministicAdapter implements LLMAdapter {
-    readonly structuredOutputMode = "strict" as const;
     calls = Number(process.env.LAZYGOAL_E2E_MODEL_OFFSET ?? "0");
 
     async generate(request: LLMRequest): Promise<LLMResponse> {

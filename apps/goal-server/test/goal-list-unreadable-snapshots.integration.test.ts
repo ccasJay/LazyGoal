@@ -16,7 +16,6 @@ test("Goal 列表在旧版本快照不可读时仍返回可读 Goal 并上报不
     const dataDirectory = join(temporaryRoot, "data");
     const access = createBrowserSessionAccess();
     const adapter: LLMAdapter = {
-        structuredOutputMode: "strict",
         async generate(_request: LLMRequest): Promise<LLMResponse> {
             throw new Error("本用例不触发模型调用");
         },

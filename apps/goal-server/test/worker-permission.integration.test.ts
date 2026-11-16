@@ -124,7 +124,6 @@ test("Worker 的越界 Action 按权限档位自动裁决，命中规则表时�
     const triggers = new TriggerStore(join(dataDirectory, "triggers.db"));
     const goals = new JsonFileGoalStore(join(dataDirectory, "goals"));
     const admissionAdapter: LLMAdapter = {
-        structuredOutputMode: "strict",
         async generate() {
             return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({ kind: "accept", reason: null }) }] };
         },

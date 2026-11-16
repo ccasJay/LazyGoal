@@ -31,20 +31,6 @@ export function isSupportedLlmProvider(value: string): value is LLMProvider {
 }
 
 /**
- * 判定供应商是否支持原生 strict 结构化输出。
- *
- * @param provider - 已校验的供应商标识。
- * @returns 仅 `openai`、`google` 与 `openai-compatible` 返回 `true`。
- * @example
- * ```ts
- * const allowed = supportsStrictOutput("google");
- * ```
- */
-export function supportsStrictOutput(provider: LLMProvider): boolean {
-    return provider === "openai" || provider === "google" || provider === "openai-compatible";
-}
-
-/**
  * 判定供应商是否允许覆盖端点。
  *
  * @param provider - 已校验的供应商标识。

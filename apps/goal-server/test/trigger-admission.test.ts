@@ -13,8 +13,8 @@ import { admitTrigger, resumeUnroutedWorkTrigger } from "../src/runtime/trigger-
 import { receiveAuthorizedTrigger } from "../../../packages/storage/src/trigger-ingress";
 import { cancelTrigger, workTrigger } from "../../../packages/runtime/test/trigger-fixtures";
 
-function mockAdapter(handler: LLMAdapter["generate"], structuredOutputMode: "strict" | "prompt_only" = "prompt_only"): LLMAdapter {
-    return { structuredOutputMode, generate: handler };
+function mockAdapter(handler: LLMAdapter["generate"] | "prompt_only" = "prompt_only"): LLMAdapter {
+    return { generate: handler };
 }
 function factory(intent: string, reserved: string | undefined, workspaceMode: "shared" | "worktree" = "shared") {
     return Promise.resolve({ goal: createGoal({ ...currentProtocols, id: reserved ?? `goal-${intent}`, runId: "run", intent,

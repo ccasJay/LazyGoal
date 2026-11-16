@@ -150,7 +150,6 @@ export class LLMStepExecutor implements StepExecutor {
                 selection: {
                     provider: "unknown",
                     modelId: "unknown",
-                    structuredOutputMode: dependencies.adapter.structuredOutputMode === "strict" ? "strict" : "prompt_only",
                     inputEstimator: { kind: "character-v1" },
                 },
                 thinkAdapter: dependencies.adapter,
@@ -329,7 +328,6 @@ export class LLMStepExecutor implements StepExecutor {
             binding.trajectoryContextAssembler,
             input.contextLookupResult,
             binding.modelCapabilities,
-            "prompt_only",
             "think",
             {
                 thinkGoal: input.thinkGoal,
@@ -380,7 +378,6 @@ export class LLMStepExecutor implements StepExecutor {
             binding.trajectoryContextAssembler,
             input.contextLookupResult,
             binding.modelCapabilities,
-            adapter.structuredOutputMode,
             "decide",
             {
                 allowThink,

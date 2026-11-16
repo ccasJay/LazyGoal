@@ -133,7 +133,6 @@ test("创建与更新剥离未知字段并拒绝非法已知输入", async () =>
         assert.equal((await post({ kind: "openai", defaultModel: "m" })).status, 400);
         assert.equal((await post({ label: "x", kind: "openai", defaultModel: "m", contextWindowTokens: 0 })).status, 400);
         assert.equal((await post({ label: "x", kind: "openai", defaultModel: "m", maxOutputTokens: -1 })).status, 400);
-        assert.equal((await post({ label: "x", kind: "openai", defaultModel: "m", structuredOutputMode: "nope" })).status, 400);
         assert.equal((await post({ label: " ", kind: "openai", defaultModel: "m" })).status, 400);
         assert.equal(calls.length, 1, "非法已知字段不得触达端口");
 
@@ -145,12 +144,12 @@ test("创建与更新剥离未知字段并拒绝非法已知输入", async () =>
         const patched = await fetch(`${base}/api/providers/profile-1`, {
             method: "PATCH",
             headers: authorize,
-            body: JSON.stringify({ label: "x", kind: "openai", defaultModel: "m", structuredOutputMode: null }),
+            body: JSON.stringify({ label: "x", kind: "openai", defaultModel: "m", unexpectedMode: null }),
         });
         assert.equal(patched.status, 200);
         assert.deepEqual(await patched.json(), { ok: true, profile: maskedProfile() });
         assert.deepEqual(calls[2], ["profile-1", {
-            label: "x", kind: "openai", defaultModel: "m", structuredOutputMode: null,
+            label: "x", kind: "openai", defaultModel: "m",
         }]);
 
         const invalidId = await fetch(`${base}/api/providers/${"a".repeat(200)}`, {
@@ -234,12 +233,12 @@ test("Provider 输入保留已声明 null 并拒绝 apiKey null", async () => {
         });
         const preserved = await patch({
             label: "x", kind: "openai", defaultModel: "m",
-            baseURL: null, contextWindowTokens: null, maxOutputTokens: null, structuredOutputMode: null,
+            baseURL: null, contextWindowTokens: null, maxOutputTokens: null,
         });
         assert.equal(preserved.status, 200);
         assert.deepEqual(calls[0], ["profile-1", {
             label: "x", kind: "openai", defaultModel: "m",
-            baseURL: null, contextWindowTokens: null, maxOutputTokens: null, structuredOutputMode: null,
+            baseURL: null, contextWindowTokens: null, maxOutputTokens: null,
         }]);
 
         const rejected = await patch({ label: "x", kind: "openai", defaultModel: "m", apiKey: null });

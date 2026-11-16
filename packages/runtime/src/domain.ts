@@ -1091,8 +1091,7 @@ export interface ModelContextEpochState {
  * const selection: GoalModelSelection = {
  *   provider: "opencode-go",
  *   modelId: "minimax-m3.1-flash-free",
- *   structuredOutputMode: "prompt_only",
- *   executionApi: "openai-completions",
+ *   *   executionApi: "openai-completions",
  *   contextWindowTokens: 1_000_000,
  *   maxOutputTokens: 524_288,
  *   reasoning: true,
@@ -1111,8 +1110,6 @@ export interface GoalModelSelection {
     readonly modelId: string;
     /** 服务端目录解析的非敏感执行 API；当前仅用于 OpenCode Go 在线模型。 */
     readonly executionApi?: "openai-completions" | undefined;
-    /** 结构化输出模式：原生 strict 约束、prompt_only 提示词约束或 two_stage 双阶段推演。 */
-    readonly structuredOutputMode?: "strict" | "prompt_only" | "two_stage" | undefined;
     /** 模型上下文窗口 Token 容量上限。 */
     readonly contextWindowTokens?: number | undefined;
     /** 单次补全最大输出 Token 限制。 */
@@ -1133,7 +1130,6 @@ export interface GoalModelSelection {
 export const DEFAULT_GOAL_MODEL_SELECTION: GoalModelSelection = Object.freeze({
     provider: "default",
     modelId: "default-model",
-    structuredOutputMode: "prompt_only",
     contextWindowTokens: 200_000,
     maxOutputTokens: 8_192,
     inputEstimator: Object.freeze({ kind: "character-v1" as const }),
@@ -1567,7 +1563,6 @@ function cloneModelSelection(selection: GoalModelSelection): GoalModelSelection 
         ...(selection.profileId === undefined ? {} : { profileId: selection.profileId }),
         modelId: selection.modelId,
         ...(selection.executionApi === undefined ? {} : { executionApi: selection.executionApi }),
-        structuredOutputMode: selection.structuredOutputMode,
         ...(selection.contextWindowTokens !== undefined ? { contextWindowTokens: selection.contextWindowTokens } : {}),
         ...(selection.maxOutputTokens !== undefined ? { maxOutputTokens: selection.maxOutputTokens } : {}),
         ...(selection.reasoning !== undefined ? { reasoning: selection.reasoning } : {}),

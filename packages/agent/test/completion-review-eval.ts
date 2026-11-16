@@ -126,13 +126,13 @@ export async function runCompletionReviewEvaluation(env: Readonly<Record<string,
         metricsRecorder: { async record(record) { metrics.push(record); } },
         modelInputStore: { async append(record) { inputs.push(record); }, async read() { return inputs; } } });
     const rows: { scenario: string; repeat: number; passed: boolean; falseCompletion: boolean; falseRejection: boolean }[] = [];
-    await writeFile(resolve(outputDir, "manifest.json"), JSON.stringify({ provider: config.provider, model: config.model, repeats: 3, scenarios: completionReviewScenarios, mode: config.structuredOutputMode,
+    await writeFile(resolve(outputDir, "manifest.json"), JSON.stringify({ provider: config.provider, model: config.model, repeats: 3, scenarios: completionReviewScenarios,
         reviewPromptHash: createHash("sha256").update(COMPLETION_REVIEW_PROMPT).digest("hex") }, null, 2));
     let incomplete = false;
     outer: for (let repeat = 0; repeat < 3; repeat++) {
         for (const scenario of completionReviewScenarios) {
             const fixture = completionReviewScenarioInput(scenario);
-            const input = { ...fixture, goal: { ...fixture.goal, state: { ...fixture.goal.state, modelSelection: { provider: config.provider, modelId: config.model, structuredOutputMode: config.structuredOutputMode, inputEstimator: { kind: "character-v1" as const } } } } };
+            const input = { ...fixture, goal: { ...fixture.goal, state: { ...fixture.goal.state, modelSelection: { provider: config.provider, modelId: config.model, inputEstimator: { kind: "character-v1" as const } } } } };
             const candidate = input.candidate;
             const sequences = "evidenceSequences" in candidate && candidate.evidenceSequences !== undefined
                 ? candidate.evidenceSequences
@@ -170,7 +170,7 @@ export async function runCompletionReviewEvaluation(env: Readonly<Record<string,
         }
     }
     const report = { status: completionReviewStatus(completionReviewScenarios.length * 3, rows.length, incomplete, falseCompletions, falseRejections),
-        provider: config.provider, model: config.model, mode: config.structuredOutputMode, scenarios: completionReviewScenarios.length, repeats: 3, completed: rows.length,
+        provider: config.provider, model: config.model, scenarios: completionReviewScenarios.length, repeats: 3, completed: rows.length,
         falseCompletions, falseRejections, calls: metrics.filter(record => record.recordType === "call_started").length,
         baselineCalls: 0, baselineFalseCompletions: rows.filter(row => completionReviewScenarios.find(item => item.id === row.scenario)?.accept === false).length,
         baselineUsage: { inputTokens: 0, outputTokens: 0, missingCalls: 0 }, reviewUsage: usage,

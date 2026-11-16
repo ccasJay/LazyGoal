@@ -310,7 +310,6 @@ test("集成：审批等待按 action_approval 领域身份发布，修订后按
     const executed: { value: string }[] = [];
     let decideCalls = 0;
     const adapter: LLMAdapter = {
-        structuredOutputMode: "prompt_only",
         async generate(request: LLMRequest): Promise<LLMResponse> {
             if (isCompletionReview(request)) {
                 return toolCallResponse({
@@ -440,7 +439,6 @@ test("集成：结果未知按 action_recovery 领域身份发布，恢复引用
     const executed: { value: string }[] = [];
     let decideCalls = 0;
     const adapter: LLMAdapter = {
-        structuredOutputMode: "prompt_only",
         async generate(request: LLMRequest): Promise<LLMResponse> {
             if (isCompletionReview(request)) {
                 return toolCallResponse({
@@ -572,7 +570,6 @@ test("集成：PTC 子操作工具活动保留子操作身份，父程序身份�
         "return {first:first.observation.kind};",
     ].join("");
     const adapter: LLMAdapter = {
-        structuredOutputMode: "prompt_only",
         async generate(request: LLMRequest): Promise<LLMResponse> {
             if (isCompletionReview(request)) {
                 return toolCallResponse({

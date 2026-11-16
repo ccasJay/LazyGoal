@@ -116,7 +116,6 @@ export async function runGoalIndexSmoke(configPath?: string, output?: string, si
     });
 
     const adapter: LLMAdapter = {
-        structuredOutputMode: "prompt_only",
         generate: async request => {
             const messages = JSON.stringify(request.messages);
             const result = request.tools?.[0]?.id === "system_review_completion"
@@ -140,7 +139,6 @@ export async function runGoalIndexSmoke(configPath?: string, output?: string, si
     };
 
     const judge: LLMAdapter = {
-        structuredOutputMode: "prompt_only",
         generate: async () => ({ blocks: [{ index: 0, type: "text", format: "plain", text: JSON.stringify({ score: 1, rationale: "Database updated", evidence: ["output"] }) }] }),
     };
 

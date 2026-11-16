@@ -19,7 +19,6 @@ test("Chat Completions 适配器 rejects before opening a request when aborted",
         baseURL: "http://127.0.0.1:1/v1",
         contextWindowTokens: 8192,
         maxOutputTokens: 1024,
-        structuredOutputMode: "prompt_only",
     });
 
     await assert.rejects(
@@ -34,7 +33,6 @@ test("Gemini rejects before opening a request when aborted", async () => {
     const adapter = new Gemini({
         apiKey: "test-key",
         model: "test-model",
-        structuredOutputMode: "prompt_only",
     });
 
     await assert.rejects(

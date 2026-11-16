@@ -147,7 +147,7 @@ async function runInteractionScenario(context: TestContext, route: "direct" | "r
         }
         await saveGoal(goal);
     });
-    const never = { structuredOutputMode: "prompt_only" as const, async generate() { throw new Error("No permission decision is expected"); } };
+    const never = { async generate() { throw new Error("No permission decision is expected"); } };
     let scheduler = new WorkerScheduler({ owner, triggers, goals, cwd: workspace, dataDirectory, env, readPermissionProfile, commitContinuation: unusedContinuation });
     let storesOpen = true;
     let workerPids: number[] = [];

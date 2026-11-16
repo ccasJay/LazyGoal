@@ -38,7 +38,6 @@ const profile: AgentProfile = {
 
 class AskUserAdapter implements LLMAdapter {
     readonly provider = "openai";
-    readonly structuredOutputMode = "strict" as const;
     modelId = "model-runtime-composition";
     readonly calls: LLMRequest[] = [];
 
@@ -71,7 +70,6 @@ class AskUserAdapter implements LLMAdapter {
 /** 连续提出三张问卷，之后进入 blocked 等待；用于交互处理端口用例。 */
 class RepeatingAskUserAdapter implements LLMAdapter {
     readonly provider = "openai";
-    readonly structuredOutputMode = "strict" as const;
     modelId = "model-runtime-composition";
     readonly calls: LLMRequest[] = [];
 

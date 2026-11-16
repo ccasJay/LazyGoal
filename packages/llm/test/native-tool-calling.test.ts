@@ -43,7 +43,6 @@ test("Chat Completions 适配器挂载 tools、strict: true 与 tool_choice: req
         apiKey: "test-key",
         baseURL: "https://api.openai.com/v1",
         model: "gpt-4o",
-        structuredOutputMode: "prompt_only",
     });
 
     let capturedRequest: any = undefined;
@@ -110,7 +109,6 @@ test("Chat Completions 适配器无损捕获原生思考模型 reasoning_content
         apiKey: "test-key",
         baseURL: "https://api.deepseek.com/v1",
         model: "deepseek-r1",
-        structuredOutputMode: "prompt_only",
     });
 
     const response = await withFetch(async () => jsonResponse({
@@ -152,7 +150,6 @@ test("Gemini 原生 Function Calling 挂载 functionDeclarations 与 ANY 模式�
     const adapter = new Gemini({
         apiKey: "test-key",
         model: "gemini-2.5-flash",
-        structuredOutputMode: "strict",
     });
 
     let capturedParams: any = undefined;
@@ -223,7 +220,6 @@ test("Gemini 纯 functionCall 响应提取工具调用，content 为空字符串
     const adapter = new Gemini({
         apiKey: "test-key",
         model: "gemini-2.5-flash",
-        structuredOutputMode: "strict",
     });
 
     let textPropertyAccessed = false;
@@ -279,7 +275,6 @@ test("PiAiAdapter 原生挂载 tools、隔离 thinking 并提取 toolCall blocks
         model: "mock-model",
         apiKey: "test-key",
         baseURL: "https://api.mock.com",
-        structuredOutputMode: "prompt_only",
         contextWindowTokens: 16000,
         maxOutputTokens: 4096,
     });

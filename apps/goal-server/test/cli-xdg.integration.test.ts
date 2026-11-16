@@ -16,11 +16,16 @@ test("全新空白工作区凭借 LazyGoal Home 配置成功完成 CompositionRo
         await writeFile(
             join(tempHome, "config.toml"),
             `
-[llm]
-provider = "openai"
-model = "gpt-4o"
+[providers.openai.main]
 api_key = "sk-global-xdg-key"
-structured_output_mode = "prompt_only"
+[[providers.openai.main.models]]
+id = "gpt-4o"
+context_window = 128000
+max_output_tokens = 8192
+
+[llm]
+provider = "main"
+model = "gpt-4o"
 `,
         );
 

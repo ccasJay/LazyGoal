@@ -64,7 +64,6 @@ const toolServer = new ToolRpcServer({
 });
 
 const adapter: LLMAdapter = {
-    structuredOutputMode: "prompt_only",
     async generate(request: LLMRequest, control): Promise<LLMResponse> {
         const content = request.messages[0]?.content;
         const prompt = typeof content === "string" ? content : "";

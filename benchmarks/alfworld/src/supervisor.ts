@@ -105,7 +105,6 @@ export async function runAlfworldSupervisor(
                 problemStatement,
                 goalId,
                 runId,
-                structuredOutputMode: options.llmAdapter.structuredOutputMode,
                 dataRoot: ALFWORLD_CONTAINER_DATA_ROOT,
                 pythonExecutable: options.environment.pythonExecutable,
                 sidecarPath: ALFWORLD_CONTAINER_SIDECAR_PATH,

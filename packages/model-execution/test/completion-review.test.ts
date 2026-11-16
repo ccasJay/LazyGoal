@@ -61,7 +61,6 @@ test("review diagnostic trace records sanitized unknown fields without external 
         },
     };
     const adapter: LLMAdapter = {
-        structuredOutputMode: "strict",
         async generate() {
             return toolCallResponse({
                 callId: "review-diagnostic",
@@ -98,8 +97,8 @@ test("review diagnostic trace records sanitized unknown fields without external 
     assert.equal(JSON.stringify(diagnostic).includes("secret-value"), false);
 });
 
-for (const mode of ["strict", "prompt_only"] as const) {
-    test(`${mode}: review has its own call, metrics and complete input without public text`, async () => {
+{
+    test("review has its own call, metrics and complete input without public text", async () => {
         const records: ModelInputRecord[] = [];
         const metrics: ModelCallMetricRecord[] = [];
         const stream = new InMemoryExecutionStreamPublisher();
@@ -107,7 +106,7 @@ for (const mode of ["strict", "prompt_only"] as const) {
         const subscription = stream.subscribe({ goalId: "review-goal", runId: "review-run" });
         subscription.onEvent(event => { published.push(event); });
         const reviewInput = input();
-        const adapter: LLMAdapter = { structuredOutputMode: mode, async generate(request) {
+        const adapter: LLMAdapter = { async generate(request) {
             assert.deepEqual(request.tools?.map(tool => tool.id), ["system_review_completion"]);
             assert.equal(request.toolChoice, "required");
             assert.equal(request.structuredOutput, undefined);
@@ -149,7 +148,7 @@ for (const [name, response] of Object.entries({
     ),
 } satisfies Record<string, LLMResponse>)) {
     test(`invalid review ${name} goes through Decide correction`, async () => {
-        const adapter: LLMAdapter = { structuredOutputMode: "strict", async generate() { return response; } };
+        const adapter: LLMAdapter = { async generate() { return response; } };
         const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: new DropOldestContextCompactor() });
         await assert.rejects(executor.reviewCompletion(input()), error => error instanceof ModelStageFeedbackError
             && error.feedback.stage === "decide" && error.feedback.goalId === "review-goal");
@@ -158,7 +157,7 @@ for (const [name, response] of Object.entries({
 
 test("required review input overflow is rejected before any model call", async () => {
     let calls = 0;
-    const adapter: LLMAdapter = { structuredOutputMode: "strict", async generate() { calls++; return reviewAcceptResponse("review"); } };
+    const adapter: LLMAdapter = { async generate() { calls++; return reviewAcceptResponse("review"); } };
     const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: new DropOldestContextCompactor() });
     const review = input();
     const large = { ...review, goal: { ...review.goal, state: { ...review.goal.state, messages: [testUserMessage("source".repeat(40_000))] } } };
@@ -185,7 +184,7 @@ test("review retains cited source observations once when many files are read", a
         sequences.push(start + 2);
     }
     let calls = 0;
-    const adapter: LLMAdapter = { structuredOutputMode: "strict", async generate(request) {
+    const adapter: LLMAdapter = { async generate(request) {
         calls++;
         const content = JSON.parse(readModelMessageText(request.messages[1]!));
         assert.deepEqual(content.candidate.evidenceSequences, sequences);
@@ -208,7 +207,6 @@ test("streaming review text, reasoning and result arguments stay outside the pub
     const published: { readonly kind: string; readonly payload: unknown }[] = [];
     subscription.onEvent(event => { published.push(event); });
     const adapter: LLMAdapter = {
-        structuredOutputMode: "strict",
         async generate() { throw new Error("Expected streaming review"); },
         async *stream(): AsyncIterable<LLMStreamEvent> {
             yield { kind: "started" };
@@ -245,7 +243,7 @@ test("review receives the actual source request and scoped lookup without an opt
     const request = "Read project memory files, select a real historical decision and propose a reversal condition.";
     const goal = { ...fixture.goal, state: { ...fixture.goal.state, messages: [testUserMessage(request)] } };
     const candidate = { kind: "complete" as const, summary: "A generic example is to split a monolith into microservices.", evidenceSequences: [] };
-    const adapter: LLMAdapter = { structuredOutputMode: "strict", async generate(modelRequest) {
+    const adapter: LLMAdapter = { async generate(modelRequest) {
         const content = JSON.parse(readModelMessageText(modelRequest.messages[1]!));
         assert.equal(content.conversation[0].content, request);
         assert.deepEqual(content.candidate, candidate);
@@ -291,7 +289,7 @@ test("deduplicates paired tool output text while preserving action identity and 
     ];
 
     let recordedContent: any = null;
-    const adapter: LLMAdapter = { structuredOutputMode: "strict", async generate(modelRequest) {
+    const adapter: LLMAdapter = { async generate(modelRequest) {
         recordedContent = JSON.parse(readModelMessageText(modelRequest.messages[1]!));
         return reviewAcceptResponse("c1");
     } };
@@ -330,7 +328,7 @@ test("review request includes current stage and supports run_stage_complete cand
     };
 
     let recordedContent: any = null;
-    const adapter: LLMAdapter = { structuredOutputMode: "strict", async generate(modelRequest) {
+    const adapter: LLMAdapter = { async generate(modelRequest) {
         recordedContent = JSON.parse(readModelMessageText(modelRequest.messages[1]!));
         return reviewAcceptResponse("c1");
     } };
@@ -357,7 +355,7 @@ test("review request includes historical accepted stage evidence for overall ver
     }, 1);
 
     let recordedContent: any = null;
-    const adapter: LLMAdapter = { structuredOutputMode: "strict", async generate(modelRequest) {
+    const adapter: LLMAdapter = { async generate(modelRequest) {
         recordedContent = JSON.parse(readModelMessageText(modelRequest.messages[1]!));
         return reviewAcceptResponse("c1");
     } };
@@ -380,7 +378,7 @@ test("review omits unrelated assistant history while retaining original user con
         testUserMessage("Now verify the final result."),
     ];
     let called = false;
-    const adapter: LLMAdapter = { structuredOutputMode: "strict", async generate(request) {
+    const adapter: LLMAdapter = { async generate(request) {
         called = true;
         const content = JSON.parse(readModelMessageText(request.messages[1]!));
         assert.deepEqual(content.conversation, [messages[0], messages[2], messages[3]]);
@@ -395,13 +393,13 @@ test("review omits unrelated assistant history while retaining original user con
     assert.equal(called, true);
 });
 
-for (const mode of ["strict", "prompt_only"] as const) {
+{
     for (const [response, code] of [
         [textResponse('{"result":{"kind":"accept"}}', "json"), "missing_tool_call"],
         [blockResponse(...[1, 2].map(i => ({ type: "tool_call" as const, callId: String(i), toolId: "system_review_completion", argumentsJson: '{"result":{"kind":"accept"}}' }))), "multiple_tool_calls"],
     ] as const) {
-        test(`${mode} review reports ${code} without parsing text decisions`, async () => {
-            const adapter: LLMAdapter = { structuredOutputMode: mode, async generate(request) {
+        test(`review reports ${code} without parsing text decisions`, async () => {
+            const adapter: LLMAdapter = { async generate(request) {
                 assert.equal(request.structuredOutput, undefined);
                 assert.doesNotMatch(readModelMessageText(request.messages[0]!), /Respond with a JSON object/);
                 assert.match(readModelMessageText(request.messages[0]!), /Call system_review_completion exactly once/);

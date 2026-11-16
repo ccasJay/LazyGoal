@@ -91,7 +91,7 @@ test("Profile Store: 损坏内容与不支持的 schema 版本 fail-fast", async
     const invalidProfile = await createHome();
     await writeFile(
         join(invalidProfile.homeDirectory, PROFILE_FILE),
-        JSON.stringify({ version: 1, profiles: [{ ...draft({ kind: "anthropic", defaultModel: "claude-sonnet-4-5" }), id: "profile-1", structuredOutputMode: "strict" }] }),
+        JSON.stringify({ version: 1, profiles: [{ ...draft({ kind: "anthropic", defaultModel: "claude-sonnet-4-5" }), id: "profile-1", apiKey: "" }] }),
         { encoding: "utf8", mode: 0o600 },
     );
     await assert.rejects(
@@ -120,12 +120,6 @@ test("Profile Store: 空 Store 不创建文件且不导入 config.toml 凭据", 
 test("Profile Store: Provider 规则校验在落盘前失败", async () => {
     const home = await createHome();
     const store = new JsonFileProviderProfileStore(home);
-
-    const strictAnthropic = draft({ kind: "anthropic", defaultModel: "claude-sonnet-4-5", structuredOutputMode: "strict" });
-    await assert.rejects(
-        store.create(strictAnthropic),
-        (error: unknown) => error instanceof ProviderProfileValidationError && error.fields.includes("structured_output_mode"),
-    );
 
     const baseUrlOnDeepseek = draft({ kind: "deepseek", defaultModel: "deepseek-v4-pro", baseURL: "https://api.deepseek.com" });
     await assert.rejects(
@@ -220,5 +214,4 @@ test("Profile Store: 掩码与校验函数不泄漏明文凭据", () => {
     }));
     assert.equal(compatible.contextWindowTokens, 32768);
     assert.equal(compatible.maxOutputTokens, 4096);
-    assert.equal(compatible.structuredOutputMode, undefined);
 });

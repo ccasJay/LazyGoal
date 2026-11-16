@@ -47,7 +47,7 @@ export function createOpenRouterCatalogSource(): CatalogSource {
  *
  * @example
  * ```ts
- * const adapter = createOpenRouterAdapter({ provider: "openrouter", apiKey: "secret", model: "openai/gpt-4o", structuredOutputMode: "prompt_only" });
+ * const adapter = createOpenRouterAdapter({ provider: "openrouter", apiKey: "secret", model: "openai/gpt-4o" });
  * ```
  */
 export function createOpenRouterAdapter(config: LLMConfig): LLMAdapter {

@@ -22,7 +22,7 @@ export async function candidate(directory: string): Promise<void> {
     await writeFile(join(directory, "project", "config.json"), "{}");
     const root = new HeadlessCompositionRoot({
         benchmarkId: "context", workspaceRoot: directory, profile: scenario.profile,
-        llmAdapter: { structuredOutputMode: "prompt_only", generate: async () => ({ ...toolResponseFixture(JSON.stringify({ result: { kind: "fail", error: "Expected", memoryPatch: null } })) }) },
+        llmAdapter: { generate: async () => ({ ...toolResponseFixture(JSON.stringify({ result: { kind: "fail", error: "Expected", memoryPatch: null } })) }) },
         renderer: await createDefaultPromptBundleRenderer(), contextCompactor: new DropOldestContextCompactor(),
         persistence: new JsonFileBenchmarkPersistenceAdapter({ rootDirectory: join(directory, "state"), namespaceFor: () => "session" }),
         adapter: { describeTask: () => ({ intent: "fail", objective: "Follow", completionCriteria: ["Follow"], maxSteps: 5 }),

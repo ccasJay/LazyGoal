@@ -325,7 +325,6 @@ test("ALFWorld adapter runs through the headless Root with authorized tools and 
         const executeEpisode = createAlfworldEpisodeExecutor({
             profile,
             adapter: {
-                structuredOutputMode: "strict" as const,
                 generate: async (request) => {
         if (request.tools?.[0]?.id === "system_review_completion") return { ...toolResponseFixture(JSON.stringify({ result: { kind: "accept" } })) };
                     const next = responses.shift();
@@ -421,7 +420,6 @@ test("ALFWorld model completion without an environment win remains evaluator-own
         const executeEpisode = createAlfworldEpisodeExecutor({
             profile,
             adapter: {
-                structuredOutputMode: "strict" as const,
                 generate: async (request) => {
         if (request.tools?.[0]?.id === "system_review_completion") return { ...toolResponseFixture(JSON.stringify({ result: { kind: "accept" } })) };
                     const next = responses[responseIndex++ % responses.length];
@@ -482,7 +480,6 @@ test("ALFWorld sidecar errors remain infrastructure failures", async () => {
         const executeEpisode = createAlfworldEpisodeExecutor({
             profile,
             adapter: {
-                structuredOutputMode: "strict" as const,
                 generate: (() => {
                     let calls = 0;
                     return async () => {
@@ -553,7 +550,6 @@ test("ALFWorld max-step and model-fail termination keep report failure semantics
         const maxStepExecutor = createAlfworldEpisodeExecutor({
             profile,
             adapter: {
-                structuredOutputMode: "strict" as const,
                 generate: (() => {
                     let calls = 0;
                     return async () => {
@@ -591,7 +587,6 @@ test("ALFWorld max-step and model-fail termination keep report failure semantics
         const modelFailExecutor = createAlfworldEpisodeExecutor({
             profile,
             adapter: {
-                structuredOutputMode: "strict" as const,
                 generate: async () => ({ ...toolResponseFixture(decision({ kind: "fail", error: "model failed" })) }),
             },
             renderer: {

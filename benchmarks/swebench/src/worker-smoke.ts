@@ -57,7 +57,6 @@ export async function runSwebenchWorkerSmoke(): Promise<void> {
         let modelCalls = 0;
         let updateCount = 0;
         const llmAdapter: LLMAdapter = {
-            structuredOutputMode: "strict",
             generate: async (request) => {
                 modelCalls += 1;
                 if (modelCalls === 1) {
@@ -93,7 +92,6 @@ export async function runSwebenchWorkerSmoke(): Promise<void> {
             goalId: `smoke-goal-${randomUUID()}`,
             runId: `smoke-run-${randomUUID()}`,
             maxSteps: manifest.maxSteps,
-            structuredOutputMode: llmAdapter.structuredOutputMode,
         } as const;
         const result = await runSwebenchSupervisor({
             task,

@@ -45,7 +45,6 @@ async function computeDirectoryFingerprint(dir: string): Promise<string> {
 
 function createMockAdapter(): LLMAdapter {
     return {
-        structuredOutputMode: "prompt_only",
         generate: async () => ({
             ...toolCallResponse({ callId: "persistence-wait", toolId: "system_wait_for_input", argumentsJson: JSON.stringify({
                 reason: "Wait for the persistence attempt to be inspected.", memoryPatch: null,

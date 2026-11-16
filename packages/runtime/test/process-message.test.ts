@@ -106,7 +106,6 @@ function createHarness(options: {
     const requests: LLMRequest[] = [];
     let decideCalls = 0;
     const adapter: LLMAdapter = {
-        structuredOutputMode: "strict",
         nativeConversationIdentity: identity,
         async generate(request) {
             requests.push(request);
@@ -128,11 +127,10 @@ function createHarness(options: {
         selection: {
             provider: "google",
             modelId: "test",
-            structuredOutputMode: "strict",
             inputEstimator: { kind: "character-v1" },
         },
         decideAdapter: adapter,
-        thinkAdapter: { structuredOutputMode: "prompt_only", async generate() { throw new Error("unexpected Think call"); } },
+        thinkAdapter: { async generate() { throw new Error("unexpected Think call"); } },
         trajectoryStore,
     });
     const executor = new LLMStepExecutor({

@@ -224,7 +224,6 @@ export class SwebenchPromptEvaluationAdapter
             goalId,
             runId,
             maxSteps,
-            structuredOutputMode: input.llmAdapter.structuredOutputMode,
             baseProfile: input.baseProfile,
             profile: input.profile,
             ...(input.templateOverrides === undefined

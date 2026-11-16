@@ -150,7 +150,6 @@ test("Think 阶段无工具与结构化输出，只携带 Think 目标", async (
         assembler(),
         undefined,
         undefined,
-        "prompt_only",
         "think",
         { thinkGoal: "确认请求顺序" },
     );
@@ -174,7 +173,6 @@ test("prompt_only Decide 在请求内携带响应形状指导", async () => {
         assembler(),
         undefined,
         undefined,
-        "prompt_only",
         "decide",
     );
     const last = JSON.parse(plan.request.messages.at(-1) === undefined ? "{}" : readModelMessageText(plan.request.messages.at(-1)!)) as {
@@ -203,7 +201,6 @@ test("只有被 Runtime 暴露的工具进入请求", async () => {
         assembler(),
         undefined,
         undefined,
-        "strict",
         "decide",
         undefined,
         nativeIdentity,

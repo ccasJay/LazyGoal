@@ -20,7 +20,6 @@ import { createTestToolRegistration } from "../../../packages/tool-core/test/hel
 /** 确定性模型：先请求一次写入，再完成任务。 */
 class ScriptedAdapter implements LLMAdapter {
     readonly provider = "openai";
-    readonly structuredOutputMode = "strict" as const;
     calls = 0;
 
     async generate(_request: LLMRequest): Promise<LLMResponse> {

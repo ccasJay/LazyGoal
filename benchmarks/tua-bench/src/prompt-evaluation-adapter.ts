@@ -172,7 +172,6 @@ export class TuaBenchPromptEvaluationAdapter implements PromptEvaluationBenchmar
                     ...input.task,
                     goalId,
                     runId,
-                    structuredOutputMode: input.llmAdapter.structuredOutputMode,
                     baseProfile: input.baseProfile,
                     profile: input.profile,
                 },

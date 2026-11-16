@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import { test } from "node:test";
 
 import type { LLMAdapter, LLMRequest, LLMResponse } from "../../llm-core/src/index";
-import type { StructuredOutputMode } from "../../llm-core/src/index";
 import { toolCallResponse } from "../../llm-core/test/response-fixtures";
 import {
     createBoundUnifiedToolDeclarations,
@@ -47,7 +46,6 @@ class ScriptedAdapter implements LLMAdapter {
     private readonly responses: LLMResponse[];
 
     constructor(
-        readonly structuredOutputMode: StructuredOutputMode,
         responses: readonly LLMResponse[],
     ) {
         this.responses = [...responses];
@@ -129,14 +127,14 @@ function waitResponse(reason = "Await user input"): LLMResponse {
     });
 }
 
-test("strict/prompt-only Model→Runtime→Tool approval resumes across Runner instances", async () => {
-    for (const mode of ["strict", "prompt_only"] as const) {
+test("Model→Runtime→Tool approval resumes across Runner instances", async () => {
+    {
         const store = new InMemoryGoalStore();
-        const goal = createGoalFor(["read_file", "write_file"], `integration-approval-${mode}`);
+        const goal = createGoalFor(["read_file", "write_file"], "integration-approval");
         await store.save(goal);
         const { registry, counts } = registryWithCounting();
         const trajectoryStore = createInMemoryTrajectoryStore();
-        const adapter = new ScriptedAdapter(mode, [
+        const adapter = new ScriptedAdapter([
             toolCallResponse({
                 callId: "read-call",
                 toolId: "read_file",
@@ -162,12 +160,12 @@ test("strict/prompt-only Model→Runtime→Tool approval resumes across Runner i
         }).run({ goalId: goal.id, runId: goal.state.run.id });
 
         assert.equal(first.ok, true);
-        if (!first.ok) continue;
+        assert.ok(first.ok);
         assert.equal(first.state.status, "waiting");
         assert.equal(counts.read, 1);
         assert.equal(counts.write, 0);
         const actionId = first.state.pendingAction?.action.actionId;
-        if (typeof actionId !== "string") continue;
+        if (typeof actionId !== "string") throw new Error("missing action id");
 
         const waiting = await store.restore(goal.id);
         assert.ok(waiting !== undefined);
@@ -177,7 +175,7 @@ test("strict/prompt-only Model→Runtime→Tool approval resumes across Runner i
             approvalScope: "action",
         });
         assert.equal(approved.ok, true);
-        if (!approved.ok) continue;
+        assert.ok(approved.ok);
         await store.save({
             ...waiting,
             state: { ...waiting.state, run: approved.state },
@@ -194,7 +192,7 @@ test("strict/prompt-only Model→Runtime→Tool approval resumes across Runner i
             { authorizedActionId: actionId },
         );
         assert.equal(resumed.ok, true);
-        if (!resumed.ok) continue;
+        assert.ok(resumed.ok);
         assert.equal(resumed.state.status, "waiting");
         assert.equal(counts.read, 1);
         assert.equal(counts.write, 1);
@@ -207,7 +205,7 @@ test("invalid generated tool input is corrected before Runtime executes the Tool
     const goal = createGoalFor(["read_file"], "integration-correction");
     await store.save(goal);
     const { registry, counts } = registryWithCounting();
-    const adapter = new ScriptedAdapter("strict", [
+    const adapter = new ScriptedAdapter([
         toolCallResponse({
             callId: "bad-read",
             toolId: "read_file",

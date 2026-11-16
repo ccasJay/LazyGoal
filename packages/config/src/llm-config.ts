@@ -1,7 +1,6 @@
 import {
     LLMConfigurationError,
     type LLMConfig,
-    type StructuredOutputMode,
 } from "../../llm-core/src/index";
 import {
     isAcceptableBaseUrl,
@@ -13,7 +12,7 @@ import {
  * 仅从显式环境对象读取供应商配置，不修改环境或解析其它凭据源。
  * @param env - CLI、benchmark 或调用方选定的环境。
  * @returns 共享的 LLMConfig；模型目录检查由模型工厂完成。
- * @throws LLMConfigurationError 必填值、模式、端点或容量非法。
+ * @throws LLMConfigurationError 必填值、端点或容量非法。
  * @example
  * ```ts
  * const config = readLLMConfig(process.env);
@@ -28,17 +27,6 @@ export function readLLMConfig(env: Readonly<Record<string, string | undefined>>)
     const missing = required.filter(name => !value(name));
     if (missing.length) throw new LLMConfigurationError(missing);
     const provider = value("LLM_PROVIDER");
-    const rawMode = value("LLM_STRUCTURED_OUTPUT_MODE");
-    let mode: StructuredOutputMode = "prompt_only";
-    if (rawMode) {
-        if (rawMode !== "strict" && rawMode !== "prompt_only" && rawMode !== "two_stage") {
-            throw new LLMConfigurationError([], `Invalid LLM_STRUCTURED_OUTPUT_MODE "${rawMode}": must be either "strict", "prompt_only", or "two_stage"`);
-        }
-        if (rawMode === "strict" && provider === "anthropic") {
-            throw new LLMConfigurationError([], `Provider "${provider}" does not support ${rawMode} output; select prompt_only`);
-        }
-        mode = rawMode as StructuredOutputMode;
-    }
     const baseURL = value("LLM_BASE_URL");
     if (baseURL) {
         if (!supportsBaseUrl(provider)) {
@@ -67,7 +55,6 @@ export function readLLMConfig(env: Readonly<Record<string, string | undefined>>)
         provider,
         apiKey: value("LLM_API_KEY"),
         model: value("LLM_MODEL"),
-        structuredOutputMode: mode,
         ...(baseURL ? { baseURL } : {}),
         ...(contextWindowTokens === undefined ? {} : { contextWindowTokens }),
         ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),

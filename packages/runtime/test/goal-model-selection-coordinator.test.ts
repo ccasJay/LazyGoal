@@ -83,7 +83,6 @@ const targetSelection: GoalModelSelection = {
     provider: "opencode-go",
     profileId: "provider-opencode-go",
     modelId: "minimax-m3.1-flash-free",
-    structuredOutputMode: "prompt_only",
     executionApi: "openai-completions",
     contextWindowTokens: 1_000_000,
     maxOutputTokens: 524_288,

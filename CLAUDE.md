@@ -50,7 +50,7 @@ node bin/lazygoal.cjs
 node bin/lazygoal.cjs web
 ```
 
-The CLI expects `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`, and `LLM_STRUCTURED_OUTPUT_MODE` (`strict` or `prompt_only`), plus a manually-created `.lazygoal/profiles/default.json`. Runtime data is stored under `.lazygoal/goals`; paths are resolved relative to the invoking workspace. Legacy terminal commands (`-c`, `resume`, `inspect`) fail fast with code 2 directing the user to Web.
+The CLI expects `LLM_PROVIDER`, `LLM_MODEL`, and `LLM_API_KEY` (plus `LLM_BASE_URL` with per-model capacity variables for `openai-compatible`), a `config.toml` in the LazyGoal Home as fallback, or an active managed provider profile; see `AGENTS.md` for the current repository layout. Runtime data is stored under `.lazygoal/goals`; paths are resolved relative to the invoking workspace. Legacy terminal commands (`-c`, `resume`, `inspect`) fail fast with code 2 directing the user to Web.
 
 ## Architecture
 

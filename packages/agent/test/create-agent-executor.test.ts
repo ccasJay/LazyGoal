@@ -61,7 +61,6 @@ function failDecisionResponse(): LLMResponse {
 }
 
 class CountingAdapter implements LLMAdapter {
-    readonly structuredOutputMode = "strict" as const;
     calls = 0;
     readonly requests: string[] = [];
 

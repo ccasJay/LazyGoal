@@ -400,17 +400,17 @@ test("按需请求只携带暴露工具 Schema，并将发现结果反馈给 Dec
     const initial = await buildStepRequest(
         goal, CURRENT_TOOL_DEFINITIONS, renderer, contextCompactor, undefined,
         currentWorkingMemory, trajectoryContextAssembler, undefined, undefined,
-        "strict", "decide", undefined, undefined, [],
+        "decide", undefined, undefined, [],
     );
     const discovered = await buildStepRequest(
         goal, CURRENT_TOOL_DEFINITIONS, renderer, contextCompactor, undefined,
         currentWorkingMemory, trajectoryContextAssembler, undefined, undefined,
-        "strict", "decide", { toolDiscoveryResult: discoveryResult }, undefined, exposedToolIds,
+        "decide", { toolDiscoveryResult: discoveryResult }, undefined, exposedToolIds,
     );
     const think = await buildStepRequest(
         goal, CURRENT_TOOL_DEFINITIONS, renderer, contextCompactor, undefined,
         currentWorkingMemory, trajectoryContextAssembler, undefined, undefined,
-        "strict", "think", { thinkGoal: "分析工具" }, undefined, exposedToolIds,
+        "think", { thinkGoal: "分析工具" }, undefined, exposedToolIds,
     );
 
     assert.ok(initial.toolDeclarations.some(({ id }) => id === "system_find_tools"));
@@ -434,7 +434,7 @@ test("按需请求只携带暴露工具 Schema，并将发现结果反馈给 Dec
     const allTools = await buildStepRequest(
         goal, CURRENT_TOOL_DEFINITIONS, renderer, contextCompactor, undefined,
         currentWorkingMemory, trajectoryContextAssembler, undefined, undefined,
-        "strict", "decide", undefined, undefined, CURRENT_TOOL_DEFINITIONS.map(({ id }) => id),
+        "decide", undefined, undefined, CURRENT_TOOL_DEFINITIONS.map(({ id }) => id),
     );
     assert.ok(inputTokens(discovered) < inputTokens(allTools));
 });
@@ -453,12 +453,12 @@ test("PTC 发现后同步进入 Prompt、结构化契约与原生工具声明", 
     const initial = await buildStepRequest(
         goal, tools, renderer, contextCompactor, undefined,
         currentWorkingMemory, trajectoryContextAssembler, undefined, undefined,
-        "strict", "decide", undefined, undefined, [],
+        "decide", undefined, undefined, [],
     );
     const discovered = await buildStepRequest(
         goal, tools, renderer, contextCompactor, undefined,
         currentWorkingMemory, trajectoryContextAssembler, undefined, undefined,
-        "strict", "decide", undefined, undefined, ["read_file", "execute_program"],
+        "decide", undefined, undefined, ["read_file", "execute_program"],
     );
 
     assert.equal(initial.toolDeclarations.some(({ id }) => id === "read_file" || id === "execute_program"), false);
@@ -685,7 +685,6 @@ test("Decide 两种输出模式均只注入单工具调用指令", async () => {
         trajectoryContextAssembler,
         undefined,
         undefined,
-        "strict",
     );
     const strictLast = JSON.parse(readModelMessageText(strictPlan.request.messages.at(-1)!));
     assert.match(strictLast.responseShapeGuide, /Call exactly one declared tool/);
@@ -701,7 +700,6 @@ test("Decide 两种输出模式均只注入单工具调用指令", async () => {
         trajectoryContextAssembler,
         undefined,
         undefined,
-        "prompt_only",
     );
     const promptOnlyLast = JSON.parse(readModelMessageText(promptOnlyPlan.request.messages.at(-1)!));
     assert.equal(typeof promptOnlyLast.responseShapeGuide, "string");
@@ -744,7 +742,6 @@ test("会话历史被预算裁剪时，请求计划单向切换为 checkpoint Bu
         trajectoryContextAssembler,
         undefined,
         tightCapabilities,
-        "prompt_only",
     );
 
     // 验证 bundle 单向切换为 checkpoint
@@ -775,7 +772,6 @@ test("buildStepRequest uses tool parameter schemas without top-level structuredO
         trajectoryContextAssembler,
         undefined,
         undefined,
-        "strict",
     );
     assert.equal(strictStepPlan.request.structuredOutput, undefined);
     assert.equal(strictStepPlan.request.toolChoice, "required");
@@ -791,7 +787,6 @@ test("buildStepRequest uses tool parameter schemas without top-level structuredO
         trajectoryContextAssembler,
         undefined,
         undefined,
-        "prompt_only",
     );
     assert.equal(promptOnlyStepPlan.request.structuredOutput, undefined);
 
@@ -806,7 +801,6 @@ test("buildStepRequest uses tool parameter schemas without top-level structuredO
         trajectoryContextAssembler,
         undefined,
         undefined,
-        "strict",
     );
     assert.equal(strictUnapprovedPlan.request.structuredOutput, undefined);
     assert.equal(strictUnapprovedPlan.request.toolChoice, "required");
@@ -822,7 +816,6 @@ test("buildStepRequest uses tool parameter schemas without top-level structuredO
         trajectoryContextAssembler,
         undefined,
         undefined,
-        "prompt_only",
     );
     assert.equal(promptOnlyUnapprovedPlan.request.structuredOutput, undefined);
 });
@@ -844,12 +837,12 @@ test("RuntimeFeedback is a tagged stage message and does not alter Conversation 
     };
     const strictPlan = await buildStepRequest(
         goal, [], renderer, contextCompactor, undefined, currentWorkingMemory,
-        trajectoryContextAssembler, undefined, undefined, "strict", "decide",
+        trajectoryContextAssembler, undefined, undefined, "decide",
         { allowThink: true, thinkHistory: [], runtimeFeedback },
     );
     const promptOnlyPlan = await buildStepRequest(
         goal, [], renderer, contextCompactor, undefined, currentWorkingMemory,
-        trajectoryContextAssembler, undefined, undefined, "prompt_only", "decide",
+        trajectoryContextAssembler, undefined, undefined, "decide",
         { allowThink: true, thinkHistory: [], runtimeFeedback },
     );
     const feedbackMessage = strictPlan.request.messages.find((message) => readModelMessageText(message).includes("runtime_feedback"));
@@ -1016,7 +1009,6 @@ test("原生路径的授权 Section 移除重复参数 Schema，保留授权身�
         trajectoryContextAssembler,
         undefined,
         undefined,
-        "strict",
         "decide",
         undefined,
         nativeIdentity,
@@ -1051,7 +1043,6 @@ test("原生路径的授权 Section 移除重复参数 Schema，保留授权身�
         trajectoryContextAssembler,
         undefined,
         undefined,
-        "prompt_only",
         "decide",
         undefined,
         undefined,
@@ -1092,7 +1083,6 @@ test("当前 runtime_feedback 始终位于请求末尾，不进入真实 Convers
         trajectoryContextAssembler,
         undefined,
         undefined,
-        "strict",
         "decide",
         { runtimeFeedback: feedback },
     );

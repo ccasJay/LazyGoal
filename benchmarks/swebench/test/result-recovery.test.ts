@@ -11,9 +11,9 @@ test("recovers failed Snapshot and invalid-response usage without terminal ACP m
     const root = await mkdtemp(join(tmpdir(), "swe-recovery-"));
     t.after(() => rm(root, { recursive: true, force: true }));
     const metadata = { instanceId: "astropy__astropy-12907", repo: "astropy/astropy", baseCommit: "a".repeat(40),
-        problemStatement: "Fix issue", goalId: "goal-recovery", runId: "run-recovery", maxSteps: 3, structuredOutputMode: "strict" as const };
+        problemStatement: "Fix issue", goalId: "goal-recovery", runId: "run-recovery", maxSteps: 3 as const };
     const result = await runSwebenchAcpTask({ metadata, workspaceRoot: root, stateRoot: join(root, "state"),
-        llmAdapter: { structuredOutputMode: "strict", generate: async () => ({
+        llmAdapter: { generate: async () => ({
             ...blockResponse(
                 { type: "text", format: "json", text: "{}" },
             ),

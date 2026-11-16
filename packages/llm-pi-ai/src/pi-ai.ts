@@ -10,6 +10,9 @@ import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completio
 import {
     LLMConfigurationError,
     LLMRequestModeMismatchError,
+    extractJsonText,
+    parseJsonText,
+    repairJsonText,
     readModelAssistantText,
     classifyContextWindowRejection,
     classifyTransientModelFailure,
@@ -70,6 +73,13 @@ function normalizedUsage(
     return cachedInputTokens === undefined
         ? { inputTokens, outputTokens }
         : { inputTokens, outputTokens, cachedInputTokens };
+}
+
+function normalizeStructuredText(text: string, request: LLMRequest): string {
+    if (request.structuredOutput === undefined || (request.tools !== undefined && request.tools.length > 0)) return text;
+    const payload = extractJsonText(text);
+    if (payload === undefined) return text;
+    return parseJsonText(text).ok ? repairJsonText(payload) : text;
 }
 
 const factories = {
@@ -165,7 +175,6 @@ function verifyToolCallArguments(raw: string | undefined, toolCall: { readonly a
  * OpenAI 发送 required，Anthropic/Google 发送 any。OpenCode Go 元数据声明不支持 required 时发送 auto，不改变 Runtime 的工具授权。
  */
 export class PiAiAdapter implements LLMAdapter {
-    readonly structuredOutputMode = "prompt_only" as const;
     private readonly models = createModels({
         authContext: { env: async () => undefined, fileExists: async () => false },
     });
@@ -176,9 +185,6 @@ export class PiAiAdapter implements LLMAdapter {
      * @throws LLMConfigurationError 模式不匹配、静态模型不在目录、动态协议不受支持或动态容量无效时抛出。
      */
     constructor(private readonly config: LLMConfig) {
-        if (config.structuredOutputMode !== "prompt_only") {
-            throw new LLMConfigurationError([], "PiAiAdapter only supports prompt_only output");
-        }
         const executionApi = (config as LLMConfig & { readonly executionApi?: unknown }).executionApi;
         if (executionApi !== undefined && (config.provider !== "opencode-go" || executionApi !== "openai-completions")) {
             throw new LLMConfigurationError([], `Unsupported execution API "${String(executionApi)}" for provider "${config.provider}"`);
@@ -274,9 +280,6 @@ export class PiAiAdapter implements LLMAdapter {
      */
     async generate(request: LLMRequest, control?: ExecutionControl): Promise<LLMResponse> {
         throwIfAborted(control);
-        if (request.structuredOutput !== undefined) {
-            throw new LLMRequestModeMismatchError("PiAiAdapter uses prompt_only, but LLMRequest provides structuredOutput");
-        }
         const maxTokens = request.maxOutputTokens ?? this.config.maxOutputTokens;
         this.checkOutputLimit(maxTokens);
         const context = this.toContext(request);
@@ -323,9 +326,6 @@ export class PiAiAdapter implements LLMAdapter {
         control?: ExecutionControl,
     ): AsyncIterable<LLMStreamEvent> {
         throwIfAborted(control);
-        if (request.structuredOutput !== undefined) {
-            throw new LLMRequestModeMismatchError("PiAiAdapter uses prompt_only, but LLMRequest provides structuredOutput");
-        }
         const maxTokens = request.maxOutputTokens ?? this.config.maxOutputTokens;
         this.checkOutputLimit(maxTokens);
         const context = this.toContext(request);
@@ -535,7 +535,11 @@ export class PiAiAdapter implements LLMAdapter {
         for (const block of response.content) {
             switch (block.type) {
                 case "text":
-                    blocks.push({ index: blocks.length, type: "text", format: "plain", text: block.text });
+                    blocks.push({
+                        index: blocks.length, type: "text",
+                        format: hasTools || request.structuredOutput === undefined ? "plain" : "json",
+                        text: normalizeStructuredText(block.text, request),
+                    });
                     break;
                 case "thinking":
                     blocks.push({ index: blocks.length, type: "reasoning", text: block.thinking });

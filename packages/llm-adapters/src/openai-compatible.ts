@@ -45,7 +45,7 @@ export function createOpenAICompatibleCatalogSource(): CatalogSource {
  *
  * @example
  * ```ts
- * const adapter = createOpenAICompatibleAdapter({ provider: "mistral", apiKey: "secret", model: "m", structuredOutputMode: "prompt_only", baseURL: "https://gateway.example/v1" });
+ * const adapter = createOpenAICompatibleAdapter({ provider: "mistral", apiKey: "secret", model: "m", baseURL: "https://gateway.example/v1" });
  * ```
  */
 export function createOpenAICompatibleAdapter(config: LLMConfig): LLMAdapter {

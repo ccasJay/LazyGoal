@@ -180,7 +180,6 @@ test("parsePromptEvaluationRequest 与 PromptEvaluationRunner 校验并传递 te
         const dummyAdapter = {
             provider: "mock",
             modelId: "mock-model",
-            structuredOutputMode: "strict",
             generate: async () => {
                 throw new Error("not called");
             },

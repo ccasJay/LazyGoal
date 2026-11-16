@@ -15,7 +15,6 @@ const OPENAI_CONFIG: LLMConfig = {
     provider: "openai",
     model: "gpt-4o",
     apiKey: "test-key",
-    structuredOutputMode: "prompt_only",
 };
 
 function source(overrides: Partial<CatalogSource> = {}): CatalogSource {
@@ -91,7 +90,6 @@ test("未提供发现函数或静态目录为空时使用配置回退", async ()
         provider: "openai-compatible",
         model: "gateway-model",
         apiKey: "test-key",
-        structuredOutputMode: "prompt_only",
         baseURL: "https://gateway.example.test/v1",
         contextWindowTokens: 64_000,
         maxOutputTokens: 8_192,

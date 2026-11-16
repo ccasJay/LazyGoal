@@ -27,7 +27,6 @@ const profile: AgentProfile = {
 /** 声明阶段、调用一次受控工具再给出完成答复的确定性适配器。 */
 class StreamingFixtureAdapter implements LLMAdapter {
     readonly provider = "openai";
-    readonly structuredOutputMode = "strict" as const;
     modelId = "model-goal-board-streaming";
     readonly requests: LLMRequest[] = [];
     runtime: RuntimeComposition | undefined;

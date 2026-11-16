@@ -61,7 +61,6 @@ model = "gpt-4o"
         assert.equal(config.llm.apiKey, "sk-openai");
         assert.equal(config.llm.contextWindowTokens, 128_000);
         assert.equal(config.llm.maxOutputTokens, 16_384);
-        assert.equal(config.llm.structuredOutputMode, "prompt_only");
         assert.equal(config.activeProfile, "work");
         assert.equal(config.providers?.[0]?.family, "openai");
         assert.equal(config.providers?.[0]?.models.length, 2);
@@ -132,22 +131,6 @@ model = "model"
         await assert.rejects(
             loadRuntimeConfig({ homePaths, knownProviderFamilies: ["openai", "openai-compatible"] }),
             (error: unknown) => error instanceof TomlConfigurationError && /未知的供应商家族: mystery/.test(error.message),
-        );
-
-        await writeFile(homePaths.configFile, `
-[providers.deepseek.main]
-api_key = "sk-test"
-[[providers.deepseek.main.models]]
-id = "deepseek-chat"
-context_window = 65536
-max_output_tokens = 8192
-[llm]
-provider = "main"
-model = "deepseek-chat"
-`);
-        await assert.rejects(
-            loadRuntimeConfig({ homePaths, cliArgs: { structuredOutputMode: "strict" } }),
-            (error: unknown) => error instanceof LLMConfigurationError && /不支持 strict/.test(error.message),
         );
     });
 });

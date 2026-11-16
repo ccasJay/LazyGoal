@@ -57,7 +57,6 @@ function createDependencies(
         workspaceRoot: "/workspace",
         profile,
         llmAdapter: {
-            structuredOutputMode: "strict" as const,
             generate: async () => ({ ...toolResponseFixture(JSON.stringify({ result: { kind: "fail", error: "unused", memoryPatch: null, contextNotes: null } })) }),
         },
         renderer: {

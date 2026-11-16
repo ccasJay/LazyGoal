@@ -13,7 +13,6 @@ const CONFIG: LLMConfig = {
     provider: "openai",
     apiKey: "openai-key",
     model: "gpt-4o",
-    structuredOutputMode: "prompt_only",
 };
 
 function jsonResponse(): Response {

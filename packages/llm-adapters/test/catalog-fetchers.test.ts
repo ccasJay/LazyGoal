@@ -32,7 +32,6 @@ test("ProviderModelFetcher: OpenAI 正常拉取、默认与覆盖端点、认证
         provider: "openai",
         model: "gpt-4o",
         apiKey: CANARY_API_KEY,
-        structuredOutputMode: "strict",
     };
     const result1 = await fetcher.fetchModels(config1, { fetch: fakeFetch });
     assert.equal(capturedUrl, "https://api.openai.com/v1/models");
@@ -45,7 +44,6 @@ test("ProviderModelFetcher: OpenAI 正常拉取、默认与覆盖端点、认证
         model: "gpt-4o",
         apiKey: CANARY_API_KEY,
         baseURL: "https://custom.openai.proxy/v1/",
-        structuredOutputMode: "strict",
     };
     await fetcher.fetchModels(config2, { fetch: fakeFetch });
     assert.equal(capturedUrl, "https://custom.openai.proxy/v1/models");
@@ -106,7 +104,6 @@ test("ProviderModelFetcher: Google 正常拉取、去除 models/ 前缀与两页
         provider: "google",
         model: "gemini-2.5-flash",
         apiKey: CANARY_API_KEY,
-        structuredOutputMode: "strict",
     };
 
     const models = await fetcher.fetchModels(config, { fetch: fakeFetch });
@@ -146,7 +143,6 @@ test("ProviderModelFetcher: Google 拒绝不前进的重复 pageToken", async ()
         provider: "google",
         model: "gemini-1.5-flash",
         apiKey: CANARY_API_KEY,
-        structuredOutputMode: "strict",
     };
 
     await assert.rejects(
@@ -206,7 +202,6 @@ test("ProviderModelFetcher: Anthropic 认证头、版本头与 cursor 分页遍�
         provider: "anthropic",
         model: "claude-sonnet-4-5",
         apiKey: CANARY_API_KEY,
-        structuredOutputMode: "prompt_only",
     };
 
     const models = await fetcher.fetchModels(config, { fetch: fakeFetch });
@@ -242,7 +237,6 @@ test("ProviderModelFetcher: Anthropic 拒绝 has_more 为 true 但 last_id 不�
         provider: "anthropic",
         model: "claude-sonnet-4-5",
         apiKey: CANARY_API_KEY,
-        structuredOutputMode: "prompt_only",
     };
 
     await assert.rejects(
@@ -298,7 +292,6 @@ test("ProviderModelFetcher: OpenRouter 端点与富元数据映射（容量、�
         provider: "openrouter",
         model: "anthropic/claude-3.5-sonnet",
         apiKey: CANARY_API_KEY,
-        structuredOutputMode: "prompt_only",
     };
 
     const models = await fetcher.fetchModels(config, { fetch: fakeFetch });
@@ -344,7 +337,6 @@ test("ProviderModelFetcher: DeepSeek 官方端点与列表解析", async () => {
         provider: "deepseek",
         model: "deepseek-chat",
         apiKey: CANARY_API_KEY,
-        structuredOutputMode: "prompt_only",
     };
 
     const models = await fetcher.fetchModels(config, { fetch: fakeFetch });
@@ -381,7 +373,6 @@ test("ProviderModelFetcher: openai-compatible 端点、可选认证与 data/mode
         model: "custom-qwen-72b",
         apiKey: CANARY_API_KEY,
         baseURL: "http://127.0.0.1:8000/v1/",
-        structuredOutputMode: "prompt_only",
         contextWindowTokens: 32768,
         maxOutputTokens: 4096,
     };
@@ -415,7 +406,6 @@ test("ProviderModelFetcher: HTTP 状态码映射到约定的脱敏错误分类�
         provider: "openai",
         model: "gpt-4o",
         apiKey: CANARY_API_KEY,
-        structuredOutputMode: "strict",
     };
 
     for (const { status, expectedKind } of statusCases) {
@@ -453,7 +443,6 @@ test("ProviderModelFetcher: 网络故障映射为 unavailable 且不泄露凭据
         provider: "google",
         model: "gemini-2.5-flash",
         apiKey: CANARY_API_KEY,
-        structuredOutputMode: "strict",
     };
 
     await assert.rejects(
@@ -486,7 +475,6 @@ test("ProviderModelFetcher: 超时控制共享并映射为 timeout", async () =>
         provider: "anthropic",
         model: "claude-sonnet-4-5",
         apiKey: CANARY_API_KEY,
-        structuredOutputMode: "prompt_only",
     };
 
     await assert.rejects(
@@ -519,7 +507,6 @@ test("ProviderModelFetcher: 外部 AbortSignal 取消映射为 cancelled", async
         provider: "deepseek",
         model: "deepseek-chat",
         apiKey: CANARY_API_KEY,
-        structuredOutputMode: "prompt_only",
     };
 
     const controller = new AbortController();
@@ -552,7 +539,6 @@ test("ProviderModelFetcher: 非法 JSON 与畸形响应结构映射为 protocol 
         provider: "openai",
         model: "gpt-4o",
         apiKey: CANARY_API_KEY,
-        structuredOutputMode: "strict",
     };
 
     for (const badContent of badCases) {
@@ -599,7 +585,6 @@ test("ProviderModelFetcher: createLlmModelCatalog() 默认集成 DefaultProvider
         provider: "openai",
         model: "gpt-4o",
         apiKey: CANARY_API_KEY,
-        structuredOutputMode: "strict",
     };
 
     const result = await catalog.list(config, { fetch: fakeFetch });
@@ -638,7 +623,6 @@ test("ProviderModelFetcher: opencode-go 官方目录解析模型容量与能力"
         provider: "opencode-go",
         model: "kimi-k3",
         apiKey: CANARY_API_KEY,
-        structuredOutputMode: "prompt_only",
     };
 
     const models = await fetcher.fetchModels(config, { fetch: fakeFetch });
@@ -664,7 +648,7 @@ test("ProviderModelFetcher: opencode-go 畸形响应映射为脱敏 protocol 错
     const fetcher = new DefaultProviderModelFetcher();
     await assert.rejects(
         fetcher.fetchModels(
-            { provider: "opencode-go", model: "kimi-k3", apiKey: CANARY_API_KEY, structuredOutputMode: "prompt_only" },
+            { provider: "opencode-go", model: "kimi-k3", apiKey: CANARY_API_KEY },
             { fetch: fakeFetch },
         ),
         (error: unknown) => error instanceof ModelCatalogError

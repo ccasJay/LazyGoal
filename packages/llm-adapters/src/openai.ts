@@ -51,7 +51,7 @@ export function createOpenAICatalogSource(): CatalogSource {
  *
  * @example
  * ```ts
- * const adapter = createOpenAIAdapter({ provider: "openai", apiKey: "secret", model: "gpt-4o", structuredOutputMode: "prompt_only" });
+ * const adapter = createOpenAIAdapter({ provider: "openai", apiKey: "secret", model: "gpt-4o" });
  * ```
  */
 export function createOpenAIAdapter(config: LLMConfig): LLMAdapter {

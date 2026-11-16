@@ -209,7 +209,6 @@ export async function runSwebenchSupervisor(
             void drain(worker.errorOutput);
             mux = new MultiplexedConnection({ input: worker.output, output: worker.input });
             const hostAdapter: LLMAdapter = {
-                structuredOutputMode: options.llmAdapter.structuredOutputMode,
                 generate: async (request, control) => {
                     try {
                         return await executeLlmWithTransientRetry(options.llmAdapter, request, control, { logPrefix: "[SWE-bench LLM]" });
@@ -237,7 +236,6 @@ export async function runSwebenchSupervisor(
                     goalId: options.metadata.goalId,
                     runId: options.metadata.runId,
                     maxSteps: options.metadata.maxSteps,
-                    structuredOutputMode: options.metadata.structuredOutputMode,
                 },
                 signal: controller.signal,
                 ...(options.onUpdate === undefined ? {} : { onUpdate: options.onUpdate }),
@@ -327,7 +325,6 @@ async function runSwebenchSupervisorWithIsolatedEnvironment(
     let providerStatus: number | undefined;
     let failure: SwebenchAcpProjectionError | undefined;
     const hostAdapter: LLMAdapter = {
-        structuredOutputMode: options.llmAdapter.structuredOutputMode,
         generate: async (request, control) => {
             try {
                 return await executeLlmWithTransientRetry(options.llmAdapter, request, control, { logPrefix: "[SWE-bench LLM]" });
@@ -373,7 +370,6 @@ async function runSwebenchSupervisorWithIsolatedEnvironment(
                         goalId: options.metadata.goalId,
                         runId: options.metadata.runId,
                         maxSteps: options.metadata.maxSteps,
-                        structuredOutputMode: options.metadata.structuredOutputMode,
                     },
                     signal,
                     ...(options.onUpdate === undefined ? {} : { onUpdate: options.onUpdate }),
@@ -558,7 +554,6 @@ async function drain(stream: ReadableStream<Uint8Array>): Promise<void> {
 function validateOptions(options: SwebenchSupervisorOptions): void {
     if (!Number.isSafeInteger(options.taskTimeoutMs) || options.taskTimeoutMs <= 0) throw new RangeError("taskTimeoutMs must be positive");
     if (options.artifactGraceMs !== undefined && (!Number.isSafeInteger(options.artifactGraceMs) || options.artifactGraceMs <= 0)) throw new RangeError("artifactGraceMs must be positive");
-    if (options.llmAdapter.structuredOutputMode !== options.metadata.structuredOutputMode) throw new TypeError("LLM structured-output mode does not match Worker metadata");
     if (options.task.instance_id !== options.metadata.instanceId
         || options.task.repo !== options.metadata.repo
         || options.task.base_commit !== options.metadata.baseCommit

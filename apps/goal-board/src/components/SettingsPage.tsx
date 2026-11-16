@@ -30,7 +30,6 @@ const EMPTY_FORM = {
   baseURL: "",
   contextWindowTokens: "",
   maxOutputTokens: "",
-  structuredOutputMode: "",
 } as const;
 
 type FormState = {
@@ -41,7 +40,6 @@ type FormState = {
   baseURL: string;
   contextWindowTokens: string;
   maxOutputTokens: string;
-  structuredOutputMode: string;
 };
 
 function toInput(form: FormState, editing: boolean): BrowserProviderProfileInput {
@@ -60,9 +58,6 @@ function toInput(form: FormState, editing: boolean): BrowserProviderProfileInput
     baseURL: form.baseURL.trim().length === 0 ? (editing ? null : undefined) : form.baseURL.trim(),
     contextWindowTokens: optionalNumber(form.contextWindowTokens),
     maxOutputTokens: optionalNumber(form.maxOutputTokens),
-    structuredOutputMode: form.structuredOutputMode.trim().length === 0
-      ? (editing ? null : undefined)
-      : (form.structuredOutputMode as BrowserProviderProfileInput["structuredOutputMode"]),
   };
 }
 
@@ -231,7 +226,6 @@ export function ProviderSettingsSection(props: {
       baseURL: profile.baseURL ?? "",
       contextWindowTokens: profile.contextWindowTokens === undefined ? "" : String(profile.contextWindowTokens),
       maxOutputTokens: profile.maxOutputTokens === undefined ? "" : String(profile.maxOutputTokens),
-      structuredOutputMode: profile.structuredOutputMode ?? "",
     });
   };
 
@@ -284,9 +278,6 @@ export function ProviderSettingsSection(props: {
             <Label>Context window tokens<Input type="number" min="1" step="1" value={form.contextWindowTokens} onChange={event => update({ contextWindowTokens: event.target.value })} /></Label>
             <Label>Max output tokens<Input type="number" min="1" step="1" value={form.maxOutputTokens} onChange={event => update({ maxOutputTokens: event.target.value })} /></Label>
           </div>
-          <Label>Structured output mode<NativeSelect value={form.structuredOutputMode} onChange={event => update({ structuredOutputMode: event.target.value })}>
-            <option value="">Provider default</option><option value="prompt_only">Prompt only</option><option value="strict">Strict</option><option value="two_stage">Two stage</option>
-          </NativeSelect></Label>
         </CollapsibleContent></Collapsible>
         <div className="settings-provider-form-actions">
           <Button variant="ghost" size="sm" type="button" className="secondary" onClick={closeEditor}>Cancel</Button>

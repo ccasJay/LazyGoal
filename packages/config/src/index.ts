@@ -21,7 +21,6 @@ export {
     isPositiveSafeInteger,
     isSupportedLlmProvider,
     supportsBaseUrl,
-    supportsStrictOutput,
     SUPPORTED_LLM_PROVIDERS,
 } from "./provider-rules";
 export {

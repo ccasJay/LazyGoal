@@ -5,9 +5,6 @@ import { dirname, resolve } from "node:path";
 
 import type { AgentProfile } from "../../../packages/runtime/src/index.js";
 
-/** GAIA Worker 只允许使用的结构化输出模式。 */
-export const GAIA_STRUCTURED_OUTPUT_MODE = "strict" as const;
-
 /** GAIA Worker 支持且仅支持的五个工具 ID 列表。 */
 export const GAIA_PROFILE_TOOL_IDS = Object.freeze([
     "read_file",

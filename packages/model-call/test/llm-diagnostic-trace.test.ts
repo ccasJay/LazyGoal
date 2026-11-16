@@ -73,7 +73,6 @@ class CaptureTraceSink implements DiagnosticTraceSink {
 }
 
 class ResponseAdapter implements LLMAdapter {
-    readonly structuredOutputMode = "strict" as const;
     constructor(private readonly response: LLMResponse) {}
 
     async generate(_request: LLMRequest): Promise<LLMResponse> {
@@ -307,7 +306,7 @@ test("invalid native arguments retain correlated response, sent schema and valid
     const identity = { provider: "google" as const, endpoint: "https://example.test", model: "fixture", protocol: "gemini-content" as const };
     const args = { summary: "Done", completionEvidence: "invalid", memoryPatch: null, protocolVersion: 1 };
     const adapter: LLMAdapter = {
-        structuredOutputMode: "strict", nativeConversationIdentity: identity,
+        nativeConversationIdentity: identity,
         async generate(request) {
             sentRequest = request;
             return { blocks: [{ index: 0, type: "tool_call", callId: "invalid-call", toolId: "system_complete_task", argumentsJson: JSON.stringify(args) }],
@@ -344,7 +343,7 @@ test("unknown tool fields are stripped with a bounded diagnostic trace record", 
     const identity = { provider: "google" as const, endpoint: "https://example.test", model: "fixture", protocol: "gemini-content" as const };
     const args = { summary: "Done", completionEvidence: [], memoryPatch: null, debugField: "PRIVATE_VALUE" };
     const adapter: LLMAdapter = {
-        structuredOutputMode: "strict", nativeConversationIdentity: identity,
+        nativeConversationIdentity: identity,
         async generate() {
             return { blocks: [{ index: 0, type: "tool_call", callId: "extra-call", toolId: "system_complete_task", argumentsJson: JSON.stringify(args) }],
                 continuation: { identity, parts: [{ functionCall: { name: "system_complete_task", args, id: "extra-call" } }] } };
@@ -364,7 +363,7 @@ test("unknown tool fields are stripped with a bounded diagnostic trace record", 
 
 test("malformed JSON and undeclared tools do not produce a declared shape", async () => {
     for (const call of [{ toolId: "system_complete_task", argumentsJson: "not-json" }, { toolId: "unknown_tool", argumentsJson: '{"summary":"PRIVATE_VALUE"}' }]) {
-        const adapter: LLMAdapter = { structuredOutputMode: "strict", generate: async () => ({ blocks: [{ index: 0, type: "tool_call", callId: "bad", ...call }] }) };
+        const adapter: LLMAdapter = { generate: async () => ({ blocks: [{ index: 0, type: "tool_call", callId: "bad", ...call }] }) };
         await assert.rejects(new LLMStepExecutor({ adapter, renderer, contextCompactor,
             trajectoryContextAssembler: createCurrentContextAssembler() }).execute({ goal: createGoalForPhase(), authorizedTools: [], workingMemory: currentWorkingMemory }), error => {
             assert.ok(error instanceof ModelStageFeedbackError);

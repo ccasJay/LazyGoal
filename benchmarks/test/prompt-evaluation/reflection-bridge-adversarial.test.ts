@@ -14,7 +14,6 @@ import {
 } from "../../src/prompt-evaluation/reflection-bridge.js";
 
 class MockReflectionLLMAdapter implements LLMAdapter {
-    readonly structuredOutputMode = "prompt_only" as const;
     public readonly receivedRequests: LLMRequest[] = [];
 
     constructor(
@@ -242,7 +241,6 @@ test("[Adversarial] 脱敏有效性：stderr 错误输出中的敏感信息必�
     const customPassword = "DatabasePassword456!";
 
     const failingAdapter: LLMAdapter = {
-        structuredOutputMode: "prompt_only",
         async generate() {
             throw new Error(`Failed with Authorization: Bearer ${bearerToken}, key=${sensitiveKey}, pass=${customPassword}`);
         },
@@ -332,7 +330,6 @@ test("[Adversarial] 退出码与单行 JSON 契约：模型故障返回退出码
         const errors: string[] = [];
         const outputs: string[] = [];
         const failingAdapter: LLMAdapter = {
-            structuredOutputMode: "prompt_only",
             async generate() {
                 throw err;
             },
@@ -412,6 +409,20 @@ test("[Adversarial] 物理与逻辑隔离：绝不回退至 Working LM", async (
     // 构造配置：
     // config.toml 声明 [gepa].reflection_profile = "reflection"
     await writeFile(join(lazygoalHome, "config.toml"), `
+[providers.openai.working]
+api_key = "sk-working-lm-key"
+[[providers.openai.working.models]]
+id = "gpt-4o-working-never-call"
+context_window = 128000
+max_output_tokens = 8192
+
+[providers.openai.reflection]
+api_key = "sk-reflection-lm-key"
+[[providers.openai.reflection.models]]
+id = "gpt-4o-reflection-failing"
+context_window = 128000
+max_output_tokens = 8192
+
 [gepa]
 reflection_profile = "reflection"
 `);
@@ -419,17 +430,15 @@ reflection_profile = "reflection"
     // default.toml (Working LM) 配置了可用的模型
     await writeFile(join(profilesDir, "default.toml"), `
 [llm]
-provider = "openai"
+provider = "working"
 model = "gpt-4o-working-never-call"
-api_key = "sk-working-lm-key"
 `);
 
     // reflection.toml 配置了一个会导致故障的 profile
     await writeFile(join(profilesDir, "reflection.toml"), `
 [llm]
-provider = "openai"
+provider = "reflection"
 model = "gpt-4o-reflection-failing"
-api_key = "sk-reflection-lm-key"
 `);
 
     const reqFile = join(tempDir, "request.json");
@@ -490,7 +499,6 @@ test("[Adversarial] 无工具契约：LLMRequest 中 tools/structuredOutput 必�
 
     let capturedRequest: LLMRequest | undefined;
     const inspectAdapter: LLMAdapter = {
-        structuredOutputMode: "prompt_only",
         async generate(request) {
             capturedRequest = request;
             return {
@@ -516,7 +524,6 @@ test("[Adversarial] 无工具契约：LLMRequest 中 tools/structuredOutput 必�
     assert.equal(capturedRequest.tools, undefined, "tools 必须严格为 undefined");
     assert.equal(capturedRequest.toolChoice, "none", "toolChoice 必须严格为 'none'");
     assert.equal(capturedRequest.structuredOutput, undefined, "structuredOutput 必须严格为 undefined");
-    assert.equal(inspectAdapter.structuredOutputMode, "prompt_only", "structuredOutputMode 必须为 prompt_only");
 });
 
 // =========================================================================

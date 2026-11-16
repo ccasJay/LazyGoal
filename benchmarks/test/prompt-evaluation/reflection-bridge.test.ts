@@ -15,7 +15,6 @@ import {
 } from "../../src/prompt-evaluation/reflection-bridge.js";
 
 class MockReflectionLLMAdapter implements LLMAdapter {
-    readonly structuredOutputMode = "prompt_only" as const;
     public readonly receivedRequests: LLMRequest[] = [];
 
     constructor(
@@ -234,8 +233,18 @@ test("runGepaReflectCli 拒绝与实际 Reflection Profile 不一致的 configId
     const lazygoalHome = join(tempDir, ".config");
     const profilesDir = join(lazygoalHome, "profiles");
     await mkdir(profilesDir, { recursive: true });
-    await writeFile(join(lazygoalHome, "config.toml"), "[gepa]\nreflection_profile = \"reflection\"\n");
-    await writeFile(join(profilesDir, "reflection.toml"), "[llm]\nprovider = \"openai\"\nmodel = \"reflection-model\"\napi_key = \"sk-reflection\"\n");
+    await writeFile(join(lazygoalHome, "config.toml"), `
+[providers.openai.reflection]
+api_key = "sk-reflection"
+[[providers.openai.reflection.models]]
+id = "reflection-model"
+context_window = 128000
+max_output_tokens = 8192
+
+[gepa]
+reflection_profile = "reflection"
+`);
+    await writeFile(join(profilesDir, "reflection.toml"), "[llm]\nprovider = \"reflection\"\nmodel = \"reflection-model\"\n");
     const reqFile = join(tempDir, "request.json");
     await writeFile(reqFile, JSON.stringify({ model: { configId: "wrong-profile" }, prompt: "Reflect" }));
     const errors: string[] = [];
@@ -244,7 +253,6 @@ test("runGepaReflectCli 拒绝与实际 Reflection Profile 不一致的 configId
         cwd: tempDir,
         env: { LAZYGOAL_HOME: lazygoalHome },
         reflectionAdapter: {
-            structuredOutputMode: "prompt_only",
             async generate() {
                 called = true;
                 return blockResponse({ type: "text", format: "plain", text: "should not run" });
@@ -266,7 +274,6 @@ test("runGepaReflectCli 对模型输出和诊断设置明确上限", async (t) =
     const code = await runGepaReflectCli(["gepa", "reflect", "--request", reqFile], {
         cwd: tempDir,
         reflectionAdapter: {
-            structuredOutputMode: "prompt_only",
             async generate() {
                 return blockResponse({ type: "text", format: "plain", text: "x".repeat(GEPA_REFLECTION_OUTPUT_MAX_CHARS + 100) });
             },
@@ -286,7 +293,6 @@ test("runGepaReflectCli 在 Reflection LM 异常时输出 model_error 且严禁�
     }));
 
     const failingAdapter: LLMAdapter = {
-        structuredOutputMode: "prompt_only",
         async generate() {
             throw new Error("Provider authentication failed with sk-live-secret-key-12345");
         },
@@ -322,6 +328,20 @@ test("runGepaReflectCli 在生产环境下按 LazyGoal Home Profile 解析 Refle
 
     // 主配置：[gepa].reflection_profile = "reflection"
     await writeFile(join(lazygoalHome, "config.toml"), `
+[providers.openai.working]
+api_key = "sk-working-key"
+[[providers.openai.working.models]]
+id = "gpt-4o-working"
+context_window = 128000
+max_output_tokens = 8192
+
+[providers.openai.reflection]
+api_key = "sk-reflection-key"
+[[providers.openai.reflection.models]]
+id = "gpt-4o-reflection"
+context_window = 128000
+max_output_tokens = 8192
+
 [gepa]
 reflection_profile = "reflection"
 `);
@@ -329,17 +349,15 @@ reflection_profile = "reflection"
     // Working Profile（若被加载就会暴露出错误 model）
     await writeFile(join(profilesDir, "default.toml"), `
 [llm]
-provider = "openai"
+provider = "working"
 model = "gpt-4o-working"
-api_key = "sk-working-key"
 `);
 
     // Reflection Profile
     await writeFile(join(profilesDir, "reflection.toml"), `
 [llm]
-provider = "openai"
+provider = "reflection"
 model = "gpt-4o-reflection"
-api_key = "sk-reflection-key"
 `);
 
     const reqFile = join(tempDir, "request.json");

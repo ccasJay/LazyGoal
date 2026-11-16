@@ -9,7 +9,7 @@ test("Judge saves independent rubric request, raw response, and actual usage", a
         ),
         providerMetadata: { usage: { inputTokens: 12, outputTokens: 4 } },
     };
-    const result = await judgeExplanation({ structuredOutputMode: "prompt_only", generate: async () => response }, "Fixed rubric", { verifier: "Verified" }, new AbortController().signal);
+    const result = await judgeExplanation({ generate: async () => response }, "Fixed rubric", { verifier: "Verified" }, new AbortController().signal);
     assert.equal(result.score, 0.9);
     assert.equal(result.response, response);
     assert.ok(result.request.messages[1]!.content.includes("Fixed rubric"));
@@ -18,7 +18,7 @@ test("Judge saves independent rubric request, raw response, and actual usage", a
 
 test("missing explanation evidence prevents Judge acceptance", async () => {
     let calls = 0;
-    const result = await judgeExplanation({ structuredOutputMode: "prompt_only", generate: async () => { calls++; throw new Error("Must not call"); } }, "Explain", { output: "" }, new AbortController().signal);
+    const result = await judgeExplanation({ generate: async () => { calls++; throw new Error("Must not call"); } }, "Explain", { output: "" }, new AbortController().signal);
     assert.equal(calls, 0);
     assert.equal(result.status, "incomplete");
     assert.match(result.error!, /evidence missing/);

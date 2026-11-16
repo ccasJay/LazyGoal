@@ -22,15 +22,11 @@ import { runServerSession } from "../src/cli";
 
 class FakeAdapter implements LLMAdapter {
     readonly provider = "openai";
-    readonly structuredOutputMode: "strict" | "prompt_only";
     readonly calls: LLMRequest[] = [];
 
     constructor(
         public modelId: string = "model-initial",
-        structuredOutputMode: "strict" | "prompt_only" = "strict",
-    ) {
-        this.structuredOutputMode = structuredOutputMode;
-    }
+    ) {}
 
     async generate(request: LLMRequest): Promise<LLMResponse> {
         this.calls.push(request);
@@ -279,7 +275,6 @@ test("浏览器只提交模型 ID，服务端目录生成并保存 OpenCode Go �
         assert.deepEqual(saved?.state.modelSelection, {
             provider: "opencode-go",
             modelId: "minimax-m3.1-flash-free",
-            structuredOutputMode: "prompt_only",
             contextWindowTokens: 1_000_000,
             maxOutputTokens: 524_288,
             reasoning: true,
@@ -302,7 +297,6 @@ test("浏览器只提交模型 ID，服务端目录生成并保存 OpenCode Go �
         assert.deepEqual(beamSaved?.state.modelSelection, {
             provider: "opencode-go",
             modelId: "beam-free",
-            structuredOutputMode: "prompt_only",
             contextWindowTokens: 1_000_000,
             maxOutputTokens: 131_072,
             reasoning: true,
@@ -578,7 +572,6 @@ test("恢复 Goal 时，若快照 Provider 与当前环境不兼容，则阻止�
         const incompatibleSelection: GoalModelSelection = {
             provider: "anthropic",
             modelId: "claude-3-5-sonnet",
-            structuredOutputMode: "strict",
             contextWindowTokens: 200_000,
             maxOutputTokens: 8192,
             inputEstimator: { kind: "character-v1" },

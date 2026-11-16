@@ -123,7 +123,6 @@ test("LLMStepExecutor records provider usage, request duration, and first-text-t
         providerMetadata: { usage: { inputTokens: 120, outputTokens: 18, cachedInputTokens: 45 } },
     };
     const adapter: LLMAdapter = {
-        structuredOutputMode: "strict",
         async generate(): Promise<LLMResponse> {
             throw new Error("stream should be used");
         },
@@ -174,7 +173,6 @@ test("LLMStepExecutor records provider usage, request duration, and first-text-t
 test("LLMStepExecutor records unrecognized provider usage as an estimate and omits non-stream speed", async () => {
     const metricsStore = new CaptureMetricsStore();
     const adapter: LLMAdapter = {
-        structuredOutputMode: "prompt_only",
         async generate(): Promise<LLMResponse> {
             return {
                 ...completedResponse(),
@@ -198,7 +196,6 @@ test("LLMStepExecutor records unrecognized provider usage as an estimate and omi
 test("LLMStepExecutor records failed calls and isolates metric Store failures", async () => {
     const failedCallRecords = new CaptureMetricsStore();
     const failingAdapter: LLMAdapter = {
-        structuredOutputMode: "strict",
         async generate(): Promise<never> {
             throw new Error("provider unavailable");
         },
@@ -220,7 +217,6 @@ test("LLMStepExecutor records failed calls and isolates metric Store failures", 
         },
     };
     const successfulAdapter: LLMAdapter = {
-        structuredOutputMode: "strict",
         async generate(_request: LLMRequest): Promise<LLMResponse> {
             return completedResponse();
         },
@@ -232,7 +228,6 @@ test("LLMStepExecutor records failed calls and isolates metric Store failures", 
 test("LLMStepExecutor 以 goal id 作为请求会话身份传给适配器", async () => {
     let captured: LLMRequest | undefined;
     const adapter: LLMAdapter = {
-        structuredOutputMode: "strict",
         async generate(request: LLMRequest): Promise<LLMResponse> {
             captured = request;
             return completedResponse();
@@ -246,7 +241,6 @@ test("LLMStepExecutor 以 goal id 作为请求会话身份传给适配器", asyn
 test("多块流式调用仍只记录一次调用开始与结束，且取消使用 cancelled 结果", async () => {
     const metricsStore = new CaptureMetricsStore();
     const adapter: LLMAdapter = {
-        structuredOutputMode: "strict",
         async generate(): Promise<LLMResponse> { throw new Error("stream should be used"); },
         async *stream(): AsyncIterable<LLMStreamEvent> {
             const call = readToolCalls(completedResponse())[0]!;
@@ -273,7 +267,6 @@ test("多块流式调用仍只记录一次调用开始与结束，且取消使�
     const cancelling = new AbortController();
     const cancelStore = new CaptureMetricsStore();
     const cancelledAdapter: LLMAdapter = {
-        structuredOutputMode: "strict",
         async generate(): Promise<LLMResponse> { throw new Error("stream should be used"); },
         async *stream(): AsyncIterable<LLMStreamEvent> {
             yield { kind: "started" };
@@ -300,7 +293,6 @@ test("整块交付的流不伪造首个正文到完成的解码耗时", async ()
     const metricsStore = new CaptureMetricsStore();
     const call = readToolCalls(completedResponse())[0]!;
     const adapter: LLMAdapter = {
-        structuredOutputMode: "strict",
         async generate(): Promise<LLMResponse> { throw new Error("stream should be used"); },
         async *stream(): AsyncIterable<LLMStreamEvent> {
             yield { kind: "started" };

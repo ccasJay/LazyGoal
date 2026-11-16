@@ -115,7 +115,6 @@ export async function runGaiaSupervisor(
                 attachments: options.task.attachments,
                 goalId,
                 runId,
-                structuredOutputMode: options.llmAdapter.structuredOutputMode,
                 ...(options.baseProfile === undefined ? {} : { baseProfile: options.baseProfile }),
                 ...(options.profile === undefined ? {} : { profile: options.profile }),
             },

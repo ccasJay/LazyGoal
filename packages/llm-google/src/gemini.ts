@@ -27,7 +27,6 @@ import {
     type LLMTextBlockFormat,
     type LLMToolCall,
     type NormalizedUsage,
-    type StructuredOutputMode,
 } from "../../llm-core/src/index";
 import { extractGeminiUsage } from "./usage";
 import {
@@ -49,7 +48,7 @@ type GeminiInput = Pick<
  * ```ts
  * const config: GeminiConfig = {
  *     apiKey: "secret", model: "model-id",
- *     structuredOutputMode: "strict", maxOutputTokens: 4096,
+ *     maxOutputTokens: 4096,
  * };
  * ```
  */
@@ -60,8 +59,6 @@ export interface GeminiConfig {
     baseURL?: string;
     /** 每次生成请求使用的 Gemini 模型名称。 */
     model: string;
-    /** 固定的结构化输出模式。 */
-    structuredOutputMode: StructuredOutputMode;
     /** 请求未指定上限时使用的最大输出 Token。 */
     maxOutputTokens?: number;
 }
@@ -87,7 +84,7 @@ const GEMINI_ABSENT_SENTINEL = "__lazygoal_absent__";
  * @example
  * ```ts
  * const adapter = new Gemini({
- *     apiKey: "secret", model: "model-id", structuredOutputMode: "strict",
+ *     apiKey: "secret", model: "model-id",
  * });
  * const response = await adapter.generate({
  *     messages: [{ role: "user", content: "hello" }],
@@ -95,7 +92,6 @@ const GEMINI_ABSENT_SENTINEL = "__lazygoal_absent__";
  * ```
  */
 export class Gemini implements LLMAdapter {
-    readonly structuredOutputMode: StructuredOutputMode;
     /** 同一 Gemini 端点和模型的原生回放身份。 */
     readonly nativeConversationIdentity: NativeConversationIdentity;
     private readonly client: GoogleGenAI;
@@ -103,7 +99,6 @@ export class Gemini implements LLMAdapter {
     private readonly maxOutputTokens: number | undefined;
 
     constructor(config: GeminiConfig) {
-        this.structuredOutputMode = config.structuredOutputMode;
         this.nativeConversationIdentity = {
             provider: "google", endpoint: (config.baseURL ?? "https://generativelanguage.googleapis.com/v1beta").replace(/\/+$/, ""),
             model: config.model, protocol: "gemini-content",
@@ -129,7 +124,6 @@ export class Gemini implements LLMAdapter {
         control?: ExecutionControl,
     ): Promise<LLMResponse> {
         throwIfAborted(control);
-        this.assertRequestMode(request);
         const input = this.buildInput(request, control);
 
         try {
@@ -149,8 +143,7 @@ export class Gemini implements LLMAdapter {
             );
             assertNotBlocked(response.promptFeedback?.blockReason);
             const parts = candidate?.content?.parts;
-            const structuredProjection = (this.structuredOutputMode === "strict" || this.structuredOutputMode === "two_stage")
-                && request.structuredOutput !== undefined && !request.tools?.length;
+            const structuredProjection = request.structuredOutput !== undefined && !request.tools?.length;
             const textFormat: LLMTextBlockFormat = structuredProjection ? "json" : "plain";
             const blocks: LLMContentBlock[] = [];
             const toolCalls: LLMToolCall[] = [];
@@ -262,10 +255,8 @@ export class Gemini implements LLMAdapter {
         control?: ExecutionControl,
     ): AsyncIterable<LLMStreamEvent> {
         throwIfAborted(control);
-        this.assertRequestMode(request);
         const input = this.buildInput(request, control);
-        const structuredProjection = (this.structuredOutputMode === "strict" || this.structuredOutputMode === "two_stage")
-            && request.structuredOutput !== undefined && !request.tools?.length;
+        const structuredProjection = request.structuredOutput !== undefined && !request.tools?.length;
         const textFormat: LLMTextBlockFormat = structuredProjection ? "json" : "plain";
         yield { kind: "started" };
 
@@ -430,27 +421,11 @@ export class Gemini implements LLMAdapter {
         }
     }
 
-    private assertRequestMode(request: LLMRequest): void {
-        if (request.tools === undefined && this.structuredOutputMode === "strict") {
-            if (request.structuredOutput === undefined) {
-                throw new LLMRequestModeMismatchError(
-                    "Gemini adapter is configured with 'strict' mode, but LLMRequest does not provide structuredOutput",
-                );
-            }
-        } else if (this.structuredOutputMode === "prompt_only") {
-            if (request.structuredOutput !== undefined) {
-                throw new LLMRequestModeMismatchError(
-                    "Gemini adapter is configured with 'prompt_only' mode, but LLMRequest provides structuredOutput",
-                );
-            }
-        }
-    }
-
     /** 共享请求配置：消息、输出上限、结构 Schema、工具声明与中止信号。 */
     private buildInput(request: LLMRequest, control?: ExecutionControl): GeminiInput {
         const input = toGeminiInput(request.messages, this.nativeConversationIdentity, request.maxOutputTokens ?? this.maxOutputTokens);
 
-        if ((this.structuredOutputMode === "strict" || this.structuredOutputMode === "two_stage") && request.structuredOutput !== undefined && !request.tools?.length) {
+        if (request.structuredOutput !== undefined && !request.tools?.length) {
             input.config = {
                 ...input.config,
                 responseMimeType: "application/json",

@@ -321,7 +321,6 @@ test("runtime_feedback 仍在末尾，历史数据不升级为系统指令", asy
         createCurrentContextAssembler(),
         undefined,
         undefined,
-        "strict",
         "decide",
         {
             runtimeFeedback: {

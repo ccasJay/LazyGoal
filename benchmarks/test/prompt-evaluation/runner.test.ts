@@ -38,7 +38,6 @@ const request: PromptEvaluationRequestV1 = Object.freeze({
 });
 
 const llmAdapter: LLMAdapter = {
-    structuredOutputMode: "strict",
     async generate() {
         throw new Error("Fixture adapter must not call the model");
     },

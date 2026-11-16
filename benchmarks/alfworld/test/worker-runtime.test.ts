@@ -15,7 +15,6 @@ test("ALFWorld Worker metadata keeps the dedicated tool profile and task boundar
         problemStatement: "Solve the fixed task",
         goalId: "goal-1",
         runId: "run-1",
-        structuredOutputMode: "strict",
         dataRoot: "/opt/alfworld/data",
         sidecarPath: "/opt/lazygoal/alfworld-sidecar.py",
     });
@@ -57,7 +56,6 @@ test("ALFWorld Worker metadata revalidates Prompt Evaluation frozen fields", () 
         problemStatement: "Solve the fixed task",
         goalId: "goal-1",
         runId: "run-1",
-        structuredOutputMode: "strict",
         baseProfile,
         profile,
     };

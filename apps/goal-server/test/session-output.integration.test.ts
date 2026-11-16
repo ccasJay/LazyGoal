@@ -38,7 +38,6 @@ test("正式装配：SSE 发布提交失效通知，Activity 与消息查询读�
     let callIndex = 0;
 
     const adapter: LLMAdapter = {
-        structuredOutputMode: "prompt_only",
         async generate(request: LLMRequest): Promise<LLMResponse> {
             requests.push(request);
             callIndex += 1;

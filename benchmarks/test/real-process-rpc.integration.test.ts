@@ -36,7 +36,7 @@ function startWorker(t: TestContext): RealWorker {
         output: Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
     });
     const tools = new ToolRpcClient({ stream: mux.channel("tools") });
-    const llm = new RpcLlmAdapter({ stream: mux.channel("llm"), structuredOutputMode: "prompt_only" });
+    const llm = new RpcLlmAdapter({ stream: mux.channel("llm") });
 
     t.after(async () => {
         await tools.close().catch(() => undefined);

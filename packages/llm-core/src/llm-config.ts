@@ -1,19 +1,6 @@
 import type { ProviderId } from "./ids";
 
 /**
- * 模型请求支持的输出结构模式。
- *
- * @remarks
- * `two_stage` 表示 Runtime 在 Think/Decide 阶段间绑定输出模式；Adapter 实例实际接收 `strict` 或 `prompt_only`。
- *
- * @example
- * ```ts
- * const mode: StructuredOutputMode = "two_stage";
- * ```
- */
-export type StructuredOutputMode = "strict" | "prompt_only" | "two_stage";
-
-/**
  * 供应商标识；开放字符串，由组合根按适配器注册表校验。
  *
  * @example
@@ -47,7 +34,7 @@ export type LLMExecutionApi = "openai-completions";
  * ```ts
  * const config: LLMConfig = {
  *     provider: "mistral-gateway", model: "mistral-large-latest",
- *     apiKey: "secret", structuredOutputMode: "prompt_only",
+ *     apiKey: "secret",
  *     baseURL: "https://gateway.example.test/v1",
  *     contextWindowTokens: 131_072, maxOutputTokens: 8_192,
  * };
@@ -60,8 +47,6 @@ export interface LLMConfig {
     readonly apiKey: string;
     /** 请求使用的模型标识；只在供应商内唯一。 */
     readonly model: string;
-    /** 当前入口固定的输出策略；请求驱动适配器忽略此字段。 */
-    readonly structuredOutputMode: StructuredOutputMode;
     /** 端点覆盖；适配器声明是否接受。 */
     readonly baseURL?: string | undefined;
     /** 上下文窗口 Token 容量；未知时省略。 */

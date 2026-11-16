@@ -13,7 +13,7 @@ import {
     type GepaConfig,
     TomlConfigurationError,
 } from "./toml-config";
-import { LLMConfigurationError, type LLMConfig, type StructuredOutputMode } from "../../llm-core/src/index";
+import { LLMConfigurationError, type LLMConfig } from "../../llm-core/src/index";
 
 /**
  * CLI 命令行传入的临时参数字典。
@@ -28,7 +28,6 @@ export interface CliConfigOverrides {
     readonly model?: string;
     readonly apiKey?: string;
     readonly baseUrl?: string;
-    readonly structuredOutputMode?: string;
     readonly contextWindowTokens?: number;
     readonly maxOutputTokens?: number;
     readonly tokenizerEncoding?: string;
@@ -168,17 +167,12 @@ export async function loadRuntimeConfig(options: LoadConfigOptions = {}): Promis
         );
     }
 
-    const mode = resolveStructuredOutputMode(
-        options.cliArgs?.structuredOutputMode,
-        entry.family,
-    );
     const apiKey = options.cliArgs?.apiKey?.trim() || entry.provider.api_key!;
     const baseURL = options.cliArgs?.baseUrl?.trim() || entry.provider.base_url;
     const verifiedLlmConfig: LLMConfig = {
         provider: entry.name,
         apiKey,
         model: model.id!,
-        structuredOutputMode: mode,
         ...(baseURL === undefined ? {} : { baseURL }),
         contextWindowTokens: model.context_window!,
         maxOutputTokens: model.max_output_tokens!,
@@ -297,7 +291,6 @@ export async function loadReflectionRuntimeConfig(options: LoadConfigOptions = {
         cliArgs: {
             ...options.cliArgs,
             profile: gepa.reflectionProfile,
-            structuredOutputMode: "prompt_only",
         },
     });
     return {
@@ -410,20 +403,6 @@ function findProviderEntry(providers: ProvidersTomlSection, name: string): Provi
         if (provider !== undefined) return { family, name, provider };
     }
     return undefined;
-}
-
-function resolveStructuredOutputMode(raw: string | undefined, family: string): StructuredOutputMode {
-    const mode = raw === undefined || raw.trim().length === 0 ? "prompt_only" : raw.trim();
-    if (mode !== "strict" && mode !== "prompt_only" && mode !== "two_stage") {
-        throw new LLMConfigurationError(
-            [],
-            `无效的 structured_output_mode "${mode}": 必须为 "strict"、"prompt_only" 或 "two_stage"`,
-        );
-    }
-    if ((mode === "strict" || mode === "two_stage") && !STRICT_OUTPUT_FAMILIES.has(family)) {
-        throw new LLMConfigurationError([], `供应商家族 "${family}" 不支持 ${mode} 模式`);
-    }
-    return mode;
 }
 
 function toRuntimeProviders(providers: ProvidersTomlSection): RuntimeProviderDeclaration[] {

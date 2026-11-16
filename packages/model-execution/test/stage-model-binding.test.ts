@@ -30,10 +30,7 @@ const profile = {
 class ReplyAdapter implements LLMAdapter {
     readonly requests: LLMRequest[] = [];
 
-    constructor(
-        readonly structuredOutputMode: "strict" | "prompt_only",
-        private readonly reply: string,
-    ) {}
+    constructor(private readonly reply: string) {}
 
     async generate(request: LLMRequest): Promise<LLMResponse> {
         this.requests.push(request);
@@ -42,7 +39,6 @@ class ReplyAdapter implements LLMAdapter {
 }
 
 class RequestThinkFunctionAdapter implements LLMAdapter {
-    readonly structuredOutputMode = "strict" as const;
     request?: LLMRequest;
 
     async generate(request: LLMRequest): Promise<LLMResponse> {
@@ -95,7 +91,6 @@ function createExecutor(
         selection: {
             provider,
             modelId: provider === "openai" ? "gpt-4o" : "claude-sonnet-4-5",
-            structuredOutputMode: "two_stage",
             inputEstimator: { kind: "character-v1" },
         },
         thinkAdapter,
@@ -110,8 +105,8 @@ function createExecutor(
 }
 
 test("直接 Decide 只调用 Decide Adapter，并使用工具参数 schema", async () => {
-    const thinkAdapter = new ReplyAdapter("prompt_only", "不得调用");
-    const decideAdapter = new ReplyAdapter("strict", JSON.stringify({
+    const thinkAdapter = new ReplyAdapter("不得调用");
+    const decideAdapter = new ReplyAdapter(JSON.stringify({
         result: {
             kind: "complete",
             summary: "直接完成",
@@ -134,9 +129,9 @@ test("直接 Decide 只调用 Decide Adapter，并使用工具参数 schema", as
     assert.equal(decideAdapter.requests[0]?.structuredOutput, undefined);
 });
 
-test("prompt_only Decide 仍经本地输出契约拒绝非法响应", async () => {
-    const thinkAdapter = new ReplyAdapter("prompt_only", "不得调用");
-    const decideAdapter = new ReplyAdapter("prompt_only", "not-json");
+test("Decide 非法响应仍经本地输出契约拒绝", async () => {
+    const thinkAdapter = new ReplyAdapter("不得调用");
+    const decideAdapter = new ReplyAdapter("not-json");
     const executor = createExecutor(thinkAdapter, decideAdapter, "anthropic");
 
     await assert.rejects(
@@ -156,8 +151,8 @@ test("prompt_only Decide 仍经本地输出契约拒绝非法响应", async () =
 });
 
 test("Decide 可请求 Think，Think 使用 prompt_only 且不挂载工具或结构化 Schema", async () => {
-    const thinkAdapter = new ReplyAdapter("prompt_only", "目标相关的可验证差异是检查点必须先持久化。");
-    const decideAdapter = new ReplyAdapter("strict", JSON.stringify({
+    const thinkAdapter = new ReplyAdapter("目标相关的可验证差异是检查点必须先持久化。");
+    const decideAdapter = new ReplyAdapter(JSON.stringify({
         result: {
             kind: "request_think",
             goal: "比较两种恢复方案的持久化边界",
@@ -194,7 +189,7 @@ test("Decide 可请求 Think，Think 使用 prompt_only 且不挂载工具或结
 });
 
 test("原生 Function Calling 的 request_think 解码为 Runtime 控制结果", async () => {
-    const thinkAdapter = new ReplyAdapter("prompt_only", "不应在本测试调用");
+    const thinkAdapter = new ReplyAdapter("不应在本测试调用");
     const decideAdapter = new RequestThinkFunctionAdapter();
     const executor = createExecutor(thinkAdapter, decideAdapter, "openai");
     const result = await executor.decide({
@@ -219,8 +214,8 @@ test("Think 拒绝空文本和任何工具调用", async () => {
         thinkGoal: "列出待验证的证据",
         thinkHistory: [],
     } as const;
-    const decideAdapter = new ReplyAdapter("strict", "unused");
-    const emptyAdapter = new ReplyAdapter("prompt_only", " \n ");
+    const decideAdapter = new ReplyAdapter("unused");
+    const emptyAdapter = new ReplyAdapter(" \n ");
     const emptyExecutor = createExecutor(emptyAdapter, decideAdapter, "openai");
     await assert.rejects(
         emptyExecutor.think(input),

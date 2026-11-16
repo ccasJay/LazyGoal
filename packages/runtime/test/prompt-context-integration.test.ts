@@ -70,7 +70,6 @@ class ScriptedAdapter implements LLMAdapter {
     readonly requests: LLMRequest[] = [];
 
     constructor(
-        readonly structuredOutputMode: "strict" | "prompt_only",
         private readonly replies: readonly ScriptedReply[],
     ) {}
 
@@ -106,7 +105,6 @@ function selection(
     return {
         provider,
         modelId: `${provider}-integration-test`,
-        structuredOutputMode: provider === "openai" ? "strict" : "prompt_only",
         inputEstimator: { kind: "character-v1" },
     };
 }
@@ -184,7 +182,7 @@ function createExecutor(
     trajectory: InMemoryTrajectoryStore,
     selectionValue: GoalModelSelection,
     decideAdapter: LLMAdapter,
-    thinkAdapter: LLMAdapter = new ScriptedAdapter("prompt_only", []),
+    thinkAdapter: LLMAdapter = new ScriptedAdapter([]),
 ): LLMStepExecutor {
     const binding = createModelExecutionBinding({
         generation: 1,
@@ -230,7 +228,6 @@ test("strict 多轮 Think 与 prompt-only 直接 Decide 都携带当前分层状
         await store.save(goal);
 
         const decideAdapter = new ScriptedAdapter(
-            scenario.expectsThink ? "strict" : "prompt_only",
             scenario.expectsThink
                 ? [
                     response({ kind: "request_think", goal: "核对完成条件与当前证据边界" }),
@@ -239,7 +236,7 @@ test("strict 多轮 Think 与 prompt-only 直接 Decide 都携带当前分层状
                 : [response({ kind: "wait", reason: "直接 Decide 路径验证完成" })],
         );
         const thought = "当前没有新的 Tool Observation；下一步必须继续执行或等待。";
-        const thinkAdapter = new ScriptedAdapter("prompt_only", [thought]);
+        const thinkAdapter = new ScriptedAdapter([thought]);
         const runner = new Runner({
             workspaceRoot: boundaryWorkspaceRoot,
             store,
@@ -315,7 +312,7 @@ test("未批准 Plan 保留先提案 Prompt，只读业务 Tool 直接执行", a
         },
     };
     const registry = new InMemoryToolRegistry([createTestToolRegistration(tool)]);
-    const decideAdapter = new ScriptedAdapter("strict", [
+    const decideAdapter = new ScriptedAdapter([
         response({
             kind: "tool_call",
             action: {
@@ -376,7 +373,7 @@ test("授权 Tool Observation 支持 GoalPlan 完成和符合条件的 Run 完�
     const store = new InMemoryGoalStore();
     const trajectory = new InMemoryTrajectoryStore();
     await store.save(goal);
-    const decideAdapter = new ScriptedAdapter("strict", [
+    const decideAdapter = new ScriptedAdapter([
         response({
             kind: "tool_call",
             action: {
@@ -466,7 +463,7 @@ test("越权 Tool 输出被拒绝，已提交未知 section 也在 Adapter 调�
                 input: { path: "README.md" },
             },
         });
-        const decideAdapter = new ScriptedAdapter("prompt_only", [invalidResponse, invalidResponse, invalidResponse]);
+        const decideAdapter = new ScriptedAdapter([invalidResponse, invalidResponse, invalidResponse]);
         const runner = new Runner({
             workspaceRoot: boundaryWorkspaceRoot,
             store,
@@ -537,7 +534,7 @@ test("越权 Tool 输出被拒绝，已提交未知 section 也在 Adapter 调�
             },
         };
         await store.save(committedGoal);
-        const decideAdapter = new ScriptedAdapter("strict", [response({
+        const decideAdapter = new ScriptedAdapter([response({
             kind: "wait",
             reason: "不应调用 Adapter",
         })]);

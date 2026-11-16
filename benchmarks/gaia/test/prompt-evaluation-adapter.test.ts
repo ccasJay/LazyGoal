@@ -43,7 +43,6 @@ const candidateProfile: AgentProfile = {
 };
 
 const llmAdapter: LLMAdapter = {
-    structuredOutputMode: "strict",
     async generate() { throw new Error("not used"); },
 };
 
@@ -332,13 +331,6 @@ test("GAIA Worker accepts paired Prompt profiles and rejects frozen-field drift"
             profile: { ...candidateProfile, toolIds: ["submit_answer"] },
         }),
         /toolIds/,
-    );
-    assert.throws(
-        () => parseGaiaAcpTaskMetadata({
-            ...metadata,
-            structuredOutputMode: "prompt_only",
-        }),
-        /structuredOutputMode must be strict/,
     );
 });
 
@@ -720,7 +712,6 @@ function baseMetadata(): Record<string, unknown> {
         ...task,
         goalId: "goal-1",
         runId: "run-1",
-        structuredOutputMode: "strict",
     };
 }
 

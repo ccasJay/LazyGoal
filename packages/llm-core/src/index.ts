@@ -47,7 +47,6 @@ export {
     LLMConfigurationError,
 } from "./llm-config";
 export type {
-    StructuredOutputMode,
     LLMProvider,
     LLMExecutionApi,
     LLMConfig,

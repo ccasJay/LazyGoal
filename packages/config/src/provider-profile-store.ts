@@ -99,8 +99,6 @@ export interface ProviderProfilePatch {
     readonly contextWindowTokens?: number | undefined;
     /** 新的输出上限；`undefined` 表示清空。 */
     readonly maxOutputTokens?: number | undefined;
-    /** 新的结构化输出模式；`undefined` 表示清空。 */
-    readonly structuredOutputMode?: string | undefined;
 }
 
 /**
@@ -195,7 +193,6 @@ export class JsonFileProviderProfileStore {
                 baseURL: "baseURL" in patch ? patch.baseURL : current.baseURL,
                 contextWindowTokens: "contextWindowTokens" in patch ? patch.contextWindowTokens : current.contextWindowTokens,
                 maxOutputTokens: "maxOutputTokens" in patch ? patch.maxOutputTokens : current.maxOutputTokens,
-                structuredOutputMode: "structuredOutputMode" in patch ? patch.structuredOutputMode : current.structuredOutputMode,
             });
             const profile: ProviderProfile = { id: profileId, ...validated };
             const profiles = [...snapshot.profiles];

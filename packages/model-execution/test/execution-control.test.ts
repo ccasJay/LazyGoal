@@ -63,7 +63,6 @@ function createStepGoal(): Goal {
 }
 
 class BlockingAdapter implements LLMAdapter {
-    readonly structuredOutputMode = "strict" as const;
     readonly requests: LLMRequest[] = [];
     readonly controls: unknown[] = [];
     private startedResolver: (() => void) | undefined;
@@ -156,7 +155,6 @@ test("流式阶段在 chunk 间取消时传播取消错误、关闭本次迭代�
     const controller = new AbortController();
     let released = 0;
     const adapter: LLMAdapter = {
-        structuredOutputMode: "strict",
         async generate(): Promise<LLMResponse> {
             throw new Error("stream adapter must not call generate");
         },

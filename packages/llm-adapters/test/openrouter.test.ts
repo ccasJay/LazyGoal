@@ -13,7 +13,6 @@ const CONFIG: LLMConfig = {
     provider: "openrouter",
     apiKey: "openrouter-key",
     model: "openai/gpt-4o",
-    structuredOutputMode: "prompt_only",
 };
 
 test("OpenRouter 适配器声明固定端点、目录与 Chat Completions 协议", () => {

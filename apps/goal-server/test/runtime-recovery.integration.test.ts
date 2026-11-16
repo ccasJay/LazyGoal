@@ -59,7 +59,6 @@ const failWire = (): LLMResponse => wire("system_fail_goal", { error: "按脚本
 
 class ScriptedAdapter implements LLMAdapter {
     readonly provider = "openai";
-    readonly structuredOutputMode = "strict" as const;
     calls = 0;
 
     constructor(private readonly script: readonly LLMResponse[]) {}

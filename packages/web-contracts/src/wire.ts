@@ -1431,9 +1431,6 @@ export type BrowserInteractionDetailResult =
             | "interaction_details_unavailable";
     };
 
-/** 结构化输出模式。 */
-export type BrowserStructuredOutputMode = "strict" | "prompt_only" | "two_stage";
-
 /** 受管 Provider 档案的非敏感投影。 */
 export interface BrowserProviderProfile {
     /** @pattern \S */
@@ -1447,7 +1444,6 @@ export interface BrowserProviderProfile {
     readonly baseURL?: string;
     readonly contextWindowTokens?: number;
     readonly maxOutputTokens?: number;
-    readonly structuredOutputMode?: BrowserStructuredOutputMode;
     readonly hasApiKey: boolean;
     readonly apiKeyMask: string;
 }
@@ -1502,7 +1498,6 @@ export interface BrowserProviderProfileInput {
      * @minimum 1
      */
     readonly maxOutputTokens?: number | null;
-    readonly structuredOutputMode?: BrowserStructuredOutputMode | null;
 }
 
 /** 创建或更新结果。 */

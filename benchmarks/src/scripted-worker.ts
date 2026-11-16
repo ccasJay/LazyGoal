@@ -73,12 +73,12 @@ export async function runScriptedWorker(options: ScriptedWorkerOptions): Promise
         sessions: {
             async create(input) {
                 const meta = record(input.sessionMeta);
-                if (Object.keys(meta).some(key => !["profile", "maxSteps", "mode", "restoreRef", "nativeIdentity"].includes(key))) throw new Error("Unexpected context session metadata");
+                if (Object.keys(meta).some(key => !["profile", "maxSteps", "restoreRef", "nativeIdentity"].includes(key))) throw new Error("Unexpected context session metadata");
                 const profileRaw = record(meta.profile);
                 if (!Array.isArray(profileRaw.instructions) || !profileRaw.instructions.every(x => typeof x === "string") ||
                     JSON.stringify(profileRaw.toolIds) !== JSON.stringify(options.toolIds)) throw new Error("Invalid Worker Profile");
                 const profile: AgentProfile = { id: textValue(profileRaw.id), systemPrompt: textValue(profileRaw.systemPrompt), instructions: profileRaw.instructions as string[], toolIds: options.toolIds };
-                if (!Number.isSafeInteger(meta.maxSteps) || (meta.maxSteps as number) <= 0 || (meta.mode !== "strict" && meta.mode !== "prompt_only")) throw new Error("Invalid Worker budget/mode");
+                if (!Number.isSafeInteger(meta.maxSteps) || (meta.maxSteps as number) <= 0) throw new Error("Invalid Worker budget");
                 const restoreRef = meta.restoreRef === undefined ? undefined : record(meta.restoreRef);
                 let nativeIdentity: NonNullable<LLMAdapter["nativeConversationIdentity"]> | undefined;
                 if (meta.nativeIdentity !== undefined) {
@@ -86,7 +86,7 @@ export async function runScriptedWorker(options: ScriptedWorkerOptions): Promise
                     if (!["openai", "openai-compatible", "google"].includes(String(identity.provider)) || !["openai-chat", "gemini-content"].includes(String(identity.protocol))) throw new Error("Invalid native conversation identity");
                     nativeIdentity = { provider: identity.provider as NonNullable<LLMAdapter["nativeConversationIdentity"]>["provider"], endpoint: textValue(identity.endpoint), model: textValue(identity.model), protocol: identity.protocol as NonNullable<LLMAdapter["nativeConversationIdentity"]>["protocol"] };
                 }
-                const adapter = new RpcLlmAdapter({ stream: mux.channel("llm"), structuredOutputMode: meta.mode,
+                const adapter = new RpcLlmAdapter({ stream: mux.channel("llm"),
                     ...(nativeIdentity === undefined ? {} : { nativeConversationIdentity: nativeIdentity }) });
                 const controller = new AbortController();
                 input.signal.addEventListener("abort", () => controller.abort(), { once: true });

@@ -74,8 +74,6 @@ export function buildContextWorker(projectRoot: string, cacheDirectory: string, 
     return buildBenchmarkWorker({ projectRoot, cacheDirectory, entryPoint: source?.workerEntryPoint ?? "benchmarks/context/src/worker-entry.ts", promptAssets: CONTEXT_PROMPT_ASSETS });
 }
 async function executeGroup(scenario: ContextScenario, worker: WorkerArtifact, role: ModelRole, output: string, group: GroupResult["group"], checkpointDirectory?: string, judge?: ModelRole, signal?: AbortSignal, source?: BenchmarkTaskSource, reviewDirectory?: string): Promise<GroupResult> {
-    if (role.adapter.structuredOutputMode === "two_stage") throw new Error("Context Worker requires strict or prompt_only mode");
-    const mode = role.adapter.structuredOutputMode;
     const started = Date.now();
     await mkdir(output, { recursive: true });
     if (scenario.kind === "source" && (!source || source.id !== scenario.source?.source)) throw new Error("Source adapter required");
@@ -104,7 +102,6 @@ async function executeGroup(scenario: ContextScenario, worker: WorkerArtifact, r
     const calls: (NormalizedUsage | null)[] = [];
     let budgetExceeded = false;
     const boundedAdapter: LLMAdapter = {
-        structuredOutputMode: role.adapter.structuredOutputMode,
         ...(role.adapter.nativeConversationIdentity === undefined ? {} : { nativeConversationIdentity: role.adapter.nativeConversationIdentity }),
         async generate(request, control) {
             if (calls.length + consumedCalls >= scenario.budget.maxCalls) { budgetExceeded = true; throw new Error("Context model call budget exceeded"); }
@@ -147,7 +144,7 @@ async function executeGroup(scenario: ContextScenario, worker: WorkerArtifact, r
             const rpc = createLlmRpcServer({ stream: mux.channel("llm"), adapter: boundedAdapter });
             try {
                 stages = await Promise.race([
-                    runContextSession(createAcpMuxStream(mux), scenario, mode, agentSignal, start,
+                    runContextSession(createAcpMuxStream(mux), scenario, agentSignal, start,
                         group === "capture" ? scenario.checkpointAfter + 1 : scenario.stages.length, initial, role.adapter.nativeConversationIdentity),
                     workerProcess.closed.then(() => { throw new Error("Context Worker exited before stage response"); }),
                 ]);

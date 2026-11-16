@@ -115,7 +115,6 @@ test("ACP Session maps a real Headless completion and max-step terminal", async 
         goalId: "goal-projection-1",
         runId: "run-projection-1",
         maxSteps: 4,
-        structuredOutputMode: "strict",
     };
     const updates: AcpSessionUpdate[] = [];
     const session = await createSwebenchAcpSessionFactory({
@@ -169,7 +168,6 @@ test("ACP Session cancellation returns cancelled and rejects mismatched Prompt",
         goalId: "goal-cancel",
         runId: "run-cancel",
         maxSteps: 3,
-        structuredOutputMode: "strict",
     };
     const session = await createSwebenchAcpSessionFactory({
         metadata,
@@ -177,7 +175,6 @@ test("ACP Session cancellation returns cancelled and rejects mismatched Prompt",
         workspaceRoot: root,
         stateRoot: join(root, "state"),
         llmAdapter: {
-            structuredOutputMode: "strict",
             generate: async (_request, control) => new Promise((resolve) => {
                 if (control === undefined) throw new TypeError("expected execution control");
                 const signal = control.signal;
@@ -215,7 +212,6 @@ function sessionInput(sessionId: string, update: (value: AcpSessionUpdate) => Pr
 function completionAdapter(): LLMAdapter {
     let calls = 0;
     return {
-        structuredOutputMode: "strict",
         generate: async (request) => {
             if (request.tools?.[0]?.id === "system_review_completion") return { ...toolResponseFixture(JSON.stringify({ result: { kind: "accept" } })) };
             calls += 1;
@@ -251,7 +247,6 @@ function completionAdapter(): LLMAdapter {
 
 function oneToolAdapter(): LLMAdapter {
     return {
-        structuredOutputMode: "strict",
         generate: async () => {
             return {
                 ...toolResponseFixture(JSON.stringify({
@@ -276,7 +271,7 @@ test("real Headless protocol failure retains state and usage across ACP serializ
     t.after(() => rm(root, { recursive: true, force: true }));
     const metadata: SwebenchAcpTaskMetadata = { instanceId: "astropy__astropy-12907", repo: "astropy/astropy",
         baseCommit: "a".repeat(40), problemStatement: "Fix the issue", goalId: "wire-goal", runId: "wire-run",
-        maxSteps: 3, structuredOutputMode: "strict" };
+        maxSteps: 3 };
     const serialized = () => new TransformStream<AnyMessage, AnyMessage>({
         transform(message, controller) { controller.enqueue(JSON.parse(JSON.stringify(message))); },
     });
@@ -289,7 +284,7 @@ test("real Headless protocol failure retains state and usage across ACP serializ
                 dynamicSectionIdentities: () => [],
             },
             contextCompactor: { compact: async units => units },
-            llmAdapter: { structuredOutputMode: "strict", generate: async () => ({
+            llmAdapter: { generate: async () => ({
                 ...toolResponseFixture(JSON.stringify({ result: { kind: "tool_call", summary: "Task completed with verified evidence.", memoryPatch: null } })),
                 providerMetadata: { usage: { inputTokens: 37, outputTokens: 11 } },
             }) },

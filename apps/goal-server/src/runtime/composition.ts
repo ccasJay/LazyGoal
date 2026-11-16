@@ -579,7 +579,9 @@ async function assembleRuntimeComposition(
                         id: declaration.provider,
                         protocol: family.protocol,
                         catalog: sources[index]!,
-                        createAdapter: family.createAdapter,
+                        // 家族工厂以家族 id 校验连接配置；实例以自定义名称注册，调用前先投影回家族 id。
+                        createAdapter: (config: LLMConfig) =>
+                            family.createAdapter({ ...config, provider: declaration.family }),
                     };
                 }),
             ]),
@@ -887,9 +889,6 @@ async function assembleRuntimeComposition(
         provider: llmConfig?.provider ?? ((adapter as { readonly provider?: string }).provider as GoalModelSelection["provider"] | undefined) ?? "openai",
         ...(bootConfigFromProfile && activeProviderProfile !== undefined ? { profileId: activeProviderProfile.id } : {}),
         modelId: llmConfig?.model ?? (adapter as { readonly modelId?: string }).modelId ?? "default-model",
-        ...(llmConfig?.provider === "openai-compatible" ? {} : {
-            structuredOutputMode: llmConfig?.structuredOutputMode ?? adapter.structuredOutputMode ?? "prompt_only",
-        }),
         ...(defaultExecutionMetadata === undefined ? {} : { executionApi: defaultExecutionMetadata.executionApi }),
         ...(defaultExecutionMetadata === undefined ? {} : { reasoning: defaultExecutionMetadata.reasoning }),
         ...(defaultExecutionMetadata === undefined ? {} : { vision: defaultExecutionMetadata.vision }),
@@ -953,7 +952,6 @@ async function assembleRuntimeComposition(
                     provider: "opencode-go",
                     model: selection.modelId,
                     apiKey: baseConfig.apiKey,
-                    structuredOutputMode: baseConfig.structuredOutputMode,
                     executionApi: selection.executionApi,
                     contextWindowTokens: selection.contextWindowTokens,
                     maxOutputTokens: selection.maxOutputTokens,

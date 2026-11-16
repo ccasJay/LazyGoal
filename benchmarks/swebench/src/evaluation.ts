@@ -95,7 +95,6 @@ export interface SwebenchReport {
     readonly manifest: SwebenchManifest;
     readonly manifestSha256: string;
     readonly modelId: string;
-    readonly structuredOutputMode: LLMAdapter["structuredOutputMode"];
     readonly attempts: SwebenchAttempt[];
     status: "running" | "completed" | "aborted" | "failed";
     gradingError?: string;
@@ -156,7 +155,6 @@ export async function runSwebenchEvaluation(options: SwebenchEvaluationOptions):
         manifest: options.manifest,
         manifestSha256: hash(JSON.stringify(options.manifest)),
         modelId: options.modelId,
-        structuredOutputMode: options.llmAdapter.structuredOutputMode,
         attempts: [],
         status: "running",
         summary: summarize([], options.manifest.instanceIds.length),
@@ -346,7 +344,6 @@ async function solveTask(options: SwebenchEvaluationOptions, task: SwebenchTask,
         goalId,
         runId: taskRunId,
         maxSteps: options.manifest.maxSteps,
-        structuredOutputMode: options.llmAdapter.structuredOutputMode,
     } as const;
     let result: SwebenchSupervisorResult = { stopReason: null, patch: null, patchPath: null, persistence: null, errors: [] };
     try {

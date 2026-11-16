@@ -49,11 +49,9 @@ async function createHarness(createGoalFailure: Error): Promise<{
     const root = {
         abortController: new AbortController(),
         adapter: {
-            structuredOutputMode: "prompt_only",
             async generate() { throw new Error("Supervisor admission is not exercised by explicit browser work"); },
         } satisfies LLMAdapter,
         createSummaryAdapterForSelection: (): LLMAdapter => ({
-            structuredOutputMode: "prompt_only",
             async generate() { return { blocks: [{ index: 0, type: "text", format: "plain", text: "Local creation" }] }; },
         }),
         workspaceRoot,

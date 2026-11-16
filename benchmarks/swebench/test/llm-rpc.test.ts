@@ -31,7 +31,7 @@ function response(content = '{"ok":true}'): LLMResponse {
 }
 
 function adapter(generate: LLMAdapter["generate"]): LLMAdapter {
-    return { structuredOutputMode: "strict", generate };
+    return { generate };
 }
 
 test("RPC forwards one complete request and response through the host adapter", async () => {
@@ -45,7 +45,7 @@ test("RPC forwards one complete request and response through the host adapter", 
             return response();
         }),
     });
-    const client = new RpcLlmAdapter({ stream: worker, structuredOutputMode: "strict" });
+    const client = new RpcLlmAdapter({ stream: worker });
     const actual = await client.generate(request);
     assert.deepEqual(actual, response());
     assert.equal(calls, 1);
@@ -59,31 +59,13 @@ test("provider failures are classified and do not expose credential text", async
         stream: host,
         adapter: adapter(async () => { throw new Error("provider secret API_KEY=do-not-leak"); }),
     });
-    const client = new RpcLlmAdapter({ stream: worker, structuredOutputMode: "strict" });
+    const client = new RpcLlmAdapter({ stream: worker });
     await assert.rejects(client.generate(request), (error: unknown) => {
         assert.ok(error instanceof LlmRpcError);
         assert.equal(error.code, "provider");
         assert.doesNotMatch(error.message, /secret|API_KEY|do-not-leak/);
         return true;
     });
-    await client.close();
-    await server.close();
-});
-
-test("mode mismatch fails before the host adapter is called", async () => {
-    const [worker, host] = pair();
-    let calls = 0;
-    const server = new LlmRpcServer({
-        stream: host,
-        adapter: adapter(async () => { calls += 1; return response(); }),
-    });
-    const client = new RpcLlmAdapter({ stream: worker, structuredOutputMode: "prompt_only" });
-    await assert.rejects(client.generate(request), (error: unknown) => {
-        assert.ok(error instanceof LlmRpcError);
-        assert.equal(error.code, "mode_mismatch");
-        return true;
-    });
-    assert.equal(calls, 0);
     await client.close();
     await server.close();
 });
@@ -99,7 +81,7 @@ test("cancel races are propagated and late cancelled responses cannot become suc
             throw new ExecutionAbortedError();
         }),
     });
-    const client = new RpcLlmAdapter({ stream: worker, structuredOutputMode: "strict" });
+    const client = new RpcLlmAdapter({ stream: worker });
     const controller = new AbortController();
     const pending = client.generate(request, { signal: controller.signal });
     controller.abort();
@@ -112,7 +94,7 @@ test("cancel races are propagated and late cancelled responses cannot become suc
 
 test("unknown or malformed response IDs fail the RPC client", async () => {
     const [worker, host] = pair();
-    const client = new RpcLlmAdapter({ stream: worker, structuredOutputMode: "strict" });
+    const client = new RpcLlmAdapter({ stream: worker });
     const writer = host.writable.getWriter();
     await writer.write({ type: "result", id: "unknown", response: response() });
     await writer.close();

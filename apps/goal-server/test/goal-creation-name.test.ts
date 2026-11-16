@@ -48,7 +48,6 @@ function recordingAdapter(
     return {
         requests,
         adapter: {
-            structuredOutputMode: "prompt_only",
             async generate(request) {
                 requests.push(request);
                 return respond(request);
@@ -74,7 +73,6 @@ async function createHarness(summaryAdapter: LLMAdapter): Promise<CreationHarnes
     const root = {
         abortController: new AbortController(),
         adapter: {
-            structuredOutputMode: "prompt_only",
             async generate() { throw new Error("Supervisor admission is not exercised by explicit browser work"); },
         } satisfies LLMAdapter,
         createSummaryAdapterForSelection: () => summaryAdapter,
@@ -160,7 +158,6 @@ test("名称摘要的异常、空正文与超时都回退本地名称", async ()
     assert.equal(await summarizeTriggerName(throwing.adapter, intent, "goal-throw"), deriveTriggerName(intent));
 
     const hanging: LLMAdapter = {
-        structuredOutputMode: "prompt_only",
         generate: () => new Promise(() => { /* Never settles, ignoring the abort signal. */ }),
     };
     const startedAt = Date.now();
@@ -202,7 +199,7 @@ test("创建 Goal 在名称摘要为空、仅 reasoning、围栏、超长与抛�
     ];
     for (const testCase of cases) {
         await context.test(testCase.label, async () => {
-            const harness = await createHarness({ structuredOutputMode: "prompt_only", generate: testCase.respond });
+            const harness = await createHarness({ generate: testCase.respond });
             try {
                 const goalId = `goal-name-${testCase.label}`;
                 const result = await harness.port.create({ goalId, inputId: `input-name-${testCase.label}`, intent, modelId: modelSelection.modelId });

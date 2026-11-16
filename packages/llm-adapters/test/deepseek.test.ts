@@ -13,7 +13,6 @@ const CONFIG: LLMConfig = {
     provider: "deepseek",
     apiKey: "deepseek-key",
     model: "deepseek-chat",
-    structuredOutputMode: "prompt_only",
 };
 
 test("DeepSeek 适配器声明固定端点、目录与 Chat Completions 协议", () => {

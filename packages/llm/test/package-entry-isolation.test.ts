@@ -38,7 +38,7 @@ const probePath = fileURLToPath(new URL("./entry-isolation-probe.ts", import.met
 const tsxBin = join(repoRoot, "node_modules", ".bin", "tsx");
 
 /** LazyGoal 自有配置键；任何入口都不得在导入或构造期间隐式读取。 */
-const LLM_ENV_KEYS = ["LLM_PROVIDER", "LLM_MODEL", "LLM_API_KEY", "LLM_BASE_URL", "LLM_STRUCTURED_OUTPUT_MODE", "LAZYGOAL_HOME"];
+const LLM_ENV_KEYS = ["LLM_PROVIDER", "LLM_MODEL", "LLM_API_KEY", "LLM_BASE_URL", "LAZYGOAL_HOME"];
 
 const PROVIDER_ENV_KEYS = {
     openai: ["OPENAI_API_KEY"],
@@ -66,7 +66,6 @@ const SCENARIOS: Record<string, ScenarioDefinition> = {
             "/packages/config/src/",
         ],
         expectedArtifacts: {
-            mode: "prompt_only",
             usage: { inputTokens: 1, outputTokens: 2 },
             errorCode: "INVALID_LLM_CONFIG",
             failureReason: "rate_limited",
@@ -85,7 +84,7 @@ const SCENARIOS: Record<string, ScenarioDefinition> = {
             "/packages/model-catalog/",
             "/packages/llm/src/",
         ],
-        expectedArtifacts: { provider: "openai", mode: "prompt_only" },
+        expectedArtifacts: { provider: "openai" },
     },
     "llm-google": {
         entryMarker: "/packages/llm-google/src/index.ts",
@@ -98,7 +97,7 @@ const SCENARIOS: Record<string, ScenarioDefinition> = {
             "/node_modules/openai/",
             "/node_modules/@earendil-works/",
         ],
-        expectedArtifacts: { mode: "strict", endpoint: "https://generativelanguage.googleapis.com/v1beta" },
+        expectedArtifacts: { endpoint: "https://generativelanguage.googleapis.com/v1beta" },
     },
     "llm-pi-ai": {
         entryMarker: "/packages/llm-pi-ai/src/index.ts",
@@ -109,7 +108,7 @@ const SCENARIOS: Record<string, ScenarioDefinition> = {
             "/packages/model-catalog/",
             "/packages/llm/src/",
         ],
-        expectedArtifacts: { mode: "prompt_only" },
+        expectedArtifacts: {},
     },
     "model-catalog": {
         entryMarker: "/packages/model-catalog/src/index.ts",

@@ -31,7 +31,6 @@ const dummyTask: GaiaManifestTask = {
 };
 
 const dummyAdapter: LLMAdapter = {
-    structuredOutputMode: "strict",
     async generate(_request: LLMRequest): Promise<LLMResponse> {
         return blockResponse({ type: "text", format: "plain", text: "4" });
     },
@@ -99,7 +98,6 @@ test("runGaiaSupervisor 正确构造 GaiaEnvironmentSpec 并传递给伪 Isolate
         assert.ok(capturedOptions !== undefined && capturedOptions.acp !== undefined && capturedOptions.acp.sessionMeta !== undefined);
         const meta = capturedOptions.acp.sessionMeta as Record<string, unknown>;
         assert.equal(meta.taskId, dummyTask.taskId);
-        assert.equal(meta.structuredOutputMode, "strict");
     } finally {
         await rm(tmpDir, { recursive: true, force: true });
     }

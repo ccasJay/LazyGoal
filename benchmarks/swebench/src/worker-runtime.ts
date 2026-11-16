@@ -125,7 +125,6 @@ export function createSwebenchAcpToolSet(workspaceRoot: string): SwebenchAcpTool
  *     goalId: "goal-1",
  *     runId: "run-1",
  *     maxSteps: 8,
- *     structuredOutputMode: "strict",
  * };
  * ```
  */
@@ -144,8 +143,6 @@ export interface SwebenchAcpTaskMetadata {
     readonly runId: string;
     /** executing 阶段允许的最大 Step 数。 */
     readonly maxSteps: number;
-    /** 宿主 Adapter 固定的结构化输出模式。 */
-    readonly structuredOutputMode: LLMAdapter["structuredOutputMode"];
     /** Prompt Evaluation 传入并供 Worker 重验的基准 Profile。 */
     readonly baseProfile?: AgentProfile;
     /** Prompt Evaluation 传入的候选 Profile。 */
@@ -188,7 +185,7 @@ export function validateSwebenchPromptEvaluationProfile(profile: unknown): Agent
  * @example
  * ```ts
  * const metadata = parseSwebenchAcpTaskMetadata(sessionMeta);
- * console.log(metadata.instanceId, metadata.structuredOutputMode);
+ * console.log(metadata.instanceId, metadata.maxSteps);
  * ```
  */
 export function parseSwebenchAcpTaskMetadata(value: unknown): SwebenchAcpTaskMetadata {
@@ -200,8 +197,7 @@ export function parseSwebenchAcpTaskMetadata(value: unknown): SwebenchAcpTaskMet
         || typeof value.goalId !== "string"
         || typeof value.runId !== "string"
         || typeof value.maxSteps !== "number"
-        || !Number.isSafeInteger(value.maxSteps)
-        || (value.structuredOutputMode !== "strict" && value.structuredOutputMode !== "prompt_only")) {
+        || !Number.isSafeInteger(value.maxSteps)) {
         throw new TypeError("Invalid SWE-bench ACP session metadata");
     }
     const profiles = parseSwebenchPromptEvaluationProfiles(value);
@@ -214,7 +210,6 @@ export function parseSwebenchAcpTaskMetadata(value: unknown): SwebenchAcpTaskMet
         goalId: value.goalId,
         runId: value.runId,
         maxSteps: value.maxSteps,
-        structuredOutputMode: value.structuredOutputMode,
         ...profiles,
         ...(templateOverrides === undefined ? {} : { templateOverrides }),
     };
@@ -293,9 +288,6 @@ export async function runSwebenchAcpTask(
     options: SwebenchAcpRuntimeOptions,
 ): Promise<HeadlessEpisodeResult<null>> {
     validateMetadata(options.metadata);
-    if (options.llmAdapter.structuredOutputMode !== options.metadata.structuredOutputMode) {
-        throw new TypeError("LLM structured-output mode does not match Worker metadata");
-    }
     const sessionId = options.sessionId;
     const trajectoryUpdate = options.trajectoryUpdate;
     if (trajectoryUpdate !== undefined && sessionId === undefined) {
@@ -443,6 +435,5 @@ function validateMetadata(metadata: SwebenchAcpTaskMetadata): void {
     if (metadata.problemStatement.trim() === "") throw new TypeError("problemStatement must be non-empty");
     if (!/^[A-Za-z0-9_.-]+$/u.test(metadata.goalId) || !/^[A-Za-z0-9_.-]+$/u.test(metadata.runId)) throw new TypeError("goalId and runId are invalid");
     if (!Number.isSafeInteger(metadata.maxSteps) || metadata.maxSteps <= 0) throw new RangeError("maxSteps must be positive");
-    if (metadata.structuredOutputMode !== "strict" && metadata.structuredOutputMode !== "prompt_only") throw new TypeError("structuredOutputMode is invalid");
 }
 

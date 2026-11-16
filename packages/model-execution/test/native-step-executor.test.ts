@@ -64,7 +64,6 @@ function createExecutingGoal(): Goal {
 
 class ToolCallingAdapter implements LLMAdapter {
     readonly requests: LLMRequest[] = [];
-    readonly structuredOutputMode = "strict" as const;
 
     constructor(private readonly response: LLMResponse) {}
 
@@ -82,7 +81,6 @@ test("LLMStepExecutor 的兼容 execute 入口单次 Decide 返回 AgentDecision
 
     let callCount = 0;
     const adapter: LLMAdapter = {
-        structuredOutputMode: "strict",
         async generate(req: LLMRequest): Promise<LLMResponse> {
             callCount++;
             assert.ok(req.tools);
@@ -133,7 +131,6 @@ test("LLMStepExecutor 单步调用业务工具生成非空合规 actionId 并通
     }), { description: "执行命令", isReadOnly: false });
 
     const adapter: LLMAdapter = {
-        structuredOutputMode: "strict",
         async generate(req: LLMRequest): Promise<LLMResponse> {
             return blockResponse(
                 { type: "text", text: "分析需要执行 ls 命令查看目录" },
@@ -173,7 +170,6 @@ test("LLMStepExecutor 单步调用业务工具生成非空合规 actionId 并通
 test("LLMStepExecutor 当模型缺失工具调用且非结构化文本时抛出 LLMResponseProtocolError", async () => {
     const goal = createExecutingGoal();
     const adapter: LLMAdapter = {
-        structuredOutputMode: "strict",
         async generate(): Promise<LLMResponse> {
             return textResponse("我正在思考，但我没有返回任何工具调用！");
         },

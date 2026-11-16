@@ -33,7 +33,6 @@ import { SHUTDOWN_EXIT_CODE, type ExitPort } from "../src/process-exit";
 /** 只用于装配的确定性适配器；进程工具场景不应调用模型。 */
 class UnusedAdapter implements LLMAdapter {
     readonly provider = "openai";
-    readonly structuredOutputMode = "strict" as const;
     readonly modelId = "model-process-composition";
 
     async generate(_request: LLMRequest): Promise<LLMResponse> {

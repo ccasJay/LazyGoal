@@ -64,7 +64,6 @@ export interface AlfworldAcpTaskMetadata extends AlfworldManifestTask {
     readonly problemStatement: string;
     readonly goalId: string;
     readonly runId: string;
-    readonly structuredOutputMode: LLMAdapter["structuredOutputMode"];
     readonly dataRoot?: string;
     readonly pythonExecutable?: string;
     readonly sidecarPath?: string;
@@ -78,7 +77,7 @@ export interface AlfworldAcpTaskMetadata extends AlfworldManifestTask {
  * 校验来自 ACP wire boundary 的 ALFWorld metadata。
  *
  * @param value - `session/new` 的 `_meta` 未知对象。
- * @returns 通过身份、路径和输出模式校验的当前任务。
+ * @returns 通过身份和路径校验的当前任务。
  * @throws metadata 缺失或字段违反当前 Worker 协议时抛出异常。
  * @example
  * ```ts
@@ -97,7 +96,6 @@ export function parseAlfworldAcpTaskMetadata(value: unknown): AlfworldAcpTaskMet
         || typeof value.problemStatement !== "string" || value.problemStatement.trim() === ""
         || typeof value.goalId !== "string" || !/^[A-Za-z0-9_.-]+$/u.test(value.goalId)
         || typeof value.runId !== "string" || !/^[A-Za-z0-9_.-]+$/u.test(value.runId)
-        || (value.structuredOutputMode !== "strict" && value.structuredOutputMode !== "prompt_only")
         || (value.dataRoot !== undefined && (typeof value.dataRoot !== "string" || !value.dataRoot.startsWith("/")))
         || (value.pythonExecutable !== undefined && typeof value.pythonExecutable !== "string")
         || (value.sidecarPath !== undefined && (typeof value.sidecarPath !== "string" || !value.sidecarPath.startsWith("/")))) {
@@ -117,7 +115,6 @@ export function parseAlfworldAcpTaskMetadata(value: unknown): AlfworldAcpTaskMet
         problemStatement: value.problemStatement,
         goalId: value.goalId,
         runId: value.runId,
-        structuredOutputMode: value.structuredOutputMode,
         ...(value.dataRoot === undefined ? {} : { dataRoot: value.dataRoot }),
         ...(value.pythonExecutable === undefined ? {} : { pythonExecutable: value.pythonExecutable }),
         ...(value.sidecarPath === undefined ? {} : { sidecarPath: value.sidecarPath }),
@@ -155,9 +152,6 @@ export async function runAlfworldAcpTask(
     options: AlfworldAcpRuntimeOptions,
 ): Promise<HeadlessEpisodeResult<EpisodeEnvironmentFacts>> {
     const metadata = options.metadata;
-    if (options.llmAdapter.structuredOutputMode !== metadata.structuredOutputMode) {
-        throw new TypeError("LLM structured-output mode does not match ALFWorld Worker metadata");
-    }
     const workspaceRoot = options.workspaceRoot ?? "/workspace";
     const stateRoot = options.stateRoot ?? "/opt/lazygoal/state";
     const client = new SidecarClient({
@@ -262,7 +256,7 @@ export async function runAlfworldWorker(): Promise<void> {
         async create(input) {
             if (adapter !== undefined) throw new Error("ALFWorld Worker supports one ACP Session per connection");
             const metadata = parseAlfworldAcpTaskMetadata(input.sessionMeta);
-            adapter = new RpcLlmAdapter({ stream: mux.channel("llm"), structuredOutputMode: metadata.structuredOutputMode });
+            adapter = new RpcLlmAdapter({ stream: mux.channel("llm") });
             const factory = createAlfworldAcpSessionFactory({
                 problemStatement: metadata.problemStatement,
                 llmAdapter: adapter,

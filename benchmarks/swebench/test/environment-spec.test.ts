@@ -40,8 +40,7 @@ const metadata = {
     problemStatement: task.problem_statement,
     goalId: "goal-1",
     runId: "run-1",
-    maxSteps: 4,
-    structuredOutputMode: "strict" as const,
+    maxSteps: 4 as const,
 };
 
 function handle(calls: string[]): EnvironmentHandle {

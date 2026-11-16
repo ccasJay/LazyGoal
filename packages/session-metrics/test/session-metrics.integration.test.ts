@@ -22,7 +22,6 @@ function deferred<T>() {
 
 class BlockingReportedUsageAdapter implements LLMAdapter {
     readonly provider = "openai";
-    readonly structuredOutputMode = "strict" as const;
     readonly entered = deferred<void>();
     private readonly response = deferred<LLMResponse>();
 

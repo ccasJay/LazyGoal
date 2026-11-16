@@ -27,7 +27,6 @@ function context(overrides: Partial<ModelCallContext> = {}): ModelCallContext {
 function streamingAdapter(events: readonly LLMStreamEvent[]): LLMAdapter & { generateCalls: number } {
     let generateCalls = 0;
     return {
-        structuredOutputMode: "strict",
         get generateCalls() { return generateCalls; },
         async generate(): Promise<LLMResponse> {
             generateCalls += 1;
@@ -247,7 +246,6 @@ test("完成候选后必须等待正常 EOF，尾部异常使本次调用失败"
     let release!: () => void;
     const barrier = new Promise<void>(resolve => { release = resolve; });
     const adapter: LLMAdapter = {
-        structuredOutputMode: "strict",
         async generate(): Promise<LLMResponse> { throw new Error("stream adapter must not call generate"); },
         async *stream(): AsyncIterable<LLMStreamEvent> {
             yield { kind: "started" };
@@ -275,7 +273,6 @@ test("完成候选后必须等待正常 EOF，尾部异常使本次调用失败"
 
 function streamingAdapterWithTailError(response: LLMResponse): LLMAdapter {
     return {
-        structuredOutputMode: "strict",
         async generate(): Promise<LLMResponse> { throw new Error("stream adapter must not call generate"); },
         async *stream(): AsyncIterable<LLMStreamEvent> {
             yield { kind: "started" };
@@ -297,7 +294,6 @@ test("只实现 generate 的 Adapter 在返回前发布开始状态，并按整�
         { type: "tool_call", callId: "call-whole", toolId: "read_file", argumentsJson: '{"path":"README.md"}' },
     );
     const adapter: LLMAdapter = {
-        structuredOutputMode: "strict",
         async generate(): Promise<LLMResponse> {
             await barrier;
             return response;
@@ -338,7 +334,6 @@ test("只实现 generate 的 Adapter 在返回前发布开始状态，并按整�
 
 test("失败或取消时发布安全终止摘要，指明未完成块且不携带块内容", async () => {
     const failing: LLMAdapter = {
-        structuredOutputMode: "strict",
         async generate(): Promise<LLMResponse> { throw new Error("stream adapter must not call generate"); },
         async *stream(): AsyncIterable<LLMStreamEvent> {
             yield { kind: "started" };
@@ -361,7 +356,6 @@ test("失败或取消时发布安全终止摘要，指明未完成块且不携�
 
     const controller = new AbortController();
     const cancelling: LLMAdapter = {
-        structuredOutputMode: "strict",
         async generate(): Promise<LLMResponse> { throw new Error("stream adapter must not call generate"); },
         async *stream(): AsyncIterable<LLMStreamEvent> {
             yield { kind: "started" };
@@ -398,7 +392,6 @@ test("公开、诊断与显式 reasoning 订阅互不越界，块边界与完成
 
     let calls = 0;
     const adapter: LLMAdapter = {
-        structuredOutputMode: "strict",
         async generate(): Promise<LLMResponse> { throw new Error("stream adapter must not call generate"); },
         async *stream(): AsyncIterable<LLMStreamEvent> {
             calls += 1;
@@ -499,7 +492,6 @@ test("公开、诊断与显式 reasoning 订阅互不越界，块边界与完成
 
 test("缓冲订阅按同一块的相邻增量合并，跨块与跨调用保持独立", async () => {
     const adapter: LLMAdapter = {
-        structuredOutputMode: "strict",
         async generate(): Promise<LLMResponse> { throw new Error("stream adapter must not call generate"); },
         async *stream(): AsyncIterable<LLMStreamEvent> {
             yield { kind: "started" };

@@ -201,7 +201,7 @@ async function assembledRequest(fixture: ReturnType<typeof actionFixture>, budge
     const goal = initial();
     const running = { ...goal, state: { ...goal.state, run: { ...goal.state.run, status: "running" as const, committedThroughSequence: boundary } } };
     return buildStepRequest(running, [], renderer, compactor, undefined, currentWorkingMemory,
-        new TrajectoryModelContextAssembler({ trajectoryStore: store, policy: createModelContextBudgetPolicy({ modelInputBudget: budget }) }), undefined, undefined, "strict", "decide", undefined, identity);
+        new TrajectoryModelContextAssembler({ trajectoryStore: store, policy: createModelContextBudgetPolicy({ modelInputBudget: budget }) }), undefined, undefined, "decide", undefined, identity);
 }
 
 test("assembler uses only committed exchanges, strips duplicate Hot payload, and keeps signed messages atomic", async () => {
@@ -220,7 +220,7 @@ test("assembler uses only committed exchanges, strips duplicate Hot payload, and
 });
 
 test("native Decide accepts multiple calls as an ordered batch", async () => {
-    const adapter: LLMAdapter = { structuredOutputMode: "strict", nativeConversationIdentity: identity, async generate() {
+    const adapter: LLMAdapter = { nativeConversationIdentity: identity, async generate() {
         const call = readModelToolCalls(message("read_file", { path: "README.md" }))[0]!;
         return blockResponse(
             { type: "tool_call", ...call },
@@ -242,7 +242,7 @@ test("native Decide accepts multiple calls as an ordered batch", async () => {
 });
 
 test("native Decide classifies zero calls with empty content as no usable result", async () => {
-    const adapter: LLMAdapter = { structuredOutputMode: "strict", nativeConversationIdentity: identity, async generate() { return { blocks: [] }; } };
+    const adapter: LLMAdapter = { nativeConversationIdentity: identity, async generate() { return { blocks: [] }; } };
     const executor = new LLMStepExecutor({ adapter, renderer, contextCompactor: compactor, trajectoryContextAssembler: new TrajectoryModelContextAssembler({ trajectoryStore: createInMemoryTrajectoryStore(), policy: createDefaultModelContextBudgetPolicy() }) });
     const goal = initial();
     await assert.rejects(executor.decide({ goal: { ...goal, state: { ...goal.state, run: { ...goal.state.run, status: "running" } } }, authorizedTools: [], workingMemory: currentWorkingMemory, thinkHistory: [] }), (error: unknown) => {
@@ -253,7 +253,7 @@ test("native Decide classifies zero calls with empty content as no usable result
 });
 
 function nativeAdapter(generate: (request: LLMRequest) => Promise<LLMResponse>): LLMAdapter {
-    return { structuredOutputMode: "strict", nativeConversationIdentity: identity, generate };
+    return { nativeConversationIdentity: identity, generate };
 }
 const responseFor = (toolId: string, args: Record<string, unknown>, callId = "provider-call"): LLMResponse => {
     const saved = message(toolId, args);
@@ -268,9 +268,9 @@ const responseFor = (toolId: string, args: Record<string, unknown>, callId = "pr
 };
 function executorFor(adapter: LLMAdapter, trajectoryStore: ReturnType<typeof createInMemoryTrajectoryStore>, thinkAdapter?: LLMAdapter) {
     const binding = createModelExecutionBinding({ generation: 1,
-        selection: { provider: "google", modelId: "test", structuredOutputMode: "strict", inputEstimator: { kind: "character-v1" } },
+        selection: { provider: "google", modelId: "test", inputEstimator: { kind: "character-v1" } },
         decideAdapter: adapter,
-        thinkAdapter: thinkAdapter ?? { structuredOutputMode: "prompt_only", async generate() { throw new Error("Unexpected Think"); } },
+        thinkAdapter: thinkAdapter ?? { async generate() { throw new Error("Unexpected Think"); } },
         trajectoryStore,
     });
     return new LLMStepExecutor({ bindingProvider: { current: () => binding }, renderer, contextCompactor: compactor });
@@ -323,7 +323,7 @@ test("Runner restores a settled Think before final decision and sends its output
         if (++calls === 1) return responseFor("system_request_think", { goal: "Inspect" });
         throw new ExecutionAbortedError();
     });
-    const thinkAdapter: LLMAdapter = { structuredOutputMode: "prompt_only", async generate(request) {
+    const thinkAdapter: LLMAdapter = { async generate(request) {
         thoughts++;
         assert.equal(request.messages.some(message => message.role === "tool"), false);
         return textResponse("Think output");
@@ -458,7 +458,7 @@ test("对同一提交边界记录去重前后输入计量，原生去重后输�
     const running = { ...goal, state: { ...goal.state, run: { ...goal.state.run, status: "running" as const, committedThroughSequence: fixture.events.length } } };
     const semanticPlan = await buildStepRequest(running, [], renderer, compactor, undefined, currentWorkingMemory,
         new TrajectoryModelContextAssembler({ trajectoryStore: store, policy: createModelContextBudgetPolicy({ modelInputBudget: 100000 }) }),
-        undefined, undefined, "prompt_only", "decide", undefined, undefined);
+        undefined, undefined, "decide", undefined, undefined);
     const semanticSize = JSON.stringify(semanticPlan.request).length;
 
     assert.ok(nativeSize < semanticSize, `原生去重后的输入计量 (${nativeSize}) 应该严格小于语义路径 (${semanticSize})`);

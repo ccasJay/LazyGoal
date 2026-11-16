@@ -114,7 +114,6 @@ function createDependencies<TTask, TOutcome>(
         workspaceRoot: "/workspace",
         profile,
         llmAdapter: {
-            structuredOutputMode: "strict" as const,
             generate: async (request) => {
                 modelCalls += 1;
                 if (request.tools?.[0]?.id === "system_review_completion") return { ...toolResponseFixture(JSON.stringify({ result: { kind: "accept" } })) };
@@ -1022,7 +1021,7 @@ test("pi-ai provider-reported usage counts toward benchmark totals", async () =>
     try {
         const llmAdapter = createLlmAdapter(readLLMConfig({
             LLM_PROVIDER: "openai-compatible", LLM_API_KEY: "test-key", LLM_MODEL: "local-model",
-            LLM_BASE_URL: `http://127.0.0.1:${address.port}/v1`, LLM_STRUCTURED_OUTPUT_MODE: "prompt_only",
+            LLM_BASE_URL: `http://127.0.0.1:${address.port}/v1`,
             LLM_CONTEXT_WINDOW_TOKENS: "8192", LLM_MAX_OUTPUT_TOKENS: "1024",
         }));
         const root = new HeadlessCompositionRoot({ ...dependencies, llmAdapter });
@@ -1124,7 +1123,7 @@ test("usage recording preserves native identity and committed provider call/resu
         createEpisode: async () => ({ registry: { get: () => undefined }, readOutcome: () => null, close: async () => undefined }),
     }, new InMemoryTrajectoryStore());
     const nativeAdapter: import("../../packages/llm-core/src/index.js").LLMAdapter = {
-        structuredOutputMode: "strict", nativeConversationIdentity: identity,
+        nativeConversationIdentity: identity,
         async generate(request) {
             calls++;
             assert.equal(request.structuredOutput, undefined);

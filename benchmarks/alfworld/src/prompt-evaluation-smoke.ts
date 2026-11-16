@@ -87,7 +87,6 @@ export async function runPromptEvaluationSmoke(): Promise<void> {
 
         let calls = 0;
         const llmAdapter: LLMAdapter = {
-            structuredOutputMode: "strict",
             generate: async (request) => {
                 calls += 1;
                 if (calls === 1) {

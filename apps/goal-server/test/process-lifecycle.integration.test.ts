@@ -182,7 +182,6 @@ test("宿主关闭并发清理应用资源：实例关闭失败仍关闭 HTTP �
     const workspace = await mkdtemp(join(tmpdir(), "lg-host-shutdown-"));
     const exitPort = new RecordingExitPort();
     const adapter = {
-        structuredOutputMode: "strict" as const,
         async generate(): Promise<never> {
             throw new Error("model must not be called");
         },

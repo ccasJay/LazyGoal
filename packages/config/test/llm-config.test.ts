@@ -9,7 +9,7 @@ import { PiAiAdapter } from "../../llm-pi-ai/src/index";
 
 const base = {
     LLM_PROVIDER: "openai", LLM_MODEL: "gpt-4.1-mini",
-    LLM_API_KEY: "explicit-key", LLM_STRUCTURED_OUTPUT_MODE: "prompt_only",
+    LLM_API_KEY: "explicit-key",
 };
 const custom = {
     ...base, LLM_PROVIDER: "openai-compatible", LLM_MODEL: "local-model",
@@ -17,7 +17,7 @@ const custom = {
     LLM_CONTEXT_WINDOW_TOKENS: "8192", LLM_MAX_OUTPUT_TOKENS: "1024",
 };
 
-test("configuration requires explicit provider, model and key (structuredOutputMode optional)", () => {
+test("configuration requires explicit provider, model and key", () => {
     assert.throws(() => readLLMConfig({}), (error: unknown) => {
         assert.ok(error instanceof LLMConfigurationError);
         assert.equal(error.name, "LLMConfigurationError");
@@ -28,12 +28,6 @@ test("configuration requires explicit provider, model and key (structuredOutputM
     assert.equal(readLLMConfig({ ...base, LLM_API_KEY: "  explicit-key  " }).apiKey, "explicit-key");
     // 供应商标识为开放字符串；是否已注册由组合根注册表校验。
     assert.equal(readLLMConfig({ ...base, LLM_PROVIDER: "my-gateway" }).provider, "my-gateway");
-    assert.throws(() => readLLMConfig({ ...base, LLM_STRUCTURED_OUTPUT_MODE: "auto" }), /Invalid LLM_STRUCTURED_OUTPUT_MODE/);
-
-    // 省略 LLM_STRUCTURED_OUTPUT_MODE 时平滑加载，默认为 prompt_only
-    const { LLM_STRUCTURED_OUTPUT_MODE: _omitted, ...withoutMode } = base;
-    const config = readLLMConfig(withoutMode);
-    assert.equal(config.structuredOutputMode, "prompt_only");
 });
 
 test("factory dispatches registered providers to request-driven adapters", () => {
@@ -43,27 +37,20 @@ test("factory dispatches registered providers to request-driven adapters", () =>
     ] as const) {
         const config = readLLMConfig({ ...base, LLM_PROVIDER: provider, LLM_MODEL: model });
         assert.ok(createLlmAdapter(config) instanceof ChatCompletionsAdapter, provider);
-        const strict = readLLMConfig({ ...base, LLM_PROVIDER: provider, LLM_MODEL: model, LLM_STRUCTURED_OUTPUT_MODE: "strict" });
-        assert.ok(createLlmAdapter(strict) instanceof ChatCompletionsAdapter, provider);
     }
 
     const anthropic = readLLMConfig({ ...base, LLM_PROVIDER: "anthropic", LLM_MODEL: "claude-sonnet-4-5" });
     assert.ok(createLlmAdapter(anthropic) instanceof PiAiAdapter);
 
     const google = readLLMConfig({ ...base, LLM_PROVIDER: "google", LLM_MODEL: "gemini-2.5-flash" });
-    assert.ok(createLlmAdapter(google) instanceof PiAiAdapter);
-    const googleStrict = readLLMConfig({
-        ...base, LLM_PROVIDER: "google", LLM_MODEL: "gemini-2.5-flash", LLM_STRUCTURED_OUTPUT_MODE: "strict",
-    });
-    assert.ok(createLlmAdapter(googleStrict) instanceof Gemini);
+    assert.ok(createLlmAdapter(google) instanceof Gemini);
 
     assert.ok(createLlmAdapter(readLLMConfig(custom)) instanceof ChatCompletionsAdapter);
-    assert.ok(createLlmAdapter(readLLMConfig({ ...custom, LLM_STRUCTURED_OUTPUT_MODE: "strict" })) instanceof ChatCompletionsAdapter);
 });
 
 test("unknown provider is rejected by the typed factory", () => {
     assert.throws(
-        () => createLlmAdapter({ provider: "unknown-gateway", apiKey: "key", model: "model", structuredOutputMode: "prompt_only" }),
+        () => createLlmAdapter({ provider: "unknown-gateway", apiKey: "key", model: "model" }),
         (error: unknown) => error instanceof LLMConfigurationError && /Unknown provider/.test(error.message),
     );
 });
@@ -93,15 +80,14 @@ test("custom models require explicit valid capacities", () => {
 
 test("chat adapters accept arbitrary model identifiers without catalog lookup", () => {
     assert.ok(createLlmAdapter(readLLMConfig({ ...base, LLM_MODEL: "unknown-model" })) instanceof ChatCompletionsAdapter);
-    assert.ok(createLlmAdapter(readLLMConfig({ ...base, LLM_MODEL: "private-model", LLM_STRUCTURED_OUTPUT_MODE: "strict" })) instanceof ChatCompletionsAdapter);
+    assert.ok(createLlmAdapter(readLLMConfig({ ...base, LLM_MODEL: "private-model" })) instanceof ChatCompletionsAdapter);
 });
 
-test("createReflectionLlmAdapter dispatches native runtime providers for google and openai in prompt_only mode", () => {
+test("createReflectionLlmAdapter dispatches native runtime providers for google and openai", () => {
     const googleReflection = createReflectionLlmAdapter({
         provider: "google",
         apiKey: "test-key",
         model: "custom-gemini-model",
-        structuredOutputMode: "prompt_only",
         baseURL: "http://127.0.0.1:8317/v1beta",
     });
     assert.ok(googleReflection instanceof Gemini);
@@ -110,7 +96,6 @@ test("createReflectionLlmAdapter dispatches native runtime providers for google 
         provider: "openai",
         apiKey: "test-key",
         model: "custom-openai-model",
-        structuredOutputMode: "prompt_only",
         baseURL: "http://127.0.0.1:8317/v1",
     });
     assert.ok(openaiReflection instanceof ChatCompletionsAdapter);
@@ -119,7 +104,6 @@ test("createReflectionLlmAdapter dispatches native runtime providers for google 
         provider: "anthropic",
         apiKey: "test-key",
         model: "claude-sonnet-4-5",
-        structuredOutputMode: "prompt_only",
     });
     assert.ok(anthropicReflection instanceof PiAiAdapter);
 });

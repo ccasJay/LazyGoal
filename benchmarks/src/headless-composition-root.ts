@@ -791,7 +791,6 @@ function createSingleProfileRegistry(profile: AgentProfile): AgentProfileRegistr
  */
 class UsageRecordingLLMAdapter implements LLMAdapter {
     readonly nativeConversationIdentity?: NonNullable<LLMAdapter["nativeConversationIdentity"]>;
-    readonly structuredOutputMode: LLMAdapter["structuredOutputMode"];
     private readonly inner: LLMAdapter;
     private inputTokens = 0;
     private outputTokens = 0;
@@ -802,7 +801,6 @@ class UsageRecordingLLMAdapter implements LLMAdapter {
     constructor(inner: LLMAdapter) {
         this.inner = inner;
         if (inner.nativeConversationIdentity !== undefined) this.nativeConversationIdentity = inner.nativeConversationIdentity;
-        this.structuredOutputMode = inner.structuredOutputMode;
     }
 
     async generate(

@@ -26,7 +26,6 @@ test("经公共入口实现的确定性 Adapter 可直接消费请求、响应�
         providerMetadata: { usage: { inputTokens: 12, outputTokens: 34, cachedInputTokens: 5 } },
     });
     const adapter: LLMAdapter = {
-        structuredOutputMode: "prompt_only",
         generate,
         async *stream(request: LLMRequest): AsyncIterable<LLMStreamEvent> {
             yield { kind: "started" };

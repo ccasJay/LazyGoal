@@ -253,7 +253,6 @@ function frameFor(
 }
 
 class ScriptedDecideAdapter implements LLMAdapter {
-    readonly structuredOutputMode = "strict" as const;
     readonly requests: LLMRequest[] = [];
 
     async generate(request: LLMRequest): Promise<LLMResponse> {
@@ -315,7 +314,6 @@ async function buildDecideScenario(
         createAssembler(),
         undefined,
         undefined,
-        "strict",
         "decide",
         stageContext,
         nativeIdentity,
@@ -334,7 +332,6 @@ async function buildThinkScenario(goal: Goal) {
         createAssembler(),
         undefined,
         undefined,
-        "prompt_only",
         "think",
         { thinkGoal: "确认当前执行路线" },
     );
@@ -386,7 +383,6 @@ async function sectionScenario() {
         assembler,
         undefined,
         undefined,
-        "prompt_only",
         stage,
         stage === "think" ? { thinkGoal: "确认当前 GoalPlan 与任务的关系" } : undefined,
     );
@@ -488,7 +484,6 @@ async function executionConsequenceScenario() {
     const decideAdapter = new ScriptedDecideAdapter();
     let thinkCalls = 0;
     const thinkAdapter: LLMAdapter = {
-        structuredOutputMode: "prompt_only",
         async generate(): Promise<LLMResponse> {
             thinkCalls += 1;
             throw new Error("baseline Think adapter must not be called");
@@ -499,7 +494,6 @@ async function executionConsequenceScenario() {
         selection: {
             provider: "openai",
             modelId: "gpt-4o",
-            structuredOutputMode: "two_stage",
             inputEstimator: { kind: "character-v1" },
         },
         thinkAdapter,

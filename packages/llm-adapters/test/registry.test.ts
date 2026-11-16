@@ -12,7 +12,6 @@ const OPENAI_CONFIG: LLMConfig = {
     provider: "openai",
     apiKey: "test-key",
     model: "gpt-4o",
-    structuredOutputMode: "prompt_only",
 };
 
 test("注册表接受已声明供应商并拒绝未知标识", () => {

@@ -711,8 +711,8 @@ test("Provider 档案守卫接受掩码投影并拒绝明文凭据字段", () =>
     assert.equal(isProviderProfile({ ...maskedProfile, apiKey: "sk-raw" }), false);
     assert.equal(isProviderProfile({ ...maskedProfile, id: "" }), false);
     assert.equal(isProviderProfile({ ...maskedProfile, hasApiKey: "yes" }), false);
-    assert.equal(isProviderProfile({ ...maskedProfile, structuredOutputMode: "nope" }), false);
-    assert.equal(isProviderProfile({ ...maskedProfile, structuredOutputMode: "prompt_only" }), true);
+    assert.equal(isProviderProfile({ ...maskedProfile, unknownField: true }), true);
+    assert.equal(isProviderProfile({ ...maskedProfile }), true);
 });
 
 test("Provider 设置守卫只接受裸投影并校验来源维度与回退", () => {

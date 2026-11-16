@@ -301,7 +301,7 @@ function parseReflectArgs(argv: readonly string[]): string {
  *
  * @remarks
  * 接收 GEPA 反思请求并使用独立的 Reflection LM Profile 进行纯文本生成。
- * 强制 `prompt_only` 输出模式且禁止挂载任何工具调用。
+ * 禁止挂载任何工具调用，也不请求结构化输出。
  * stdout 输出单行 JSON 格式的生成结果与归一化用量；
  * 发生错误时 stderr 输出单行结构化 JSON 诊断信息（区分 invalid_request 与 model_error），
  * 且进程退出码非 0。严禁在失败时回退到 Working LM。

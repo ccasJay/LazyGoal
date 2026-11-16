@@ -113,7 +113,6 @@ test("共享 Worker 产物脱离源码模板目录完成一次确定性会话", 
     });
     const requests: string[] = [];
     const adapter: LLMAdapter = {
-        structuredOutputMode: "prompt_only",
         generate: async (request) => {
             requests.push(JSON.stringify(request.messages));
             if (request.tools?.[0]?.id === "system_review_completion") {
@@ -153,7 +152,6 @@ test("共享 Worker 产物脱离源码模板目录完成一次确定性会话", 
             records = await runContextSession(
                 createAcpMuxStream(mux),
                 scenario,
-                "prompt_only",
                 AbortSignal.timeout(60_000),
             );
         } catch (error) {

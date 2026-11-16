@@ -23,7 +23,7 @@ import { WorkerScheduler } from "../src/runtime/worker-scheduler";
 
 const unusedContinuation = async () => ({ ok: false as const, code: "RUN_NOT_FOUND", message: "continuation is not wired in this test" });
 
-const never = { structuredOutputMode: "prompt_only" as const, async generate() { throw new Error("Waiting Goals must not call a model"); } };
+const never = { async generate() { throw new Error("Waiting Goals must not call a model"); } };
 const readPermissionProfile = async () => ({
     workspaceId: "test-workspace",
     profile: PERMISSION_PRESETS.ask,

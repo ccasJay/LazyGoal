@@ -71,7 +71,7 @@ test("Gemini SDK preserves unified executing and checkpoint schemas", async () =
         ]) {
             const bundle = createModelOutputContractBundle(request);
             const before = JSON.stringify(bundle.jsonSchema);
-            await createAdapter("strict").generate({ messages: [{ role: "user", content: "Return JSON" }], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
+            await createAdapter().generate({ messages: [{ role: "user", content: "Return JSON" }], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
             assert.equal(JSON.stringify(bundle.jsonSchema), before, "conversion must not mutate the shared contract");
             const config = sent.at(-1).generationConfig;
             assert.equal(config.responseJsonSchema, undefined);
@@ -84,20 +84,15 @@ test("Gemini SDK preserves unified executing and checkpoint schemas", async () =
     }
 });
 
-function createAdapter(mode: "strict" | "prompt_only" | "two_stage") {
+function createAdapter() {
     return new Gemini({
         apiKey: "test-api-key",
         model: "gemini-2.5-flash",
-        structuredOutputMode: mode,
     });
 }
 
-test("Gemini exposes configured structuredOutputMode immutably", () => {
-    const strictAdapter = createAdapter("strict");
-    const promptOnlyAdapter = createAdapter("prompt_only");
-
-    assert.equal(strictAdapter.structuredOutputMode, "strict");
-    assert.equal(promptOnlyAdapter.structuredOutputMode, "prompt_only");
+test("Gemini 构造与导入零网络请求", () => {
+    createAdapter();
 });
 
 test("Gemini classifies a temporary HTTP failure without SDK retries", async () => {
@@ -111,7 +106,7 @@ test("Gemini classifies a temporary HTTP failure without SDK retries", async () 
         });
     };
     try {
-        const adapter = createAdapter("prompt_only");
+        const adapter = createAdapter();
         await assert.rejects(
             adapter.generate({ messages: [{ role: "user", content: "hello" }] }),
             (error: unknown) => error instanceof TransientModelRequestFailure && error.reason === "service_unavailable",
@@ -123,7 +118,7 @@ test("Gemini classifies a temporary HTTP failure without SDK retries", async () 
 });
 
 test("Gemini in strict mode maps structuredOutput to responseMimeType and responseSchema", async () => {
-    const adapter = createAdapter("strict");
+    const adapter = createAdapter();
     let capturedInput: any = undefined;
     let callCount = 0;
 
@@ -160,7 +155,7 @@ test("Gemini preserves valid Plan completion evidence without rewriting", async 
     const bundle = createModelOutputContractBundle({ kind: "executing", taskPresent: true, planMode: true, authorizedTools: [] });
     const value = { result: { kind: "complete", summary: "Verified fix", memoryPatch: null,
         completionEvidence: [{ criterionIndex: 0, evidenceSequences: [96] }], contextNotes: null } };
-    const adapter = createAdapter("strict");
+    const adapter = createAdapter();
     const text = JSON.stringify(value);
     (adapter as any).client = { models: { generateContent: async () => ({ text }) } };
     const response = await adapter.generate({ messages: [], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
@@ -175,7 +170,7 @@ test("Gemini preserves and rejects invalid completion evidence formats", async (
         planMode: true,
         authorizedTools: [{ id: "read_file", description: "Read file", inputBinding: readFileInputBinding }],
     });
-    const adapter = createAdapter("strict");
+    const adapter = createAdapter();
     let responseValue: unknown;
     (adapter as any).client = { models: { generateContent: async () => ({ text: JSON.stringify(responseValue) }) } };
 
@@ -209,7 +204,7 @@ test("Gemini rejects non-placeholder completion evidence on tool calls", async (
         kind: "executing",
         authorizedTools: [{ id: "read_file", description: "Read file", inputBinding: readFileInputBinding }],
     });
-    const adapter = createAdapter("strict");
+    const adapter = createAdapter();
     const responseValue = {
         result: {
             kind: "tool_call",
@@ -232,7 +227,7 @@ test("Gemini normalizes tool call and removes extraneous summary field", async (
         kind: "executing",
         authorizedTools: [{ id: "read_file", description: "Read file", inputBinding: readFileInputBinding }],
     });
-    const adapter = createAdapter("strict");
+    const adapter = createAdapter();
     const responseValue = {
         result: {
             kind: "tool_call",
@@ -256,7 +251,7 @@ test("Gemini normalizes sentinel values and missing action into complete", async
     const text = JSON.stringify({
         result: { kind: "tool_call", summary: "Task completed with verified evidence.", memoryPatch: "__lazygoal_null__", completionEvidence: "0:96" },
     });
-    const adapter = createAdapter("strict");
+    const adapter = createAdapter();
     (adapter as any).client = { models: { generateContent: async () => ({ text }) } };
     const response = await adapter.generate({ messages: [], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
     const wire = JSON.parse(readAssistantText(response));
@@ -267,7 +262,7 @@ test("Gemini normalizes sentinel values and missing action into complete", async
 });
 
 test("Gemini leaves malformed JSON and missing non-nullable fields unchanged", async () => {
-    const adapter = createAdapter("strict");
+    const adapter = createAdapter();
     let content = "not-json";
     (adapter as any).client = { models: { generateContent: async () => ({ text: content }) } };
     const request = { messages: [], structuredOutput: { name: "answer", schema: dummySchema } };
@@ -277,37 +272,24 @@ test("Gemini leaves malformed JSON and missing non-nullable fields unchanged", a
     assert.equal(readAssistantText(await adapter.generate(request)), content);
 });
 
-test("Gemini in strict mode fails fast when structuredOutput is missing without calling client", async () => {
-    const adapter = createAdapter("strict");
-    let callCount = 0;
-
+test("Gemini omits native schema when the request has none", async () => {
+    const adapter = createAdapter();
+    let capturedInput: any = undefined;
     (adapter as any).client = {
         models: {
-            generateContent: async () => {
-                callCount += 1;
-                return {};
+            generateContent: async (params: any) => {
+                capturedInput = params;
+                return { candidates: [{ content: { role: "model", parts: [{ text: "plain" }] }, finishReason: "STOP" }] };
             },
         },
     };
-
-    const request: LLMRequest = {
-        messages: [{ role: "user", content: "hi" }],
-    };
-
-    await assert.rejects(
-        () => adapter.generate(request),
-        (error: unknown) => {
-            assert.ok(error instanceof LLMRequestModeMismatchError);
-            assert.equal(error.code, "LLM_REQUEST_MODE_MISMATCH");
-            return true;
-        },
-    );
-
-    assert.equal(callCount, 0, "Network client must not be called when mode mismatches");
+    await adapter.generate({ messages: [{ role: "user", content: "hi" }] });
+    assert.equal(capturedInput.config?.responseMimeType, undefined);
+    assert.equal(capturedInput.config?.responseSchema, undefined);
 });
 
 test("Gemini in prompt_only mode does not send native schema parameters", async () => {
-    const adapter = createAdapter("prompt_only");
+    const adapter = createAdapter();
     let capturedInput: any = undefined;
     let callCount = 0;
 
@@ -336,41 +318,29 @@ test("Gemini in prompt_only mode does not send native schema parameters", async 
     assert.equal(capturedInput.config?.responseSchema, undefined);
 });
 
-test("Gemini in prompt_only mode fails fast when structuredOutput is unexpectedly provided", async () => {
-    const adapter = createAdapter("prompt_only");
-    let callCount = 0;
-
+test("Gemini maps request structuredOutput to native schema", async () => {
+    const adapter = createAdapter();
+    let capturedInput: any = undefined;
     (adapter as any).client = {
         models: {
-            generateContent: async () => {
-                callCount += 1;
-                return {};
+            generateContent: async (params: any) => {
+                capturedInput = params;
+                return { candidates: [{ content: { role: "model", parts: [{ text: "{}" }] }, finishReason: "STOP" }] };
             },
         },
     };
-
     const request: LLMRequest = {
         messages: [{ role: "user", content: "hi" }],
-        structuredOutput: {
-            name: "unexpected_output",
-            schema: dummySchema,
-        },
+        structuredOutput: { name: "answer", schema: dummySchema },
     };
-
-    await assert.rejects(
-        () => adapter.generate(request),
-        (error: unknown) => {
-            assert.ok(error instanceof LLMRequestModeMismatchError);
-            assert.equal(error.code, "LLM_REQUEST_MODE_MISMATCH");
-            return true;
-        },
-    );
-
-    assert.equal(callCount, 0, "Network client must not be called when mode mismatches");
+    const response = await adapter.generate(request);
+    assert.equal(readAssistantText(response), "{}");
+    assert.equal(capturedInput.config?.responseMimeType, "application/json");
+    assert.notEqual(capturedInput.config?.responseSchema, undefined);
 });
 
 test("Gemini propagates SDK error directly without retry or fallback to prompt_only", async () => {
-    const adapter = createAdapter("strict");
+    const adapter = createAdapter();
     let callCount = 0;
     const sdkError = new Error("Google Gen AI API Error: Schema compilation failure");
 
@@ -400,7 +370,7 @@ test("Gemini propagates SDK error directly without retry or fallback to prompt_o
 });
 
 test("Gemini normalizes usageMetadata into providerMetadata.usage", async () => {
-    const adapter = createAdapter("prompt_only");
+    const adapter = createAdapter();
 
     (adapter as any).client = {
         models: {
@@ -431,7 +401,7 @@ test("Gemini normalizes usageMetadata into providerMetadata.usage", async () => 
 });
 
 test("Gemini omits cachedInputTokens when cachedContentTokenCount is absent", async () => {
-    const adapter = createAdapter("prompt_only");
+    const adapter = createAdapter();
 
     (adapter as any).client = {
         models: {
@@ -460,7 +430,7 @@ test("Gemini omits cachedInputTokens when cachedContentTokenCount is absent", as
 });
 
 test("Gemini omits providerMetadata.usage when response has no usageMetadata", async () => {
-    const adapter = createAdapter("prompt_only");
+    const adapter = createAdapter();
 
     (adapter as any).client = {
         models: {
@@ -481,7 +451,7 @@ test("Gemini omits providerMetadata.usage when response has no usageMetadata", a
 });
 
 test("Gemini omits providerMetadata.usage when core token counts are non-finite or negative", async () => {
-    const adapter = createAdapter("prompt_only");
+    const adapter = createAdapter();
 
     (adapter as any).client = {
         models: {
@@ -507,7 +477,7 @@ test("Gemini omits providerMetadata.usage when core token counts are non-finite 
 });
 
 test("Gemini passes abortSignal to generateContent config and handles abort cleanly", async () => {
-    const adapter = createAdapter("strict");
+    const adapter = createAdapter();
     const controller = new AbortController();
     let capturedInput: any = undefined;
 
@@ -541,7 +511,7 @@ test("Gemini passes abortSignal to generateContent config and handles abort clea
 });
 
 test("Gemini native adapter applies configured output limit unless request overrides it", async () => {
-    const adapter = new Gemini({ apiKey: "key", model: "model", structuredOutputMode: "strict", maxOutputTokens: 512 });
+    const adapter = new Gemini({ apiKey: "key", model: "model", maxOutputTokens: 512 });
     const limits: number[] = [];
     (adapter as any).client = { models: { generateContent: async (params: any) => {
         limits.push(params.config.maxOutputTokens);
@@ -561,7 +531,7 @@ test("Gemini preserves executing Working Memory updates and rejects task-plannin
             subject: "test", predicate: "status", value: "passed", stability: "stable", evidenceSequences: [5], scope: null,
         } }] }, contextNotes: null };
     const text = JSON.stringify({ result });
-    const adapter = createAdapter("strict");
+    const adapter = createAdapter();
     (adapter as any).client = { models: { generateContent: async () => ({ text }) } };
     const response = await adapter.generate({ messages: [], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
     assert.equal(readAssistantText(response), text);
@@ -589,7 +559,7 @@ test("Gemini strict Schema generates nullable required properties and unconstrai
             planMode: true,
             authorizedTools: [{ id: "read_file", description: "Read file", inputBinding: readFileInputBinding }],
         });
-        const adapter = createAdapter("strict");
+        const adapter = createAdapter();
         await adapter.generate({
             messages: [{ role: "user", content: "hi" }],
             structuredOutput: { name: bundle.name, schema: bundle.jsonSchema },
@@ -630,7 +600,7 @@ test("Gemini restores response and strips null properties for all branches", asy
         planMode: true,
         authorizedTools: [{ id: "read_file", description: "Read file", inputBinding: readFileInputBinding }],
     });
-    const adapter = createAdapter("strict");
+    const adapter = createAdapter();
 
     // 1. complete 响应中附带 action: null
     const completeWithNullAction = {
@@ -677,7 +647,7 @@ test("Gemini strips ask_user residue from a tool_call before restoring sentinels
         kind: "executing",
         authorizedTools: [{ id: "submit_answer", description: "Submit answer", inputBinding: createTestToolDefinition("submit_answer", objectInputSchema({ answer: { type: "string" } })).inputBinding }],
     });
-    const adapter = createAdapter("strict");
+    const adapter = createAdapter();
     const modelResponse = {
         result: {
             kind: "tool_call",
@@ -706,7 +676,7 @@ test("Gemini does not rollback on evidence sentinel and keeps corrupted output t
         kind: "executing",
         authorizedTools: [{ id: "read_file", description: "Read file", inputBinding: readFileInputBinding }],
     });
-    const adapter = createAdapter("strict");
+    const adapter = createAdapter();
 
     // 响应包含证据哨兵值，反向模式匹配成功，不回退
     const validWithSentinel = {
@@ -738,7 +708,7 @@ test("Gemini in two_stage mode restores sentinel values when structuredOutput is
     const text = JSON.stringify({
         result: { kind: "tool_call", summary: "Task completed with verified evidence.", memoryPatch: "__lazygoal_null__", completionEvidence: "0:96" },
     });
-    const adapter = createAdapter("two_stage");
+    const adapter = createAdapter();
     (adapter as any).client = { models: { generateContent: async () => ({ text }) } };
     const response = await adapter.generate({ messages: [], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
     const wire = JSON.parse(readAssistantText(response));
@@ -755,7 +725,7 @@ test("Gemini restores a normal completion with request_think field residue", asy
         allowThink: true,
         authorizedTools: [{ id: "bash", description: "Bash", inputBinding: bashInputBinding }],
     });
-    const adapter = createAdapter("two_stage");
+    const adapter = createAdapter();
     const text = JSON.stringify({
         result: {
             kind: "complete",
@@ -795,7 +765,7 @@ test("Gemini preserves authorized Tool calls in Plan Mode before task approval",
             memoryPatch: "__lazygoal_null__",
         },
     });
-    const adapter = createAdapter("two_stage");
+    const adapter = createAdapter();
     (adapter as any).client = { models: { generateContent: async () => ({ text }) } };
     const response = await adapter.generate({ messages: [], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
     const wire = JSON.parse(readAssistantText(response));
@@ -826,7 +796,7 @@ test("Gemini strips evidenceSequences residue from a tool_call in normal mode", 
             summary: null,
         },
     });
-    const adapter = createAdapter("strict");
+    const adapter = createAdapter();
     (adapter as any).client = { models: { generateContent: async () => ({ text }) } };
     const response = await adapter.generate({ messages: [], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } });
     const wire = JSON.parse(readAssistantText(response));
@@ -840,7 +810,7 @@ test("Gemini strips evidenceSequences residue from a tool_call in normal mode", 
 });
 
 test("Gemini native adapter rejects truncated, blocked and unsupported completions before returning decisions", async () => {
-    const adapter = createAdapter("prompt_only");
+    const adapter = createAdapter();
     for (const finishReason of ["MAX_TOKENS", "SAFETY", "PROHIBITED_CONTENT", "MALFORMED_FUNCTION_CALL"] as const) {
         (adapter as any).client = { models: { generateContent: async () => ({
             candidates: [{ content: { role: "model", parts: [{ text: "部分正文" }] }, finishReason }],
@@ -867,20 +837,8 @@ test("Gemini native adapter rejects truncated, blocked and unsupported completio
     );
 });
 
-test("Gemini native stream validates the fixed output mode before dispatch", async () => {
-    const adapter = createAdapter("strict");
-    let dispatched = 0;
-    (adapter as any).client = { models: { generateContentStream: async () => { dispatched += 1; throw new Error("must not dispatch"); } } };
-    const events: LLMStreamEvent[] = [];
-    await assert.rejects(async () => {
-        for await (const event of adapter.stream!({ messages: [{ role: "user", content: "hi" }] })) events.push(event);
-    }, (error: unknown) => error instanceof LLMRequestModeMismatchError);
-    assert.equal(dispatched, 0);
-    assert.deepEqual(events, []);
-});
-
 test("Gemini 转换复杂嵌套 anyOf 工具 Schema 时完全消除 anyOf 并保留平坦结构", async () => {
-    const adapter = createAdapter("prompt_only");
+    const adapter = createAdapter();
     let capturedConfig: any;
     (adapter as any).client = {
         models: {

@@ -57,7 +57,7 @@ export function createOpenCodeGoCatalogSource(): CatalogSource {
  *
  * @example
  * ```ts
- * const adapter = createOpenCodeGoAdapter({ provider: "opencode-go", apiKey: "secret", model: "beam-free", structuredOutputMode: "prompt_only" });
+ * const adapter = createOpenCodeGoAdapter({ provider: "opencode-go", apiKey: "secret", model: "beam-free" });
  * ```
  */
 export function createOpenCodeGoAdapter(config: LLMConfig): LLMAdapter {

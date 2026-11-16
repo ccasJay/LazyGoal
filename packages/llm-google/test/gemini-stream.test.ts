@@ -36,8 +36,8 @@ const TOOLS = [
     { id: "read_file", description: "Read a file", parametersSchema: { type: "object", properties: {} } },
 ];
 
-function adapter(baseURL: string, structuredOutputMode: "strict" | "prompt_only" = "prompt_only") {
-    return new Gemini({ apiKey: "test-key", baseURL, model: "gemini-2.5-flash", structuredOutputMode });
+function adapter(baseURL: string) {
+    return new Gemini({ apiKey: "test-key", baseURL, model: "gemini-2.5-flash" });
 }
 
 async function withServer(
@@ -173,7 +173,7 @@ test("strict 结构化流缓冲原文，投影完成后才交付唯一规范块"
         ]));
     }, async baseURL => {
         const request: LLMRequest = { messages: [{ role: "user", content: "回答" }], structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } };
-        const instance = adapter(baseURL, "strict");
+        const instance = adapter(baseURL);
         const generated = await instance.generate(request);
         assert.equal(recorded[0]!.path.includes("streamGenerateContent"), false);
 

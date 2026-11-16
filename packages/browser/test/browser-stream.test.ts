@@ -1083,7 +1083,6 @@ test("真实模型调用链下的浏览器活动只包含公开正文与调用�
     const REASONING_MARKER = "PRIVATE_REASONING";
     const METADATA_MARKER = "PRIVATE_METADATA";
     const adapter: LLMAdapter = {
-        structuredOutputMode: "strict",
         async generate(): Promise<LLMResponse> { throw new Error("stream adapter must not call generate"); },
         async *stream(): AsyncIterable<LLMStreamEvent> {
             yield { kind: "started" };

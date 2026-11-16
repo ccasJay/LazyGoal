@@ -28,7 +28,6 @@ function context(overrides: Partial<ModelCallContext> = {}): ModelCallContext {
 }
 
 class ScriptedAdapter implements LLMAdapter {
-    readonly structuredOutputMode = "strict" as const;
     calls = 0;
     readonly requests: LLMRequest[] = [];
 

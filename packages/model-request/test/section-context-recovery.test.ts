@@ -203,7 +203,6 @@ async function build(
         assembler,
         undefined,
         modelCapabilities,
-        "prompt_only",
         stage,
         stage === "think" ? { thinkGoal: "确认当前 GoalPlan 与任务的关系" } : undefined,
     );

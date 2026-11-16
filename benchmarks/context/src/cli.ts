@@ -22,9 +22,8 @@ export async function loadContextRoles(raw: unknown, baseDirectory: string): Pro
         const role = record(roles[name]);
         const profile = textValue(role.profile);
         const config = await loadRuntimeConfig({ cliArgs: { profile }, ...(role.configFile === undefined ? {} : { customConfigFile: resolve(baseDirectory, textValue(role.configFile)) }) });
-        if (config.llm.structuredOutputMode === "two_stage") throw new Error("Context benchmark requires strict or prompt_only role configuration");
         const configuration = {
-            provider: config.llm.provider, model: config.llm.model, structuredOutputMode: config.llm.structuredOutputMode,
+            provider: config.llm.provider, model: config.llm.model,
             ...(config.llm.maxOutputTokens === undefined ? {} : { maxOutputTokens: config.llm.maxOutputTokens }),
             ...("contextWindowTokens" in config.llm ? { contextWindowTokens: config.llm.contextWindowTokens } : {}),
             endpointHash: identity("baseURL" in config.llm ? config.llm.baseURL ?? "default" : "default"),

@@ -1,10 +1,9 @@
-import type { LLMConfig, LLMProvider, StructuredOutputMode } from "../../llm-core/src/index";
+import type { LLMConfig, LLMProvider } from "../../llm-core/src/index";
 import {
     isAcceptableBaseUrl,
     isPositiveSafeInteger,
     isSupportedLlmProvider,
     supportsBaseUrl,
-    supportsStrictOutput,
     SUPPORTED_LLM_PROVIDERS,
 } from "./provider-rules";
 
@@ -44,7 +43,7 @@ export class ProviderProfileResolutionError extends Error {
  * 新建 Provider 档案的未校验输入。
  *
  * @remarks
- * `kind` 与 `structuredOutputMode` 保持字符串形态，由校验函数按当前供应商规则收窄；
+ * `kind` 保持字符串形态，由校验函数按当前供应商规则收窄；
  * `label` 与 `id` 属非敏感标识，不得携带明文凭据。
  *
  * @example
@@ -69,8 +68,6 @@ export interface ProviderProfileDraft {
     readonly contextWindowTokens?: number | undefined;
     /** 输出 Token 上限，必须小于上下文窗口上限。 */
     readonly maxOutputTokens?: number | undefined;
-    /** 结构化输出模式（未校验）；省略时由解析方按既有默认派生。 */
-    readonly structuredOutputMode?: string | undefined;
 }
 
 /**
@@ -104,8 +101,6 @@ export interface ProviderProfile {
     readonly contextWindowTokens?: number;
     /** 输出 Token 上限。 */
     readonly maxOutputTokens?: number;
-    /** 结构化输出模式；省略时由解析方派生。 */
-    readonly structuredOutputMode?: StructuredOutputMode;
 }
 
 /** 通过校验的档案字段（不含 Store 分配的 `id`）。 */
@@ -158,20 +153,6 @@ export function validateProviderProfileDraft(draft: ProviderProfileDraft): Valid
         problems.push(`不支持的 provider kind "${draft.kind}"；可选：${SUPPORTED_LLM_PROVIDERS.join(", ")}`);
     } else {
         kind = kindValue;
-    }
-
-    let structuredOutputMode: StructuredOutputMode | undefined;
-    const rawMode = draft.structuredOutputMode?.trim();
-    if (rawMode !== undefined && rawMode.length > 0) {
-        if (rawMode !== "strict" && rawMode !== "prompt_only" && rawMode !== "two_stage") {
-            fields.push("structured_output_mode");
-            problems.push(`无效的 structured_output_mode "${rawMode}"`);
-        } else if (kind !== undefined && rawMode === "strict" && !supportsStrictOutput(kind)) {
-            fields.push("structured_output_mode");
-            problems.push(`供应商 "${kind}" 不支持 strict 输出`);
-        } else {
-            structuredOutputMode = rawMode;
-        }
     }
 
     let baseURL: string | undefined;
@@ -227,7 +208,6 @@ export function validateProviderProfileDraft(draft: ProviderProfileDraft): Valid
         ...(baseURL === undefined ? {} : { baseURL }),
         ...(contextWindowTokens === undefined ? {} : { contextWindowTokens }),
         ...(maxOutputTokens === undefined ? {} : { maxOutputTokens }),
-        ...(structuredOutputMode === undefined ? {} : { structuredOutputMode }),
     };
 }
 
@@ -235,8 +215,8 @@ export function validateProviderProfileDraft(draft: ProviderProfileDraft): Valid
  * 把已校验的 Provider 档案解析为 `LLMConfig`。
  *
  * @remarks
- * 输出模式优先取调用方覆盖值，其次取档案声明，最后回退 `prompt_only`；其余字段按档案的供应商分支投影，
- * 端点与容量只在对应供应商允许或必需时出现。OpenCode Go 动态执行协议由服务端目录在模型选择后补入，不来自档案。
+ * 其余字段按档案的供应商分支投影，端点与容量只在对应供应商允许或必需时出现。
+ * OpenCode Go 动态执行协议由服务端目录在模型选择后补入，不来自档案。
  * 档案已通过校验，缺失必需字段时抛出解析错误而非静默补齐。
  *
  * @param profile - 已校验的 Provider 档案。
@@ -250,12 +230,11 @@ export function validateProviderProfileDraft(draft: ProviderProfileDraft): Valid
  */
 export function toLlmConfig(
     profile: ProviderProfile,
-    options: { readonly model: string; readonly structuredOutputMode?: StructuredOutputMode | undefined },
+    options: { readonly model: string },
 ): LLMConfig {
     const common = {
         apiKey: profile.apiKey,
         model: options.model,
-        structuredOutputMode: options.structuredOutputMode ?? profile.structuredOutputMode ?? "prompt_only",
         ...(profile.maxOutputTokens === undefined ? {} : { maxOutputTokens: profile.maxOutputTokens }),
     };
     if (profile.kind === "openai" || profile.kind === "google") {

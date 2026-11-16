@@ -223,7 +223,7 @@ test("环境变量优先于受管档案，未被选择时回退 config.toml", as
         await mkdir(tomlHome, { recursive: true });
         await writeFile(
             join(tomlHome, "config.toml"),
-            `[llm]\nprovider = "openai"\nmodel = "gpt-4o"\napi_key = "${ENV_KEY}-toml"\n`,
+            `[providers.openai.main]\napi_key = "${ENV_KEY}-toml"\n[[providers.openai.main.models]]\nid = "gpt-4o"\ncontext_window = 128000\nmax_output_tokens = 8192\n[llm]\nprovider = "main"\nmodel = "gpt-4o"\n`,
             { encoding: "utf8", mode: 0o600 },
         );
         const tomlRoot = await createCompositionRoot({

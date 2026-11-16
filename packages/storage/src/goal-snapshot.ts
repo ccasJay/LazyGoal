@@ -881,7 +881,6 @@ export interface GoalSnapshotModelSelectionV1 {
     readonly profileId?: string | undefined;
     readonly modelId: string;
     readonly executionApi?: "openai-completions" | undefined;
-    readonly structuredOutputMode?: "strict" | "prompt_only" | "two_stage" | undefined;
     readonly contextWindowTokens?: number | undefined;
     readonly maxOutputTokens?: number | undefined;
     /** 模型是否支持推理内容。 */

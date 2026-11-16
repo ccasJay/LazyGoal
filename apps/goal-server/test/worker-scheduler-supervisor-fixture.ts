@@ -24,7 +24,6 @@ const owner = new SupervisorOwnership(join(dataDirectory, "owner.db"));
 const triggers = new TriggerStore(join(dataDirectory, "triggers.db"));
 const goals = new JsonFileGoalStore(join(dataDirectory, "goals"));
 const admissionAdapter: LLMAdapter = {
-    structuredOutputMode: "prompt_only",
     async generate() {
         return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({ kind: "accept", workspaceMode: "shared" }) }] };
     },

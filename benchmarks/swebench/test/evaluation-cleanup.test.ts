@@ -31,7 +31,6 @@ const metadata: SwebenchAcpTaskMetadata = {
     goalId: "goal-1",
     runId: "run-1",
     maxSteps: 4,
-    structuredOutputMode: "strict",
 };
 const manifest: WorkerManifest = {
     manifestVersion: 1,
@@ -62,7 +61,6 @@ const artifact: WorkerArtifact = {
     cacheHit: false,
 };
 const llmAdapter: LLMAdapter = {
-    structuredOutputMode: "strict",
     generate: async () => { throw new Error("model must not be called by cleanup tests"); },
 };
 

@@ -62,14 +62,12 @@ switch (scenario) {
     case "llm-core": {
         const core = await import(entry("packages/llm-core/src/index.ts"));
         const adapter: import("../../llm-core/src/index").LLMAdapter = {
-            structuredOutputMode: "prompt_only",
             async generate() {
                 return { blocks: [{ index: 0, type: "text", format: "plain", text: "probe" }], providerMetadata: { usage: { inputTokens: 1, outputTokens: 2 } } };
             },
         };
         const response = await adapter.generate({ messages: [{ role: "user", content: "hi" }] });
         artifacts = {
-            mode: adapter.structuredOutputMode,
             usage: core.readNormalizedUsage(response.providerMetadata),
             errorCode: new core.LLMConfigurationError(["LLM_API_KEY"]).code,
             failureReason: core.classifyTransientModelFailure({ status: 429 })?.reason,
@@ -79,21 +77,21 @@ switch (scenario) {
     case "config": {
         const config = await import(entry("packages/config/src/index.ts"));
         const parsed = config.readLLMConfig({ LLM_PROVIDER: "openai", LLM_MODEL: "gpt-4.1-mini", LLM_API_KEY: "probe" });
-        artifacts = { provider: parsed.provider, mode: parsed.structuredOutputMode };
+        artifacts = { provider: parsed.provider };
         break;
     }
     case "llm-google": {
         const { Gemini } = await import(entry("packages/llm-google/src/index.ts"));
-        const instance = new Gemini({ apiKey: "probe-key", model: "gemini-2.5-flash", structuredOutputMode: "strict" });
-        artifacts = { mode: instance.structuredOutputMode, endpoint: instance.nativeConversationIdentity.endpoint };
+        const instance = new Gemini({ apiKey: "probe-key", model: "gemini-2.5-flash" });
+        artifacts = { endpoint: instance.nativeConversationIdentity.endpoint };
         break;
     }
     case "llm-pi-ai": {
         const { PiAiAdapter } = await import(entry("packages/llm-pi-ai/src/index.ts"));
         const instance = new PiAiAdapter({
-            provider: "anthropic", apiKey: "probe-key", model: "claude-sonnet-4-5", structuredOutputMode: "prompt_only",
+            provider: "anthropic", apiKey: "probe-key", model: "claude-sonnet-4-5",
         });
-        artifacts = { mode: instance.structuredOutputMode };
+        artifacts = {};
         break;
     }
     case "model-catalog": {
@@ -110,7 +108,7 @@ switch (scenario) {
             isProtocolImplemented: () => true,
         });
         const models = await catalog.list({
-            provider: "openai", model: "gpt-4o", apiKey: "probe-key", structuredOutputMode: "prompt_only",
+            provider: "openai", model: "gpt-4o", apiKey: "probe-key",
         }, { requireTokenCapacity: false });
         artifacts = { descriptorCount: models.length };
         break;

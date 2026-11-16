@@ -103,8 +103,7 @@ test("JsonFileGoalStore rejects a historical Snapshot without migration or write
 test("GoalSnapshotCodec: 编码与解码严格保持 GoalModelSelection 描述，且序列化不含凭据", () => {
     const customSelection = {
         provider: "opencode-go",
-        modelId: "minimax-m3.1-flash-free",
-        structuredOutputMode: "prompt_only" as const,
+        modelId: "minimax-m3.1-flash-free" as const,
         executionApi: "openai-completions" as const,
         contextWindowTokens: 1_000_000,
         maxOutputTokens: 524_288,
@@ -125,26 +124,25 @@ test("GoalSnapshotCodec: 编码与解码严格保持 GoalModelSelection 描述�
     assert.equal(encoded.metadata.schemaVersion, 1);
     assert.deepEqual(encoded.state.modelSelection, customSelection);
 
-    // 验证 two_stage 模式的编解码一致性
-    const twoStageSelection = {
+    // 验证仅含必选字段的模型选择编解码一致性
+    const minimalSelection = {
         provider: "google",
-        modelId: "gemini-3.6-flash-high",
-        structuredOutputMode: "two_stage" as const,
+        modelId: "gemini-3.6-flash-high" as const,
         inputEstimator: { kind: "character-v1" as const },
     };
-    const twoStageGoal = createGoal({
+    const minimalGoal = createGoal({
         ...currentProtocols,
-        id: "goal-two-stage-test",
-        intent: "验证 two_stage 模型选择编解码",
+        id: "goal-minimal-selection-test",
+        intent: "验证必选字段模型选择编解码",
         promptBundleVersion: 1,
         profile,
-        runId: "run-two-stage-test",
-        modelSelection: twoStageSelection,
+        runId: "run-minimal-selection-test",
+        modelSelection: minimalSelection,
     });
-    const encodedTwoStage = goalSnapshotCodec.encode(twoStageGoal);
-    assert.deepEqual(encodedTwoStage.state.modelSelection, twoStageSelection);
-    const decodedTwoStage = goalSnapshotCodec.decode(encodedTwoStage);
-    assert.deepEqual(decodedTwoStage.state.modelSelection, twoStageSelection);
+    const encodedMinimal = goalSnapshotCodec.encode(minimalGoal);
+    assert.deepEqual(encodedMinimal.state.modelSelection, minimalSelection);
+    const decodedMinimal = goalSnapshotCodec.decode(encodedMinimal);
+    assert.deepEqual(decodedMinimal.state.modelSelection, minimalSelection);
 
     // 检查序列化 JSON 中绝对不包含任何敏感字段
     const jsonString = JSON.stringify(encoded);
@@ -156,25 +154,24 @@ test("GoalSnapshotCodec: 编码与解码严格保持 GoalModelSelection 描述�
     assert.deepEqual(decoded.state.modelSelection, customSelection);
     assert.notEqual(decoded.state.modelSelection, encoded.state.modelSelection);
 
-    // 省略 structuredOutputMode 的模型选择能够平滑编解码，实现对历史快照的无缝兼容
-    const selectionWithoutMode = {
+    // 仅含必选字段的模型选择能够平滑编解码
+    const selectionWithoutCapacity = {
         provider: "openai",
         modelId: "gpt-4o",
         inputEstimator: { kind: "character-v1" as const },
     };
-    const goalWithoutMode = createGoal({
+    const goalWithoutCapacity = createGoal({
         ...currentProtocols,
-        id: "goal-no-mode-test",
-        intent: "验证无 structuredOutputMode 的模型选择快照",
+        id: "goal-no-capacity-test",
+        intent: "验证仅含必选字段的模型选择快照",
         promptBundleVersion: 1,
         profile,
-        runId: "run-no-mode-test",
-        modelSelection: selectionWithoutMode,
+        runId: "run-no-capacity-test",
+        modelSelection: selectionWithoutCapacity,
     });
-    const encodedNoMode = goalSnapshotCodec.encode(goalWithoutMode);
-    assert.equal(encodedNoMode.state.modelSelection.structuredOutputMode, undefined);
-    const decodedNoMode = goalSnapshotCodec.decode(encodedNoMode);
-    assert.equal(decodedNoMode.state.modelSelection.structuredOutputMode, undefined);
+    const encodedNoCapacity = goalSnapshotCodec.encode(goalWithoutCapacity);
+    const decodedNoCapacity = goalSnapshotCodec.decode(encodedNoCapacity);
+    assert.equal(decodedNoCapacity.state.modelSelection.modelId, goalWithoutCapacity.state.modelSelection.modelId);
 });
 
 test("GoalSnapshotCodec: 缺失 modelSelection 的旧快照明确拒绝失败", () => {

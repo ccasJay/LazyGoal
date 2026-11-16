@@ -38,7 +38,6 @@ export LLM_BASE_URL='<your-compatible-api-url>'
 export LLM_MODEL='<your-model>'
 export LLM_CONTEXT_WINDOW_TOKENS='32768'
 export LLM_MAX_OUTPUT_TOKENS='4096'
-export LLM_STRUCTURED_OUTPUT_MODE='strict'
 ```
 
 For the native Google protocol, select the Google provider. Leave `LLM_BASE_URL`
@@ -49,14 +48,13 @@ Google API, including its version path:
 export LLM_PROVIDER='google'
 export LLM_API_KEY='<your-key>'
 export LLM_MODEL='<your-gemini-model>'
-export LLM_STRUCTURED_OUTPUT_MODE='strict'
 unset LLM_BASE_URL
 ```
 
-Google strict requires an endpoint that supports the complete `responseJsonSchema`,
+Google structured output requires an endpoint that supports the complete `responseJsonSchema`,
 including union branches and required fields. Responses pass unchanged to local
 contract validation. Unsupported schemas and invalid decisions fail explicitly;
-the adapter does not repair responses or automatically switch to `prompt_only`.
+the adapter does not repair responses.
 The host keeps provider credentials; the Worker receives only model responses through
 the LLM RPC channel.
 This command reads process environment variables; it does not load ALFWorld's

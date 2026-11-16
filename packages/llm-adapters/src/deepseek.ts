@@ -47,7 +47,7 @@ export function createDeepSeekCatalogSource(): CatalogSource {
  *
  * @example
  * ```ts
- * const adapter = createDeepSeekAdapter({ provider: "deepseek", apiKey: "secret", model: "deepseek-chat", structuredOutputMode: "prompt_only" });
+ * const adapter = createDeepSeekAdapter({ provider: "deepseek", apiKey: "secret", model: "deepseek-chat" });
  * ```
  */
 export function createDeepSeekAdapter(config: LLMConfig): LLMAdapter {

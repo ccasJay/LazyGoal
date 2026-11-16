@@ -113,7 +113,7 @@ export async function runAgentSmoke(
         throw new Error(`Smoke execution did not complete with exactly one tool observation (status=${goal?.state.run.status}, toolCalls=${toolCalls})`);
     }
     return {
-        provider: config.provider, model: config.model, mode: adapter.structuredOutputMode,
+        provider: config.provider, model: config.model,
         unifiedExecution: "passed", toolCalls,
         durationMs: Math.round(performance.now() - startedAt),
     };
@@ -131,7 +131,6 @@ if (!runningUnderNodeTest && process.argv[1] !== undefined && import.meta.url ==
         .catch((error: unknown) => {
             console.error(JSON.stringify({
                 provider: process.env.LLM_PROVIDER, model: process.env.LLM_MODEL,
-                mode: process.env.LLM_STRUCTURED_OUTPUT_MODE,
                 status: isExecutionAbortedError(error) ? "cancelled" : "failed",
                 error: error instanceof Error ? error.message : String(error),
             }));

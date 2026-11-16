@@ -13,7 +13,6 @@ import {
 } from "../../model-contracts/src/index";
 import { readAssistantText, readToolCalls } from "../../llm-core/src/index";
 import type { LLMResponse } from "../../llm-core/src/index";
-import type { StructuredOutputMode } from "../../llm-core/src/index";
 import { readLLMConfig } from "../../config/src/index";
 import { LLMConfigurationError } from "../../llm-core/src/index";
 import { createLlmAdapter } from "../../llm/src/index";
@@ -50,7 +49,7 @@ export async function evaluationRenderers() {
 }
 
 /** 使用生产 Renderer、输出契约和声明构造固定单步请求；业务工具仅声明，不执行。 */
-export function evaluationRequest(scenario: Scenario, renderer: PromptBundleRenderer, mode: StructuredOutputMode,
+export function evaluationRequest(scenario: Scenario, renderer: PromptBundleRenderer,
     oldDescriptions?: Readonly<Record<string, string>>) {
     const tools = decisionScenarioTools(scenario);
     const bundle: ModelOutputBundle<AgentDecision> = scenario.checkpoint
@@ -75,10 +74,10 @@ export function evaluationRequest(scenario: Scenario, renderer: PromptBundleRend
         dynamicSectionIdentities: renderer.dynamicSectionIdentities,
     };
     const request = {
-        ...renderRequest(view, requestRenderer, mode === "prompt_only" ? bundle.shapeGuide : undefined, undefined, createStageMessages("decide", scenario.runtimeFeedback === undefined ? undefined : { runtimeFeedback: scenario.runtimeFeedback })),
+        ...renderRequest(view, requestRenderer, undefined, undefined, createStageMessages("decide", scenario.runtimeFeedback === undefined ? undefined : { runtimeFeedback: scenario.runtimeFeedback })),
         tools: declarations.map(d => ({ id: d.id, description: oldDescriptions?.[d.id] ?? d.description, parametersSchema: d.parametersSchema })),
         toolChoice: "required" as const,
-        ...(mode === "strict" ? { structuredOutput: { name: bundle.name, schema: bundle.jsonSchema } } : {}),
+        structuredOutput: { name: bundle.name, schema: bundle.jsonSchema },
     };
     return { request, bundle, declarations };
 }
@@ -130,11 +129,11 @@ export async function runDecisionEvaluation(env: Readonly<Record<string, string 
     const renderers = await evaluationRenderers();
     const adapter = createLlmAdapter(config);
     const rows: { scenario: string; variant: Variant; repeat: number; passed: boolean; criticalViolation: boolean; protocolValid: boolean; unnecessaryQuestion: boolean }[] = [];
-    const plans = scenariosToRun.map(scenario => ({ scenario, old: evaluationRequest(scenario, renderers.old, config.structuredOutputMode, renderers.oldDescriptions),
-        new: evaluationRequest(scenario, renderers.new, config.structuredOutputMode) }));
+    const plans = scenariosToRun.map(scenario => ({ scenario, old: evaluationRequest(scenario, renderers.old, renderers.oldDescriptions),
+        new: evaluationRequest(scenario, renderers.new) }));
     await writeFile(resolve(outputDir, "manifest.json"), JSON.stringify({
         baselineCommit: "2397e31155786d274c02b51fbc309266d3b58577", provider: config.provider, model: config.model,
-        mode: config.structuredOutputMode, maxOutputTokens: config.maxOutputTokens,
+        maxOutputTokens: config.maxOutputTokens,
         templateHashes: renderers.templateHashes,
         scorerHash: hash(await readFile(new URL("./decision-guidance-fixtures.ts", import.meta.url), "utf8")),
         plans: plans.map(p => ({ scenario: p.scenario.id, expected: p.scenario.expected, old: p.old.request, new: p.new.request })),
@@ -181,7 +180,7 @@ export async function runDecisionEvaluation(env: Readonly<Record<string, string 
     const passed = complete && current.criticalViolations === 0 && current.passed >= old.passed && scenarios.every(s => s.new >= s.old)
         && scenariosToRun.filter(s => s.required).every(s => rows.filter(r => r.scenario === s.id && r.variant === "new" && r.passed).length === 3);
     const report = { status: !complete ? "incomplete" : passed ? "passed" : "failed", requestsCompleted: rows.length, selectedScenarios: scenariosToRun.map(s => s.id),
-        provider: config.provider, model: config.model, mode: config.structuredOutputMode, calls: rows.length,
+        provider: config.provider, model: config.model, calls: rows.length,
         requiredScenarios: scenariosToRun.filter(s => s.required).map(s => s.id),
         old, new: current, scenarios, outputDir,
         conclusion: complete && old.passed === expectedPerVariant && current.passed === expectedPerVariant ? "No regression observed in these scenarios; no significant improvement claim." : "Bounded single-step comparison; not a long-running task success estimate." };

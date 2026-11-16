@@ -332,8 +332,7 @@ test("Goal 只接受唯一当前协议组合", () => {
 test("createGoal incorporates and isolates explicit modelSelection", () => {
     const customSelection = {
         provider: "opencode-go",
-        modelId: "minimax-m3.1-flash-free",
-        structuredOutputMode: "prompt_only" as const,
+        modelId: "minimax-m3.1-flash-free" as const,
         executionApi: "openai-completions" as const,
         contextWindowTokens: 1_000_000,
         maxOutputTokens: 524_288,

@@ -43,7 +43,6 @@ export async function runGaiaWorkerSmoke(): Promise<void> {
     try {
         let calls = 0;
         const adapter: LLMAdapter = {
-            structuredOutputMode: "strict",
             generate: async (request) => {
                 calls += 1;
                 if (calls === 1) {

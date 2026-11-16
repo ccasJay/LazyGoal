@@ -6,7 +6,6 @@ import { test } from "node:test";
 
 import {
     GAIA_PROFILE_TOOL_IDS,
-    GAIA_STRUCTURED_OUTPUT_MODE,
     GAIA_WORKER_PROFILE,
     GaiaProfileValidationError,
     loadGaiaWorkerProfile,
@@ -23,7 +22,6 @@ test("GAIA Profile 物化文件与 Worker 内置 Profile 完全一致", async ()
         assert.deepEqual(raw, toGaiaWorkerProfileDocument());
         assert.equal((await loadGaiaWorkerProfile(outputPath)).id, GAIA_WORKER_PROFILE.id);
         assert.deepEqual(GAIA_WORKER_PROFILE.toolIds, GAIA_PROFILE_TOOL_IDS);
-        assert.equal(GAIA_STRUCTURED_OUTPUT_MODE, "strict");
         assert.match(GAIA_WORKER_PROFILE.systemPrompt, /workspace-relative path/);
         assert.doesNotMatch(GAIA_WORKER_PROFILE.systemPrompt, /\/workspace\/question\.txt/);
         assert.match(GAIA_WORKER_PROFILE.instructions[0]!, /workspace-relative paths/);

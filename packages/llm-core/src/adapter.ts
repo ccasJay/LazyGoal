@@ -4,14 +4,13 @@ import type {
     LLMResponse,
     LLMStreamEvent,
 } from "./types";
-import type { StructuredOutputMode } from "./llm-config";
 import type { ExecutionControl } from "../../execution-control/src/index";
 
 /**
  * Agent 与具体 LLM 供应商之间的最小适配边界。
  *
  * @remarks
- * 可选的 `structuredOutputMode` 表示 Adapter 仍使用配置固定的输出策略；缺省时，生成约束由请求表达。
+ * 可选的 `nativeConversationIdentity` 表示 Adapter 支持同身份原生历史回放；缺省时只使用现有语义历史。
  * 实现必须保持对话消息顺序和角色语义；pi-ai 仅接受前置 system 消息并合并为 systemPrompt。
  * 正文、公开 reasoning 摘要与工具调用分别返回，不把思考块拼进正文，也不在此解析 AgentDecision。
  * required 工具调用策略须映射到对应供应商参数；调用数量和参数有效性由 Agent 校验，与原生历史回放能力无关。
@@ -31,9 +30,6 @@ import type { ExecutionControl } from "../../execution-control/src/index";
 export interface LLMAdapter {
     /** 存在时支持同身份原生历史回放；省略时只使用现有语义历史。 */
     readonly nativeConversationIdentity?: NativeConversationIdentity;
-
-    /** 存在时表示该 Adapter 仍使用配置固定的结构化输出策略。 */
-    readonly structuredOutputMode?: StructuredOutputMode;
 
     /**
      * @param request - 已按模型消费顺序组装的消息列表；具体生成约束由请求和 Adapter 协议共同决定。

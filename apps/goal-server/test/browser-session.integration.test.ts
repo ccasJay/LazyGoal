@@ -139,7 +139,6 @@ function fixtureGoal(
 }
 
 const inactiveAdapter: LLMAdapter = {
-    structuredOutputMode: "prompt_only",
     async generate() { throw new Error("This test does not use Supervisor model decisions"); },
 };
 
@@ -147,7 +146,6 @@ function createWorkNameAdapter(): { readonly adapter: LLMAdapter; readonly calls
     let calls = 0;
     return {
         adapter: {
-            structuredOutputMode: "prompt_only",
             async generate(request) {
                 calls += 1;
                 assert.equal(request.structuredOutput, undefined);

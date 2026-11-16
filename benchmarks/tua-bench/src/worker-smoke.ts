@@ -51,7 +51,6 @@ export async function runTuaBenchWorkerSmoke(): Promise<void> {
         process.env.DEBUG_BENCHMARK_WORKER = "1";
         let stepCount = 0;
         const adapter: LLMAdapter = {
-            structuredOutputMode: "strict",
             generate: async (request) => {
                 stepCount += 1;
                 process.stdout.write(`   [LLM Adapter] 收到第 ${stepCount} 次模型调用请求...\n`);
@@ -147,7 +146,6 @@ export async function runTuaBenchWorkerSmoke(): Promise<void> {
                     ...task,
                     goalId: "smoke-goal-001",
                     runId: "smoke-run-001",
-                    structuredOutputMode: "strict",
                 },
                 onUpdate: (update) => {
                     process.stdout.write(`   [ACP Update] ${JSON.stringify(update)}\n`);

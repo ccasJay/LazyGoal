@@ -28,7 +28,7 @@ type EmbeddedPromptAssets = Readonly<Record<string, string>>;
  *
  * @remarks
  * stdout 只承载 Mux 字节；诊断写入 stderr。Session metadata 在 Worker 边界校验，
- * 结构化输出模式据此创建一次性的 RPC Adapter，模型凭据永远不在容器内解析。
+ * 模型调用据此创建一次性的 RPC Adapter，模型凭据永远不在容器内解析。
  *
  * @example
  * ```ts
@@ -52,7 +52,6 @@ export async function runSwebenchWorker(): Promise<void> {
                 : createEmbeddedPromptRenderer(metadata.templateOverrides);
             adapter = new RpcLlmAdapter({
                 stream: mux.channel("llm"),
-                structuredOutputMode: metadata.structuredOutputMode,
             });
             const factory = createSwebenchAcpSessionFactory({
                 metadata,

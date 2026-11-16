@@ -226,7 +226,6 @@ test("工具调用指令仅进入尾部动态消息，Goal-stable 与 Epoch-stab
             assembler,
             undefined,
             undefined,
-            "prompt_only",
         );
 
         // 1. Goal-stable 根前缀 (system 消息)

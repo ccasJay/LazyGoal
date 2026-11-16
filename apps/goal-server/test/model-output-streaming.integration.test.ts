@@ -167,7 +167,6 @@ test("经正式无界面装配的真实 Chat Completions 流：屏障前无工�
     const adapter = createOpenAICompatibleAdapter({
         provider: "openai-compatible",
         apiKey: "fixture-key", baseURL, model: "stream-model",
-        structuredOutputMode: "prompt_only",
     });
     const runtime = await createRuntimeComposition({
         cwd: fixture.workspace,
@@ -222,7 +221,6 @@ test("经正式无界面装配的真实 Chat Completions 流：屏障前无工�
         dataDirectory: fixture.dataDirectory,
         adapter: createOpenAICompatibleAdapter({
             provider: "openai-compatible", apiKey: "fixture-key", baseURL, model: "stream-model",
-            structuredOutputMode: "prompt_only",
         }),
         profile,
         toolRegistry: new InMemoryToolRegistry([createTestToolRegistration(bashTool(command => { executed.push(`unexpected:${String(command)}`); }))]),
@@ -414,8 +412,7 @@ test("宿主生成的确定性流式 Adapter 可注入同一装配并保持单�
     const executed: string[] = [];
     let calls = 0;
     const adapter = {
-        provider: "openai" as const,
-        structuredOutputMode: "strict" as const,
+        provider: "openai" as const as const,
         modelId: "host-stream-model",
         async generate() { throw new Error("host adapter streams only"); },
         async *stream() {

@@ -48,8 +48,8 @@ Worker 侧的 [`runSwebenchAcpTask`](../src/worker-runtime.ts) 在
 `read_file`、`write_file`、`edit_file`、`bash` 四个 Tool；四个 Tool 都以
 `/testbed` 为根，每个调用创建独立 Registry。任务 metadata 只在 Worker 内生成确定性
 objective 和完成条件，并作为普通 Run 的初始用户上下文交给 Headless Root；它不会提交任务提案或自动批准任务。Goal、Run 和
-JSON Storage 通过 `instanceId`、`goalId`、`runId` 分别隔离。metadata 校验和
-structured-output mode 一致性检查在首次 Root 副作用前完成。
+JSON Storage 通过 `instanceId`、`goalId`、`runId` 分别隔离。metadata 校验在
+首次 Root 副作用前完成。
 
 Worker ACP Session 通过 [`createSwebenchAcpSessionFactory`](../src/worker-runtime.ts)
 绑定单次 Prompt 和单题 metadata。`AcpTrajectoryStore` 只在 `tool_started` 与

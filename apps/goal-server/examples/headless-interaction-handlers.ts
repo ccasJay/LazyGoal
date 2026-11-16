@@ -27,7 +27,6 @@ const profile: AgentProfile = {
 
 /** 每次决定都提出一张小问卷；示例只演示宿主与真人的两条决定路径。 */
 class DeterministicAdapter implements LLMAdapter {
-    readonly structuredOutputMode = "strict" as const;
     calls = 0;
 
     async generate(_request: LLMRequest): Promise<LLMResponse> {

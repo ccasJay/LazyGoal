@@ -44,7 +44,6 @@ import { RpcLlmAdapter } from "../../src/llm-rpc.js";
 import { validatePromptEvaluationProfile } from "../../src/prompt-evaluation/profile.js";
 import {
     GAIA_PROFILE_TOOL_IDS,
-    GAIA_STRUCTURED_OUTPUT_MODE,
     GAIA_WORKER_PROFILE,
 } from "./profile.js";
 import type { GaiaManifestTask } from "./types.js";
@@ -53,7 +52,6 @@ import { GaiaBashTool } from "./bash.js";
 
 export {
     GAIA_PROFILE_TOOL_IDS,
-    GAIA_STRUCTURED_OUTPUT_MODE,
     GAIA_WORKER_PROFILE,
 } from "./profile.js";
 
@@ -162,7 +160,6 @@ export class GaiaBenchmarkAdapter
 export interface GaiaAcpTaskMetadata extends GaiaManifestTask {
     readonly goalId: string;
     readonly runId: string;
-    readonly structuredOutputMode: LLMAdapter["structuredOutputMode"];
     readonly problemStatement?: string;
     /** Prompt Evaluation 提供时用于校验宿主基准身份。 */
     readonly baseProfile?: AgentProfile;
@@ -193,13 +190,6 @@ export function parseGaiaAcpTaskMetadata(value: unknown): GaiaAcpTaskMetadata {
     if (typeof record.goalId !== "string" || typeof record.runId !== "string") {
         throw new TypeError("Invalid GAIA ACP session metadata: missing goalId or runId");
     }
-    const mode = record.structuredOutputMode;
-    if (mode !== GAIA_STRUCTURED_OUTPUT_MODE) {
-        throw new TypeError(
-            `Invalid GAIA ACP session metadata: structuredOutputMode must be ${GAIA_STRUCTURED_OUTPUT_MODE}`,
-        );
-    }
-
     const promptProfiles = parseGaiaPromptEvaluationProfiles(record);
     return {
         taskId: record.taskId,
@@ -210,7 +200,6 @@ export function parseGaiaAcpTaskMetadata(value: unknown): GaiaAcpTaskMetadata {
         attachments: Array.isArray(record.attachments) ? record.attachments : [],
         goalId: record.goalId,
         runId: record.runId,
-        structuredOutputMode: mode,
         problemStatement: typeof record.problemStatement === "string" ? record.problemStatement : record.question,
         ...promptProfiles,
     };
@@ -441,7 +430,6 @@ export async function runGaiaWorker(): Promise<void> {
             const metadata = parseGaiaAcpTaskMetadata(input.sessionMeta);
             adapter = new RpcLlmAdapter({
                 stream: mux.channel("llm"),
-                structuredOutputMode: metadata.structuredOutputMode,
             });
 
             return {

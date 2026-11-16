@@ -7,9 +7,9 @@ async function main(): Promise<void> {
     const adapter = createLlmAdapter(readLLMConfig(process.env));
 
     const response = await adapter.generate({
-        ...(adapter.structuredOutputMode === "strict" ? { structuredOutput: {
+        structuredOutput: {
             name: "smoke_answer", schema: { type: "object" as const, properties: { answer: { type: "string" as const } }, required: ["answer"], additionalProperties: false },
-        } } : {}),
+        },
         messages: [
             {
                 role: "user",

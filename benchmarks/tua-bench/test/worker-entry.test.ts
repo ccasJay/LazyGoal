@@ -68,7 +68,6 @@ function taskMetadata() {
         verifierUser: "root",
         taskDir: "/workspace/tasks/task-doc-1",
         goalId: "goal-task-doc-1",
-        runId: "run-task-doc-1",
-        structuredOutputMode: "strict" as const,
+        runId: "run-task-doc-1" as const,
     };
 }

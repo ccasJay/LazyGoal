@@ -106,14 +106,10 @@ function createTestGoal(
 
 class FakeAdapter implements LLMAdapter {
     readonly requests: LLMRequest[] = [];
-    readonly structuredOutputMode: "strict" | "prompt_only";
 
     constructor(
-        private readonly content: string,
-        structuredOutputMode: "strict" | "prompt_only" = "strict",
-    ) {
-        this.structuredOutputMode = structuredOutputMode;
-    }
+        private readonly content: string = "strict",
+    ) {}
 
     async generate(request: LLMRequest): Promise<LLMResponse> {
         this.requests.push(request);
@@ -129,7 +125,6 @@ class FakeAdapter implements LLMAdapter {
 
 class RejectingAdapter implements LLMAdapter {
     readonly requests: LLMRequest[] = [];
-    readonly structuredOutputMode = "strict" as const;
 
     constructor(private readonly failure: unknown) {}
 
@@ -141,7 +136,6 @@ class RejectingAdapter implements LLMAdapter {
 
 class SequenceAdapter implements LLMAdapter {
     readonly requests: LLMRequest[] = [];
-    readonly structuredOutputMode = "strict" as const;
 
     constructor(private readonly contents: readonly string[]) {}
 
@@ -158,7 +152,6 @@ class SequenceAdapter implements LLMAdapter {
 }
 
 class StreamingAdapter implements LLMAdapter {
-    readonly structuredOutputMode = "strict" as const;
     generateCalls = 0;
 
     async generate(): Promise<LLMResponse> {
@@ -213,7 +206,6 @@ function createExecutor(adapter: LLMAdapter): LLMStepExecutor {
 test("Epoch 容量不可确定时不调用 Adapter 并给出配置提示", async () => {
     let generateCalls = 0;
     const adapter: LLMAdapter = {
-        structuredOutputMode: "strict",
         async generate(): Promise<LLMResponse> {
             generateCalls += 1;
             return textResponse("never called");
@@ -790,12 +782,11 @@ test("LLMStepExecutor: 连续调用能感知 bindingProvider 发布的新 genera
         selection: {
             provider: "openai",
             modelId: "model-v1",
-            structuredOutputMode: "strict",
             contextWindowTokens: 100_000,
             maxOutputTokens: 4000,
             inputEstimator: { kind: "token-encoding", encoding: "o200k_base" },
         },
-        thinkAdapter: new FakeAdapter("", "prompt_only"),
+        thinkAdapter: new FakeAdapter(""),
         decideAdapter: adapter1,
         trajectoryStore,
     });
@@ -825,12 +816,11 @@ test("LLMStepExecutor: 连续调用能感知 bindingProvider 发布的新 genera
         selection: {
             provider: "openai",
             modelId: "model-v2",
-            structuredOutputMode: "strict",
             contextWindowTokens: 120_000,
             maxOutputTokens: 8000,
             inputEstimator: { kind: "token-encoding", encoding: "o200k_base" },
         },
-        thinkAdapter: new FakeAdapter("", "prompt_only"),
+        thinkAdapter: new FakeAdapter(""),
         decideAdapter: adapter2,
         trajectoryStore,
     });
@@ -856,7 +846,6 @@ test("LLMStepExecutor: 进行中的 execute 调用保持旧 generation，外部�
     });
 
     const adapter1: LLMAdapter = {
-        structuredOutputMode: "strict",
         async generate() {
             return adapter1Promise.then(response => toolResponseFixture(readAssistantText(response)));
         },
@@ -876,12 +865,11 @@ test("LLMStepExecutor: 进行中的 execute 调用保持旧 generation，外部�
         selection: {
             provider: "openai",
             modelId: "model-v1",
-            structuredOutputMode: "strict",
             contextWindowTokens: 100_000,
             maxOutputTokens: 4000,
             inputEstimator: { kind: "token-encoding", encoding: "o200k_base" },
         },
-        thinkAdapter: new FakeAdapter("", "prompt_only"),
+        thinkAdapter: new FakeAdapter(""),
         decideAdapter: adapter1,
         trajectoryStore,
     });
@@ -907,12 +895,11 @@ test("LLMStepExecutor: 进行中的 execute 调用保持旧 generation，外部�
         selection: {
             provider: "openai",
             modelId: "model-v2",
-            structuredOutputMode: "strict",
             contextWindowTokens: 100_000,
             maxOutputTokens: 4000,
             inputEstimator: { kind: "token-encoding", encoding: "o200k_base" },
         },
-        thinkAdapter: new FakeAdapter("", "prompt_only"),
+        thinkAdapter: new FakeAdapter(""),
         decideAdapter: adapter2,
         trajectoryStore,
     });
@@ -936,10 +923,9 @@ test("LLMStepExecutor: 进行中的 execute 调用保持旧 generation，外部�
 });
 
 
-for (const mode of ["strict", "prompt_only"] as const) {
-    test(`读取参数错误在 ${mode} 工具调用中保留字段级安全反馈`, async () => {
+{
+    test(`读取参数错误在 工具调用中保留字段级安全反馈`, async () => {
         const adapter: LLMAdapter = {
-            structuredOutputMode: mode,
             async generate() {
                 const input = { command: "PRIVATE_INPUT_VALUE", timeoutMs: null, sandboxAccess: null };
                 return blockResponse({ type: "tool_call", callId: "read-1", toolId: "read_file", argumentsJson: JSON.stringify(input) });
@@ -979,7 +965,6 @@ test("Runner 在读取请求纠错后继续取证，反馈和无效调用不进�
     })));
     const requests: LLMRequest[] = [];
     const adapter: LLMAdapter = {
-        structuredOutputMode: "strict",
         async generate(request) {
             requests.push(request);
             const call = (toolId: string, args: unknown): LLMResponse => (blockResponse({ type: "tool_call", callId: `call-${requests.length}`, toolId, argumentsJson: JSON.stringify(args) }));
@@ -1037,16 +1022,16 @@ test("Runner 在读取请求纠错后继续取证，反馈和无效调用不进�
     assert.equal(events.filter(event => event.payload.type === "tool_started").length, 2);
 });
 
-for (const mode of ["strict", "prompt_only"] as const) {
-    test(`${mode} Decide accepts text JSON and trace-shaped text as an assistant message`, async () => {
-        const adapter: LLMAdapter = { structuredOutputMode: mode, async generate() {
+{
+    test(`Decide accepts text JSON and trace-shaped text as an assistant message`, async () => {
+        const adapter: LLMAdapter = { async generate() {
             return blockResponse({ type: "text", format: "json", text: '{"result":{"kind":"complete","summary":"done","completionEvidence":[],"memoryPatch":null}}' });
         } };
         const jsonLike = await createExecutor(adapter).decide({ goal: createTestGoal(), authorizedTools: [], workingMemory: currentWorkingMemory, thinkHistory: [] });
         assert.equal(jsonLike.kind, "assistant_message");
         assert.equal(jsonLike.kind === "assistant_message" && jsonLike.text, '{"result":{"kind":"complete","summary":"done","completionEvidence":[],"memoryPatch":null}}');
 
-        const traceAdapter: LLMAdapter = { structuredOutputMode: mode, async generate() {
+        const traceAdapter: LLMAdapter = { async generate() {
             return blockResponse({ type: "text", format: "plain", text: 'I need to read the workspace.\n{"result":{"kind":"tool_call","action":{"toolId":"read_file","input":{"path":"README.md"}}}}' });
         } };
         const traceShaped = await createExecutor(traceAdapter).decide({ goal: createTestGoal(), authorizedTools: [], workingMemory: currentWorkingMemory, thinkHistory: [] });
@@ -1054,8 +1039,8 @@ for (const mode of ["strict", "prompt_only"] as const) {
         assert.equal(traceShaped.kind === "assistant_message" && traceShaped.text.includes("I need to read the workspace."), true);
     });
 
-    test(`${mode} Decide accepts multiple calls as an ordered batch preserving callId order`, async () => {
-        const adapter: LLMAdapter = { structuredOutputMode: mode, async generate() {
+    test(`Decide accepts multiple calls as an ordered batch preserving callId order`, async () => {
+        const adapter: LLMAdapter = { async generate() {
             return blockResponse(...([1, 2, 3].map(i => ({ callId: `call-${i}`, toolId: "read_file", argumentsJson: JSON.stringify({ path: `file-${i}.md` }) }))).map(call => ({ type: "tool_call" as const, ...call })));
         } };
         const result = await createExecutor(adapter).decide({
@@ -1074,8 +1059,8 @@ for (const mode of ["strict", "prompt_only"] as const) {
         );
     });
 
-    test(`${mode} Decide ignores accompanying text and decodes only a declared call`, async () => {
-        const adapter: LLMAdapter = { structuredOutputMode: mode, async generate() {
+    test(`Decide ignores accompanying text and decodes only a declared call`, async () => {
+        const adapter: LLMAdapter = { async generate() {
             return blockResponse(
                 { type: "text", format: "plain", text: 'not JSON or a decision' },
                 { type: "tool_call", callId: "trace-valid", toolId: "system_complete_task", argumentsJson: '{"summary":"Declared result","completionEvidence":[],"memoryPatch":null}' },
@@ -1088,7 +1073,7 @@ for (const mode of ["strict", "prompt_only"] as const) {
 }
 
 test("invalid completion memory patch retains field feedback in the tool protocol", async () => {
-    const adapter: LLMAdapter = { structuredOutputMode: "prompt_only", async generate() {
+    const adapter: LLMAdapter = { async generate() {
         return blockResponse({ type: "tool_call", callId: "bad-patch", toolId: "system_complete_task", argumentsJson: '{"summary":"done","completionEvidence":[],"memoryPatch":"__lazygoal_null__"}' });
     } };
     await assert.rejects(createExecutor(adapter).execute({ goal: createTestGoal(), authorizedTools: [], workingMemory: currentWorkingMemory }), (error: unknown) => {
@@ -1098,9 +1083,9 @@ test("invalid completion memory patch retains field feedback in the tool protoco
     });
 });
 
-for (const mode of ["strict", "prompt_only"] as const) {
-    test(`${mode} Decide accepts zero calls with non-empty text as an assistant message`, async () => {
-        const adapter: LLMAdapter = { structuredOutputMode: mode, async generate() {
+{
+    test(`Decide accepts zero calls with non-empty text as an assistant message`, async () => {
+        const adapter: LLMAdapter = { async generate() {
             return blockResponse({ type: "text", format: "plain", text: "我已看完目录结构，先说明我的判断，再决定下一步。" });
         } };
         const result = await createExecutor(adapter).decide({ goal: createTestGoal(), authorizedTools: [], workingMemory: currentWorkingMemory, thinkHistory: [] });
@@ -1108,8 +1093,8 @@ for (const mode of ["strict", "prompt_only"] as const) {
         assert.equal(result.kind === "assistant_message" && result.text, "我已看完目录结构，先说明我的判断，再决定下一步。");
     });
 
-    test(`${mode} Decide classifies empty or reasoning-only output as no usable result`, async () => {
-        const adapter: LLMAdapter = { structuredOutputMode: mode, async generate() {
+    test(`Decide classifies empty or reasoning-only output as no usable result`, async () => {
+        const adapter: LLMAdapter = { async generate() {
             return blockResponse({ type: "reasoning", text: "only thinking, no answer" });
         } };
         await assert.rejects(createExecutor(adapter).decide({ goal: createTestGoal(), authorizedTools: [], workingMemory: currentWorkingMemory, thinkHistory: [] }), (error: unknown) => {
@@ -1134,7 +1119,6 @@ test("Runner 把零调用正文本提交为 Assistant 消息，不推进 Step �
     })));
     const requests: LLMRequest[] = [];
     const adapter: LLMAdapter = {
-        structuredOutputMode: "strict",
         async generate(request) {
             requests.push(request);
             return blockResponse({ type: "text", format: "plain", text: `我先说明判断，这是第 ${requests.length} 次只说话。` });
@@ -1171,7 +1155,6 @@ test("Runner 的不推进预算与协议纠错预算互不占用", async () => {
     })]);
     const requests: LLMRequest[] = [];
     const adapter: LLMAdapter = {
-        structuredOutputMode: "prompt_only",
         async generate(request) {
             requests.push(request);
             // 2 次零调用正文本 + 2 次 Tool 输入纠错 + 1 次零调用正文本：共享预算会在第 4 次前终止，
@@ -1208,7 +1191,6 @@ test("Runner 在有效 request_think 后重新开始不推进计数", async () =
     })]);
     const requests: LLMRequest[] = [];
     const adapter: LLMAdapter = {
-        structuredOutputMode: "prompt_only",
         async generate(request) {
             requests.push(request);
             // 2 次零调用正文本 → 1 次 request_think → 再 2 次零调用正文本。
@@ -1245,7 +1227,6 @@ test("Runner 按模型返回顺序执行多调用批次，各计一次 Step 且 
     })));
     const requests: LLMRequest[] = [];
     const adapter: LLMAdapter = {
-        structuredOutputMode: "prompt_only",
         async generate(request) {
             requests.push(request);
             if (requests.length === 1) {
@@ -1309,7 +1290,6 @@ test("Runner 顺序执行两调用批次后回到模型并正常终止", async (
     })));
     const requests: LLMRequest[] = [];
     const adapter: LLMAdapter = {
-        structuredOutputMode: "prompt_only",
         async generate() {
             requests.push({ messages: [] });
             // 只在对第一次请求返回批次，之后返回普通文本，验证批次结束后不再自增循环。
@@ -1424,7 +1404,6 @@ test("Runner 在批次中途需要审批时停止后续执行并保留已执行�
     })));
     const requests: LLMRequest[] = [];
     const adapter: LLMAdapter = {
-        structuredOutputMode: "prompt_only",
         async generate() {
             requests.push({ messages: [] });
             // 仅第一次请求返回批次；后续返回文本，避免用恒定桩制造无限批次。
@@ -1470,7 +1449,6 @@ test("Runner 拒绝重放已提交结果的 Action，并在有界尝试后终止
     })));
     const requests: LLMRequest[] = [];
     const adapter: LLMAdapter = {
-        structuredOutputMode: "prompt_only",
         async generate() {
             requests.push({ messages: [] });
             // 恒定返回同一批次：第一批执行后再次提交相同 actionId 必须被拒绝，而不是重放。
@@ -1516,7 +1494,6 @@ test("Runner 在批次执行中被取消时不再启动后续 Action", async () 
         },
     })));
     const adapter: LLMAdapter = {
-        structuredOutputMode: "prompt_only",
         async generate() {
             return blockResponse(
                 { type: "tool_call", callId: "call-a", toolId: "read_a", argumentsJson: '{"path":"a.md"}' },
@@ -1556,7 +1533,6 @@ test("Trajectory 记录多调用批次事实，可与单调用、零调用区分
     })));
     const requests: LLMRequest[] = [];
     const adapter: LLMAdapter = {
-        structuredOutputMode: "prompt_only",
         async generate() {
             requests.push({ messages: [] });
             return requests.length === 1

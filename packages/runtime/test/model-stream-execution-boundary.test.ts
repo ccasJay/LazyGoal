@@ -127,7 +127,6 @@ test("完整工具块在响应正常结束前不创建待审批操作或工具�
     let barrierReached = false;
     let calls = 0;
     const adapter: LLMAdapter = {
-        structuredOutputMode: "strict",
         async generate(): Promise<LLMResponse> {
             throw new Error("stream adapter must not call generate");
         },
@@ -218,7 +217,6 @@ test("完整工具块后失败或取消不产生本次响应的工具效果，�
 
     let calls = 0;
     const adapter: LLMAdapter = {
-        structuredOutputMode: "strict",
         async generate(): Promise<LLMResponse> {
             throw new Error("stream adapter must not call generate");
         },
@@ -295,7 +293,6 @@ test("派发前取消、chunk 间取消与迭代清理失败都保留主错误",
     canceled.abort();
     let dispatched = 0;
     const preAborted: LLMAdapter = {
-        structuredOutputMode: "strict",
         async generate(): Promise<LLMResponse> {
             dispatched += 1;
             return blockResponse({ type: "text", text: "unused" });
@@ -319,7 +316,6 @@ test("派发前取消、chunk 间取消与迭代清理失败都保留主错误",
     let cleanupAttempted = false;
     let primaryMessages: string[] = [];
     const chunkAborted: LLMAdapter = {
-        structuredOutputMode: "strict",
         async generate(): Promise<LLMResponse> {
             throw new Error("stream adapter must not call generate");
         },

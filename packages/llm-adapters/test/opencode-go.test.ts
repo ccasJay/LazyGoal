@@ -18,14 +18,12 @@ const CONFIG: LLMConfig = {
     provider: "opencode-go",
     apiKey: "go-key",
     model: "beam-free",
-    structuredOutputMode: "prompt_only",
 };
 
 const DYNAMIC_CONFIG: LLMConfig = {
     provider: "opencode-go",
     apiKey: "go-key",
     model: "minimax-m3.1-flash-free",
-    structuredOutputMode: "prompt_only",
     executionApi: "openai-completions",
     contextWindowTokens: 1_000_000,
     maxOutputTokens: 524_288,

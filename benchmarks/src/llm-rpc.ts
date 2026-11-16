@@ -1,38 +1,36 @@
 import { isModelConversationMessage } from "../../packages/model-contracts/src/index.js";
-import { classifyTransientModelFailure, type LLMAdapter, type LLMRequest, type LLMResponse, type StructuredOutputMode } from "../../packages/llm-core/src/index.js";
+import { classifyTransientModelFailure, type LLMAdapter, type LLMRequest, type LLMResponse } from "../../packages/llm-core/src/index.js";
 import type { ExecutionControl } from "../../packages/execution-control/src/index.js";
 import { ExecutionAbortedError, TransientModelRequestFailure, throwIfAborted } from "../../packages/execution-control/src/index.js";
 import type { MuxChannelStream } from "./multiplex.js";
 
 /** Worker 与宿主之间传输的结构化 LLM RPC 消息。 */
 export type LlmRpcMessage =
-    | { readonly type: "generate"; readonly id: string; readonly request: LLMRequest; readonly structuredOutputMode: StructuredOutputMode }
+    | { readonly type: "generate"; readonly id: string; readonly request: LLMRequest }
     | { readonly type: "cancel"; readonly id: string }
     | { readonly type: "result"; readonly id: string; readonly response: LLMResponse }
     | { readonly type: "error"; readonly id: string; readonly code: "provider" | "cancelled" | "protocol"; readonly message: string };
 
-/** RPC 传输、结构化模式或远端协议错误。 */
+/** RPC 传输或远端协议错误。 */
 export class LlmRpcError extends Error {
-    constructor(message: string, readonly code: "provider" | "cancelled" | "protocol" | "mode_mismatch") {
+    constructor(message: string, readonly code: "provider" | "cancelled" | "protocol") {
         super(message);
         this.name = "LlmRpcError";
     }
 }
 
-/** Worker 侧 LLM Adapter 的装配输入。 */
 /**
- * Worker RPC Adapter 的固定模式和对象级 Mux 通道。
+ * Worker RPC Adapter 的对象级 Mux 通道。
  *
  * @example
  * ```ts
- * const options: RpcLlmAdapterOptions = { stream: mux.channel("llm"), structuredOutputMode: "strict" };
+ * const options: RpcLlmAdapterOptions = { stream: mux.channel("llm") };
  * ```
  */
 export interface RpcLlmAdapterOptions {
     /** 宿主已声明的原生历史身份；缺省时不启用原生回放。不得携带凭据。 */
     readonly nativeConversationIdentity?: NonNullable<LLMAdapter["nativeConversationIdentity"]>;
     readonly stream: MuxChannelStream<LlmRpcMessage>;
-    readonly structuredOutputMode: StructuredOutputMode;
 }
 
 interface PendingRequest {
@@ -47,19 +45,18 @@ interface PendingRequest {
  * 只通过 `llm` Mux 通道调用宿主模型的 Worker Adapter。
  *
  * @remarks
- * 实例不读取环境变量、API Key 或供应商配置；结构化输出模式在构造时冻结，
+ * 实例不读取环境变量、API Key 或供应商配置；
  * 每个请求只允许一次宿主调用。取消后本地请求立即以 `ExecutionAbortedError`
  * 结束，迟到的宿主响应会被消费并丢弃，不会污染后续请求。
  *
  * @example
  * ```ts
- * const adapter = new RpcLlmAdapter({ stream: mux.channel("llm"), structuredOutputMode: "strict" });
+ * const adapter = new RpcLlmAdapter({ stream: mux.channel("llm") });
  * const response = await adapter.generate(request);
  * ```
  */
 export class RpcLlmAdapter implements LLMAdapter {
     readonly nativeConversationIdentity?: NonNullable<LLMAdapter["nativeConversationIdentity"]>;
-    readonly structuredOutputMode: StructuredOutputMode;
     private readonly channelStream: MuxChannelStream<LlmRpcMessage>;
     private readonly pending = new Map<string, PendingRequest>();
     private readonly cancelled = new Set<string>();
@@ -72,7 +69,6 @@ export class RpcLlmAdapter implements LLMAdapter {
     constructor(options: RpcLlmAdapterOptions) {
         if (options.nativeConversationIdentity !== undefined) this.nativeConversationIdentity = options.nativeConversationIdentity;
         this.channelStream = options.stream;
-        this.structuredOutputMode = options.structuredOutputMode;
         this.writer = this.channelStream.writable.getWriter();
         this.readPromise = this.readResponses();
         this.readPromise.catch(() => undefined);
@@ -80,7 +76,6 @@ export class RpcLlmAdapter implements LLMAdapter {
 
     async generate(request: LLMRequest, control?: ExecutionControl): Promise<LLMResponse> {
         throwIfAborted(control);
-        validateMode(this.structuredOutputMode, request, this.nativeConversationIdentity !== undefined);
         if (this.closedError !== undefined) throw this.closedError;
         const id = `llm-${this.nextId++}`;
         return new Promise<LLMResponse>((resolve, reject) => {
@@ -104,7 +99,7 @@ export class RpcLlmAdapter implements LLMAdapter {
             };
             pending.abort = abort;
             control?.signal?.addEventListener("abort", abort, { once: true });
-            void this.send({ type: "generate", id, request, structuredOutputMode: this.structuredOutputMode })
+            void this.send({ type: "generate", id, request })
                 .catch((error: unknown) => {
                     control?.signal?.removeEventListener("abort", abort);
                     if (pending.settled) return;
@@ -204,8 +199,7 @@ interface ActiveRequest {
  *
  * @remarks
  * Server 只接受 Worker 发来的 `generate`/`cancel`，按唯一 request ID 维护独立
- * pending map，并把供应商错误脱敏为稳定分类。请求的 structured-output mode
- * 必须与宿主 Adapter 的固定模式一致；连接断开会中止所有进行中的 Adapter。
+ * pending map，并把供应商错误脱敏为稳定分类；连接断开会中止所有进行中的 Adapter。
  *
  * @example
  * ```ts
@@ -280,15 +274,6 @@ export class LlmRpcServer {
             await this.send({ type: "error", id: message.id, code: "protocol", message: "Duplicate LLM RPC request id" });
             return;
         }
-        try {
-            validateMode(this.adapter.structuredOutputMode, message.request, this.adapter.nativeConversationIdentity !== undefined);
-            if (message.structuredOutputMode !== this.adapter.structuredOutputMode) {
-                throw new LlmRpcError("Structured-output mode mismatch", "mode_mismatch");
-            }
-        } catch (error) {
-            await this.send({ type: "error", id: message.id, code: "protocol", message: sanitizeProtocolError(error) });
-            return;
-        }
         const active: ActiveRequest = { controller: new AbortController(), settled: false };
         this.active.set(message.id, active);
         try {
@@ -348,16 +333,6 @@ export function createLlmRpcServer(options: LlmRpcServerOptions): LlmRpcServer {
     return new LlmRpcServer(options);
 }
 
-function validateMode(mode: StructuredOutputMode, request: LLMRequest, _native = false): void {
-    const hasRequiredTools = Boolean(request.tools?.length) && request.toolChoice === "required";
-    if (mode === "strict" && request.structuredOutput === undefined && !hasRequiredTools) {
-        throw new LlmRpcError("Strict mode requires structuredOutput", "mode_mismatch");
-    }
-    if (mode === "prompt_only" && request.structuredOutput !== undefined) {
-        throw new LlmRpcError("Prompt-only mode forbids structuredOutput", "mode_mismatch");
-    }
-}
-
 function validateLlmResponse(response: LLMResponse): void {
     if (!isRecord(response) || !Array.isArray(response.blocks)
         || !response.blocks.every(isLlmContentBlock)) {
@@ -384,17 +359,12 @@ function parseLlmRpcMessage(value: unknown): LlmRpcMessage {
     }
     if (value.type === "cancel") return { type: "cancel", id: value.id };
     if (value.type === "generate") {
-        if (!isRecord(value.request) || (value.structuredOutputMode !== "strict" && value.structuredOutputMode !== "prompt_only")) {
+        if (!isRecord(value.request)) {
             throw new LlmRpcError("Invalid LLM generate message", "protocol");
         }
         const request = value.request as unknown as LLMRequest;
         validateLlmRequest(request);
-        return {
-            type: "generate",
-            id: value.id,
-            request,
-            structuredOutputMode: value.structuredOutputMode,
-        };
+        return { type: "generate", id: value.id, request };
     }
     if (value.type === "result") {
         if (!isRecord(value.response)) throw new LlmRpcError("Invalid LLM result message", "protocol");
@@ -425,10 +395,8 @@ function validateLlmRequest(request: LLMRequest): void {
     }
 }
 
-function sanitizeProtocolError(error: unknown): string {
-    return error instanceof LlmRpcError && error.code === "mode_mismatch"
-        ? "Structured-output mode mismatch"
-        : "Invalid LLM RPC request";
+function sanitizeProtocolError(_error: unknown): string {
+    return "Invalid LLM RPC request";
 }
 
 function isAbortLike(error: unknown): boolean {

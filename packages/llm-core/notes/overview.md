@@ -4,7 +4,7 @@
 
 ## 职责
 
-- [LLMAdapter](../src/adapter.ts) 定义供应商无关的最小调用边界；可选 `structuredOutputMode` 只描述仍由配置固定输出策略的 Adapter，缺省时生成约束由单次请求表达。常规 OpenAI-compatible Goal 使用无模式 Adapter 实例，由 `LLMRequest` 提供 `toolChoice`、结束原因等请求约束。
+- [LLMAdapter](../src/adapter.ts) 定义供应商无关的最小调用边界；生成约束由单次请求表达，由 `LLMRequest` 提供 `structuredOutput`、`toolChoice`、结束原因等请求约束。
 - [LLMRequest / LLMResponse / LLMStreamEvent](../src/types.ts) 以 `ModelConversationMessage` 表示请求历史，以共享 `ModelContentBlock` 表示响应正文、公开 reasoning 与工具调用；响应仍由有序 `blocks` 作为唯一权威并承载协议续接字段。
 - [content-blocks](../src/content-blocks.ts) 提供无 I/O 的纯读投影：按块顺序派生既有正文（不隐式 trim 或插入换行）、受限 reasoning 与工具调用列表，供阶段解码与原生历史使用；投影不是第二份可变状态，文本格式（`plain`／`json`）只来自请求的结构化输出契约。
 - [content-block-stream](../src/content-block-stream.ts) 定义流式块协议：响应开始、块开始（含 `incremental`／`whole` 交付方式）、类型化块增量、块完整结束与唯一成功完成；追踪器只做无 I/O 序列核验与最终结果比对，未知索引、重复边界、类型冲突、结束后追加、未封口块与最终失配都是协议错误。

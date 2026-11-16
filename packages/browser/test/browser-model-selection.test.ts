@@ -55,7 +55,6 @@ function goalFor(status: "waiting" | "completed" | "failed" | "cancelled" = "wai
         modelSelection: {
             provider: "openai",
             modelId: "gpt-old",
-            structuredOutputMode: "two_stage",
             inputEstimator: { kind: "character-v1" },
         },
     });
@@ -71,7 +70,6 @@ function goalFor(status: "waiting" | "completed" | "failed" | "cancelled" = "wai
 const chosen: GoalModelSelection = {
     provider: "openai",
     modelId: "gpt-new",
-    structuredOutputMode: "two_stage",
     contextWindowTokens: 128000,
     maxOutputTokens: 4096,
     inputEstimator: { kind: "character-v1" },

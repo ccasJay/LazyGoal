@@ -25,7 +25,6 @@ ask_user 的回答按固定 questionId 声明，真实 requestId 在运行时读
 ```
 
 profile 指 LazyGoal 模型配置名称；每个角色也可声明 configFile 指定主 TOML 配置。
-当前 Worker 接受 strict 或 prompt_only，不接受 two_stage。
 
 ## 采集与批准
 

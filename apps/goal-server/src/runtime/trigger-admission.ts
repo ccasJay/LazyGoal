@@ -174,10 +174,10 @@ async function admitStoredWorkTrigger(
                     { role: "user", content: material },
                 ],
                 toolChoice: "none",
-                ...(adapter.structuredOutputMode === "strict" ? { structuredOutput: {
+                structuredOutput: {
                     name: "trigger_admission",
                     schema: normalizeProjectionSchema(triggerAdmissionBinding, ["trigger_admission"]),
-                } } : {}),
+                },
             };
             response = await adapter.generate(request);
         } catch {

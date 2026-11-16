@@ -43,8 +43,7 @@ test("Worker runtime uses deterministic Headless Root state and isolated instanc
         problemStatement: "Fix the reported issue.",
         goalId: "goal-worker-1",
         runId: "run-worker-1",
-        maxSteps: 4,
-        structuredOutputMode: "strict" as const,
+        maxSteps: 4 as const,
     };
     let modelCalls = 0;
     const result = await runSwebenchAcpTask({
@@ -52,7 +51,6 @@ test("Worker runtime uses deterministic Headless Root state and isolated instanc
         workspaceRoot: root,
         stateRoot: join(root, "state"),
         llmAdapter: {
-            structuredOutputMode: "strict",
             generate: async (request) => {
         if (request.tools?.[0]?.id === "system_review_completion") return { ...toolResponseFixture(JSON.stringify({ result: { kind: "accept" } })) };
                 modelCalls += 1;
@@ -151,9 +149,8 @@ test("Worker runtime rejects metadata that could cross task or workspace boundar
             goalId: "goal",
             runId: "run",
             maxSteps: 1,
-            structuredOutputMode: "strict",
         },
-        llmAdapter: { structuredOutputMode: "strict", generate: async () => ({ blocks: [] }) },
+        llmAdapter: { generate: async () => ({ blocks: [] }) },
         renderer: {
             render: () => "system",
             renderDynamicSections: () => [],

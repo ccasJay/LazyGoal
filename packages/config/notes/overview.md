@@ -7,7 +7,7 @@
 
 `@lazygoal/config` 拥有 LazyGoal Home 与 workspace 路径、workspace 身份清单、TOML/Profile 解析、
 四层运行配置加载及模型连接配置的读取与校验。共享模型调用契约（`LLMConfig`、`LLMProvider`、
-`StructuredOutputMode`、`LLMConfigurationError`）归 [`@lazygoal/llm-core`](../../llm-core/notes/overview.md)，
+`LLMConfigurationError`）归 [`@lazygoal/llm-core`](../../llm-core/notes/overview.md)，
 本包单向依赖它，不反向被其依赖；启动入口按需组合路径与具体服务。
 
 Home 路径解析是纯操作，不创建目录或清单。启动入口显式创建受保护目录并校验 workspace 清单；Home 默认位于 `$HOME/.lazygoal`，`LAZYGOAL_HOME` 仅接受绝对路径，`XDG_CONFIG_HOME` 不参与解析。

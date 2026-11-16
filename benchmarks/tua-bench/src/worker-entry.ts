@@ -65,7 +65,6 @@ export { TuaBenchWorkerAdapter, type TuaBenchEpisodeOutcome };
  *   ...task,
  *   goalId: "goal-1",
  *   runId: "run-1",
- *   structuredOutputMode: "strict",
  *   baseProfile: TUA_BENCH_WORKER_PROFILE,
  *   profile: {
  *     ...TUA_BENCH_WORKER_PROFILE,
@@ -78,7 +77,6 @@ export { TuaBenchWorkerAdapter, type TuaBenchEpisodeOutcome };
 export interface TuaBenchAcpTaskMetadata extends TuaBenchTaskDefinition {
     readonly goalId: string;
     readonly runId: string;
-    readonly structuredOutputMode: LLMAdapter["structuredOutputMode"];
     /** Prompt Evaluation 请求所依据的 Worker 基准 Profile。 */
     readonly baseProfile?: AgentProfile;
     /** 覆盖 systemPrompt 与 instructions 后冻结到 Goal 的候选 Profile。 */
@@ -90,7 +88,7 @@ export interface TuaBenchAcpTaskMetadata extends TuaBenchTaskDefinition {
  *
  * @param raw - ACP session/new metadata 的未知值。
  * @returns 任务定义及经 Worker 基准约束校验的候选 Profile。
- * @throws 任务身份、输出模式、候选 Profile 配对或冻结字段无效时抛出异常。
+ * @throws 任务身份、候选 Profile 配对或冻结字段无效时抛出异常。
  * @example
  * ```ts
  * const metadata = parseTuaBenchAcpTaskMetadata(sessionMeta);
@@ -103,10 +101,6 @@ export function parseTuaBenchAcpTaskMetadata(raw: unknown): TuaBenchAcpTaskMetad
     const record = raw as Record<string, unknown>;
     if (typeof record.taskId !== "string" || typeof record.goalId !== "string" || typeof record.runId !== "string") {
         throw new TypeError("Invalid TUA-Bench ACP session metadata: missing taskId, goalId or runId");
-    }
-    const mode = record.structuredOutputMode;
-    if (mode !== "strict" && mode !== "prompt_only") {
-        throw new TypeError("Invalid TUA-Bench ACP session metadata: invalid structuredOutputMode");
     }
     const promptProfiles = parseTuaBenchPromptProfiles(record);
 
@@ -129,7 +123,6 @@ export function parseTuaBenchAcpTaskMetadata(raw: unknown): TuaBenchAcpTaskMetad
         ...task,
         goalId: record.goalId,
         runId: record.runId,
-        structuredOutputMode: mode,
         ...promptProfiles,
     };
 }
@@ -286,7 +279,6 @@ export async function runTuaBenchWorker(): Promise<void> {
             const metadata = parseTuaBenchAcpTaskMetadata(input.sessionMeta);
             adapter = new RpcLlmAdapter({
                 stream: mux.channel("llm"),
-                structuredOutputMode: metadata.structuredOutputMode,
             });
 
             return {

@@ -12,14 +12,14 @@ test("对照请求仅改变模板与系统工具描述，不改变状态、授�
     assert.equal(decisionScenarios.length, 17);
     for (const scenario of decisionScenarios) {
         for (const mode of ["strict", "prompt_only", "two_stage"] as const) {
-            const old = evaluationRequest(scenario, renderers.old, mode, renderers.oldDescriptions);
-            const current = evaluationRequest(scenario, renderers.new, mode);
+            const old = evaluationRequest(scenario, renderers.old, renderers.oldDescriptions);
+            const current = evaluationRequest(scenario, renderers.new);
             assert.deepEqual(current.request.messages.slice(1, 2), [{ role: "user", content: scenario.intent }]);
             assert.deepEqual(old.request.messages.slice(1), current.request.messages.slice(1));
             assert.deepEqual(old.request.tools.map(({ id, parametersSchema }) => ({ id, parametersSchema })),
                 current.request.tools.map(({ id, parametersSchema }) => ({ id, parametersSchema })));
             assert.deepEqual(old.request.structuredOutput, current.request.structuredOutput);
-            assert.deepEqual(current.request, evaluationRequest(scenario, renderers.new, mode).request);
+            assert.deepEqual(current.request, evaluationRequest(scenario, renderers.new).request);
             if (scenario.checkpoint) {
                 assert.deepEqual(current.request.tools.map(t => t.id), ["system_context_checkpoint"]);
                 assert.equal(JSON.parse(readModelMessageText(current.request.messages.at(-1)!)).checkpointRequired, true);
@@ -30,18 +30,18 @@ test("对照请求仅改变模板与系统工具描述，不改变状态、授�
 
 test("评分器拒绝多调用、非法写入、错误完成和未执行 checkpoint", () => {
     const before = decisionScenarios[0]!;
-    const beforePlan = evaluationRequest(before, renderers.new, "prompt_only");
+    const beforePlan = evaluationRequest(before, renderers.new);
     const write = evaluateResponse(before, beforePlan, response("apply_change", { target: "banner", value: "Welcome" }));
     assert.equal(write.passed, false);
     assert.equal(write.criticalViolation, true);
     const checkpoint = decisionScenarios[11]!;
-    const checkpointPlan = evaluationRequest(checkpoint, renderers.new, "strict");
+    const checkpointPlan = evaluationRequest(checkpoint, renderers.new);
     const correct = response("system_context_checkpoint", {});
     assert.equal(evaluateResponse(checkpoint, checkpointPlan, correct).passed, true);
     assert.equal(evaluateResponse(checkpoint, checkpointPlan, blockResponse({ type: "text", format: "plain", text: "Done" })).criticalViolation, true);
     assert.equal(evaluateResponse(checkpoint, checkpointPlan, { blocks: [...correct.blocks, ...correct.blocks].map((block, index) => ({ ...block, index })) }).passed, false);
     const verify = decisionScenarios[5]!;
-    const early = evaluateResponse(verify, evaluationRequest(verify, renderers.new, "strict"),
+    const early = evaluateResponse(verify, evaluationRequest(verify, renderers.new),
         response("system_complete_task", { summary: "Done", completionEvidence: [{ criterionIndex: 0, evidenceSequences: [2] }] }));
     assert.equal(early.criticalViolation, true);
 });
@@ -62,7 +62,7 @@ test("关键参数评分拒绝无效修复、错误对象和伪造完成证据",
 
 test("非原生文本决策虽可解析，也不算通过原生调用协议", () => {
     const scenario = decisionScenarios[11]!;
-    const result = evaluateResponse(scenario, evaluationRequest(scenario, renderers.new, "strict"),
+    const result = evaluateResponse(scenario, evaluationRequest(scenario, renderers.new),
         blockResponse({ type: "text", format: "json", text: JSON.stringify({ result: { kind: "context_checkpoint", memoryPatch: null } }) }));
     assert.equal(result.passed, false);
     assert.equal(result.protocolValid, false);
@@ -73,15 +73,15 @@ test("仓库取证与寒暄场景使用现有评估入口，拒绝目录列表�
     const listing = decisionScenarios.find(scenario => scenario.id === "repository-listing")!;
     const content = decisionScenarios.find(scenario => scenario.id === "repository-content")!;
     const greeting = decisionScenarios.find(scenario => scenario.id === "greeting")!;
-    const plan = evaluationRequest(listing, renderers.new, "strict");
+    const plan = evaluationRequest(listing, renderers.new);
     assert.equal(evaluateResponse(listing, plan, response("read_state", { target: "AGENTS.md", value: null })).passed, true);
     const premature = evaluateResponse(listing, plan, response("system_complete_task", { summary: "The rules are excellent", evidenceSequences: [4], memoryPatch: null }));
     assert.equal(premature.passed, false);
     assert.equal(premature.criticalViolation, true);
-    assert.equal(evaluateResponse(content, evaluationRequest(content, renderers.new, "strict"), response("system_complete_task", {
+    assert.equal(evaluateResponse(content, evaluationRequest(content, renderers.new), response("system_complete_task", {
         summary: "Contract documentation makes public TypeScript responsibilities explicit.", evidenceSequences: [4], memoryPatch: null,
     })).passed, true);
-    assert.equal(evaluateResponse(greeting, evaluationRequest(greeting, renderers.new, "strict"), response("system_complete_task", {
+    assert.equal(evaluateResponse(greeting, evaluationRequest(greeting, renderers.new), response("system_complete_task", {
         summary: "Hello! How can I help?", evidenceSequences: [], memoryPatch: null,
     })).passed, true);
     const system = readModelMessageText(plan.request.messages[0]!);
@@ -93,7 +93,7 @@ test("仓库取证与寒暄场景使用现有评估入口，拒绝目录列表�
 test("source selection and Memory repair use scoped production inputs and reject invented evidence", () => {
     for (const id of ["repository-history-no-match", "memory-feedback-source"]) {
         const scenario = decisionScenarios.find(s => s.id === id)!;
-        const plan = evaluationRequest(scenario, renderers.new, "strict");
+        const plan = evaluationRequest(scenario, renderers.new);
         const context = plan.request.messages.map(m => { try { return JSON.parse(readModelMessageText(m)); } catch { return undefined; } }).find(m => m?.contextLookupResult);
         assert.equal(context.contextLookupResult.sourceScope, "goal_history");
         if (scenario.runtimeFeedback) {
@@ -113,13 +113,13 @@ test("source selection and Memory repair use scoped production inputs and reject
 
 
 test("evaluation Run mode and native declarations agree with proposal and completion contracts", () => {
-    const proposal = evaluationRequest(decisionScenarios[0]!, renderers.new, "strict");
+    const proposal = evaluationRequest(decisionScenarios[0]!, renderers.new);
     assert.ok(proposal.request.tools.some(t => t.id === "system_propose_task_plan"));
     assert.ok(!proposal.request.tools.some(t => t.id === "system_complete_task"));
-    const inspect = evaluationRequest(decisionScenarios[1]!, renderers.new, "strict");
+    const inspect = evaluationRequest(decisionScenarios[1]!, renderers.new);
     assert.ok(!inspect.request.tools.some(t => t.id === "system_propose_task_plan"));
     assert.match(inspect.request.messages.map(readModelMessageText).join("\n"), /Normal Run: act directly/);
-    const approved = evaluationRequest(decisionScenarios[10]!, renderers.new, "strict");
+    const approved = evaluationRequest(decisionScenarios[10]!, renderers.new);
     const declaration = approved.request.tools.find(t => t.id === "system_complete_task")!;
     assert.ok(JSON.stringify(declaration.parametersSchema).includes("completionEvidence"));
 });

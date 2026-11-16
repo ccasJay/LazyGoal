@@ -24,16 +24,16 @@ export function parseBoundary(raw: unknown): ScriptBoundary {
  * @remarks 恢复关联键保留冻结身份。取消 stage 会取消整个 session，不追加补救 prompt。
  * @example
  * ```ts
- * const stages = await runContextSession(stream, scenario, mode, signal);
+ * const stages = await runContextSession(stream, scenario, signal);
  * ```
  */
-export async function runContextSession(stream: AcpStream, scenario: ContextScenario, mode: "strict" | "prompt_only", signal: AbortSignal, start = 0, end = scenario.stages.length, initial: ScriptBoundary | null = null, nativeIdentity?: NonNullable<LLMAdapter["nativeConversationIdentity"]>): Promise<readonly StageRecord[]> {
+export async function runContextSession(stream: AcpStream, scenario: ContextScenario, signal: AbortSignal, start = 0, end = scenario.stages.length, initial: ScriptBoundary | null = null, nativeIdentity?: NonNullable<LLMAdapter["nativeConversationIdentity"]>): Promise<readonly StageRecord[]> {
     const app = client({ name: "lazygoal-context-benchmark" });
     return app.connectWith(stream, async connection => {
         signal.throwIfAborted();
         await connection.request(methods.agent.initialize, { protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} });
         const session = await connection.request(methods.agent.session.new, {
-            cwd: scenario.kind === "source" ? "/testbed" : "/workspace/project", mcpServers: [], _meta: { profile: scenario.profile, maxSteps: scenario.budget.maxSteps, mode,
+            cwd: scenario.kind === "source" ? "/testbed" : "/workspace/project", mcpServers: [], _meta: { profile: scenario.profile, maxSteps: scenario.budget.maxSteps,
                 ...(nativeIdentity === undefined ? {} : { nativeIdentity }),
                 ...(initial === null ? {} : { restoreRef: { goalId: initial.goalId, runId: initial.runId } }) },
         });

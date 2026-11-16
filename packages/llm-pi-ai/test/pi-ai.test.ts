@@ -33,7 +33,6 @@ const request: LLMRequest = { messages: [
 function adapter(provider = "openai", model = "gpt-4.1-mini", baseURL?: string) {
     return new PiAiAdapter(readLLMConfig({
         LLM_PROVIDER: provider, LLM_MODEL: model, LLM_API_KEY: "test-explicit-key",
-        LLM_STRUCTURED_OUTPUT_MODE: "prompt_only",
         ...(baseURL === undefined ? {} : { LLM_BASE_URL: baseURL }),
         ...(provider === "openai-compatible" ? { LLM_CONTEXT_WINDOW_TOKENS: "8192", LLM_MAX_OUTPUT_TOKENS: "1024" } : {}),
     }));
@@ -188,10 +187,9 @@ test("pi-ai preserves redacted thinking as a whole block", async () => {
     assert.equal(readReasoningText(tracker.result()), "[Reasoning redacted]");
 });
 
-test("invalid request mode, system placement and output cap fail before dispatch", async () => {
+test("system placement and output cap fail before dispatch", async () => {
     const instance = adapter();
     stub(instance, async () => { assert.fail("must not dispatch"); });
-    await assert.rejects(instance.generate({ ...request, structuredOutput: { name: "test", schema: {} } }), LLMRequestModeMismatchError);
     await assert.rejects(instance.generate({ messages: [{ role: "user", content: "hi" }, { role: "system", content: "late" }] }), /System messages must precede/);
     await assert.rejects(instance.generate({ ...request, maxOutputTokens: 999999999 }), LLMConfigurationError);
 });
@@ -318,7 +316,6 @@ const minimaxDynamicConfig: LLMConfig = {
     provider: "opencode-go",
     model: "minimax-m3.1-flash-free",
     apiKey: "test-explicit-key",
-    structuredOutputMode: "prompt_only",
     executionApi: "openai-completions",
     contextWindowTokens: 1_000_000,
     maxOutputTokens: 524_288,
@@ -476,43 +473,38 @@ async function withServer(handler: (req: IncomingMessage, res: ServerResponse) =
     finally { server.closeAllConnections(); await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
 }
 
-test("Google factory uses the configured API prefix with the real SDK in both output modes", async () => {
+test("Google factory uses the configured API prefix with the real SDK", async () => {
     const schema = { type: "object", properties: { answer: { type: "string" } }, required: ["answer"] };
-    for (const mode of ["strict", "prompt_only"] as const) {
-        for (const prefix of ["/v1", "/gateway/v1beta/"]) {
-            const captured: { path: string; key: string | string[] | undefined; body: Record<string, any> }[] = [];
-            await withServer((req, res) => {
-                let data = "";
-                req.on("data", chunk => { data += chunk; });
-                req.on("end", () => {
-                    captured.push({ path: req.url!, key: req.headers["x-goog-api-key"], body: JSON.parse(data) });
-                    res.writeHead(200, { "Content-Type": mode === "strict" ? "application/json" : "text/event-stream" });
-                    res.end(mode === "strict"
-                        ? JSON.stringify({ candidates: [{ content: { role: "model", parts: [{ text: json }] }, finishReason: "STOP" }] })
-                        : googleBody);
-                });
-            }, async url => {
-                const instance = createLlmAdapter(readLLMConfig({
-                    LLM_PROVIDER: "google", LLM_MODEL: "gemini-2.5-flash", LLM_API_KEY: "test-explicit-key",
-                    LLM_STRUCTURED_OUTPUT_MODE: mode, LLM_BASE_URL: url + prefix,
-                }));
-                const response = await instance.generate({
-                    ...request,
-                    ...(mode === "strict" ? { structuredOutput: { name: "answer", schema } } : {}),
-                });
-                assert.equal(readAssistantText(response), json);
+    for (const prefix of ["/v1", "/gateway/v1beta/"]) {
+        const captured: { path: string; key: string | string[] | undefined; body: Record<string, any> }[] = [];
+        await withServer((req, res) => {
+            let data = "";
+            req.on("data", chunk => { data += chunk; });
+            req.on("end", () => {
+                captured.push({ path: req.url!, key: req.headers["x-goog-api-key"], body: JSON.parse(data) });
+                res.writeHead(200, { "Content-Type": "application/json" });
+                res.end(JSON.stringify({ candidates: [{ content: { role: "model", parts: [{ text: json }] }, finishReason: "STOP" }] }));
             });
-            assert.equal(captured.length, 1);
-            const sent = captured[0]!;
-            const method = mode === "strict" ? "generateContent" : "streamGenerateContent?alt=sse";
-            assert.equal(sent.path, `${prefix.replace(/\/$/, "")}/models/gemini-2.5-flash:${method}`);
-            assert.equal(sent.key, "test-explicit-key");
-            assert.equal(sent.body.generationConfig.responseMimeType, mode === "strict" ? "application/json" : undefined);
-            assert.equal(sent.body.generationConfig.responseJsonSchema, undefined);
-            assert.deepEqual(sent.body.generationConfig.responseSchema, mode === "strict" ? {
-                type: "OBJECT", properties: { answer: { type: "STRING" } }, required: ["answer"],
-            } : undefined);
-        }
+        }, async url => {
+            const instance = createLlmAdapter(readLLMConfig({
+                LLM_PROVIDER: "google", LLM_MODEL: "gemini-2.5-flash", LLM_API_KEY: "test-explicit-key",
+                LLM_BASE_URL: url + prefix,
+            }));
+            const response = await instance.generate({
+                ...request,
+                structuredOutput: { name: "answer", schema },
+            });
+            assert.equal(readAssistantText(response), json);
+        });
+        assert.equal(captured.length, 1);
+        const sent = captured[0]!;
+        assert.equal(sent.path, `${prefix.replace(/\/$/, "")}/models/gemini-2.5-flash:generateContent`);
+        assert.equal(sent.key, "test-explicit-key");
+        assert.equal(sent.body.generationConfig.responseMimeType, "application/json");
+        assert.equal(sent.body.generationConfig.responseJsonSchema, undefined);
+        assert.deepEqual(sent.body.generationConfig.responseSchema, {
+            type: "OBJECT", properties: { answer: { type: "STRING" } }, required: ["answer"],
+        });
     }
 });
 
@@ -762,7 +754,6 @@ test("opencode-go 注入 LazyGoal UA 与稳定会话头，且仅在提供会话�
         try {
             const instance = new PiAiAdapter(readLLMConfig({
                 LLM_PROVIDER: "opencode-go", LLM_MODEL: goModel.id, LLM_API_KEY: "test-explicit-key",
-                LLM_STRUCTURED_OUTPUT_MODE: "prompt_only",
             }));
             const withSession = await instance.generate({ ...request, sessionId: "goal-123" });
             assert.equal(readAssistantText(withSession), json);
@@ -817,9 +808,9 @@ test("real SDK rejects length termination and stream errors", async () => {
     }
 });
 
-test("agent smoke exercises unified task approval, one tool and completion in both modes", async () => {
+test("agent smoke exercises unified task approval, one tool and completion", async () => {
     const { runAgentSmoke } = await import("../../llm/test/agent-smoke-test");
-    for (const mode of ["strict", "prompt_only"] as const) {
+    {
         const phases: string[] = [];
         await withServer((req, res) => {
             let data = "";
@@ -834,7 +825,6 @@ test("agent smoke exercises unified task approval, one tool and completion in bo
                 phases.push(reviewing ? "completion_review" : working.phase);
                 assert.equal(body.response_format, undefined);
                 assert.ok(body.tools.length > 0);
-                if (mode === "strict") assert.equal(body.parallel_tool_calls, false);
                 if (!reviewing && !isFeedback) assert.match(working.responseShapeGuide, /Call exactly one declared tool/);
                 let decision: unknown;
                 const taskApproved = body.messages.some(
@@ -883,7 +873,7 @@ test("agent smoke exercises unified task approval, one tool and completion in bo
         }, async url => {
             const report = await runAgentSmoke({
                 LLM_PROVIDER: "openai-compatible", LLM_API_KEY: "test-explicit-key", LLM_MODEL: "local-model",
-                LLM_BASE_URL: `${url}/v1`, LLM_STRUCTURED_OUTPUT_MODE: mode,
+                LLM_BASE_URL: `${url}/v1`,
                 LLM_CONTEXT_WINDOW_TOKENS: "65536", LLM_MAX_OUTPUT_TOKENS: "4096",
             });
             assert.equal(report.unifiedExecution, "passed");
@@ -905,7 +895,7 @@ test("pi-ai unified execution keeps local JSON and phase validation", async () =
         }, async url => {
             await assert.rejects(runAgentSmoke({
                 LLM_PROVIDER: "openai-compatible", LLM_API_KEY: "key", LLM_MODEL: "local-model",
-                LLM_BASE_URL: `${url}/v1`, LLM_STRUCTURED_OUTPUT_MODE: "prompt_only",
+                LLM_BASE_URL: `${url}/v1`,
                 LLM_CONTEXT_WINDOW_TOKENS: "65536", LLM_MAX_OUTPUT_TOKENS: "4096",
             }));
         });

@@ -57,7 +57,6 @@ const environment: AlfworldContainerEnvironmentConfig = {
 };
 
 const llmAdapter: LLMAdapter = {
-    structuredOutputMode: "strict",
     async generate() { throw new Error("not used"); },
 };
 

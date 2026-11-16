@@ -53,7 +53,6 @@ export {
 } from "./tools-worker-entry";
 export {
     GAIA_PROFILE_TOOL_IDS,
-    GAIA_STRUCTURED_OUTPUT_MODE,
     GAIA_WORKER_PROFILE,
     createGaiaWorkerToolRegistry,
     GaiaBenchmarkAdapter,
