@@ -486,7 +486,7 @@ test("Composition Root carries Memory through task approval into Executing", { t
 
         // 2. Snapshot 中的 lastStep（若是 decision）内部绝不能嵌套 wire envelope
         if (persisted.state.run.lastStep?.kind === "decision") {
-            const decision = persisted.state.run.lastStep.result as Record<string, unknown>;
+            const decision = persisted.state.run.lastStep.result as unknown as Record<string, unknown>;
             assert.equal("result" in decision, false, "lastStep decision must not retain wire result envelope");
             assert.notEqual(decision.memoryPatch, null, "lastStep decision must not retain placeholder null memoryPatch");
         }
@@ -494,7 +494,7 @@ test("Composition Root carries Memory through task approval into Executing", { t
         // 3. Trajectory 中所有 decision_received 事件的 decision 绝不能包含 wire result envelope 或占位 null
         for (const event of trajectory.committed) {
             if (event.eventType === "decision_received") {
-                const decision = (event.payload as { decision: Record<string, unknown> }).decision;
+                const decision = (event.payload as { decision: unknown }).decision as Record<string, unknown>;
                 assert.equal("result" in decision, false, "Trajectory decision must not retain wire result envelope");
                 assert.notEqual(decision.memoryPatch, null, "Trajectory decision must not retain placeholder null memoryPatch");
             }

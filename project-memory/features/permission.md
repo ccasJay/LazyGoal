@@ -1,12 +1,14 @@
 ---
 feature: permission
-status: active
+status: superseded
+superseded_by: [project-memory/features/permission-modes.md]
+status_reason: Tool Grant 账本与逐 Goal 沙箱上限冻结已由 permission-modes 的三档位加边界豁免模型取代；沙箱越界审批铁律在 permission-modes 中以修正形式延续
 summary: "统一 Permission 分层包、两类持续授权账本、沙箱越界审批与双端交互"
 source_spec: specs/permission/
 distilled_at: 2026-09-29
 reviewed_at: 2026-10-01
 tags: [permission, sandbox, grant, tool, security, tui, browser]
-authorities: [specs/permission/requirements.md, specs/permission/design.md, packages/permission/src/index.ts, packages/permission/src/types.ts, packages/permission/src/permission-grant-service.ts, packages/permission/src/grant-matching.ts, packages/runtime/src/runner.ts, packages/runtime/src/transition.ts, packages/storage/src/json-file-sandbox-grant-store.ts, packages/storage/src/json-file-project-permission-mode-store.ts]
+authorities: [specs/permission/requirements.md, specs/permission/design.md, packages/permission/src/index.ts, packages/permission/src/types.ts, packages/permission/src/permission-exemption-service.ts, packages/permission/src/grant-matching.ts, packages/runtime/src/runner.ts, packages/runtime/src/transition.ts, packages/storage/src/json-file-sandbox-grant-store.ts, packages/storage/src/json-file-project-permission-profile-store.ts]
 supersedes: [project-memory/features/tools-shared-internals.md]
 ---
 
@@ -44,9 +46,9 @@ supersedes: [project-memory/features/tools-shared-internals.md]
 - S2: `specs/permission/design.md`
 - S3: `packages/permission/src/index.ts`
 - S4: `packages/permission/src/types.ts`
-- S5: `packages/permission/src/permission-grant-service.ts`
+- S5: `packages/permission/src/permission-exemption-service.ts`
 - S6: `packages/permission/src/grant-matching.ts`
 - S7: `packages/runtime/src/runner.ts`
 - S8: `packages/runtime/src/transition.ts`
 - S9: `packages/storage/src/json-file-sandbox-grant-store.ts`
-- S10: `packages/storage/src/json-file-project-permission-mode-store.ts`
+- S10: `packages/storage/src/json-file-project-permission-profile-store.ts`

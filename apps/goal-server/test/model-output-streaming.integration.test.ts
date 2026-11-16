@@ -367,7 +367,7 @@ test("OpenAI-compatible Goal 重启后按共享块续接已结算工具交换", 
             && readModelToolCalls(event.payload.message).some(call => call.callId === "call-bash-restart"));
         assert.ok(nativeCallEvent?.eventType === "model_response_received");
         assert.ok("blocks" in nativeCallEvent.payload.message);
-        assert.equal(nativeCallEvent.payload.message.content, undefined);
+        assert.ok(!("content" in nativeCallEvent.payload.message));
         assert.equal(readModelAssistantText(nativeCallEvent.payload.message), "Evidence captured.");
         assert.equal(readModelAssistantReasoning(nativeCallEvent.payload.message, "reasoning_content"), "Replay this reasoning_content verbatim.");
         assert.equal(readModelAssistantReasoning(nativeCallEvent.payload.message, "thought"), "Keep this extension only in the generation record.");

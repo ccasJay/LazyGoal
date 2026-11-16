@@ -12,6 +12,7 @@ import {
     RuntimeLifecycleUnavailableError,
     type AgentProfile,
     type GoalProgressResult,
+    type LaunchResult,
 } from "../../../packages/runtime/src/index";
 import {
     AgentProfileConfigurationError,
@@ -155,6 +156,11 @@ function requireSuccess(result: GoalProgressResult): Extract<GoalProgressResult,
     return result;
 }
 
+function requireLaunchSuccess(result: LaunchResult): Extract<LaunchResult, { readonly ok: true }> {
+    if (!result.ok) assert.fail(`${result.error.code}: ${result.error.message}`);
+    return result;
+}
+
 test("重建服务后，沙箱审批为真实 Bash 调用恢复绑定 Action 的执行计划", async () => {
     const fixture = await setupFixture();
     const target = join(fixture.home, "approved.txt");
@@ -175,7 +181,7 @@ test("重建服务后，沙箱审批为真实 Bash 调用恢复绑定 Action 的
             sandboxAccess: { files: [{ path: target, access: "read", kind: "file", purpose: "Read the approved fixture" }], network: null } }),
     ]) });
     try {
-        const waiting = requireSuccess(await first.commands.launch({ goalId: "sandbox-recovery", intent: "Read the fixture", profileId: baseProfile.id }));
+        const waiting = requireLaunchSuccess(await first.commands.launch({ goalId: "sandbox-recovery", intent: "Read the fixture", profileId: baseProfile.id }));
         assert.equal(waiting.kind, "waiting", JSON.stringify(waiting.goal.state.run.stopReason));
         const pending = waiting.goal.state.run.pendingAction;
         assert.equal(pending?.approvalKind, "sandbox");

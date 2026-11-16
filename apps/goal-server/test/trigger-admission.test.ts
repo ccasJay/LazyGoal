@@ -4,6 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { LLMAdapter } from "../../../packages/llm-core/src/index";
+import { readModelMessageText } from "../../../packages/model-contracts/src/index";
 import { createGoal } from "../../../packages/runtime/src/domain";
 import { currentProtocols } from "../../../packages/runtime/test/current-fixtures";
 import { JsonFileGoalStore } from "../../../packages/storage/src/goal-store";
@@ -71,7 +72,7 @@ test("the Supervisor model can ignore or accept separate work Triggers in comple
         const wait = new Promise<void>((resolve) => { release = resolve; });
         const adapter = mockAdapter(async (request) => {
             assert.ok(request.structuredOutput);
-            const body = String(request.messages[1]?.content);
+            const body = readModelMessageText(request.messages[1]!);
             if (body.includes("slow")) await wait;
             const decision = body.includes("ignore") ? { kind: "ignore", workspaceMode: null } : { kind: "accept", workspaceMode: "shared" };
             return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify(decision) }] };

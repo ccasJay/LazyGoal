@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 
 import type { LLMAdapter, LLMRequest, LLMResponse } from "../../../packages/llm-core/src/index";
+import { readModelMessageText } from "../../../packages/model-contracts/src/index";
 import { toolCallResponse } from "../../../packages/llm-core/test/response-fixtures";
 import { createBrowserSessionAccess } from "../../../packages/browser/src/index";
 import { runServerSession } from "../src/cli";
@@ -45,7 +46,8 @@ test("正式装配：SSE 发布提交失效通知，Activity 与消息查询读�
                 // 先阻塞：订阅建立后再放行模型调用，确保实时事件被观察到。
                 await releaseModel.promise;
             }
-            const isReview = (request.messages.at(-1)?.content ?? "").includes("runtime_completion_candidate");
+            const lastMessage = request.messages.at(-1);
+            const isReview = lastMessage !== undefined && readModelMessageText(lastMessage).includes("runtime_completion_candidate");
             if (isReview) {
                 // 完成审查：接受候选，使其成为正式答复。
                 return toolCallResponse({
