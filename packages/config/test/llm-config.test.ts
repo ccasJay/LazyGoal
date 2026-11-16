@@ -5,7 +5,7 @@ import { LLMConfigurationError } from "../../llm-core/src/index";
 import { createLlmAdapter, createReflectionLlmAdapter } from "../../llm/src/index";
 import { ChatCompletionsAdapter } from "../../llm-adapters/src/index";
 import { Gemini } from "../../llm-google/src/index";
-import { PiAiAdapter } from "../../llm-pi-ai/src/index";
+import { AnthropicMessagesAdapter } from "../../llm-adapters/src/index";
 
 const base = {
     LLM_PROVIDER: "openai", LLM_MODEL: "gpt-4.1-mini",
@@ -40,7 +40,7 @@ test("factory dispatches registered providers to request-driven adapters", () =>
     }
 
     const anthropic = readLLMConfig({ ...base, LLM_PROVIDER: "anthropic", LLM_MODEL: "claude-sonnet-4-5" });
-    assert.ok(createLlmAdapter(anthropic) instanceof PiAiAdapter);
+    assert.ok(createLlmAdapter(anthropic) instanceof AnthropicMessagesAdapter);
 
     const google = readLLMConfig({ ...base, LLM_PROVIDER: "google", LLM_MODEL: "gemini-2.5-flash" });
     assert.ok(createLlmAdapter(google) instanceof Gemini);
@@ -105,5 +105,5 @@ test("createReflectionLlmAdapter dispatches native runtime providers for google 
         apiKey: "test-key",
         model: "claude-sonnet-4-5",
     });
-    assert.ok(anthropicReflection instanceof PiAiAdapter);
+    assert.ok(anthropicReflection instanceof AnthropicMessagesAdapter);
 });

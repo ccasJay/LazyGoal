@@ -4,23 +4,24 @@
 
 ## 职责与调用
 
-- [createLlmAdapter](../src/default-adapters.ts)：已注册供应商（OpenAI、DeepSeek、OpenRouter、OpenCode Go、`openai-compatible` 与配置实例）使用 [llm-adapters](../../llm-adapters/notes/overview.md) 的请求驱动 Adapter；Anthropic 与 Google 仍由 [llm-pi-ai](../../llm-pi-ai/notes/overview.md) 与 [llm-google](../../llm-google/notes/overview.md) 服务，`two_stage` 只影响这两个既有实现。
-- [createLlmStageAdapters](../src/default-adapters.ts)：已注册供应商的 Think 与 Decide 共用同一个请求驱动 Adapter；Anthropic 与 Google 保留 Think/Decide 模式差异。
-- [createReflectionLlmAdapter](../src/default-adapters.ts)：已注册供应商复用同一适配器，Google 使用原生 Gemini 实现，Anthropic 回退 pi-ai，不发起网络目录校验。
+- [createLlmAdapter](../src/default-adapters.ts)：按供应商注册表选择 Adapter；分发前先校验声明协议已有 wire 实现，未实现时明确失败并指明缺失协议，不回退到其它协议。
+- [createLlmStageAdapters](../src/default-adapters.ts)：Think 与 Decide 共用同一个请求驱动 Adapter；生成约束由单次请求声明。
+- [createReflectionLlmAdapter](../src/default-adapters.ts)：复用同一注册表适配器，不发起网络目录校验。
 - 三个工厂构造时不发网络请求、不读取环境凭据、不创建存储。共享 `LLMConfig`、调用契约与配置错误归 [llm-core](../../llm-core/notes/overview.md)；配置读取与校验归 [Config](../../config/notes/overview.md)。
 
-| Provider | 选中的 Adapter |
-| --- | --- |
-| `openai`、`deepseek`、`openrouter`、`opencode-go`、`openai-compatible` 与配置实例 | `llm-adapters` 的请求驱动 Chat Completions Adapter |
-| `google` | `prompt_only` 使用 pi-ai；`strict` 使用原生 Google Gen AI |
-| `anthropic` | pi-ai Anthropic |
-| 未注册且无既有实现 | `LLMConfigurationError` |
+| Provider | 选中的 Adapter | 协议 |
+| --- | --- | --- |
+| `openai`、`deepseek`、`openrouter`、`opencode-go`、`openai-compatible` 与配置实例 | `llm-adapters` 的 Chat Completions Adapter | `chat-completions` |
+| `anthropic` | `llm-adapters` 的原生 Messages Adapter（wire 归 [wire-anthropic-messages](../../wire-anthropic-messages/notes/overview.md)） | `anthropic-messages` |
+| `google` | [llm-google](../../llm-google/notes/overview.md) 的原生 Gemini Adapter（wire 归 [wire-google-generate-content](../../wire-google-generate-content/notes/overview.md)） | `google-generate-content` |
+| 协议没有 wire 实现 | `LLMConfigurationError` 并列出已实现协议 | — |
+| 未注册供应商 | `LLMConfigurationError` 并列出已注册供应商 | — |
 
-输出约束由请求声明；已注册供应商的两阶段共用同一 Adapter。阶段对的实际类型差异由 [default-adapters 测试](../test/default-adapters.test.ts) 与 [阶段配置测试](../test/two-stage-config.test.ts) 对照。
+输出约束由请求声明；两阶段共用同一 Adapter。阶段对的实际类型差异由 [default-adapters 测试](../test/default-adapters.test.ts) 与 [阶段配置测试](../test/two-stage-config.test.ts) 对照。
 
 ## 依赖与入口
 
-`llm` 依赖 `llm-core`、`llm-adapters`、`llm-google` 与 `llm-pi-ai`；不直接依赖 `config`、`model-catalog` 或生成 SDK。公共入口 [src/index.ts](../src/index.ts) 只导出三个默认工厂与自有 `LlmStageAdapters` 类型；旧 factory/core/adapter 与目录路径不再存在或被消费，无兼容转发。模型目录查询与模型切换由 [model-catalog](../../model-catalog/notes/overview.md) 与宿主装配负责，默认工厂不自动发起在线发现。
+`llm` 依赖 `llm-core`、`llm-adapters` 与 `llm-google`；不直接依赖 `config`、`model-catalog` 或供应商 SDK。公共入口 [src/index.ts](../src/index.ts) 只导出三个默认工厂与自有 `LlmStageAdapters` 类型；旧 factory/core/adapter 与目录路径不再存在或被消费，无兼容转发。模型目录查询与模型切换由 [model-catalog](../../model-catalog/notes/overview.md) 与宿主装配负责，默认工厂不自动发起在线发现。
 
 ## Smoke 入口与限制
 

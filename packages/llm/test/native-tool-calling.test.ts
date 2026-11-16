@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { createOpenAICompatibleAdapter } from "../../llm-adapters/src/index";
 import { Gemini } from "../../llm-google/src/index";
-import { PiAiAdapter } from "../../llm-pi-ai/src/index";
 import type { LLMRequest, LLMToolDefinition } from "../../llm-core/src/index";
 import { readAssistantText, readReasoningText, readToolCalls } from "../../llm-core/src/index";
 
@@ -257,55 +256,3 @@ test("Gemini 纯 functionCall 响应提取工具调用，不读取正文派生�
     }
 });
 
-test("PiAiAdapter 原生挂载 tools、隔离 thinking 并提取 toolCall blocks", async () => {
-    const adapter = new PiAiAdapter({
-        provider: "openai-compatible",
-        model: "mock-model",
-        apiKey: "test-key",
-        baseURL: "https://api.mock.com",
-        contextWindowTokens: 16000,
-        maxOutputTokens: 4096,
-    });
-
-    let capturedContext: any = undefined;
-    (adapter as any).models = {
-        completeSimple: async (_model: any, context: any) => {
-            capturedContext = context;
-            return {
-                role: "assistant",
-                provider: "openai-compatible",
-                api: "openai-completions",
-                model: "mock-model",
-                stopReason: "toolUse",
-                content: [
-                    { type: "thinking", thinking: "PiAi 思考推演流" },
-                    {
-                        type: "toolCall",
-                        id: "pi_call_1",
-                        name: "system_complete_task",
-                        arguments: { summary: "PiAi 完成", completionEvidence: [] },
-                    },
-                ],
-                usage: { input: 10, output: 20 },
-            };
-        },
-    };
-
-    const response = await adapter.generate({
-        messages: [{ role: "user", content: "测试" }],
-        tools: [mockToolDefinition],
-    });
-
-    assert.ok(capturedContext.tools);
-    assert.equal(capturedContext.tools.length, 1);
-    assert.equal(capturedContext.tools[0].name, "system_complete_task");
-
-    assert.equal(readAssistantText(response), "");
-    // thinking 保留为受限 reasoning 块，但绝不混入正文或工具参数。
-    assert.equal(readReasoningText(response), "PiAi 思考推演流");
-    assert.equal(JSON.stringify(readToolCalls(response)).includes("PiAi 思考推演流"), false);
-    const piCalls = readToolCalls(response);
-    assert.equal(piCalls.length, 1);
-    assert.equal(piCalls[0]!.callId, "pi_call_1");
-    assert.equal(piCalls[0]!.toolId, "system_complete_task");
-});

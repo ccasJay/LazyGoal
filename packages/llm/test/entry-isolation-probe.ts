@@ -86,14 +86,6 @@ switch (scenario) {
         artifacts = { endpoint: instance.nativeConversationIdentity.endpoint };
         break;
     }
-    case "llm-pi-ai": {
-        const { PiAiAdapter } = await import(entry("packages/llm-pi-ai/src/index.ts"));
-        const instance = new PiAiAdapter({
-            provider: "anthropic", apiKey: "probe-key", model: "claude-sonnet-4-5",
-        });
-        artifacts = {};
-        break;
-    }
     case "model-catalog": {
         const catalogModule = await import(entry("packages/model-catalog/src/index.ts"));
         const catalog = new catalogModule.DefaultLlmModelCatalog({

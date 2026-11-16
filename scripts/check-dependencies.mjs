@@ -34,11 +34,10 @@ import { parse } from "@babel/parser";
  * wire-chat-completions 承载 Chat Completions 请求、SSE 事件映射与协议错误，只依赖 llm-core 与 execution-control；
  * wire-anthropic-messages 承载 Anthropic Messages 请求、thinking 签名续接、SSE 事件映射与协议错误，只依赖 llm-core 与 execution-control；
  * llm-google 承载 Gemini 原生适配与 strict Schema 投影，只依赖 llm-core、contracts、model-contracts、execution-control 与 @google/genai SDK；
- * llm-pi-ai 承载 pi-ai 多供应商 prompt_only 适配与增量流转换，只依赖 llm-core、execution-control 与锁定版本 pi-ai SDK；
  * model-catalog 只承载注入式目录合并、排序、可选性与降级判定，依赖 llm-core；
  * llm-adapters 承载供应商端点、认证、目录来源与协议事实，依赖 llm-core 与 model-catalog；
  * runtime 依赖 contracts、model-contracts、execution-stream、sandbox、permission、context-retrieval、execution-control 和 tool-core；
- * llm 只依赖 llm-core、llm-adapters、llm-google 与 llm-pi-ai 提供三个默认工厂，不直接依赖 config、model-catalog 或生成 SDK；
+ * llm 只依赖 llm-core、llm-adapters 与 llm-google 提供三个默认工厂，不直接依赖 config、model-catalog 或供应商 SDK；
  * storage 依赖 runtime、contracts、model-contracts、permission、context-retrieval 与生成绑定基础包 contract-binding；
  * agent 只装配能力包，自身不保存请求、调用、解码或执行实现；
  * 九个能力包按依赖方向逐包收紧，Roundtrip 依赖由各自的允许列表拒绝；
@@ -77,13 +76,12 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
     "llm-core": ["contracts", "model-contracts", "execution-control"],
     "wire-chat-completions": ["llm-core", "execution-control"],
     "wire-anthropic-messages": ["llm-core", "execution-control"],
-    "llm-google": ["llm-core", "contracts", "model-contracts", "execution-control"],
-    "llm-pi-ai": ["llm-core", "execution-control"],
+    "llm-google": ["llm-core", "wire-google-generate-content", "execution-control"],
     "model-catalog": ["llm-core"],
-    "llm-adapters": ["llm-core", "model-catalog", "wire-chat-completions", "wire-anthropic-messages", "execution-control"],
+    "llm-adapters": ["llm-core", "model-catalog", "wire-chat-completions", "wire-anthropic-messages", "wire-google-generate-content", "llm-google", "execution-control"],
     config: ["llm-core"],
     runtime: ["contracts", "model-contracts", "execution-stream", "sandbox", "permission", "context-retrieval", "execution-control", "tool-core", "working-memory"],
-    llm: ["llm-core", "llm-adapters", "llm-google", "llm-pi-ai"],
+    llm: ["llm-core", "llm-adapters", "llm-google"],
     storage: ["runtime", "contracts", "model-contracts", "permission", "context-retrieval", "contract-binding"],
     agent: ["runtime", "llm", "config", "contracts", "model-contracts", "execution-stream", "execution-control", "tool-core", "working-memory", "context-budget", "model-view", "model-context", "prompt-renderer", "prompt-bundle", "model-request", "model-response", "model-call", "model-execution"],
     "session-metrics": ["runtime", "http", "web-contracts"],
@@ -128,7 +126,7 @@ const BENCHMARKS = ["alfworld", "swebench", "gaia", "tua-bench", "context"];
 const VENDOR_SDK_MODULES = ["openai", "@google/genai", "@earendil-works/pi-ai"];
 
 /** 跨包消费必须经 `src/index.ts` 的能力包。 */
-const CAPABILITY_PACKAGES = ["llm-core", "wire-chat-completions", "wire-anthropic-messages", "llm-google", "llm-pi-ai", "model-catalog", "llm-adapters"];
+const CAPABILITY_PACKAGES = ["llm-core", "wire-chat-completions", "wire-anthropic-messages", "wire-google-generate-content", "llm-google", "model-catalog", "llm-adapters"];
 
 /** 禁止存在的旧 LLM 实现路径；源码不得引用。 */
 const REMOVED_LLM_PATHS = [

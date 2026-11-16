@@ -133,9 +133,9 @@ Provider 表单在线查询由 Composition Root 校验供应商和端点规则�
 
 ## 模型目录与动态执行恢复
 
-浏览器选模请求只携带模型 ID 和可选 Profile ID。Goal Server 从当前 Provider 的可选择目录描述生成 `GoalModelSelection`；浏览器目录投影不包含 `executionApi`、执行端点或凭据。显式 CLI 默认模型 ID 可由本机执行登记补齐 Adapter 配置，但该配置路径不宣称模型已通过在线可用性检查。
+浏览器选模请求只携带模型 ID 和可选 Profile ID。Goal Server 从当前 Provider 的可选择目录描述生成 `GoalModelSelection`；浏览器目录投影不包含 `protocol`、执行端点或凭据。显式 CLI 默认模型 ID 可由本机执行登记补齐 Adapter 配置，但该配置路径不宣称模型已通过在线可用性检查。
 
-OpenCode Go 在线文本模型按实时模型元数据确认文本生成、工具调用和容量后可选，并统一通过 `llm-pi-ai` 的 Chat Completions 适配路径执行。`GoalModelSelection` 与 Snapshot 保存协议、容量、推理、视觉和工具选择能力；每次恢复按保存数据构造 Adapter，并按已保存的 Profile ID 解析当前 API Key。端点由 `llm-pi-ai` 固定，API Key 与 Base URL 不写入 Goal 状态。上游可能限制部分免费模型只能在 OpenCode 内调用，外部客户端请求可能收到 403。
+OpenCode Go 在线文本模型按实时模型元数据确认文本生成、工具调用和容量后可选，并按 `GoalModelSelection` 记录的线格式协议分发到对应 wire 适配器。`GoalModelSelection` 与 Snapshot 保存协议、容量、推理、视觉和工具选择能力；每次恢复按保存数据构造 Adapter，并按已保存的 Profile ID 解析当前 API Key。端点由供应商适配器固定，API Key 与 Base URL 不写入 Goal 状态。上游可能限制部分免费模型只能在 OpenCode 内调用，外部客户端请求可能收到 403。
 
 [Trigger 准入组件](../src/runtime/trigger-admission.ts) 对显式用户工作使用确定性 Fast path；其他来源由 Supervisor 直接调用模型执行 Slow path，OpenCode Go 请求以稳定 Trigger ID 作为 `sessionId`。手动 Web 创建入口在受理时与 Trigger 同事务写入宿主持久来源，Supervisor 重启后以该记录判断创建来源，缺少记录时保守地重新执行模型准入。准入失败分类随未路由 Trigger 保存，Supervisor 重启时会直接从该事件恢复处理。默认浏览器入口使用该准入路径。
 

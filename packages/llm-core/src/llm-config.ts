@@ -69,7 +69,7 @@ export interface LLMConfig {
  * 共享模型配置错误，在创建 Goal、Store 或发起请求前报告。
  *
  * @remarks
- * 环境解析、TOML/Profile 加载、默认工厂与 pi-ai Adapter 共用本构造器；只有一个类定义，不提供兼容子类。
+ * 环境解析、TOML/Profile 加载与默认工厂共用本构造器；只有一个类定义，不提供兼容子类。
  *
  * @example
  * ```ts

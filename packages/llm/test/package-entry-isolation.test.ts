@@ -60,7 +60,6 @@ const SCENARIOS: Record<string, ScenarioDefinition> = {
             "/node_modules/",
             "/packages/llm-openai/",
             "/packages/llm-google/",
-            "/packages/llm-pi-ai/",
             "/packages/model-catalog/",
             "/packages/llm/src/",
             "/packages/config/src/",
@@ -80,7 +79,6 @@ const SCENARIOS: Record<string, ScenarioDefinition> = {
             "/node_modules/@earendil-works/",
             "/packages/llm-openai/",
             "/packages/llm-google/",
-            "/packages/llm-pi-ai/",
             "/packages/model-catalog/",
             "/packages/llm/src/",
         ],
@@ -91,7 +89,6 @@ const SCENARIOS: Record<string, ScenarioDefinition> = {
         allowedProviderEnvKeys: PROVIDER_ENV_KEYS.google,
         forbiddenModuleMarkers: [
             "/packages/llm-openai/",
-            "/packages/llm-pi-ai/",
             "/packages/model-catalog/",
             "/packages/llm/src/",
             "/node_modules/openai/",
@@ -99,24 +96,12 @@ const SCENARIOS: Record<string, ScenarioDefinition> = {
         ],
         expectedArtifacts: { endpoint: "https://generativelanguage.googleapis.com/v1beta" },
     },
-    "llm-pi-ai": {
-        entryMarker: "/packages/llm-pi-ai/src/index.ts",
-        allowedProviderEnvKeys: [],
-        forbiddenModuleMarkers: [
-            "/packages/llm-openai/",
-            "/packages/llm-google/",
-            "/packages/model-catalog/",
-            "/packages/llm/src/",
-        ],
-        expectedArtifacts: {},
-    },
     "model-catalog": {
         entryMarker: "/packages/model-catalog/src/index.ts",
         allowedProviderEnvKeys: [],
         forbiddenModuleMarkers: [
             "/packages/llm-openai/",
             "/packages/llm-google/",
-            "/packages/llm-pi-ai/",
             "/packages/llm/src/",
         ],
         expectedArtifacts: {},

@@ -961,14 +961,14 @@ test("fails before creating episode when task descriptor requires an unauthorize
 });
 
 
-test("pi-ai provider-reported usage counts toward benchmark totals", async () => {
+test("provider-reported usage counts toward benchmark totals", async () => {
     const { createServer } = await import("node:http");
     const { once } = await import("node:events");
     const { createLlmAdapter } = await import("../../packages/llm/src/index.js");
     const { readLLMConfig } = await import("../../packages/config/src/index.js");
     const trajectoryStore = new InMemoryTrajectoryStore();
     const dependencies = createDependencies({
-        describeTask: () => ({ intent: "Verify pi usage", objective: "Record evidence", completionCriteria: ["Record evidence"], maxSteps: 4 }),
+        describeTask: () => ({ intent: "Verify provider usage", objective: "Record evidence", completionCriteria: ["Record evidence"], maxSteps: 4 }),
         createEpisode: async () => ({ registry: { get: () => undefined }, readOutcome: () => true, close: async () => undefined }),
     }, trajectoryStore);
     let calls = 0;

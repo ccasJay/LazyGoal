@@ -185,27 +185,27 @@ test("rejects outbound dependencies from llm-google to config", async () => {
     ]);
 });
 
-test("rejects outbound dependencies from llm-pi-ai to config and model-catalog", async () => {
+test("rejects outbound dependencies from llm-adapters to config and model-view", async () => {
     const root = await fixtureProject({
-        "packages/llm-pi-ai/src/index.ts": 'export {} from "../../config/src/index";\nexport {} from "../../model-catalog/src/index";\n',
+        "packages/llm-adapters/src/index.ts": 'export {} from "../../config/src/index";\nexport {} from "../../model-view/src/index";\n',
         "packages/config/src/index.ts": "export {};\n",
-        "packages/model-catalog/src/index.ts": "export {};\n",
+        "packages/model-view/src/index.ts": "export {};\n",
     });
 
     assert.deepEqual(await analyzeDependencies(root), [
-        "禁止依赖方向：packages/llm-pi-ai 不得导入 packages/config（packages/llm-pi-ai/src/index.ts 引用 ../../config/src/index）",
-        "禁止依赖方向：packages/llm-pi-ai 不得导入 packages/model-catalog（packages/llm-pi-ai/src/index.ts 引用 ../../model-catalog/src/index）",
+        "禁止依赖方向：packages/llm-adapters 不得导入 packages/config（packages/llm-adapters/src/index.ts 引用 ../../config/src/index）",
+        "禁止依赖方向：packages/llm-adapters 不得导入 packages/model-view（packages/llm-adapters/src/index.ts 引用 ../../model-view/src/index）",
     ]);
 });
 
 test("rejects outbound dependencies from model-catalog to generation adapters", async () => {
     const root = await fixtureProject({
-        "packages/model-catalog/src/index.ts": 'export {} from "../../llm-pi-ai/src/index";\n',
-        "packages/llm-pi-ai/src/index.ts": "export {};\n",
+        "packages/model-catalog/src/index.ts": 'export {} from "../../llm-google/src/index";\n',
+        "packages/llm-google/src/index.ts": "export {};\n",
     });
 
     assert.deepEqual(await analyzeDependencies(root), [
-        "禁止依赖方向：packages/model-catalog 不得导入 packages/llm-pi-ai（packages/model-catalog/src/index.ts 引用 ../../llm-pi-ai/src/index）",
+        "禁止依赖方向：packages/model-catalog 不得导入 packages/llm-google（packages/model-catalog/src/index.ts 引用 ../../llm-google/src/index）",
     ]);
 });
 
@@ -1003,8 +1003,7 @@ const PACKAGE_DIRECTION_CASES = [
     ["llm-core", "config"],
     ["llm-adapters", "config"],
     ["llm-google", "config"],
-    ["llm-pi-ai", "config"],
-    ["model-catalog", "llm-pi-ai"],
+    ["model-catalog", "llm-google"],
     ["config", "runtime"],
     ["runtime", "agent"],
     ["llm", "runtime"],

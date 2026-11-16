@@ -49,9 +49,10 @@ packages/        Private `@lazygoal/*` workspaces
   browser/       Local browser session access control and static page routes
   llm-core/       Provider-agnostic LLM call contracts, SSE framing, JSON text repair, shared model configuration, normalized usage, and failure classification
   wire-chat-completions/ Chat Completions request shape, SSE event mapping, and protocol error classification
+  wire-anthropic-messages/ Anthropic Messages request shape, thinking-signature replay, SSE mapping, and protocol errors
+  wire-google-generate-content/ Google GenerateContent schema projection, sentinels, SSE mapping, and protocol errors
   llm-adapters/   Provider facts: endpoints, authentication, catalog sources, protocol declarations, and request-driven adapters
-  llm-google/     Native Gemini generation, strict schema projection, and native parts replay
-  llm-pi-ai/      pi-ai multi-provider prompt_only adapter and incremental stream mapping
+  llm-google/     Thin native Gemini adapter delegating to wire-google-generate-content
   model-catalog/  Injected catalog merge, sorting, selectability, and degradation
   llm/           Default LLM adapter assembly: three factories and Think/Decide stage pairs
   runtime/       Goal domain, persistence ports, scheduling, execution loop, and shutdown control

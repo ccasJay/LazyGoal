@@ -11,7 +11,7 @@ import type { ExecutionControl } from "../../execution-control/src/index";
  *
  * @remarks
  * 可选的 `nativeConversationIdentity` 表示 Adapter 支持同身份原生历史回放；缺省时只使用现有语义历史。
- * 实现必须保持对话消息顺序和角色语义；pi-ai 仅接受前置 system 消息并合并为 systemPrompt。
+ * 实现必须保持对话消息顺序和角色语义；需要前置 system 消息的线格式在 wire 层合并。
  * 正文、公开 reasoning 摘要与工具调用分别返回，不把思考块拼进正文，也不在此解析 AgentDecision。
  * required 工具调用策略须映射到对应供应商参数；调用数量和参数有效性由 Agent 校验，与原生历史回放能力无关。
  * 仅将结构化识别的限流、临时服务、连接和超时故障
@@ -36,7 +36,7 @@ export interface LLMAdapter {
      * @param control - 当前 Goal 推进调用共享的中止控制；适配器应将信号传给
      *   供应商请求，并在响应返回后再次检查。
      * @returns 模型生成的有序完整内容块及可选供应商诊断 metadata。
-     * @throws 供应商调用、网络或鉴权失败时传播对应异常（包括 pi-ai 返回状态的适配异常）；中止时抛出
+     * @throws 供应商调用、网络或鉴权失败时传播对应异常（包括线格式报告的供应方失败状态）；中止时抛出
      *   `TransientModelRequestFailure`（仅限已分类的暂时故障）或 `ExecutionAbortedError`。
      */
     generate(
