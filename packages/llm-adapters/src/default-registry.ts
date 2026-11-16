@@ -1,3 +1,4 @@
+import { createAnthropicProviderAdapter } from "./anthropic";
 import { createDeepSeekProviderAdapter } from "./deepseek";
 import { createOpenAICompatibleProviderAdapter } from "./openai-compatible";
 import { createOpenAIProviderAdapter } from "./openai";
@@ -22,6 +23,7 @@ import { createProviderRegistry, type ProviderRegistry } from "./registry";
 export function createDefaultProviderRegistry(): ProviderRegistry {
     return createProviderRegistry([
         createOpenAIProviderAdapter(),
+        createAnthropicProviderAdapter(),
         createDeepSeekProviderAdapter(),
         createOpenRouterProviderAdapter(),
         createOpenCodeGoProviderAdapter(),

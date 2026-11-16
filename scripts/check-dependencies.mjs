@@ -32,6 +32,7 @@ import { parse } from "@babel/parser";
  * config 是应用配置与 Home 路径包，单向依赖 llm-core 的共享模型契约；
  * llm-core 承载供应商无关调用契约与共享模型配置，仅依赖 contracts、model-contracts 与 execution-control；
  * wire-chat-completions 承载 Chat Completions 请求、SSE 事件映射与协议错误，只依赖 llm-core 与 execution-control；
+ * wire-anthropic-messages 承载 Anthropic Messages 请求、thinking 签名续接、SSE 事件映射与协议错误，只依赖 llm-core 与 execution-control；
  * llm-google 承载 Gemini 原生适配与 strict Schema 投影，只依赖 llm-core、contracts、model-contracts、execution-control 与 @google/genai SDK；
  * llm-pi-ai 承载 pi-ai 多供应商 prompt_only 适配与增量流转换，只依赖 llm-core、execution-control 与锁定版本 pi-ai SDK；
  * model-catalog 只承载注入式目录合并、排序、可选性与降级判定，依赖 llm-core；
@@ -75,10 +76,11 @@ const ALLOWED_PACKAGE_DEPENDENCIES = {
     "working-memory": ["contracts", "model-contracts"],
     "llm-core": ["contracts", "model-contracts", "execution-control"],
     "wire-chat-completions": ["llm-core", "execution-control"],
+    "wire-anthropic-messages": ["llm-core", "execution-control"],
     "llm-google": ["llm-core", "contracts", "model-contracts", "execution-control"],
     "llm-pi-ai": ["llm-core", "execution-control"],
     "model-catalog": ["llm-core"],
-    "llm-adapters": ["llm-core", "model-catalog", "wire-chat-completions", "execution-control"],
+    "llm-adapters": ["llm-core", "model-catalog", "wire-chat-completions", "wire-anthropic-messages", "execution-control"],
     config: ["llm-core"],
     runtime: ["contracts", "model-contracts", "execution-stream", "sandbox", "permission", "context-retrieval", "execution-control", "tool-core", "working-memory"],
     llm: ["llm-core", "llm-adapters", "llm-google", "llm-pi-ai"],
@@ -126,7 +128,7 @@ const BENCHMARKS = ["alfworld", "swebench", "gaia", "tua-bench", "context"];
 const VENDOR_SDK_MODULES = ["openai", "@google/genai", "@earendil-works/pi-ai"];
 
 /** 跨包消费必须经 `src/index.ts` 的能力包。 */
-const CAPABILITY_PACKAGES = ["llm-core", "wire-chat-completions", "llm-google", "llm-pi-ai", "model-catalog", "llm-adapters"];
+const CAPABILITY_PACKAGES = ["llm-core", "wire-chat-completions", "wire-anthropic-messages", "llm-google", "llm-pi-ai", "model-catalog", "llm-adapters"];
 
 /** 禁止存在的旧 LLM 实现路径；源码不得引用。 */
 const REMOVED_LLM_PATHS = [

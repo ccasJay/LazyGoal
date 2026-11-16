@@ -10,6 +10,15 @@ export type { ProviderModelConnection } from "./catalog-fetchers";
 export { ChatCompletionsAdapter } from "./chat-completions-adapter";
 
 export {
+    ANTHROPIC_VERSION,
+    DEFAULT_ANTHROPIC_BASE_URL,
+    AnthropicMessagesAdapter,
+    createAnthropicAdapter,
+    createAnthropicCatalogSource,
+    createAnthropicProviderAdapter,
+} from "./anthropic";
+
+export {
     DEFAULT_OPENAI_BASE_URL,
     createOpenAICatalogSource,
     createOpenAIAdapter,
