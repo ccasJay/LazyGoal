@@ -412,7 +412,7 @@ test("宿主生成的确定性流式 Adapter 可注入同一装配并保持单�
     const executed: string[] = [];
     let calls = 0;
     const adapter = {
-        provider: "openai" as const as const,
+        provider: "openai" as const,
         modelId: "host-stream-model",
         async generate() { throw new Error("host adapter streams only"); },
         async *stream() {

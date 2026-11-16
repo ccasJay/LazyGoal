@@ -14,7 +14,7 @@ import { admitTrigger, resumeUnroutedWorkTrigger } from "../src/runtime/trigger-
 import { receiveAuthorizedTrigger } from "../../../packages/storage/src/trigger-ingress";
 import { cancelTrigger, workTrigger } from "../../../packages/runtime/test/trigger-fixtures";
 
-function mockAdapter(handler: LLMAdapter["generate"] | "prompt_only" = "prompt_only"): LLMAdapter {
+function mockAdapter(handler: LLMAdapter["generate"]): LLMAdapter {
     return { generate: handler };
 }
 function factory(intent: string, reserved: string | undefined, workspaceMode: "shared" | "worktree" = "shared") {
@@ -46,7 +46,7 @@ test("explicit user work is accepted and control Trigger admission does not crea
         });
 
         const isolated = workTrigger("work-worktree", "change");
-        const worktreeAdapter = mockAdapter(async () => ({ blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({ kind: "accept", workspaceMode: "worktree" }) }] }), "strict");
+        const worktreeAdapter = mockAdapter(async () => ({ blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify({ kind: "accept", workspaceMode: "worktree" }) }] }));
         assert.deepEqual(await admitTrigger(owner, triggers, goals, worktreeAdapter, isolated, external, factory), { kind: "accepted", goalId: "goal-change" });
         assert.deepEqual((await goals.restore("goal-change"))?.definition.triggerContext?.authorization.workspace, {
             mode: "worktree", projectRoot: "/workspace", executionRoot: "/workspace/.worktrees/goal",
@@ -76,7 +76,7 @@ test("the Supervisor model can ignore or accept separate work Triggers in comple
             if (body.includes("slow")) await wait;
             const decision = body.includes("ignore") ? { kind: "ignore", workspaceMode: null } : { kind: "accept", workspaceMode: "shared" };
             return { blocks: [{ index: 0, type: "text", format: "json", text: JSON.stringify(decision) }] };
-        }, "strict");
+        });
         const trigger = (id: string) => workTrigger(`work-${id}`, id);
         const slowTrigger = trigger("slow");
         const slow = admitTrigger(owner, triggers, goals, adapter, slowTrigger, external, factory);

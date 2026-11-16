@@ -381,7 +381,7 @@ test("新进程从 Snapshot 恢复动态模型 API 与容量，并使用当前 P
             env: firstEnv,
             profile: agentProfile,
             adapter: new CompleteAdapter("kimi-k3"),
-            adapterFactory: (selection, stage) => new CompleteAdapter(selection.modelId, stage === "think" ? "prompt_only" : "strict"),
+            adapterFactory: (selection) => new CompleteAdapter(selection.modelId),
         });
         const savedSelection: GoalModelSelection = {
             ...firstRoot.defaultModelSelection,
@@ -457,8 +457,8 @@ test("活动 Goal 在安全等待点切换模型：保存成功后发布新 Bind
             dataDirectory,
             adapter: initialAdapter,
             modelCatalog: new FakeCatalog(catalogModels),
-            adapterFactory: (sel, stage) => {
-                const adp = new FakeAdapter(sel.modelId, stage === "think" ? "prompt_only" : "strict");
+            adapterFactory: (sel) => {
+                const adp = new FakeAdapter(sel.modelId);
                 adapterInstances.push(adp);
                 return adp;
             },
@@ -662,8 +662,8 @@ test("浏览器 Launcher 在首次调用前对齐模型，并在初始保存前�
             cwd: workspace,
             dataDirectory,
             adapter: new FakeAdapter("model-default"),
-            adapterFactory: (selection, stage) => {
-                const adapter = new FakeAdapter(selection.modelId, stage === "think" ? "prompt_only" : "strict");
+            adapterFactory: (selection) => {
+                const adapter = new FakeAdapter(selection.modelId);
                 adapters.push(adapter);
                 return adapter;
             },
@@ -707,8 +707,8 @@ test("浏览器推进交替恢复各 Goal 的模型绑定，不串用上一个 G
             cwd: workspace,
             dataDirectory: join(workspace, "lazygoal-data"),
             adapter: new CompleteAdapter("model-default"),
-            adapterFactory: (selection, stage) => {
-                const adapter = new CompleteAdapter(selection.modelId, stage === "think" ? "prompt_only" : "strict");
+            adapterFactory: (selection) => {
+                const adapter = new CompleteAdapter(selection.modelId);
                 adapters.push(adapter);
                 return adapter;
             },
@@ -816,8 +816,8 @@ test("服务重启后首次 Web 推进从 Snapshot 恢复模型而不回退默�
             cwd: workspace,
             dataDirectory,
             adapter: new CompleteAdapter("model-default"),
-            adapterFactory: (selection, stage) => {
-                const adapter = new CompleteAdapter(selection.modelId, stage === "think" ? "prompt_only" : "strict");
+            adapterFactory: (selection) => {
+                const adapter = new CompleteAdapter(selection.modelId);
                 firstAdapters.push(adapter);
                 return adapter;
             },
@@ -839,8 +839,8 @@ test("服务重启后首次 Web 推进从 Snapshot 恢复模型而不回退默�
             cwd: workspace,
             dataDirectory,
             adapter: new CompleteAdapter("model-default"),
-            adapterFactory: (selection, stage) => {
-                const adapter = new CompleteAdapter(selection.modelId, stage === "think" ? "prompt_only" : "strict");
+            adapterFactory: (selection) => {
+                const adapter = new CompleteAdapter(selection.modelId);
                 restoredAdapters.push(adapter);
                 return adapter;
             },
