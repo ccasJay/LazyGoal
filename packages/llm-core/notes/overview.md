@@ -8,6 +8,11 @@
 - [LLMRequest / LLMResponse / LLMStreamEvent](../src/types.ts) 以 `ModelConversationMessage` 表示请求历史，以共享 `ModelContentBlock` 表示响应正文、公开 reasoning 与工具调用；响应仍由有序 `blocks` 作为唯一权威并承载协议续接字段。
 - [content-blocks](../src/content-blocks.ts) 提供无 I/O 的纯读投影：按块顺序派生既有正文（不隐式 trim 或插入换行）、受限 reasoning 与工具调用列表，供阶段解码与原生历史使用；投影不是第二份可变状态，文本格式（`plain`／`json`）只来自请求的结构化输出契约。
 - [content-block-stream](../src/content-block-stream.ts) 定义流式块协议：响应开始、块开始（含 `incremental`／`whole` 交付方式）、类型化块增量、块完整结束与唯一成功完成；追踪器只做无 I/O 序列核验与最终结果比对，未知索引、重复边界、类型冲突、结束后追加、未封口块与最终失配都是协议错误。
+- [ids](../src/ids.ts) 定义开放的 `ProviderId` 与 `ProtocolId`；本包不维护供应商或协议闭合清单。
+- [model-descriptor](../src/model-descriptor.ts) 定义目录与组合根共享的 `LlmModelDescriptor`：模型身份、协议、容量、能力与来源。
+- [sse](../src/sse.ts) 提供增量 Server-Sent Events 分帧：任意字符边界、CRLF、多行 `data`、注释与 EOF 派发。
+- [json-text](../src/json-text.ts) 提供文本转 JSON 的严格提取与无语义修复；无原生结构约束的线格式用它归一化正文。
+- [http-error](../src/http-error.ts) 提供不携带响应正文的 HTTP 失败形状与 `Retry-After` 解析，供通用分类器识别。
 - [LLMConfig / LLMConfigurationError](../src/llm-config.ts) 提供无 I/O 的共享连接配置与唯一配置错误构造器。动态 OpenCode Go 配置可携带服务端目录解析的 `executionApi`、容量、推理、视觉和工具选择能力，不携带执行端点；环境、TOML/Profile 的读取、合并与校验仍在 [Config](../../config/notes/overview.md)，不会从客户端接收这些执行字段。解析、默认工厂与 pi-ai 引用同一错误类。
 - [NormalizedUsage / toSafeTokenCount / readNormalizedUsage](../src/usage.ts) 定义归一化 token 用量形态与数字守卫；供应商原始字段提取归各供应商适配包，缺失或非法计数整体缺省，不以 0 或估算值代替。
 - [classifyTransientModelFailure](../src/model-request-failure.ts) 只做结构化识别（限流、暂时性 5xx、连接与超时），结果身份来自 [execution-control](../../execution-control/notes/overview.md)；鉴权、配额、协议与未知错误原样返回。

@@ -15,3 +15,8 @@
 | NormalizedUsage / readNormalizedUsage | 归一化用量形态与安全读取；缺失不补零。 | [LLM 核心契约](../README.md) | [用量契约](../src/usage.ts) |
 | 暂时故障分类 | 把结构化识别的限流、5xx、连接与超时映射为 execution-control 身份。 | [LLM 核心契约](../README.md) | [故障分类](../src/model-request-failure.ts) |
 | 窗口拒绝分类 | 把供应商明确以超窗拒绝的请求映射为 `ContextWindowRejectedError`；不匹配的 4xx 不归入。 | [LLM 核心契约](../README.md) | [故障分类](../src/model-request-failure.ts) |
+| ProviderId / ProtocolId | 供应商与线格式协议的开放字符串标识；闭合清单归组合根注册表。 | [LLM 核心契约](../README.md) | [标识](../src/ids.ts) |
+| LlmModelDescriptor | 供应商模型的可选择描述：模型标识、协议、容量、能力与来源。 | [LLM 核心契约](../README.md) | [模型描述](../src/model-descriptor.ts) |
+| SSE 分帧 | 字节或文本流到 `ServerSentEvent` 的增量切分；支持任意分片边界。 | [LLM 核心契约](../README.md) | [SSE](../src/sse.ts) |
+| 文本转 JSON | 严格提取裸 JSON 或完整代码块，并修复无语义歧义的末尾逗号与不可见字符。 | [LLM 核心契约](../README.md) | [JSON 文本](../src/json-text.ts) |
+| 传输错误 | 非 2xx 响应的状态码、供应商错误代码与重试提示；通用分类器据此收窄。 | [LLM 核心契约](../README.md) | [传输错误](../src/http-error.ts) |

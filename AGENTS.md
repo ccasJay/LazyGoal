@@ -47,11 +47,13 @@ packages/        Private `@lazygoal/*` workspaces
   execution-stream/ Process-local Goal/Run events and bounded subscriptions
   http/          Reusable loopback HTTP service lifecycle and route mounting
   browser/       Local browser session access control and static page routes
-  llm-core/       Provider-agnostic LLM call contracts, shared model configuration, normalized usage, and transient failure classification
-  llm-openai/     Native OpenAI/OpenAI-compatible Chat Completions adapter
+  llm-core/       Provider-agnostic LLM call contracts, SSE framing, JSON text repair, shared model configuration, normalized usage, and failure classification
+  wire-chat-completions/ Chat Completions request shape, SSE event mapping, and protocol error classification
+  llm-adapters/   Provider facts: endpoints, authentication, catalog sources, protocol declarations, and request-driven adapters
+  llm-openai/     Thin OpenAI/OpenAI-compatible entry over the Chat Completions wire
   llm-google/     Native Gemini generation, strict schema projection, and native parts replay
   llm-pi-ai/      pi-ai multi-provider prompt_only adapter and incremental stream mapping
-  model-catalog/  Model discovery, capability completion, sorting, and selectability
+  model-catalog/  Injected catalog merge, sorting, selectability, and degradation
   llm/           Default LLM adapter assembly: three factories and Think/Decide stage pairs
   runtime/       Goal domain, persistence ports, scheduling, execution loop, and shutdown control
   session-metrics/ Session and Run metric projections, persistence reads, and HTTP routes

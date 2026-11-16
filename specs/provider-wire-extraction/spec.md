@@ -103,7 +103,7 @@ packages/
 - [x] //TODO 7. 把自定义 compatible 收敛为由配置生成的 `CatalogSource`，与内置供应商同构 → R3.1；检查：配置校验与同构断言
 - [ ] //TODO 8. 收敛 `llm` 选择表与 `llm-core` 文本转 JSON 兜底 → R4.1；检查：选择表测试
 - [ ] //TODO 9. 建立开发 Profile：全部工具、自定义 openai-compatible 与 Mistral 取值，供真实端点验证 → R1.4、R3.1；检查：真实端点跑通一次 Goal
-- [ ] //TODO 10. 同步五个包的概览、语义表与根 README 布局 → R2.1；检查：`npm run check:docs`
+- [x] //TODO 10. 同步五个包的概览、语义表与根 README 布局 → R2.1；检查：`npm run check:docs`
 
 ## 执行记录
 
